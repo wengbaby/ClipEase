@@ -7,6 +7,7 @@ final class AppMenuController: NSObject {
     private let pasteExecutor: PasteExecutor
     private var richTextEditorController: RichTextEditorController?
     private var settingsWindowController: SettingsWindowController?
+    private var helpWindowController: HelpWindowController?
 
     init(
         historyStore: ClipboardHistoryStore,
@@ -32,7 +33,9 @@ final class AppMenuController: NSObject {
     }
 
     func showHelp() {
-        openProjectURL(path: "blob/main/docs/PROJECT_GUIDE.md")
+        let helpWindowController = helpWindowController ?? HelpWindowController()
+        self.helpWindowController = helpWindowController
+        helpWindowController.show()
     }
 
     func showSettings() {
@@ -107,14 +110,6 @@ final class AppMenuController: NSObject {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
         return item
-    }
-
-    private func openProjectURL(path: String) {
-        guard let url = URL(string: "https://github.com/wengbaby/ClipEase/\(path)") else {
-            return
-        }
-
-        NSWorkspace.shared.open(url)
     }
 
     @objc private func newTextAction() {
