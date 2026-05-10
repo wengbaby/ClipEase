@@ -18,6 +18,7 @@ struct HistoryWindowView: View {
     @State private var canAutoPaste = false
     @State private var isClearConfirmationPresented = false
     @State private var cardFrames: [ClipboardItem.ID: CGRect] = [:]
+    @FocusState private var isSearchFocused: Bool
 
     private var items: [HistoryPreviewItem] {
         store.items.map(HistoryPreviewItem.init)
@@ -67,6 +68,14 @@ struct HistoryWindowView: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.space, modifiers: [])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
+            Button(action: openSearch) {
+                EmptyView()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("f", modifiers: [.command])
             .frame(width: 0, height: 0)
             .opacity(0)
 
@@ -367,6 +376,10 @@ struct HistoryWindowView: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .opacity(isSearchVisible ? 1 : 0)
             .allowsHitTesting(isSearchVisible)
+            .focused($isSearchFocused)
+            .onSubmit {
+                pasteItem(selectedItemID)
+            }
     }
 
     private var moreMenu: some View {
@@ -645,8 +658,16 @@ struct HistoryWindowView: View {
         if isSearchVisible {
             searchText = ""
             isSearchVisible = false
+            isSearchFocused = false
         } else {
-            isSearchVisible = true
+            openSearch()
+        }
+    }
+
+    private func openSearch() {
+        isSearchVisible = true
+        Task { @MainActor in
+            isSearchFocused = true
         }
     }
 

@@ -31,9 +31,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appMenuController: appMenuController
         )
         self.historyWindowController = historyWindowController
+        pasteExecutor.beforeAutoPaste = { [weak historyWindowController] in
+            historyWindowController?.close()
+        }
         self.statusBarController = StatusBarController(
             historyWindowController: historyWindowController,
-            appMenuController: appMenuController
+            appMenuController: appMenuController,
+            recordingController: recordingController
         )
         let globalHotKeyController = GlobalHotKeyController(
             historyWindowController: historyWindowController,

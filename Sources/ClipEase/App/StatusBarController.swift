@@ -1,20 +1,32 @@
 import AppKit
+import Combine
 
 @MainActor
 final class StatusBarController: NSObject {
     private let statusItem: NSStatusItem
     private let historyWindowController: HistoryWindowController
     private let appMenuController: AppMenuController
+    private let recordingController: RecordingController
+    private var recordingCancellable: AnyCancellable?
 
     init(
         historyWindowController: HistoryWindowController,
-        appMenuController: AppMenuController
+        appMenuController: AppMenuController,
+        recordingController: RecordingController
     ) {
         self.historyWindowController = historyWindowController
         self.appMenuController = appMenuController
+        self.recordingController = recordingController
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         configureStatusItem()
+        updateStatusItem()
+        recordingCancellable = recordingController.$isPaused
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.updateStatusItem()
+                }
+            }
     }
 
     private func configureStatusItem() {
@@ -22,15 +34,23 @@ final class StatusBarController: NSObject {
             return
         }
 
-        button.image = NSImage(
-            systemSymbolName: "doc.on.clipboard",
-            accessibilityDescription: "轻贴"
-        )
-        button.image?.isTemplate = true
-        button.toolTip = "轻贴 ClipEase"
         button.target = self
         button.action = #selector(toggleHistoryWindow)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+
+    private func updateStatusItem() {
+        guard let button = statusItem.button else {
+            return
+        }
+
+        let symbolName = recordingController.isPaused ? "pause.circle.fill" : "doc.on.clipboard"
+        button.image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: "轻贴"
+        )
+        button.image?.isTemplate = true
+        button.toolTip = recordingController.isPaused ? "轻贴已暂停记录" : "轻贴 ClipEase"
     }
 
     @objc private func toggleHistoryWindow() {

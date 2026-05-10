@@ -5,6 +5,7 @@ import ApplicationServices
 final class PasteExecutor {
     private let pasteboard: NSPasteboard
     private let store: ClipboardHistoryStore
+    var beforeAutoPaste: (() -> Void)?
 
     init(
         store: ClipboardHistoryStore,
@@ -54,7 +55,11 @@ final class PasteExecutor {
             return .copiedOnly
         }
 
-        sendCommandV()
+        beforeAutoPaste?()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            sendCommandV()
+        }
         return .pasted
     }
 
