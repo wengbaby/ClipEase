@@ -95,6 +95,14 @@ struct HistoryWindowView: View {
             .frame(width: 0, height: 0)
             .opacity(0)
 
+            Button(action: { togglePinned(selectedItemID) }) {
+                EmptyView()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("p", modifiers: [.command])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
             VStack(alignment: .leading, spacing: 14) {
                 toolbar
 
@@ -311,6 +319,8 @@ struct HistoryWindowView: View {
 
                 filterMenu
 
+                pinnedFilterButton
+
                 if isSearchVisible || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || filter != .all {
                     resultCountBadge
                 }
@@ -362,6 +372,19 @@ struct HistoryWindowView: View {
             .background(Color.white.opacity(0.45))
             .clipShape(Capsule())
             .help("当前筛选结果数量 / 全部数量")
+    }
+
+    private var pinnedFilterButton: some View {
+        Button(action: togglePinnedFilter) {
+            Image(systemName: filter == .pinned ? "pin.fill" : "pin")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 26, height: 26)
+                .background(Color.white.opacity(filter == .pinned ? 0.72 : 0.45))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(filter == .pinned ? Color(red: 0.18, green: 0.55, blue: 1.0) : .secondary)
+        .help(filter == .pinned ? "显示全部" : "只看置顶")
     }
 
     private var autoPasteStatusButton: some View {
@@ -437,19 +460,31 @@ struct HistoryWindowView: View {
     }
 
     private var searchField: some View {
-        TextField("搜索", text: $searchText)
-            .textFieldStyle(.plain)
-            .font(.system(size: 13, weight: .medium))
-            .padding(.horizontal, 10)
-            .frame(width: 220, height: 30)
-            .background(Color.white.opacity(isSearchVisible ? 0.72 : 0))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        HStack(spacing: 6) {
+            TextField("搜索", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13, weight: .medium))
+                .focused($isSearchFocused)
+                .onSubmit {
+                    pasteItem(selectedItemID)
+                }
+
+            if !searchText.isEmpty {
+                Button(action: clearSearch) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("清空搜索")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 220, height: 30)
+        .background(Color.white.opacity(isSearchVisible ? 0.72 : 0))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .opacity(isSearchVisible ? 1 : 0)
             .allowsHitTesting(isSearchVisible)
-            .focused($isSearchFocused)
-            .onSubmit {
-                pasteItem(selectedItemID)
-            }
     }
 
     private var moreMenu: some View {
@@ -726,7 +761,9 @@ struct HistoryWindowView: View {
     }
 
     private func deleteItem(_ id: ClipboardItem.ID?) {
+        let nextID = nextSelectionID(afterDeleting: id)
         store.deleteItem(with: id)
+        selectedItemID = nextID
         if previewState.itemID == id {
             closePreview()
         }
@@ -824,12 +861,21 @@ struct HistoryWindowView: View {
 
     private func toggleSearch() {
         if isSearchVisible {
-            searchText = ""
-            isSearchVisible = false
-            isSearchFocused = false
+            clearSearch()
         } else {
             openSearch()
         }
+    }
+
+    private func clearSearch() {
+        searchText = ""
+        isSearchVisible = false
+        isSearchFocused = false
+    }
+
+    private func togglePinnedFilter() {
+        filter = filter == .pinned ? .all : .pinned
+        showStatus(filter == .pinned ? "只看置顶" : "显示全部")
     }
 
     private func openSearch() {
@@ -846,6 +892,20 @@ struct HistoryWindowView: View {
         }
 
         selectedItemID = filteredItems.first?.id
+    }
+
+    private func nextSelectionID(afterDeleting id: ClipboardItem.ID?) -> ClipboardItem.ID? {
+        guard let id,
+              let index = filteredItems.firstIndex(where: { $0.id == id }) else {
+            return filteredItems.first?.id
+        }
+
+        let remainingItems = filteredItems.filter { $0.id != id }
+        guard !remainingItems.isEmpty else {
+            return nil
+        }
+
+        return remainingItems[min(index, remainingItems.count - 1)].id
     }
 
     private func openAccessibilitySettingsIfNeeded() {
