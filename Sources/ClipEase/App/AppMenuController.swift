@@ -5,6 +5,7 @@ final class AppMenuController: NSObject {
     private let historyStore: ClipboardHistoryStore
     private let recordingController: RecordingController
     private let loginItemController: LoginItemController
+    private let ignoredAppSettings: IgnoredAppSettings
     private let pasteExecutor: PasteExecutor
     private var richTextEditorController: RichTextEditorController?
     private var settingsWindowController: SettingsWindowController?
@@ -14,11 +15,13 @@ final class AppMenuController: NSObject {
         historyStore: ClipboardHistoryStore,
         recordingController: RecordingController,
         loginItemController: LoginItemController,
+        ignoredAppSettings: IgnoredAppSettings,
         pasteExecutor: PasteExecutor
     ) {
         self.historyStore = historyStore
         self.recordingController = recordingController
         self.loginItemController = loginItemController
+        self.ignoredAppSettings = ignoredAppSettings
         self.pasteExecutor = pasteExecutor
         super.init()
     }
@@ -46,6 +49,7 @@ final class AppMenuController: NSObject {
             store: historyStore,
             recordingController: recordingController,
             loginItemController: loginItemController,
+            ignoredAppSettings: ignoredAppSettings,
             pasteExecutor: pasteExecutor
         )
         self.settingsWindowController = settingsWindowController
@@ -66,6 +70,13 @@ final class AppMenuController: NSObject {
 
     func pauseUntilEndOfToday() {
         recordingController.pauseUntilEndOfToday()
+    }
+
+    func ignoreSourceApp(for item: ClipboardItem) {
+        ignoredAppSettings.add(
+            bundleID: item.sourceBundleID,
+            name: item.sourceAppName
+        )
     }
 
     func showAbout() {

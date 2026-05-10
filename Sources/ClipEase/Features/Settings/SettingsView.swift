@@ -4,6 +4,7 @@ struct SettingsView: View {
     @ObservedObject var store: ClipboardHistoryStore
     @ObservedObject var recordingController: RecordingController
     @ObservedObject var loginItemController: LoginItemController
+    @ObservedObject var ignoredAppSettings: IgnoredAppSettings
     let pasteExecutor: PasteExecutor
 
     @State private var canAutoPaste = false
@@ -22,13 +23,14 @@ struct SettingsView: View {
                     shortcutSection
                     launchAtLoginSection
                     recordingSection
+                    ignoredAppsSection
                     permissionsSection
                     historySection
                 }
                 .padding(18)
             }
         }
-        .frame(minWidth: 520, minHeight: 430)
+        .frame(minWidth: 560, minHeight: 520)
         .background(Color(red: 0.94, green: 0.95, blue: 0.97))
         .onAppear {
             canAutoPaste = pasteExecutor.canAutoPaste
@@ -157,6 +159,48 @@ struct SettingsView: View {
         }
     }
 
+    private var ignoredAppsSection: some View {
+        settingsSection(title: "忽略 App", subtitle: ignoredAppsSubtitle) {
+            if ignoredAppSettings.apps.isEmpty {
+                Text("暂未忽略任何 App。可在历史卡片右键菜单中添加。")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(ignoredAppSettings.apps) { app in
+                        HStack(spacing: 10) {
+                            Image(systemName: "app.dashed")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(app.name)
+                                    .font(.system(size: 13, weight: .semibold))
+
+                                Text(app.bundleID)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+
+                            Spacer()
+
+                            Button("移除") {
+                                ignoredAppSettings.remove(bundleID: app.bundleID)
+                                showStatus("已移除忽略 App")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                        .padding(10)
+                        .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
     private var historySection: some View {
         settingsSection(title: "历史数据", subtitle: "当前共有 \(store.items.count) 条记录") {
             HStack {
@@ -177,6 +221,14 @@ struct SettingsView: View {
         }
 
         return "正在记录新的剪贴板内容"
+    }
+
+    private var ignoredAppsSubtitle: String {
+        if ignoredAppSettings.apps.isEmpty {
+            return "被忽略 App 中复制的内容不会进入历史"
+        }
+
+        return "已忽略 \(ignoredAppSettings.apps.count) 个 App"
     }
 
     private func settingsSection<Content: View>(

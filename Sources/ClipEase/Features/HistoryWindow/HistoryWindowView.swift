@@ -100,6 +100,12 @@ struct HistoryWindowView: View {
                                         immediateSelectionGesture(for: item),
                                         including: .all
                                     )
+                                    .simultaneousGesture(
+                                        TapGesture(count: 2)
+                                            .onEnded {
+                                                pasteItem(item.id)
+                                            }
+                                    )
                                     .contextMenu {
                                         Button("粘贴") {
                                             pasteItem(item.id)
@@ -119,6 +125,15 @@ struct HistoryWindowView: View {
 
                                         Button("删除", role: .destructive) {
                                             deleteItem(item.id)
+                                        }
+
+                                        if let sourceItem = store.item(with: item.id),
+                                           sourceItem.sourceBundleID != nil {
+                                            Divider()
+
+                                            Button("忽略 \(sourceItem.sourceAppName)") {
+                                                ignoreSourceApp(item.id)
+                                            }
                                         }
                                     }
                                 }
@@ -585,6 +600,17 @@ struct HistoryWindowView: View {
 
         store.togglePinned(for: id)
         showStatus(item.isPinned ? "已取消置顶" : "已置顶")
+    }
+
+    private func ignoreSourceApp(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              item.sourceBundleID != nil else {
+            showStatus("无法识别来源 App")
+            return
+        }
+
+        appMenuController.ignoreSourceApp(for: item)
+        showStatus("已忽略 \(item.sourceAppName)")
     }
 
     private func immediateSelectionGesture(for item: HistoryPreviewItem) -> some Gesture {

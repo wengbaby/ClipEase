@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let historyStore = ClipboardHistoryStore()
     private let recordingController = RecordingController()
     private let loginItemController = LoginItemController()
+    private let ignoredAppSettings = IgnoredAppSettings()
     private lazy var pasteExecutor = PasteExecutor(store: historyStore)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -17,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             historyStore: historyStore,
             recordingController: recordingController,
             loginItemController: loginItemController,
+            ignoredAppSettings: ignoredAppSettings,
             pasteExecutor: pasteExecutor
         )
         self.appMenuController = appMenuController
@@ -38,7 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         globalHotKeyController.start()
         let clipboardMonitor = ClipboardMonitor(
             store: historyStore,
-            recordingController: recordingController
+            recordingController: recordingController,
+            ignoredAppSettings: ignoredAppSettings
         )
         self.clipboardMonitor = clipboardMonitor
         clipboardMonitor.start()

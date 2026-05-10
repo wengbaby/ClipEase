@@ -186,6 +186,7 @@ ClipEase/
 
 - 简单偏好使用 `UserDefaults`。
 - 忽略 App 列表可使用 JSON 或 SQLite 表。
+- 当前实现将忽略 App 列表存入 `UserDefaults`，键名为 `ignoredApps`，每项包含 `bundleID` 和 `name`。
 
 ## 5. 数据模型
 
