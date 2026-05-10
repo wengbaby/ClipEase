@@ -4,9 +4,14 @@ import AppKit
 final class StatusBarController: NSObject {
     private let statusItem: NSStatusItem
     private let historyWindowController: HistoryWindowController
+    private let appMenuController: AppMenuController
 
-    init(historyWindowController: HistoryWindowController) {
+    init(
+        historyWindowController: HistoryWindowController,
+        appMenuController: AppMenuController
+    ) {
         self.historyWindowController = historyWindowController
+        self.appMenuController = appMenuController
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         configureStatusItem()
@@ -29,6 +34,15 @@ final class StatusBarController: NSObject {
     }
 
     @objc private func toggleHistoryWindow() {
-        historyWindowController.toggle()
+        guard let event = NSApp.currentEvent,
+              event.type == .rightMouseUp,
+              let button = statusItem.button else {
+            historyWindowController.toggle()
+            return
+        }
+
+        statusItem.menu = appMenuController.makeStatusBarMenu()
+        button.performClick(nil)
+        statusItem.menu = nil
     }
 }

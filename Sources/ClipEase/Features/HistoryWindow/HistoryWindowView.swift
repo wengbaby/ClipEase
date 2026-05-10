@@ -3,6 +3,7 @@ import SwiftUI
 struct HistoryWindowView: View {
     @ObservedObject var store: ClipboardHistoryStore
     @ObservedObject var recordingController: RecordingController
+    let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
     let onClose: () -> Void
 
@@ -141,67 +142,91 @@ struct HistoryWindowView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-
-            Text("轻贴")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
-
-            if let statusText {
-                Text(statusText)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.55))
-                    .clipShape(Capsule())
-            }
-
-            Spacer()
-
-            recordingStatusButton
-
-            autoPasteStatusButton
-
-            retentionMenu
-
-            searchField
-
-            Button(action: toggleSearch) {
-                Image(systemName: isSearchVisible ? "xmark" : "magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.primary)
-
-            Menu {
-                ForEach(HistoryFilter.allCases) { filter in
-                    Button(filter.title) {
-                        self.filter = filter
-                    }
+        ZStack {
+            HStack(spacing: 12) {
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
                 }
-            } label: {
-                Text(filter.title)
-                    .font(.system(size: 12, weight: .medium))
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+
+                Text("轻贴")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                if let statusText {
+                    Text(statusText)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.white.opacity(0.55))
+                        .clipShape(Capsule())
+                }
+
+                autoPasteStatusButton
+
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
+                searchField
+
+                Button(action: toggleSearch) {
+                    HStack(spacing: 5) {
+                        Image(systemName: isSearchVisible ? "xmark" : "magnifyingglass")
+                            .font(.system(size: 12, weight: .semibold))
+
+                        Text("搜索")
+                            .font(.system(size: 12, weight: .medium))
+                    }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(Color.white.opacity(0.55))
                     .clipShape(Capsule())
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.primary)
 
-            moreMenu
+                filterMenu
+            }
+
+            HStack(spacing: 12) {
+                moreMenu
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 22)
         .frame(height: 36)
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            ForEach(HistoryFilter.allCases) { filter in
+                Button(filter.title) {
+                    self.filter = filter
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text("筛选")
+                    .font(.system(size: 12, weight: .medium))
+
+                Text(filter.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.55))
+            .clipShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     private var autoPasteStatusButton: some View {
@@ -290,10 +315,42 @@ struct HistoryWindowView: View {
 
     private var moreMenu: some View {
         Menu {
+            Button("新建文本") {
+                showStatus("新建文本稍后实现")
+            }
+
+            Divider()
+
+            Button("帮助") {
+                appMenuController.showHelp()
+            }
+
+            Button("设置") {
+                appMenuController.showSettingsPlaceholder()
+            }
+
+            retentionSettingsMenu
+
+            Divider()
+
+            pauseMenu
+
+            Divider()
+
             Button("清空历史", role: .destructive) {
                 isClearConfirmationPresented = true
             }
             .disabled(store.items.isEmpty)
+
+            Divider()
+
+            Button("退出") {
+                appMenuController.quit()
+            }
+
+            Button("关于轻贴") {
+                appMenuController.showAbout()
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 14, weight: .semibold))
@@ -315,6 +372,57 @@ struct HistoryWindowView: View {
             Text("此操作会删除所有普通和置顶记录，以及已保存的图片文件。")
         }
         .help("更多操作")
+    }
+
+    private var retentionSettingsMenu: some View {
+        Menu("保存期限") {
+            ForEach(HistoryRetentionPolicy.allCases) { policy in
+                Button {
+                    store.retentionPolicy = policy
+                    showStatus("保存期限：\(policy.shortTitle)")
+                } label: {
+                    HStack {
+                        Text(policy.title)
+                        if store.retentionPolicy == policy {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var pauseMenu: some View {
+        Menu("暂停") {
+            Button("暂停") {
+                pauseRecording()
+            }
+
+            Button("暂停 15 分钟") {
+                pauseRecording(for: 15 * 60, message: "已暂停 15 分钟")
+            }
+
+            Button("暂停 30 分钟") {
+                pauseRecording(for: 30 * 60, message: "已暂停 30 分钟")
+            }
+
+            Button("暂停 1 小时") {
+                pauseRecording(for: 60 * 60, message: "已暂停 1 小时")
+            }
+
+            Button("暂停 3 小时") {
+                pauseRecording(for: 3 * 60 * 60, message: "已暂停 3 小时")
+            }
+
+            Button("暂停 6 小时") {
+                pauseRecording(for: 6 * 60 * 60, message: "已暂停 6 小时")
+            }
+
+            Button("截止到今日") {
+                appMenuController.pauseUntilEndOfToday()
+                showStatus("已暂停到今日结束")
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -459,6 +567,16 @@ struct HistoryWindowView: View {
     private func toggleRecording() {
         recordingController.togglePaused()
         showStatus(recordingController.isPaused ? "已暂停记录" : "已恢复记录")
+    }
+
+    private func pauseRecording() {
+        appMenuController.pauseRecording()
+        showStatus("已暂停记录")
+    }
+
+    private func pauseRecording(for interval: TimeInterval, message: String) {
+        appMenuController.pauseRecording(for: interval)
+        showStatus(message)
     }
 }
 
