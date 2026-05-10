@@ -7,6 +7,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let recordingController: RecordingController
     private let loginItemController: LoginItemController
     private let ignoredAppSettings: IgnoredAppSettings
+    private let globalShortcutSettings: GlobalShortcutSettings
     private let pasteExecutor: PasteExecutor
     private var window: NSWindow?
 
@@ -15,12 +16,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         recordingController: RecordingController,
         loginItemController: LoginItemController,
         ignoredAppSettings: IgnoredAppSettings,
+        globalShortcutSettings: GlobalShortcutSettings,
         pasteExecutor: PasteExecutor
     ) {
         self.store = store
         self.recordingController = recordingController
         self.loginItemController = loginItemController
         self.ignoredAppSettings = ignoredAppSettings
+        self.globalShortcutSettings = globalShortcutSettings
         self.pasteExecutor = pasteExecutor
         super.init()
     }
@@ -37,6 +40,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             recordingController: recordingController,
             loginItemController: loginItemController,
             ignoredAppSettings: ignoredAppSettings,
+            globalShortcutSettings: globalShortcutSettings,
             pasteExecutor: pasteExecutor
         )
         let window = NSWindow(

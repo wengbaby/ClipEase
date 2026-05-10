@@ -5,11 +5,13 @@ struct SettingsView: View {
     @ObservedObject var recordingController: RecordingController
     @ObservedObject var loginItemController: LoginItemController
     @ObservedObject var ignoredAppSettings: IgnoredAppSettings
+    @ObservedObject var globalShortcutSettings: GlobalShortcutSettings
     let pasteExecutor: PasteExecutor
 
     @State private var canAutoPaste = false
     @State private var isClearConfirmationPresented = false
     @State private var statusText: String?
+    @State private var isRecordingShortcut = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -127,16 +129,43 @@ struct SettingsView: View {
     }
 
     private var shortcutSection: some View {
-        settingsSection(title: "快捷键", subtitle: "自定义快捷键后续接入") {
-            HStack {
-                Label("Command + Shift + V", systemImage: "keyboard")
-                    .font(.system(size: 13, weight: .medium))
+        settingsSection(title: "快捷键", subtitle: isRecordingShortcut ? "请按下新的快捷键组合，Esc 取消" : "用于打开或关闭底部历史窗口") {
+            ZStack {
+                HStack(spacing: 10) {
+                    Label(globalShortcutSettings.shortcut.displayText, systemImage: "keyboard")
+                        .font(.system(size: 13, weight: .medium))
 
-                Spacer()
+                    Spacer()
 
-                Text("已启用")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+                    Button(isRecordingShortcut ? "录制中..." : "修改") {
+                        isRecordingShortcut = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isRecordingShortcut)
+
+                    Button("恢复默认") {
+                        globalShortcutSettings.resetToDefault()
+                        isRecordingShortcut = false
+                        showStatus("已恢复默认快捷键")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if isRecordingShortcut {
+                    ShortcutRecorderView { keyCode, modifierFlags in
+                        if globalShortcutSettings.update(keyCode: keyCode, modifierFlags: modifierFlags) {
+                            showStatus("已更新快捷键")
+                        } else {
+                            showStatus("快捷键需要包含 Command、Control 或 Option")
+                        }
+                        isRecordingShortcut = false
+                    } onCancel: {
+                        isRecordingShortcut = false
+                        showStatus("已取消修改快捷键")
+                    }
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                }
             }
         }
     }
@@ -261,6 +290,52 @@ struct SettingsView: View {
             if statusText == text {
                 statusText = nil
             }
+        }
+    }
+}
+
+private struct ShortcutRecorderView: NSViewRepresentable {
+    let onRecord: (UInt16, NSEvent.ModifierFlags) -> Void
+    let onCancel: () -> Void
+
+    func makeNSView(context: Context) -> RecorderNSView {
+        let view = RecorderNSView()
+        view.onRecord = onRecord
+        view.onCancel = onCancel
+        DispatchQueue.main.async {
+            view.window?.makeFirstResponder(view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: RecorderNSView, context: Context) {
+        nsView.onRecord = onRecord
+        nsView.onCancel = onCancel
+        DispatchQueue.main.async {
+            nsView.window?.makeFirstResponder(nsView)
+        }
+    }
+
+    final class RecorderNSView: NSView {
+        var onRecord: ((UInt16, NSEvent.ModifierFlags) -> Void)?
+        var onCancel: (() -> Void)?
+
+        override var acceptsFirstResponder: Bool {
+            true
+        }
+
+        override func keyDown(with event: NSEvent) {
+            if event.keyCode == KeyCode.escape {
+                onCancel?()
+                return
+            }
+
+            onRecord?(event.keyCode, event.modifierFlags)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.makeFirstResponder(self)
         }
     }
 }

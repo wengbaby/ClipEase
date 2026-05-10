@@ -1,4 +1,5 @@
 import Carbon
+import Combine
 import Foundation
 
 @MainActor
@@ -6,29 +7,41 @@ final class GlobalHotKeyController {
     private static weak var activeController: GlobalHotKeyController?
 
     private weak var historyWindowController: HistoryWindowController?
+    private let shortcutSettings: GlobalShortcutSettings
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
+    private var shortcutCancellable: AnyCancellable?
 
-    init(historyWindowController: HistoryWindowController) {
+    init(
+        historyWindowController: HistoryWindowController,
+        shortcutSettings: GlobalShortcutSettings
+    ) {
         self.historyWindowController = historyWindowController
+        self.shortcutSettings = shortcutSettings
     }
 
     func start() {
         Self.activeController = self
         installEventHandlerIfNeeded()
         registerHotKey()
+        shortcutCancellable = shortcutSettings.$shortcut
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.reregisterHotKey()
+                }
+            }
     }
 
     func stop() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
-        }
+        unregisterHotKey()
 
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
             self.eventHandlerRef = nil
         }
+
+        shortcutCancellable = nil
     }
 
     private func installEventHandlerIfNeeded() {
@@ -63,10 +76,10 @@ final class GlobalHotKeyController {
             signature: Self.fourCharacterCode("CLPE"),
             id: 1
         )
-        let modifiers = UInt32(cmdKey | shiftKey)
+        let shortcut = shortcutSettings.shortcut
         let status = RegisterEventHotKey(
-            UInt32(KeyCode.v),
-            modifiers,
+            UInt32(shortcut.keyCode),
+            shortcut.modifiers,
             hotKeyID,
             GetApplicationEventTarget(),
             0,
@@ -74,8 +87,20 @@ final class GlobalHotKeyController {
         )
 
         if status != noErr {
-            NSLog("ClipEase failed to register Command+Shift+V hotkey: \(status)")
+            NSLog("ClipEase failed to register \(shortcut.displayText) hotkey: \(status)")
         }
+    }
+
+    private func unregisterHotKey() {
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
+        }
+    }
+
+    private func reregisterHotKey() {
+        unregisterHotKey()
+        registerHotKey()
     }
 
     private static let hotKeyHandler: EventHandlerUPP = { _, eventRef, _ in

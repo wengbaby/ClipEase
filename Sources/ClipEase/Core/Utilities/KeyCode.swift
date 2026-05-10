@@ -1,4 +1,30 @@
 enum KeyCode {
+    static let a: UInt16 = 0
+    static let b: UInt16 = 11
+    static let c: UInt16 = 8
+    static let d: UInt16 = 2
+    static let e: UInt16 = 14
+    static let f: UInt16 = 3
+    static let g: UInt16 = 5
+    static let h: UInt16 = 4
+    static let i: UInt16 = 34
+    static let j: UInt16 = 38
+    static let k: UInt16 = 40
+    static let l: UInt16 = 37
+    static let m: UInt16 = 46
+    static let n: UInt16 = 45
+    static let o: UInt16 = 31
+    static let p: UInt16 = 35
+    static let q: UInt16 = 12
+    static let r: UInt16 = 15
+    static let s: UInt16 = 1
+    static let t: UInt16 = 17
+    static let u: UInt16 = 32
     static let escape: UInt16 = 53
     static let v: UInt16 = 9
+    static let w: UInt16 = 13
+    static let x: UInt16 = 7
+    static let y: UInt16 = 16
+    static let z: UInt16 = 6
+    static let space: UInt16 = 49
 }

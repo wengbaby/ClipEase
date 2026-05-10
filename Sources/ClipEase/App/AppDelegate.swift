@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let recordingController = RecordingController()
     private let loginItemController = LoginItemController()
     private let ignoredAppSettings = IgnoredAppSettings()
+    private let globalShortcutSettings = GlobalShortcutSettings()
     private lazy var pasteExecutor = PasteExecutor(store: historyStore)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recordingController: recordingController,
             loginItemController: loginItemController,
             ignoredAppSettings: ignoredAppSettings,
+            globalShortcutSettings: globalShortcutSettings,
             pasteExecutor: pasteExecutor
         )
         self.appMenuController = appMenuController
@@ -34,7 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appMenuController: appMenuController
         )
         let globalHotKeyController = GlobalHotKeyController(
-            historyWindowController: historyWindowController
+            historyWindowController: historyWindowController,
+            shortcutSettings: globalShortcutSettings
         )
         self.globalHotKeyController = globalHotKeyController
         globalHotKeyController.start()

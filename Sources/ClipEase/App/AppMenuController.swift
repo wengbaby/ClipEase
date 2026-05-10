@@ -6,6 +6,7 @@ final class AppMenuController: NSObject {
     private let recordingController: RecordingController
     private let loginItemController: LoginItemController
     private let ignoredAppSettings: IgnoredAppSettings
+    private let globalShortcutSettings: GlobalShortcutSettings
     private let pasteExecutor: PasteExecutor
     private var richTextEditorController: RichTextEditorController?
     private var settingsWindowController: SettingsWindowController?
@@ -16,12 +17,14 @@ final class AppMenuController: NSObject {
         recordingController: RecordingController,
         loginItemController: LoginItemController,
         ignoredAppSettings: IgnoredAppSettings,
+        globalShortcutSettings: GlobalShortcutSettings,
         pasteExecutor: PasteExecutor
     ) {
         self.historyStore = historyStore
         self.recordingController = recordingController
         self.loginItemController = loginItemController
         self.ignoredAppSettings = ignoredAppSettings
+        self.globalShortcutSettings = globalShortcutSettings
         self.pasteExecutor = pasteExecutor
         super.init()
     }
@@ -50,6 +53,7 @@ final class AppMenuController: NSObject {
             recordingController: recordingController,
             loginItemController: loginItemController,
             ignoredAppSettings: ignoredAppSettings,
+            globalShortcutSettings: globalShortcutSettings,
             pasteExecutor: pasteExecutor
         )
         self.settingsWindowController = settingsWindowController
