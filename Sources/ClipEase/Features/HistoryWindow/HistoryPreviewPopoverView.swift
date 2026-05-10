@@ -10,6 +10,18 @@ struct HistoryPreviewPopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            popoverBody
+
+            Triangle()
+                .fill(Color(red: 0.94, green: 0.95, blue: 0.98))
+                .frame(width: 26, height: 14)
+                .padding(.leading, arrowX - 13)
+        }
+        .frame(width: size.width, height: size.height + 14, alignment: .topLeading)
+    }
+
+    private var popoverBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
             header
 
             Divider()
@@ -23,15 +35,8 @@ struct HistoryPreviewPopoverView: View {
         }
         .frame(width: size.width, height: size.height)
         .background(Color(red: 0.94, green: 0.95, blue: 0.98))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 12)
-        .overlay(alignment: .bottomLeading) {
-            Triangle()
-                .fill(Color(red: 0.94, green: 0.95, blue: 0.98))
-                .frame(width: 26, height: 14)
-                .offset(x: arrowX - 13)
-                .offset(y: 14)
-        }
     }
 
     private var header: some View {

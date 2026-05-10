@@ -3,11 +3,12 @@ import SwiftUI
 
 @MainActor
 final class HistoryWindowController: NSObject, NSWindowDelegate {
-    private let panelHeight: CGFloat = 760
+    private let panelHeight: CGFloat = 360
     private let store: ClipboardHistoryStore
     private let pasteExecutor: PasteExecutor
     private let recordingController: RecordingController
     private let appMenuController: AppMenuController
+    private let previewWindowController = HistoryPreviewWindowController()
     private var panel: HistoryPanel?
 
     init(
@@ -42,6 +43,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     func close() {
         panel?.orderOut(nil)
+        previewWindowController.close()
     }
 
     private func makePanel() -> HistoryPanel {
@@ -52,6 +54,9 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             pasteExecutor: pasteExecutor,
             onClose: { [weak self] in
                 self?.close()
+            },
+            onPreview: { [weak self] item, cardFrame in
+                self?.showPreview(item, cardFrame: cardFrame)
             }
         )
 
@@ -87,5 +92,25 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             height: panelHeight
         )
         panel.setFrame(windowFrame, display: true)
+    }
+
+    private func showPreview(_ item: ClipboardItem, cardFrame: CGRect) {
+        guard let panel else {
+            return
+        }
+
+        let anchorScreenPoint = CGPoint(
+            x: panel.frame.minX + cardFrame.midX,
+            y: panel.frame.maxY - cardFrame.minY
+        )
+        let screenFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? panel.frame
+        previewWindowController.show(
+            item: item,
+            anchorScreenPoint: anchorScreenPoint,
+            screenFrame: screenFrame,
+            onCopy: { [pasteExecutor] in
+                pasteExecutor.copyToPasteboard(item)
+            }
+        )
     }
 }
