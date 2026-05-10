@@ -14,6 +14,7 @@ struct HistoryWindowView: View {
     @State private var filter: HistoryFilter = .all
     @State private var canAutoPaste = false
     @State private var isClearConfirmationPresented = false
+    @State private var previewedItemID: ClipboardItem.ID?
 
     private var items: [HistoryPreviewItem] {
         store.items.map(HistoryPreviewItem.init)
@@ -58,6 +59,14 @@ struct HistoryWindowView: View {
             .frame(width: 0, height: 0)
             .opacity(0)
 
+            Button(action: togglePreviewForSelectedItem) {
+                EmptyView()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.space, modifiers: [])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
             VStack(alignment: .leading, spacing: 14) {
                 toolbar
 
@@ -81,8 +90,16 @@ struct HistoryWindowView: View {
                                         including: .all
                                     )
                                     .contextMenu {
+                                        Button("粘贴") {
+                                            pasteItem(item.id)
+                                        }
+
                                         Button("复制") {
                                             copyItem(item.id)
+                                        }
+
+                                        Button("预览") {
+                                            showPreview(item.id)
                                         }
 
                                         Button(item.isPinned ? "取消置顶" : "置顶") {
@@ -112,6 +129,21 @@ struct HistoryWindowView: View {
                 }
             }
             .padding(.top, 18)
+
+            if let previewedItem = store.item(with: previewedItemID) {
+                VStack {
+                    Spacer()
+
+                    HistoryPreviewPopoverView(
+                        item: previewedItem,
+                        onClose: { previewedItemID = nil },
+                        onCopy: { copyItem(previewedItem.id) }
+                    )
+                    .padding(.bottom, 318)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(2)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .focusable()
@@ -498,8 +530,31 @@ struct HistoryWindowView: View {
         }
     }
 
+    private func showPreview(_ id: ClipboardItem.ID?) {
+        guard store.item(with: id) != nil else {
+            return
+        }
+
+        previewedItemID = id
+    }
+
+    private func togglePreviewForSelectedItem() {
+        guard let selectedItemID else {
+            return
+        }
+
+        if previewedItemID == selectedItemID {
+            previewedItemID = nil
+        } else {
+            showPreview(selectedItemID)
+        }
+    }
+
     private func deleteItem(_ id: ClipboardItem.ID?) {
         store.deleteItem(with: id)
+        if previewedItemID == id {
+            previewedItemID = nil
+        }
         showStatus("已删除")
     }
 
