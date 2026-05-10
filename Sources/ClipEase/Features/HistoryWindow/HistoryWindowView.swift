@@ -57,6 +57,9 @@ struct HistoryWindowView: View {
                             .padding(.vertical, 8)
                             .padding(.bottom, 22)
                         }
+                        .onMoveCommand { direction in
+                            moveSelection(direction, proxy: proxy)
+                        }
                     }
                 }
             }
@@ -76,9 +79,6 @@ struct HistoryWindowView: View {
             if selectedItemID == nil || !newItems.contains(where: { $0.id == selectedItemID }) {
                 selectedItemID = firstItem.id
             }
-        }
-        .onMoveCommand { direction in
-            moveSelection(direction)
         }
         .onExitCommand(perform: onClose)
     }
@@ -149,20 +149,29 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func moveSelection(_ direction: MoveCommandDirection) {
-        guard let selectedItemID,
-              let selectedIndex = items.firstIndex(where: { $0.id == selectedItemID }) else {
+    private func moveSelection(
+        _ direction: MoveCommandDirection,
+        proxy: ScrollViewProxy
+    ) {
+        guard let currentSelectedID = selectedItemID,
+              let selectedIndex = items.firstIndex(where: { $0.id == currentSelectedID }) else {
             self.selectedItemID = items.first?.id
             return
         }
 
+        let nextID: HistoryPreviewItem.ID
         switch direction {
         case .left:
-            self.selectedItemID = items[max(selectedIndex - 1, 0)].id
+            nextID = items[max(selectedIndex - 1, 0)].id
         case .right:
-            self.selectedItemID = items[min(selectedIndex + 1, items.count - 1)].id
+            nextID = items[min(selectedIndex + 1, items.count - 1)].id
         default:
-            break
+            return
+        }
+
+        selectedItemID = nextID
+        withAnimation(.easeOut(duration: 0.12)) {
+            proxy.scrollTo(nextID, anchor: .center)
         }
     }
 
