@@ -4,7 +4,7 @@ import AppKit
 final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private let onCreate: (Data, String) -> Void
     private let panel: NSPanel
-    private let textView: NSTextView
+    private let textView: RichTextTextView
     private let characterLabel: NSTextField
     private let wordLabel: NSTextField
     private let lineLabel: NSTextField
@@ -14,7 +14,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         self.onCreate = onCreate
 
         let panel = RichTextEditorPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 820, height: 590),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 360),
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -25,17 +25,17 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         panel.isReleasedWhenClosed = false
         panel.center()
 
-        let textView = NSTextView()
+        let textView = RichTextTextView()
         textView.isRichText = true
         textView.allowsUndo = true
         textView.importsGraphics = false
-        textView.font = .systemFont(ofSize: 20)
+        textView.font = .systemFont(ofSize: 16)
         textView.textColor = .black
         textView.insertionPointColor = .systemBlue
-        textView.textContainerInset = NSSize(width: 18, height: 16)
+        textView.textContainerInset = NSSize(width: 10, height: 9)
         textView.backgroundColor = .white
         textView.typingAttributes = [
-            .font: NSFont.systemFont(ofSize: 20),
+            .font: NSFont.systemFont(ofSize: 16),
             .foregroundColor: NSColor.black
         ]
 
@@ -53,10 +53,12 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     func show() {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        enforceBlackText()
         panel.makeFirstResponder(textView)
     }
 
     func textDidChange(_ notification: Notification) {
+        enforceBlackText()
         updateFooter()
     }
 
@@ -75,18 +77,18 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
         let cancelButton = toolbarButton("取消", action: #selector(cancelAction))
-        cancelButton.font = .systemFont(ofSize: 20, weight: .semibold)
+        cancelButton.font = .systemFont(ofSize: 12, weight: .medium)
 
         let styleGroup = NSStackView()
         styleGroup.orientation = .horizontal
-        styleGroup.spacing = 26
+        styleGroup.spacing = 20
         styleGroup.alignment = .centerY
-        styleGroup.addArrangedSubview(iconButton("B", action: #selector(toggleBold), font: .boldSystemFont(ofSize: 18)))
-        styleGroup.addArrangedSubview(iconButton("I", action: #selector(toggleItalic), font: Self.italicFont(size: 18)))
-        styleGroup.addArrangedSubview(iconButton("U", action: #selector(toggleUnderline), font: .systemFont(ofSize: 18)))
-        styleGroup.addArrangedSubview(iconButton("S", action: #selector(toggleStrikethrough), font: .systemFont(ofSize: 18)))
-        styleGroup.addArrangedSubview(iconButton("A-", action: #selector(decreaseFontSize), font: .systemFont(ofSize: 16, weight: .semibold)))
-        styleGroup.addArrangedSubview(iconButton("A+", action: #selector(increaseFontSize), font: .systemFont(ofSize: 16, weight: .semibold)))
+        styleGroup.addArrangedSubview(iconButton("B", action: #selector(toggleBold), font: .boldSystemFont(ofSize: 12)))
+        styleGroup.addArrangedSubview(iconButton("I", action: #selector(toggleItalic), font: Self.italicFont(size: 12)))
+        styleGroup.addArrangedSubview(iconButton("U", action: #selector(toggleUnderline), font: .systemFont(ofSize: 12)))
+        styleGroup.addArrangedSubview(iconButton("S", action: #selector(toggleStrikethrough), font: .systemFont(ofSize: 12)))
+        styleGroup.addArrangedSubview(iconButton("A-", action: #selector(decreaseFontSize), font: .systemFont(ofSize: 12, weight: .semibold)))
+        styleGroup.addArrangedSubview(iconButton("A+", action: #selector(increaseFontSize), font: .systemFont(ofSize: 12, weight: .semibold)))
 
         let createButton = primaryButton("创建", action: #selector(createAction))
 
@@ -120,20 +122,20 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         rootView.addSubview(footer)
 
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 10),
-            toolbar.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 18),
-            toolbar.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -18),
-            toolbar.heightAnchor.constraint(equalToConstant: 42),
+            toolbar.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 6),
+            toolbar.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 8),
+            toolbar.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -8),
+            toolbar.heightAnchor.constraint(equalToConstant: 26),
 
-            scrollView.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 14),
-            scrollView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 8),
-            scrollView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -8),
-            scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -14),
+            scrollView.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 6),
+            scrollView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 4),
+            scrollView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -4),
+            scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -8),
 
-            footer.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 20),
-            footer.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -20),
-            footer.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -16),
-            footer.heightAnchor.constraint(equalToConstant: 24)
+            footer.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 12),
+            footer.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -12),
+            footer.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -8),
+            footer.heightAnchor.constraint(equalToConstant: 20)
         ])
 
         updateFooter()
@@ -143,7 +145,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private func toolbarButton(_ title: String, action: Selector) -> NSButton {
         let button = NSButton(title: title, target: self, action: action)
         button.bezelStyle = .rounded
-        button.controlSize = .large
+        button.controlSize = .small
         button.contentTintColor = .labelColor
         return button
     }
@@ -155,22 +157,23 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         button.font = font
         button.contentTintColor = .secondaryLabelColor
         button.setButtonType(.momentaryPushIn)
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: 18).isActive = true
         return button
     }
 
     private func primaryButton(_ title: String, action: Selector) -> NSButton {
         let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .regularSquare
-        button.controlSize = .large
+        button.bezelStyle = .rounded
+        button.controlSize = .small
         button.keyEquivalent = "\r"
         button.contentTintColor = .white
-        button.font = .systemFont(ofSize: 18, weight: .semibold)
+        button.font = .systemFont(ofSize: 12, weight: .semibold)
         return button
     }
 
     private static func makeFooterLabel(_ text: String) -> NSTextField {
         let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 17, weight: .medium)
+        label.font = .systemFont(ofSize: 13, weight: .medium)
         label.textColor = .secondaryLabelColor
         return label
     }
@@ -182,7 +185,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
     private func separatorLabel() -> NSTextField {
         let label = NSTextField(labelWithString: "·")
-        label.font = .systemFont(ofSize: 17, weight: .medium)
+        label.font = .systemFont(ofSize: 13, weight: .medium)
         label.textColor = .tertiaryLabelColor
         return label
     }
@@ -210,10 +213,9 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
         let mutableText = NSMutableAttributedString(attributedString: textView.attributedString())
         transform(mutableText, targetRange)
-        mutableText.addAttribute(.foregroundColor, value: NSColor.black, range: NSRange(location: 0, length: mutableText.length))
+        applyBlackColor(to: mutableText)
         textView.textStorage?.setAttributedString(mutableText)
-        textView.textColor = .black
-        textView.typingAttributes[.foregroundColor] = NSColor.black
+        enforceBlackText()
         textView.setSelectedRange(range)
         updateFooter()
     }
@@ -274,7 +276,36 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
             }
         }
         textView.typingAttributes[.font] = NSFont.systemFont(ofSize: fontSize)
+        enforceBlackText()
+    }
+
+    private func enforceBlackText() {
+        textView.textColor = .black
+        textView.insertionPointColor = .systemBlue
         textView.typingAttributes[.foregroundColor] = NSColor.black
+
+        guard let textStorage = textView.textStorage,
+              textStorage.length > 0 else {
+            return
+        }
+
+        textStorage.addAttribute(
+            .foregroundColor,
+            value: NSColor.black,
+            range: NSRange(location: 0, length: textStorage.length)
+        )
+    }
+
+    private func applyBlackColor(to text: NSMutableAttributedString) {
+        guard text.length > 0 else {
+            return
+        }
+
+        text.addAttribute(
+            .foregroundColor,
+            value: NSColor.black,
+            range: NSRange(location: 0, length: text.length)
+        )
     }
 
     @objc private func cancelAction() {
@@ -308,5 +339,40 @@ private final class RichTextEditorPanel: NSPanel {
 
     override var canBecomeMain: Bool {
         true
+    }
+}
+
+private final class RichTextTextView: NSTextView {
+    override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        if let string = insertString as? String {
+            let attributedString = NSAttributedString(
+                string: string,
+                attributes: normalizedTypingAttributes()
+            )
+            super.insertText(attributedString, replacementRange: replacementRange)
+            return
+        }
+
+        if let attributedString = insertString as? NSAttributedString {
+            let mutableString = NSMutableAttributedString(attributedString: attributedString)
+            mutableString.addAttribute(
+                .foregroundColor,
+                value: NSColor.black,
+                range: NSRange(location: 0, length: mutableString.length)
+            )
+            super.insertText(mutableString, replacementRange: replacementRange)
+            return
+        }
+
+        super.insertText(insertString, replacementRange: replacementRange)
+    }
+
+    private func normalizedTypingAttributes() -> [NSAttributedString.Key: Any] {
+        var attributes = typingAttributes
+        attributes[.foregroundColor] = NSColor.black
+        if attributes[.font] == nil {
+            attributes[.font] = NSFont.systemFont(ofSize: 16)
+        }
+        return attributes
     }
 }
