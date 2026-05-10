@@ -4,14 +4,18 @@ import AppKit
 final class AppMenuController: NSObject {
     private let historyStore: ClipboardHistoryStore
     private let recordingController: RecordingController
+    private let pasteExecutor: PasteExecutor
     private var richTextEditorController: RichTextEditorController?
+    private var settingsWindowController: SettingsWindowController?
 
     init(
         historyStore: ClipboardHistoryStore,
-        recordingController: RecordingController
+        recordingController: RecordingController,
+        pasteExecutor: PasteExecutor
     ) {
         self.historyStore = historyStore
         self.recordingController = recordingController
+        self.pasteExecutor = pasteExecutor
         super.init()
     }
 
@@ -31,12 +35,14 @@ final class AppMenuController: NSObject {
         openProjectURL(path: "blob/main/docs/PROJECT_GUIDE.md")
     }
 
-    func showSettingsPlaceholder() {
-        let alert = NSAlert()
-        alert.messageText = "设置"
-        alert.informativeText = "设置页会分阶段补充：快捷键、开机启动、忽略 App、保存期限和清空历史。"
-        alert.addButton(withTitle: "知道了")
-        alert.runModal()
+    func showSettings() {
+        let settingsWindowController = settingsWindowController ?? SettingsWindowController(
+            store: historyStore,
+            recordingController: recordingController,
+            pasteExecutor: pasteExecutor
+        )
+        self.settingsWindowController = settingsWindowController
+        settingsWindowController.show()
     }
 
     func pauseRecording() {
@@ -120,7 +126,7 @@ final class AppMenuController: NSObject {
     }
 
     @objc private func settingsAction() {
-        showSettingsPlaceholder()
+        showSettings()
     }
 
     @objc private func togglePauseAction() {

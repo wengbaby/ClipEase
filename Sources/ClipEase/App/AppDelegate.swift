@@ -13,7 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let appMenuController = AppMenuController(
             historyStore: historyStore,
-            recordingController: recordingController
+            recordingController: recordingController,
+            pasteExecutor: pasteExecutor
         )
         self.appMenuController = appMenuController
         let historyWindowController = HistoryWindowController(

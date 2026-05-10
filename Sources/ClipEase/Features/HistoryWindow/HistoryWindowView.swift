@@ -327,7 +327,7 @@ struct HistoryWindowView: View {
             }
 
             Button("设置") {
-                appMenuController.showSettingsPlaceholder()
+                appMenuController.showSettings()
             }
 
             retentionSettingsMenu
