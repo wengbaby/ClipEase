@@ -2,6 +2,8 @@ import AppKit
 
 @MainActor
 final class HistoryPanel: NSPanel {
+    var onEscape: (() -> Void)?
+
     override var canBecomeKey: Bool {
         true
     }
@@ -12,7 +14,7 @@ final class HistoryPanel: NSPanel {
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == KeyCode.escape {
-            orderOut(nil)
+            onEscape?()
             return
         }
 

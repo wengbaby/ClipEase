@@ -4,6 +4,11 @@ import SwiftUI
 @MainActor
 final class HistoryPreviewWindowController {
     private var panel: NSPanel?
+    private var outsideClickMonitor: Any?
+
+    var frame: CGRect? {
+        panel?.frame
+    }
 
     func show(
         item: ClipboardItem,
@@ -27,6 +32,7 @@ final class HistoryPreviewWindowController {
         )
 
         let panel = panel ?? makePanel()
+        let isAlreadyVisible = panel.isVisible
         self.panel = panel
         panel.contentView = NSHostingView(
             rootView: HistoryPreviewPopoverView(
@@ -39,12 +45,48 @@ final class HistoryPreviewWindowController {
                 onCopy: onCopy
             )
         )
-        panel.setFrame(frame, display: true)
-        panel.orderFrontRegardless()
+
+        if isAlreadyVisible {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(frame, display: true)
+            }
+        } else {
+            let startFrame = frame.offsetBy(dx: 0, dy: -24)
+            panel.alphaValue = 0
+            panel.setFrame(startFrame, display: false)
+            panel.orderFrontRegardless()
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+                panel.animator().setFrame(frame, display: true)
+            }
+        }
     }
 
     func close() {
+        removeOutsideClickMonitor()
         panel?.orderOut(nil)
+    }
+
+    func contains(screenPoint: CGPoint) -> Bool {
+        guard let panel, panel.isVisible else {
+            return false
+        }
+
+        return panel.frame.contains(screenPoint)
+    }
+
+    func installOutsideClickMonitor(onOutsideClick: @escaping @MainActor () -> Void) {
+        removeOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
+            Task { @MainActor in
+                onOutsideClick()
+            }
+        }
     }
 
     private func makePanel() -> NSPanel {
@@ -62,6 +104,13 @@ final class HistoryPreviewWindowController {
         panel.isOpaque = false
         panel.hasShadow = false
         return panel
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+            self.outsideClickMonitor = nil
+        }
     }
 
     private func previewSize(for item: ClipboardItem, screenFrame: CGRect) -> CGSize {

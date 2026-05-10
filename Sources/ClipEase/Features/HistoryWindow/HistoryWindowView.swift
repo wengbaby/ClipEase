@@ -2,11 +2,13 @@ import SwiftUI
 
 struct HistoryWindowView: View {
     @ObservedObject var store: ClipboardHistoryStore
+    @ObservedObject var previewState: HistoryPreviewState
     @ObservedObject var recordingController: RecordingController
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
     let onClose: () -> Void
     let onPreview: (ClipboardItem, CGRect) -> Void
+    let onClosePreview: () -> Void
 
     @State private var selectedItemID: HistoryPreviewItem.ID?
     @State private var statusText: String?
@@ -152,11 +154,17 @@ struct HistoryWindowView: View {
         .onChange(of: store.items) { newItems in
             guard let firstItem = newItems.first else {
                 selectedItemID = nil
+                closePreview()
                 return
             }
 
             if selectedItemID == nil || !newItems.contains(where: { $0.id == selectedItemID }) {
                 selectedItemID = firstItem.id
+            }
+
+            if let previewedItemID = previewState.itemID,
+               !newItems.contains(where: { $0.id == previewedItemID }) {
+                closePreview()
             }
         }
         .onChange(of: searchText) { _ in
@@ -168,7 +176,10 @@ struct HistoryWindowView: View {
         .onMoveCommand { direction in
             moveSelection(direction)
         }
-        .onExitCommand(perform: onClose)
+        .onExitCommand {
+            closePreview()
+            onClose()
+        }
     }
 
     private var toolbar: some View {
@@ -503,6 +514,9 @@ struct HistoryWindowView: View {
         }
 
         selectedItemID = nextID
+        if previewState.isVisible {
+            showPreview(nextID)
+        }
     }
 
     private func copyItem(_ id: ClipboardItem.ID?) {
@@ -533,6 +547,7 @@ struct HistoryWindowView: View {
             return
         }
 
+        previewState.open(item.id)
         onPreview(item, cardFrames[item.id] ?? CGRect(x: 28, y: 60, width: 250, height: 270))
     }
 
@@ -541,11 +556,19 @@ struct HistoryWindowView: View {
             return
         }
 
+        if previewState.itemID == selectedItemID {
+            closePreview()
+            return
+        }
+
         showPreview(selectedItemID)
     }
 
     private func deleteItem(_ id: ClipboardItem.ID?) {
         store.deleteItem(with: id)
+        if previewState.itemID == id {
+            closePreview()
+        }
         showStatus("已删除")
     }
 
@@ -567,10 +590,19 @@ struct HistoryWindowView: View {
     private func immediateSelectionGesture(for item: HistoryPreviewItem) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { _ in
+                if previewState.isVisible, previewState.itemID != item.id {
+                    closePreview()
+                }
+
                 if selectedItemID != item.id {
                     selectedItemID = item.id
                 }
             }
+    }
+
+    private func closePreview() {
+        previewState.close()
+        onClosePreview()
     }
 
     private func showStatus(_ text: String) {
