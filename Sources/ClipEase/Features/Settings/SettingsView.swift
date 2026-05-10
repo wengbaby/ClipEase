@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var store: ClipboardHistoryStore
     @ObservedObject var recordingController: RecordingController
+    @ObservedObject var loginItemController: LoginItemController
     let pasteExecutor: PasteExecutor
 
     @State private var canAutoPaste = false
@@ -19,6 +20,7 @@ struct SettingsView: View {
                 VStack(spacing: 14) {
                     retentionSection
                     shortcutSection
+                    launchAtLoginSection
                     recordingSection
                     permissionsSection
                     historySection
@@ -30,6 +32,7 @@ struct SettingsView: View {
         .background(Color(red: 0.94, green: 0.95, blue: 0.97))
         .onAppear {
             canAutoPaste = pasteExecutor.canAutoPaste
+            loginItemController.refresh()
         }
         .confirmationDialog(
             "清空全部历史？",
@@ -105,6 +108,19 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.bordered)
             }
+        }
+    }
+
+    private var launchAtLoginSection: some View {
+        settingsSection(title: "开机自动启动", subtitle: loginItemController.statusText) {
+            Toggle("启动 macOS 后自动打开轻贴", isOn: Binding(
+                get: { loginItemController.isEnabled },
+                set: { enabled in
+                    loginItemController.setEnabled(enabled)
+                    showStatus(loginItemController.statusText)
+                }
+            ))
+            .toggleStyle(.switch)
         }
     }
 

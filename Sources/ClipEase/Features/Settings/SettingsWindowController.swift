@@ -5,16 +5,19 @@ import SwiftUI
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let store: ClipboardHistoryStore
     private let recordingController: RecordingController
+    private let loginItemController: LoginItemController
     private let pasteExecutor: PasteExecutor
     private var window: NSWindow?
 
     init(
         store: ClipboardHistoryStore,
         recordingController: RecordingController,
+        loginItemController: LoginItemController,
         pasteExecutor: PasteExecutor
     ) {
         self.store = store
         self.recordingController = recordingController
+        self.loginItemController = loginItemController
         self.pasteExecutor = pasteExecutor
         super.init()
     }
@@ -29,6 +32,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let settingsView = SettingsView(
             store: store,
             recordingController: recordingController,
+            loginItemController: loginItemController,
             pasteExecutor: pasteExecutor
         )
         let window = NSWindow(

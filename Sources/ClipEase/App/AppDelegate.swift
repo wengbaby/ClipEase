@@ -9,12 +9,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var globalHotKeyController: GlobalHotKeyController?
     private let historyStore = ClipboardHistoryStore()
     private let recordingController = RecordingController()
+    private let loginItemController = LoginItemController()
     private lazy var pasteExecutor = PasteExecutor(store: historyStore)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let appMenuController = AppMenuController(
             historyStore: historyStore,
             recordingController: recordingController,
+            loginItemController: loginItemController,
             pasteExecutor: pasteExecutor
         )
         self.appMenuController = appMenuController

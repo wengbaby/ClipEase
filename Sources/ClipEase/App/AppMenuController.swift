@@ -4,6 +4,7 @@ import AppKit
 final class AppMenuController: NSObject {
     private let historyStore: ClipboardHistoryStore
     private let recordingController: RecordingController
+    private let loginItemController: LoginItemController
     private let pasteExecutor: PasteExecutor
     private var richTextEditorController: RichTextEditorController?
     private var settingsWindowController: SettingsWindowController?
@@ -12,10 +13,12 @@ final class AppMenuController: NSObject {
     init(
         historyStore: ClipboardHistoryStore,
         recordingController: RecordingController,
+        loginItemController: LoginItemController,
         pasteExecutor: PasteExecutor
     ) {
         self.historyStore = historyStore
         self.recordingController = recordingController
+        self.loginItemController = loginItemController
         self.pasteExecutor = pasteExecutor
         super.init()
     }
@@ -42,6 +45,7 @@ final class AppMenuController: NSObject {
         let settingsWindowController = settingsWindowController ?? SettingsWindowController(
             store: historyStore,
             recordingController: recordingController,
+            loginItemController: loginItemController,
             pasteExecutor: pasteExecutor
         )
         self.settingsWindowController = settingsWindowController
