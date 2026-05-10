@@ -66,6 +66,28 @@ final class ClipboardHistoryStore: ObservableObject {
         save()
     }
 
+    func addRichText(_ data: Data, plainText: String, sourceApp: SourceAppInfo) {
+        let normalizedText = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedText.isEmpty,
+              let storedRichText = persistence.saveRichText(data) else {
+            return
+        }
+
+        let hash = "\(sourceApp.bundleID ?? "unknown"):\(normalizedText):\(storedRichText.fileName)"
+        recentHashes.insert(hash)
+
+        let item = ClipboardItem.richText(
+            plainText: normalizedText,
+            fileName: storedRichText.fileName,
+            sourceApp: sourceApp
+        )
+        items.insert(item, at: 0)
+        sortItems()
+        pruneExpiredItems()
+        trimItemsIfNeeded()
+        save()
+    }
+
     func addImage(_ image: NSImage, sourceApp: SourceAppInfo) {
         guard let storedImage = persistence.saveImage(image) else {
             return
@@ -113,7 +135,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
         let deletedItems = items.filter { $0.id == id }
         items.removeAll { $0.id == id }
-        deletedItems.compactMap(\.imageFileName).forEach(persistence.deleteImage)
+        deleteExternalFiles(for: deletedItems)
         rebuildRecentHashes()
         save()
     }
@@ -121,7 +143,7 @@ final class ClipboardHistoryStore: ObservableObject {
     func clearAllItems() {
         let removedItems = items
         items.removeAll()
-        removedItems.compactMap(\.imageFileName).forEach(persistence.deleteImage)
+        deleteExternalFiles(for: removedItems)
         recentHashes.removeAll()
         skippedClipboardTexts.removeAll()
         skippedImageHashes.removeAll()
@@ -163,6 +185,14 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         return persistence.imageData(fileName: fileName)
+    }
+
+    func richTextData(for item: ClipboardItem) -> Data? {
+        guard let fileName = item.richTextFileName else {
+            return nil
+        }
+
+        return persistence.richTextData(fileName: fileName)
     }
 
     private func sortItems() {
@@ -215,7 +245,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items.removeAll { item in
             !item.isPinned && item.createdAt < cutoffDate
         }
-        removedItems.compactMap(\.imageFileName).forEach(persistence.deleteImage)
+        deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
     }
 
@@ -226,7 +256,12 @@ final class ClipboardHistoryStore: ObservableObject {
 
         let removedItems = Array(items.suffix(items.count - maxInMemoryItems))
         items.removeLast(items.count - maxInMemoryItems)
-        removedItems.compactMap(\.imageFileName).forEach(persistence.deleteImage)
+        deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
+    }
+
+    private func deleteExternalFiles(for items: [ClipboardItem]) {
+        items.compactMap(\.imageFileName).forEach(persistence.deleteImage)
+        items.compactMap(\.richTextFileName).forEach(persistence.deleteRichText)
     }
 }

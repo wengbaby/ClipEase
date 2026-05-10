@@ -9,6 +9,10 @@ struct StoredClipboardImage {
     let hash: String
 }
 
+struct StoredRichText {
+    let fileName: String
+}
+
 struct ClipboardHistoryPersistence {
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -101,6 +105,46 @@ struct ClipboardHistoryPersistence {
 
         try? fileManager.removeItem(at: imageURL)
     }
+
+    func saveRichText(_ data: Data) -> StoredRichText? {
+        let fileName = "\(UUID().uuidString).rtf"
+
+        do {
+            let directoryURL = try ClipEaseStoragePaths.richTextsDirectory(fileManager: fileManager)
+            try fileManager.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true
+            )
+            let fileURL = directoryURL.appendingPathComponent(fileName)
+            try data.write(to: fileURL, options: [.atomic])
+            return StoredRichText(fileName: fileName)
+        } catch {
+            NSLog("ClipEase failed to save rich text: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    func richTextData(fileName: String) -> Data? {
+        guard let fileURL = try? ClipEaseStoragePaths.richTextFileURL(
+            fileName: fileName,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+
+        return try? Data(contentsOf: fileURL)
+    }
+
+    func deleteRichText(fileName: String) {
+        guard let fileURL = try? ClipEaseStoragePaths.richTextFileURL(
+            fileName: fileName,
+            fileManager: fileManager
+        ) else {
+            return
+        }
+
+        try? fileManager.removeItem(at: fileURL)
+    }
 }
 
 private struct PersistentClipboardItem: Codable {
@@ -114,6 +158,7 @@ private struct PersistentClipboardItem: Codable {
     let imageWidth: Int?
     let imageHeight: Int?
     let imageHash: String?
+    let richTextFileName: String?
     let createdAt: Date
     let sourceAppName: String
     let sourceBundleID: String?
@@ -133,6 +178,7 @@ private struct PersistentClipboardItem: Codable {
         self.imageWidth = item.imageWidth
         self.imageHeight = item.imageHeight
         self.imageHash = item.imageHash
+        self.richTextFileName = item.richTextFileName
         self.createdAt = item.createdAt
         self.sourceAppName = item.sourceAppName
         self.sourceBundleID = item.sourceBundleID
@@ -154,6 +200,7 @@ private struct PersistentClipboardItem: Codable {
             imageWidth: imageWidth,
             imageHeight: imageHeight,
             imageHash: imageHash,
+            richTextFileName: richTextFileName,
             createdAt: createdAt,
             sourceAppName: sourceAppName,
             sourceBundleID: sourceBundleID,

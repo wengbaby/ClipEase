@@ -29,4 +29,17 @@ enum ClipEaseStoragePaths {
         try imagesDirectory(fileManager: fileManager)
             .appendingPathComponent(fileName)
     }
+
+    static func richTextsDirectory(fileManager: FileManager = .default) throws -> URL {
+        try applicationSupportDirectory(fileManager: fileManager)
+            .appendingPathComponent("RichTexts", isDirectory: true)
+    }
+
+    static func richTextFileURL(
+        fileName: String,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        try richTextsDirectory(fileManager: fileManager)
+            .appendingPathComponent(fileName)
+    }
 }

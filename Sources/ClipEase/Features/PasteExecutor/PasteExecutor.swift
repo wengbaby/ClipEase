@@ -31,6 +31,9 @@ final class PasteExecutor {
 
         switch item.type {
         case .text, .link, .color:
+            if let richTextData = store.richTextData(for: item) {
+                pasteboard.setData(richTextData, forType: .rtf)
+            }
             pasteboard.setString(item.text, forType: .string)
             store.skipNextClipboardText(item.text)
         case .image:

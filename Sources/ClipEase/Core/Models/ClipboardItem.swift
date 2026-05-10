@@ -19,6 +19,7 @@ struct ClipboardItem: Identifiable, Equatable {
     let imageWidth: Int?
     let imageHeight: Int?
     let imageHash: String?
+    let richTextFileName: String?
     let createdAt: Date
     let sourceAppName: String
     let sourceBundleID: String?
@@ -102,6 +103,7 @@ extension ClipboardItem {
             imageWidth: nil,
             imageHeight: nil,
             imageHash: nil,
+            richTextFileName: nil,
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
@@ -131,6 +133,7 @@ extension ClipboardItem {
             imageWidth: nil,
             imageHeight: nil,
             imageHash: nil,
+            richTextFileName: nil,
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
@@ -159,6 +162,34 @@ extension ClipboardItem {
             imageWidth: width,
             imageHeight: height,
             imageHash: hash,
+            richTextFileName: nil,
+            createdAt: Date(),
+            sourceAppName: sourceApp.name,
+            sourceBundleID: sourceApp.bundleID,
+            iconName: sourceApp.iconName,
+            headerColorHex: sourceApp.headerColorHex,
+            isPinned: false,
+            pinnedAt: nil
+        )
+    }
+
+    static func richText(
+        plainText: String,
+        fileName: String,
+        sourceApp: SourceAppInfo
+    ) -> ClipboardItem {
+        ClipboardItem(
+            id: UUID(),
+            type: .text,
+            text: plainText,
+            url: nil,
+            linkTitle: nil,
+            linkSubtitle: nil,
+            imageFileName: nil,
+            imageWidth: nil,
+            imageHeight: nil,
+            imageHash: nil,
+            richTextFileName: fileName,
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,

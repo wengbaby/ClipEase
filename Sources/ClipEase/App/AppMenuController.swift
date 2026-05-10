@@ -4,6 +4,7 @@ import AppKit
 final class AppMenuController: NSObject {
     private let historyStore: ClipboardHistoryStore
     private let recordingController: RecordingController
+    private var richTextEditorController: RichTextEditorController?
 
     init(
         historyStore: ClipboardHistoryStore,
@@ -15,35 +16,15 @@ final class AppMenuController: NSObject {
     }
 
     func createTextItem() {
-        let alert = NSAlert()
-        alert.messageText = "新建文本"
-        alert.informativeText = "输入要保存到轻贴历史的文本。"
-        alert.addButton(withTitle: "保存")
-        alert.addButton(withTitle: "取消")
-
-        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 420, height: 170))
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
-
-        let textView = NSTextView(frame: scrollView.bounds)
-        textView.font = .systemFont(ofSize: 14)
-        textView.isRichText = false
-        textView.allowsUndo = true
-        textView.textContainerInset = NSSize(width: 8, height: 8)
-        scrollView.documentView = textView
-
-        alert.accessoryView = scrollView
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else {
-            return
+        let editorController = RichTextEditorController { [weak self] data, plainText in
+            self?.historyStore.addRichText(
+                data,
+                plainText: plainText,
+                sourceApp: .clipease
+            )
         }
-
-        let text = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
-            return
-        }
-
-        historyStore.addText(text, sourceApp: .clipease)
+        richTextEditorController = editorController
+        editorController.show()
     }
 
     func showHelp() {
