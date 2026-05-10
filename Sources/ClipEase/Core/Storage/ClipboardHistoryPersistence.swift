@@ -29,13 +29,19 @@ struct ClipboardHistoryPersistence {
 
     func loadItems() -> [ClipboardItem] {
         guard let fileURL = try? ClipEaseStoragePaths.historyFileURL(fileManager: fileManager),
-              fileManager.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
-              let records = try? decoder.decode([PersistentClipboardItem].self, from: data) else {
+              fileManager.fileExists(atPath: fileURL.path) else {
             return []
         }
 
-        return records.map(\.clipboardItem)
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let records = try decoder.decode([PersistentClipboardItem].self, from: data)
+            return records.map(\.clipboardItem)
+        } catch {
+            backupCorruptedHistory(at: fileURL)
+            NSLog("ClipEase failed to load clipboard history, backed up corrupted file: \(error.localizedDescription)")
+            return []
+        }
     }
 
     func saveItems(_ items: [ClipboardItem]) {
@@ -145,9 +151,27 @@ struct ClipboardHistoryPersistence {
 
         try? fileManager.removeItem(at: fileURL)
     }
+
+    private func backupCorruptedHistory(at fileURL: URL) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let backupURL = fileURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("history-corrupt-\(formatter.string(from: Date())).json")
+
+        do {
+            if fileManager.fileExists(atPath: backupURL.path) {
+                try fileManager.removeItem(at: backupURL)
+            }
+
+            try fileManager.moveItem(at: fileURL, to: backupURL)
+        } catch {
+            NSLog("ClipEase failed to back up corrupted history: \(error.localizedDescription)")
+        }
+    }
 }
 
-private struct PersistentClipboardItem: Codable {
+struct PersistentClipboardItem: Codable {
     let id: UUID
     let type: String
     let text: String

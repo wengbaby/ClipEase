@@ -153,6 +153,26 @@ final class ClipboardHistoryStore: ObservableObject {
         save()
     }
 
+    func importItems(_ importedItems: [ClipboardItem]) -> Int {
+        let existingIDs = Set(items.map(\.id))
+        let existingTextHashes = Set(items.map(textHash))
+        let newItems = importedItems.filter { item in
+            !existingIDs.contains(item.id) && !existingTextHashes.contains(textHash(for: item))
+        }
+
+        guard !newItems.isEmpty else {
+            return 0
+        }
+
+        items.append(contentsOf: newItems)
+        sortItems()
+        pruneExpiredItems()
+        trimItemsIfNeeded()
+        rebuildRecentHashes()
+        save()
+        return newItems.count
+    }
+
     func togglePinned(for id: ClipboardItem.ID?) {
         guard let id,
               let index = items.firstIndex(where: { $0.id == id }) else {
@@ -225,14 +245,16 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func rebuildRecentHashes() {
-        recentHashes = Set(items.map { item in
-            switch item.type {
-            case .image:
-                "\(item.sourceBundleID ?? "unknown"):\(item.imageHash ?? item.id.uuidString)"
-            case .text, .link, .color:
-                "\(item.sourceBundleID ?? "unknown"):\(item.text)"
-            }
-        })
+        recentHashes = Set(items.map(textHash))
+    }
+
+    private func textHash(for item: ClipboardItem) -> String {
+        switch item.type {
+        case .image:
+            "\(item.sourceBundleID ?? "unknown"):\(item.imageHash ?? item.id.uuidString)"
+        case .text, .link, .color:
+            "\(item.sourceBundleID ?? "unknown"):\(item.text)"
+        }
     }
 
     private func pruneExpiredItems(now: Date = Date()) {

@@ -31,6 +31,7 @@ struct SettingsView: View {
                     ignoredAppsSection
                     permissionsSection
                     historySection
+                    aboutSection
                 }
                 .padding(18)
             }
@@ -284,6 +285,11 @@ struct SettingsView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(store.items.isEmpty)
 
+                    Button("导入历史") {
+                        importHistory()
+                    }
+                    .buttonStyle(.bordered)
+
                     Button("打开数据目录") {
                         openDirectory(try? ClipEaseStoragePaths.applicationSupportDirectory())
                     }
@@ -322,6 +328,30 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.bordered)
                 .disabled(store.items.isEmpty)
+            }
+        }
+    }
+
+    private var aboutSection: some View {
+        settingsSection(title: "关于轻贴", subtitle: "ClipEase \(AppVersionInfo.displayVersion)") {
+            HStack(spacing: 10) {
+                Label("简洁好用的 macOS 粘贴板历史助手", systemImage: "info.circle")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button("打开 GitHub") {
+                    openGitHub()
+                }
+                .buttonStyle(.bordered)
+
+                Button("复制版本号") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(AppVersionInfo.displayVersion, forType: .string)
+                    showStatus("已复制版本号")
+                }
+                .buttonStyle(.bordered)
             }
         }
     }
@@ -420,6 +450,39 @@ struct SettingsView: View {
         } catch {
             showStatus("导出失败")
         }
+    }
+
+    private func importHistory() {
+        let panel = NSOpenPanel()
+        panel.title = "导入轻贴历史"
+        panel.prompt = "导入"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+
+        guard panel.runModal() == .OK,
+              let url = panel.url else {
+            return
+        }
+
+        do {
+            let importedItems = try HistoryExportService.importItems(from: url)
+            let importedCount = store.importItems(importedItems)
+            refreshStorageUsage()
+            showStatus(importedCount > 0 ? "已导入 \(importedCount) 条历史" : "没有可导入的新历史")
+        } catch {
+            showStatus("导入失败")
+        }
+    }
+
+    private func openGitHub() {
+        guard let url = AppVersionInfo.githubURL else {
+            showStatus("无法打开 GitHub")
+            return
+        }
+
+        NSWorkspace.shared.open(url)
     }
 
     private func exportDateString() -> String {

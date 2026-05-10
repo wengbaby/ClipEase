@@ -86,7 +86,7 @@ final class AppMenuController: NSObject {
     func showAbout() {
         let alert = NSAlert()
         alert.messageText = "关于轻贴"
-        alert.informativeText = "轻贴 ClipEase\n简洁好用的 macOS 粘贴板历史助手"
+        alert.informativeText = "轻贴 ClipEase\n简洁好用的 macOS 粘贴板历史助手\n版本 \(AppVersionInfo.displayVersion)"
         alert.addButton(withTitle: "好的")
         alert.runModal()
     }
