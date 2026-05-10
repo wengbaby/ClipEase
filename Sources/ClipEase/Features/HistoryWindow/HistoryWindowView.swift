@@ -10,6 +10,7 @@ struct HistoryWindowView: View {
     @State private var searchText = ""
     @State private var isSearchVisible = false
     @State private var filter: HistoryFilter = .all
+    @State private var canAutoPaste = false
 
     private var items: [HistoryPreviewItem] {
         store.items.map(HistoryPreviewItem.init)
@@ -111,6 +112,7 @@ struct HistoryWindowView: View {
         .focusable()
         .onAppear {
             selectedItemID = filteredItems.first?.id
+            canAutoPaste = pasteExecutor.canAutoPaste
         }
         .onChange(of: store.items) { newItems in
             guard let firstItem = newItems.first else {
@@ -159,6 +161,8 @@ struct HistoryWindowView: View {
 
             Spacer()
 
+            autoPasteStatusButton
+
             searchField
 
             Button(action: toggleSearch) {
@@ -188,6 +192,25 @@ struct HistoryWindowView: View {
         }
         .padding(.horizontal, 22)
         .frame(height: 36)
+    }
+
+    private var autoPasteStatusButton: some View {
+        Button(action: openAccessibilitySettingsIfNeeded) {
+            HStack(spacing: 5) {
+                Image(systemName: canAutoPaste ? "keyboard.badge.eye" : "exclamationmark.lock")
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text(canAutoPaste ? "自动粘贴" : "需授权")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(canAutoPaste ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color(red: 0.78, green: 0.36, blue: 0.08))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.55))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(canAutoPaste ? "回车会自动粘贴到当前 App" : "点击打开辅助功能权限设置")
     }
 
     private var searchField: some View {
@@ -264,6 +287,7 @@ struct HistoryWindowView: View {
             return
         }
 
+        canAutoPaste = pasteExecutor.canAutoPaste
         switch pasteExecutor.pasteToFrontmostApp(item) {
         case .copiedOnly:
             showStatus("已复制")
@@ -321,6 +345,17 @@ struct HistoryWindowView: View {
         }
 
         selectedItemID = filteredItems.first?.id
+    }
+
+    private func openAccessibilitySettingsIfNeeded() {
+        canAutoPaste = pasteExecutor.canAutoPaste
+        guard !canAutoPaste else {
+            showStatus("自动粘贴已启用")
+            return
+        }
+
+        pasteExecutor.openAccessibilitySettings()
+        showStatus("请授权轻贴")
     }
 }
 
