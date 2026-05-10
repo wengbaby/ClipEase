@@ -139,9 +139,10 @@ ClipEase/
 
 当前实现备注：
 
-- 阶段 4 先使用 `~/Library/Application Support/ClipEase/history.json` 保存文字和链接历史。
-- JSON 方案用于快速验证历史恢复、删除、置顶和排序的完整链路。
-- 图片历史、保存期限和批量数据稳定后，再迁移到 SQLite 表结构。
+- 阶段 4 先使用 `~/Library/Application Support/ClipEase/history.json` 保存历史索引。
+- 图片文件保存在 `~/Library/Application Support/ClipEase/Images`。
+- JSON 方案已覆盖文字、链接、图片、置顶、删除、排序和保存期限。
+- 批量数据、复杂搜索和发布稳定后，再迁移到 SQLite 表结构。
 
 ### 4.5 PasteExecutor
 
@@ -226,6 +227,26 @@ ClipEase/
 - 用户从历史记录中再次粘贴导致剪贴板变化时，不重复保存。
 
 不做激进去重，避免误删用户确实重复复制的内容。
+
+### 5.4 保存期限
+
+当前保存期限使用 `UserDefaults` 保存，键名为 `history.retentionPolicy`。
+
+支持选项：
+
+- 1 天
+- 3 天
+- 5 天
+- 7 天
+- 30 天
+- 永久保存
+
+规则：
+
+- 普通历史超过期限后自动清理。
+- 置顶内容不自动清理。
+- 图片历史被清理时，同时删除对应本地图片文件。
+- 修改保存期限后立即执行一次清理并写回历史文件。
 
 ## 6. SQLite 表设计
 

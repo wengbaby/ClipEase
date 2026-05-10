@@ -168,6 +168,8 @@ struct HistoryWindowView: View {
 
             autoPasteStatusButton
 
+            retentionMenu
+
             searchField
 
             Button(action: toggleSearch) {
@@ -235,6 +237,40 @@ struct HistoryWindowView: View {
         }
         .buttonStyle(.plain)
         .help(recordingController.isPaused ? "点击恢复记录" : "点击暂停记录")
+    }
+
+    private var retentionMenu: some View {
+        Menu {
+            ForEach(HistoryRetentionPolicy.allCases) { policy in
+                Button {
+                    store.retentionPolicy = policy
+                    showStatus("保存期限：\(policy.shortTitle)")
+                } label: {
+                    HStack {
+                        Text(policy.title)
+                        if store.retentionPolicy == policy {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text(store.retentionPolicy.shortTitle)
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.55))
+            .clipShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("设置普通历史保存期限，置顶内容不会自动清理")
     }
 
     private var searchField: some View {

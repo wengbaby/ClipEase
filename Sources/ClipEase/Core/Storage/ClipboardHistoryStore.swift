@@ -4,17 +4,34 @@ import AppKit
 @MainActor
 final class ClipboardHistoryStore: ObservableObject {
     @Published private(set) var items: [ClipboardItem] = []
+    @Published var retentionPolicy: HistoryRetentionPolicy {
+        didSet {
+            userDefaults.set(retentionPolicy.rawValue, forKey: Self.retentionPolicyKey)
+            pruneExpiredItems()
+            save()
+        }
+    }
 
+    private static let retentionPolicyKey = "history.retentionPolicy"
     private let maxInMemoryItems = 80
     private let persistence: ClipboardHistoryPersistence
+    private let userDefaults: UserDefaults
     private var recentHashes: Set<String> = []
     private var skippedClipboardTexts: Set<String> = []
     private var skippedImageHashes: Set<String> = []
 
-    init(persistence: ClipboardHistoryPersistence = ClipboardHistoryPersistence()) {
+    init(
+        persistence: ClipboardHistoryPersistence = ClipboardHistoryPersistence(),
+        userDefaults: UserDefaults = .standard
+    ) {
         self.persistence = persistence
+        self.userDefaults = userDefaults
+        self.retentionPolicy = HistoryRetentionPolicy(
+            rawValue: userDefaults.integer(forKey: Self.retentionPolicyKey)
+        ) ?? .forever
         self.items = persistence.loadItems()
         sortItems()
+        pruneExpiredItems()
         rebuildRecentHashes()
     }
 
@@ -44,6 +61,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
         items.insert(item, at: 0)
         sortItems()
+        pruneExpiredItems()
         trimItemsIfNeeded()
         save()
     }
@@ -75,6 +93,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
         items.insert(item, at: 0)
         sortItems()
+        pruneExpiredItems()
         trimItemsIfNeeded()
         save()
     }
@@ -163,6 +182,31 @@ final class ClipboardHistoryStore: ObservableObject {
                 "\(item.sourceBundleID ?? "unknown"):\(item.text)"
             }
         })
+    }
+
+    private func pruneExpiredItems(now: Date = Date()) {
+        guard let days = retentionPolicy.days else {
+            return
+        }
+
+        let cutoffDate = Calendar.current.date(
+            byAdding: .day,
+            value: -days,
+            to: now
+        ) ?? now
+        let removedItems = items.filter { item in
+            !item.isPinned && item.createdAt < cutoffDate
+        }
+
+        guard !removedItems.isEmpty else {
+            return
+        }
+
+        items.removeAll { item in
+            !item.isPinned && item.createdAt < cutoffDate
+        }
+        removedItems.compactMap(\.imageFileName).forEach(persistence.deleteImage)
+        rebuildRecentHashes()
     }
 
     private func trimItemsIfNeeded() {
