@@ -662,6 +662,7 @@ struct HistoryWindowView: View {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(item.sourceAppName, forType: .string)
+        store.skipNextClipboardText(item.sourceAppName)
         showStatus("已复制来源名称")
     }
 
@@ -674,6 +675,7 @@ struct HistoryWindowView: View {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(bundleID, forType: .string)
+        store.skipNextClipboardText(bundleID)
         showStatus("已复制 Bundle ID")
     }
 

@@ -11,6 +11,7 @@ struct SettingsView: View {
 
     @State private var canAutoPaste = false
     @State private var isClearConfirmationPresented = false
+    @State private var isClearIconCacheConfirmationPresented = false
     @State private var statusText: String?
     @State private var isRecordingShortcut = false
     @State private var storageUsageText = "计算中"
@@ -55,6 +56,21 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("此操作会删除所有普通和置顶记录，以及已保存的图片文件。")
+        }
+        .confirmationDialog(
+            "清空图标缓存？",
+            isPresented: $isClearIconCacheConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("清空图标缓存", role: .destructive) {
+                AppIconCache.clearCache()
+                refreshStorageUsage()
+                showStatus("已清空图标缓存")
+            }
+
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此操作只会删除来源 App 图标缓存，不会删除历史记录。后续新复制内容会重新生成图标缓存。")
         }
     }
 
@@ -273,6 +289,16 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.bordered)
 
+                    Button("刷新用量") {
+                        refreshStorageUsage()
+                        showStatus("已刷新存储用量")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+
+                HStack(spacing: 10) {
                     Button("打开图片目录") {
                         openDirectory(try? ClipEaseStoragePaths.imagesDirectory())
                     }
@@ -284,15 +310,7 @@ struct SettingsView: View {
                     .buttonStyle(.bordered)
 
                     Button("清空图标缓存") {
-                        AppIconCache.clearCache()
-                        refreshStorageUsage()
-                        showStatus("已清空图标缓存")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("刷新用量") {
-                        refreshStorageUsage()
-                        showStatus("已刷新存储用量")
+                        isClearIconCacheConfirmationPresented = true
                     }
                     .buttonStyle(.bordered)
 
