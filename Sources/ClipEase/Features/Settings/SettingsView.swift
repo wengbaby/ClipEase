@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var isClearConfirmationPresented = false
     @State private var statusText: String?
     @State private var isRecordingShortcut = false
+    @State private var storageUsageText = "计算中"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -38,6 +39,7 @@ struct SettingsView: View {
         .onAppear {
             canAutoPaste = pasteExecutor.canAutoPaste
             loginItemController.refresh()
+            refreshStorageUsage()
         }
         .confirmationDialog(
             "清空全部历史？",
@@ -185,6 +187,12 @@ struct SettingsView: View {
                     canAutoPaste = pasteExecutor.canAutoPaste
                 }
                 .buttonStyle(.bordered)
+
+                Button("刷新状态") {
+                    canAutoPaste = pasteExecutor.canAutoPaste
+                    showStatus(canAutoPaste ? "已授权自动粘贴" : "仍需授权")
+                }
+                .buttonStyle(.bordered)
             }
         }
     }
@@ -250,15 +258,38 @@ struct SettingsView: View {
     }
 
     private var historySection: some View {
-        settingsSection(title: "历史数据", subtitle: "当前共有 \(store.items.count) 条记录") {
-            HStack {
+        settingsSection(title: "历史数据", subtitle: "当前共有 \(store.items.count) 条记录，占用 \(storageUsageText)") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Button("打开数据目录") {
+                        openDirectory(try? ClipEaseStoragePaths.applicationSupportDirectory())
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("打开图片目录") {
+                        openDirectory(try? ClipEaseStoragePaths.imagesDirectory())
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("打开图标缓存") {
+                        openDirectory(try? ClipEaseStoragePaths.appIconsDirectory())
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("刷新用量") {
+                        refreshStorageUsage()
+                        showStatus("已刷新存储用量")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+
                 Button("清空历史", role: .destructive) {
                     isClearConfirmationPresented = true
                 }
                 .buttonStyle(.bordered)
                 .disabled(store.items.isEmpty)
-
-                Spacer()
             }
         }
     }
@@ -310,6 +341,23 @@ struct SettingsView: View {
                 statusText = nil
             }
         }
+    }
+
+    private func refreshStorageUsage() {
+        storageUsageText = StorageUsageCalculator.formattedApplicationSupportSize()
+    }
+
+    private func openDirectory(_ url: URL?) {
+        guard let url else {
+            showStatus("无法打开目录")
+            return
+        }
+
+        try? FileManager.default.createDirectory(
+            at: url,
+            withIntermediateDirectories: true
+        )
+        NSWorkspace.shared.open(url)
     }
 
     private func addIgnoredAppFromPanel() {
