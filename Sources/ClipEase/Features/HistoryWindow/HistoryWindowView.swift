@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryWindowView: View {
     @ObservedObject var store: ClipboardHistoryStore
+    let pasteExecutor: PasteExecutor
     let onClose: () -> Void
 
     @State private var selectedItemID: HistoryPreviewItem.ID?
@@ -14,6 +15,14 @@ struct HistoryWindowView: View {
         ZStack {
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
                 .ignoresSafeArea()
+
+            Button(action: { copyItem(selectedItemID) }) {
+                EmptyView()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.return, modifiers: [])
+            .frame(width: 0, height: 0)
+            .opacity(0)
 
             VStack(alignment: .leading, spacing: 14) {
                 toolbar
@@ -33,6 +42,9 @@ struct HistoryWindowView: View {
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         select(item.id, proxy: proxy)
+                                    }
+                                    .onTapGesture(count: 2) {
+                                        copyItem(item.id)
                                     }
                                 }
                             }
@@ -137,5 +149,13 @@ struct HistoryWindowView: View {
         default:
             break
         }
+    }
+
+    private func copyItem(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id) else {
+            return
+        }
+
+        pasteExecutor.copyToPasteboard(item)
     }
 }

@@ -5,10 +5,15 @@ import SwiftUI
 final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let panelHeight: CGFloat = 360
     private let store: ClipboardHistoryStore
+    private let pasteExecutor: PasteExecutor
     private var panel: HistoryPanel?
 
-    init(store: ClipboardHistoryStore) {
+    init(
+        store: ClipboardHistoryStore,
+        pasteExecutor: PasteExecutor
+    ) {
         self.store = store
+        self.pasteExecutor = pasteExecutor
         super.init()
     }
 
@@ -36,6 +41,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private func makePanel() -> HistoryPanel {
         let contentView = HistoryWindowView(
             store: store,
+            pasteExecutor: pasteExecutor,
             onClose: { [weak self] in
                 self?.close()
             }
