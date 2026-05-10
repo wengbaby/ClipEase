@@ -13,9 +13,11 @@ struct HistoryPreviewItem: Identifiable {
     let kind: String
     let time: String
     let iconName: String
+    let iconFileName: String?
     let headerColor: Color
     let preview: String
     let footer: String
+    let sourceAppName: String
     let linkTitle: String?
     let linkSubtitle: String?
     let imageFileName: String?
@@ -26,6 +28,7 @@ struct HistoryPreviewItem: Identifiable {
             kind,
             preview,
             footer,
+            sourceAppName,
             linkTitle,
             linkSubtitle
         ]
@@ -39,9 +42,11 @@ struct HistoryPreviewItem: Identifiable {
         self.kind = item.kind
         self.time = item.relativeTime
         self.iconName = item.iconName
+        self.iconFileName = item.iconFileName
         self.headerColor = item.headerColor
         self.preview = item.preview
         self.footer = item.footer
+        self.sourceAppName = item.sourceAppName
         self.linkTitle = item.linkTitle
         self.linkSubtitle = item.linkSubtitle
         self.imageFileName = item.imageFileName
@@ -54,9 +59,11 @@ struct HistoryPreviewItem: Identifiable {
         kind: String,
         time: String,
         iconName: String,
+        iconFileName: String? = nil,
         headerColor: Color,
         preview: String,
         footer: String,
+        sourceAppName: String = "",
         linkTitle: String? = nil,
         linkSubtitle: String? = nil,
         imageFileName: String? = nil,
@@ -67,9 +74,11 @@ struct HistoryPreviewItem: Identifiable {
         self.kind = kind
         self.time = time
         self.iconName = iconName
+        self.iconFileName = iconFileName
         self.headerColor = headerColor
         self.preview = preview
         self.footer = footer
+        self.sourceAppName = sourceAppName
         self.linkTitle = linkTitle
         self.linkSubtitle = linkSubtitle
         self.imageFileName = imageFileName

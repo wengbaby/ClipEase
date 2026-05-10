@@ -163,6 +163,7 @@ private struct PersistentClipboardItem: Codable {
     let sourceAppName: String
     let sourceBundleID: String?
     let iconName: String
+    let iconFileName: String?
     let headerColorHex: String
     let isPinned: Bool
     let pinnedAt: Date?
@@ -183,6 +184,7 @@ private struct PersistentClipboardItem: Codable {
         self.sourceAppName = item.sourceAppName
         self.sourceBundleID = item.sourceBundleID
         self.iconName = item.iconName
+        self.iconFileName = item.iconFileName
         self.headerColorHex = item.headerColorHex
         self.isPinned = item.isPinned
         self.pinnedAt = item.pinnedAt
@@ -205,6 +207,7 @@ private struct PersistentClipboardItem: Codable {
             sourceAppName: sourceAppName,
             sourceBundleID: sourceBundleID,
             iconName: iconName,
+            iconFileName: iconFileName,
             headerColorHex: headerColorHex,
             isPinned: isPinned,
             pinnedAt: pinnedAt

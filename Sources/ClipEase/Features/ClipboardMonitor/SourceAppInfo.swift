@@ -5,6 +5,7 @@ struct SourceAppInfo {
     let name: String
     let bundleID: String?
     let iconName: String
+    let iconFileName: String?
     let headerColorHex: String
 
     var headerColor: Color {
@@ -21,15 +22,18 @@ struct SourceAppInfo {
                 name: "未知应用",
                 bundleID: nil,
                 iconName: "app.fill",
+                iconFileName: nil,
                 headerColorHex: "#2E8CFF"
             )
         }
 
+        let cachedIcon = AppIconCache.cacheIcon(for: app)
         return SourceAppInfo(
             name: app.localizedName ?? "未知应用",
             bundleID: app.bundleIdentifier,
             iconName: iconName(for: app.bundleIdentifier),
-            headerColorHex: headerColorHex(for: app.bundleIdentifier)
+            iconFileName: cachedIcon?.fileName,
+            headerColorHex: cachedIcon?.dominantColorHex ?? headerColorHex(for: app.bundleIdentifier)
         )
     }
 
@@ -37,6 +41,7 @@ struct SourceAppInfo {
         name: "轻贴",
         bundleID: "com.clipease.app",
         iconName: "doc.on.clipboard",
+        iconFileName: nil,
         headerColorHex: "#2E8CFF"
     )
 

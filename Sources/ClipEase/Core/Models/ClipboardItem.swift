@@ -24,6 +24,7 @@ struct ClipboardItem: Identifiable, Equatable {
     let sourceAppName: String
     let sourceBundleID: String?
     let iconName: String
+    let iconFileName: String?
     let headerColorHex: String
     var isPinned: Bool
     var pinnedAt: Date?
@@ -108,6 +109,7 @@ extension ClipboardItem {
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
             iconName: sourceApp.iconName,
+            iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
             pinnedAt: nil
@@ -134,6 +136,7 @@ extension ClipboardItem {
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
             iconName: "paintpalette.fill",
+            iconFileName: nil,
             headerColorHex: hex,
             isPinned: false,
             pinnedAt: nil
@@ -164,6 +167,7 @@ extension ClipboardItem {
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
             iconName: sourceApp.iconName,
+            iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
             pinnedAt: nil
@@ -193,6 +197,7 @@ extension ClipboardItem {
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
             iconName: sourceApp.iconName,
+            iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
             pinnedAt: nil
@@ -220,6 +225,7 @@ extension ClipboardItem {
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
             iconName: sourceApp.iconName,
+            iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
             pinnedAt: nil

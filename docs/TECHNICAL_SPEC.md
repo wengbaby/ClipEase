@@ -142,6 +142,8 @@ ClipEase/
 
 - 阶段 4 先使用 `~/Library/Application Support/ClipEase/history.json` 保存历史索引。
 - 图片文件保存在 `~/Library/Application Support/ClipEase/Images`。
+- 来源 App 图标缓存到 `~/Library/Application Support/ClipEase/AppIcons`，历史记录保存图标文件名。
+- 来源 App 标题栏颜色优先从真实 App 图标平均主色计算，失败时回退到默认规则。
 - JSON 方案已覆盖文字、链接、图片、置顶、删除、排序和保存期限。
 - 保存期限清理在启动和策略变更时执行，清理后会立即写回历史文件。
 - 批量数据、复杂搜索和发布稳定后，再迁移到 SQLite 表结构。

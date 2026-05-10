@@ -25,11 +25,7 @@ struct HistoryCardView: View {
 
                 Spacer()
 
-                Image(systemName: item.iconName)
-                    .font(.system(size: 27, weight: .semibold))
-                    .frame(width: 50, height: 50)
-                    .background(Color.white.opacity(0.86))
-                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                sourceIcon
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
@@ -59,6 +55,26 @@ struct HistoryCardView: View {
             x: 0,
             y: isSelected ? 5 : 3
         )
+    }
+
+    private var sourceIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(Color.white.opacity(0.86))
+
+            if let icon = loadSourceIcon() {
+                Image(nsImage: icon)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(7)
+            } else {
+                Image(systemName: item.iconName)
+                    .font(.system(size: 27, weight: .semibold))
+            }
+        }
+        .frame(width: 50, height: 50)
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .help(item.sourceAppName)
     }
 
     @ViewBuilder
@@ -161,5 +177,14 @@ struct HistoryCardView: View {
         }
 
         return NSImage(contentsOf: imageURL)
+    }
+
+    private func loadSourceIcon() -> NSImage? {
+        guard let iconFileName = item.iconFileName,
+              let iconURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: iconFileName) else {
+            return nil
+        }
+
+        return NSImage(contentsOf: iconURL)
     }
 }
