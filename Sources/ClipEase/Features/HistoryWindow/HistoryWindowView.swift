@@ -159,16 +159,7 @@ struct HistoryWindowView: View {
 
             Spacer()
 
-            if isSearchVisible {
-                TextField("搜索", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .medium))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(width: 220)
-                    .background(Color.white.opacity(0.72))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
+            searchField
 
             Button(action: toggleSearch) {
                 Image(systemName: isSearchVisible ? "xmark" : "magnifyingglass")
@@ -196,6 +187,19 @@ struct HistoryWindowView: View {
             .fixedSize()
         }
         .padding(.horizontal, 22)
+        .frame(height: 36)
+    }
+
+    private var searchField: some View {
+        TextField("搜索", text: $searchText)
+            .textFieldStyle(.plain)
+            .font(.system(size: 13, weight: .medium))
+            .padding(.horizontal, 10)
+            .frame(width: 220, height: 30)
+            .background(Color.white.opacity(isSearchVisible ? 0.72 : 0))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .opacity(isSearchVisible ? 1 : 0)
+            .allowsHitTesting(isSearchVisible)
     }
 
     private var emptyState: some View {
