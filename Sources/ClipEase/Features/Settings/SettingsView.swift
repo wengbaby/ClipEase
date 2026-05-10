@@ -48,6 +48,7 @@ struct SettingsView: View {
         ) {
             Button("清空历史", role: .destructive) {
                 store.clearAllItems()
+                refreshStorageUsage()
                 showStatus("已清空历史")
             }
 
@@ -258,9 +259,15 @@ struct SettingsView: View {
     }
 
     private var historySection: some View {
-        settingsSection(title: "历史数据", subtitle: "当前共有 \(store.items.count) 条记录，占用 \(storageUsageText)") {
+        settingsSection(title: "历史数据", subtitle: historySubtitle) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
+                    Button("导出历史") {
+                        exportHistory()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.items.isEmpty)
+
                     Button("打开数据目录") {
                         openDirectory(try? ClipEaseStoragePaths.applicationSupportDirectory())
                     }
@@ -317,6 +324,15 @@ struct SettingsView: View {
         return "已忽略 \(ignoredAppSettings.apps.count) 个 App"
     }
 
+    private var historySubtitle: String {
+        let textCount = store.items.filter { $0.type == .text }.count
+        let linkCount = store.items.filter { $0.type == .link }.count
+        let imageCount = store.items.filter { $0.type == .image }.count
+        let colorCount = store.items.filter { $0.type == .color }.count
+        let pinnedCount = store.items.filter(\.isPinned).count
+        return "共 \(store.items.count) 条，占用 \(storageUsageText)，文字 \(textCount)，链接 \(linkCount)，图片 \(imageCount)，颜色 \(colorCount)，置顶 \(pinnedCount)"
+    }
+
     private func settingsSection<Content: View>(
         title: String,
         subtitle: String,
@@ -365,6 +381,33 @@ struct SettingsView: View {
             withIntermediateDirectories: true
         )
         NSWorkspace.shared.open(url)
+    }
+
+    private func exportHistory() {
+        let panel = NSSavePanel()
+        panel.title = "导出轻贴历史"
+        panel.prompt = "导出"
+        panel.nameFieldStringValue = "ClipEase-History-\(exportDateString()).json"
+        panel.allowedContentTypes = [.json]
+
+        guard panel.runModal() == .OK,
+              let url = panel.url else {
+            return
+        }
+
+        do {
+            try HistoryExportService.export(items: store.items, to: url)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            showStatus("已导出历史")
+        } catch {
+            showStatus("导出失败")
+        }
+    }
+
+    private func exportDateString() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmm"
+        return formatter.string(from: Date())
     }
 
     private func addIgnoredAppFromPanel() {
