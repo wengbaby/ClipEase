@@ -4,7 +4,13 @@ import SwiftUI
 @MainActor
 final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let panelHeight: CGFloat = 360
+    private let store: ClipboardHistoryStore
     private var panel: HistoryPanel?
+
+    init(store: ClipboardHistoryStore) {
+        self.store = store
+        super.init()
+    }
 
     func toggle() {
         if let panel, panel.isVisible {
@@ -29,6 +35,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func makePanel() -> HistoryPanel {
         let contentView = HistoryWindowView(
+            store: store,
             onClose: { [weak self] in
                 self?.close()
             }

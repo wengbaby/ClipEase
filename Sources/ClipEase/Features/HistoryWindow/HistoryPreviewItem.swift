@@ -16,6 +16,37 @@ struct HistoryPreviewItem: Identifiable {
     let preview: String
     let footer: String
 
+    init(item: ClipboardItem) {
+        self.id = item.id
+        self.type = HistoryPreviewType(item.type)
+        self.kind = item.kind
+        self.time = item.relativeTime
+        self.iconName = item.iconName
+        self.headerColor = item.headerColor
+        self.preview = item.preview
+        self.footer = item.footer
+    }
+
+    init(
+        id: UUID,
+        type: HistoryPreviewType,
+        kind: String,
+        time: String,
+        iconName: String,
+        headerColor: Color,
+        preview: String,
+        footer: String
+    ) {
+        self.id = id
+        self.type = type
+        self.kind = kind
+        self.time = time
+        self.iconName = iconName
+        self.headerColor = headerColor
+        self.preview = preview
+        self.footer = footer
+    }
+
     static let samples: [HistoryPreviewItem] = [
         HistoryPreviewItem(
             id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
@@ -78,4 +109,17 @@ struct HistoryPreviewItem: Identifiable {
             footer: "1440 × 900"
         )
     ]
+}
+
+extension HistoryPreviewType {
+    init(_ type: ClipboardItemType) {
+        switch type {
+        case .text:
+            self = .text
+        case .image:
+            self = .image
+        case .color:
+            self = .color
+        }
+    }
 }
