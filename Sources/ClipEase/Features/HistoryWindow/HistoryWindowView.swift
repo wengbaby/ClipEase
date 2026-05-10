@@ -41,9 +41,7 @@ struct HistoryWindowView: View {
                                     )
                                     .id(item.id)
                                     .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        select(item.id)
-                                    }
+                                    .simultaneousGesture(immediateSelectionGesture(for: item))
                                     .highPriorityGesture(
                                         TapGesture(count: 2)
                                             .onEnded {
@@ -160,10 +158,6 @@ struct HistoryWindowView: View {
         .padding(.bottom, 32)
     }
 
-    private func select(_ id: HistoryPreviewItem.ID) {
-        selectedItemID = id
-    }
-
     private func moveSelection(_ direction: MoveCommandDirection) {
         guard let currentSelectedID = selectedItemID,
               let selectedIndex = items.firstIndex(where: { $0.id == currentSelectedID }) else {
@@ -196,6 +190,15 @@ struct HistoryWindowView: View {
     private func deleteItem(_ id: ClipboardItem.ID?) {
         store.deleteItem(with: id)
         showStatus("已删除")
+    }
+
+    private func immediateSelectionGesture(for item: HistoryPreviewItem) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                if selectedItemID != item.id {
+                    selectedItemID = item.id
+                }
+            }
     }
 
     private func showStatus(_ text: String) {
