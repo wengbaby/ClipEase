@@ -4,7 +4,7 @@ import AppKit
 final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private let onCreate: (Data, String) -> Void
     private let panel: NSPanel
-    private let textView: RichTextTextView
+    private let textView: NSTextView
     private let characterLabel: NSTextField
     private let wordLabel: NSTextField
     private let lineLabel: NSTextField
@@ -25,10 +25,13 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         panel.isReleasedWhenClosed = false
         panel.center()
 
-        let textView = RichTextTextView()
+        let textView = NSTextView(frame: .zero)
         textView.isRichText = true
+        textView.isEditable = true
+        textView.isSelectable = true
         textView.allowsUndo = true
         textView.importsGraphics = false
+        textView.usesFontPanel = false
         textView.font = .systemFont(ofSize: 16)
         textView.textColor = .black
         textView.insertionPointColor = .systemBlue
@@ -62,6 +65,15 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         updateFooter()
     }
 
+    func textView(
+        _ textView: NSTextView,
+        shouldChangeTextIn affectedCharRange: NSRange,
+        replacementString: String?
+    ) -> Bool {
+        textView.typingAttributes = normalizedTypingAttributes()
+        return true
+    }
+
     private func makeContentView() -> NSView {
         let rootView = NSView()
         rootView.wantsLayer = true
@@ -69,7 +81,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         rootView.layer?.cornerRadius = 12
         rootView.layer?.masksToBounds = true
 
-        let toolbar = NSStackView()
+        let toolbar = DraggableToolbarView(panel: panel)
         toolbar.orientation = .horizontal
         toolbar.alignment = .centerY
         toolbar.distribution = .gravityAreas
@@ -103,7 +115,9 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         scrollView.wantsLayer = true
         scrollView.layer?.cornerRadius = 8
         scrollView.layer?.backgroundColor = NSColor.white.cgColor
+        scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.documentView = textView
+        configureTextViewForScrollView(textView, scrollView: scrollView)
         textView.drawsBackground = true
 
         let footer = NSStackView()
@@ -142,6 +156,20 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         return rootView
     }
 
+    private func configureTextViewForScrollView(_ textView: NSTextView, scrollView: NSScrollView) {
+        let contentSize = scrollView.contentSize
+        textView.minSize = NSSize(width: 0, height: contentSize.height)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(
+            width: contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainer?.widthTracksTextView = true
+    }
+
     private func toolbarButton(_ title: String, action: Selector) -> NSButton {
         let button = NSButton(title: title, target: self, action: action)
         button.bezelStyle = .rounded
@@ -165,7 +193,6 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         let button = NSButton(title: title, target: self, action: action)
         button.bezelStyle = .rounded
         button.controlSize = .small
-        button.keyEquivalent = "\r"
         button.contentTintColor = .white
         button.font = .systemFont(ofSize: 12, weight: .semibold)
         return button
@@ -282,7 +309,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private func enforceBlackText() {
         textView.textColor = .black
         textView.insertionPointColor = .systemBlue
-        textView.typingAttributes[.foregroundColor] = NSColor.black
+        textView.typingAttributes = normalizedTypingAttributes()
 
         guard let textStorage = textView.textStorage,
               textStorage.length > 0 else {
@@ -294,6 +321,15 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
             value: NSColor.black,
             range: NSRange(location: 0, length: textStorage.length)
         )
+    }
+
+    private func normalizedTypingAttributes() -> [NSAttributedString.Key: Any] {
+        var attributes = textView.typingAttributes
+        attributes[.foregroundColor] = NSColor.black
+        if attributes[.font] == nil {
+            attributes[.font] = NSFont.systemFont(ofSize: fontSize)
+        }
+        return attributes
     }
 
     private func applyBlackColor(to text: NSMutableAttributedString) {
@@ -342,37 +378,19 @@ private final class RichTextEditorPanel: NSPanel {
     }
 }
 
-private final class RichTextTextView: NSTextView {
-    override func insertText(_ insertString: Any, replacementRange: NSRange) {
-        if let string = insertString as? String {
-            let attributedString = NSAttributedString(
-                string: string,
-                attributes: normalizedTypingAttributes()
-            )
-            super.insertText(attributedString, replacementRange: replacementRange)
-            return
-        }
+private final class DraggableToolbarView: NSStackView {
+    private weak var panel: NSPanel?
 
-        if let attributedString = insertString as? NSAttributedString {
-            let mutableString = NSMutableAttributedString(attributedString: attributedString)
-            mutableString.addAttribute(
-                .foregroundColor,
-                value: NSColor.black,
-                range: NSRange(location: 0, length: mutableString.length)
-            )
-            super.insertText(mutableString, replacementRange: replacementRange)
-            return
-        }
-
-        super.insertText(insertString, replacementRange: replacementRange)
+    init(panel: NSPanel) {
+        self.panel = panel
+        super.init(frame: .zero)
     }
 
-    private func normalizedTypingAttributes() -> [NSAttributedString.Key: Any] {
-        var attributes = typingAttributes
-        attributes[.foregroundColor] = NSColor.black
-        if attributes[.font] == nil {
-            attributes[.font] = NSFont.systemFont(ofSize: 16)
-        }
-        return attributes
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        panel?.performDrag(with: event)
     }
 }
