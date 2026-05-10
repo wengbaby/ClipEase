@@ -41,7 +41,16 @@ struct HistoryWindowView: View {
                                     )
                                     .id(item.id)
                                     .contentShape(Rectangle())
-                                    .gesture(cardTapGesture(for: item, proxy: proxy))
+                                    .onTapGesture {
+                                        select(item.id)
+                                    }
+                                    .highPriorityGesture(
+                                        TapGesture(count: 2)
+                                            .onEnded {
+                                                selectedItemID = item.id
+                                                copyItem(item.id)
+                                            }
+                                    )
                                     .contextMenu {
                                         Button("复制") {
                                             copyItem(item.id)
@@ -57,8 +66,14 @@ struct HistoryWindowView: View {
                             .padding(.vertical, 8)
                             .padding(.bottom, 22)
                         }
-                        .onMoveCommand { direction in
-                            moveSelection(direction, proxy: proxy)
+                        .onChange(of: selectedItemID) { id in
+                            guard let id else {
+                                return
+                            }
+
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                proxy.scrollTo(id, anchor: .center)
+                            }
                         }
                     }
                 }
@@ -79,6 +94,9 @@ struct HistoryWindowView: View {
             if selectedItemID == nil || !newItems.contains(where: { $0.id == selectedItemID }) {
                 selectedItemID = firstItem.id
             }
+        }
+        .onMoveCommand { direction in
+            moveSelection(direction)
         }
         .onExitCommand(perform: onClose)
     }
@@ -142,17 +160,11 @@ struct HistoryWindowView: View {
         .padding(.bottom, 32)
     }
 
-    private func select(_ id: HistoryPreviewItem.ID, proxy: ScrollViewProxy) {
+    private func select(_ id: HistoryPreviewItem.ID) {
         selectedItemID = id
-        withAnimation(.easeOut(duration: 0.16)) {
-            proxy.scrollTo(id, anchor: .center)
-        }
     }
 
-    private func moveSelection(
-        _ direction: MoveCommandDirection,
-        proxy: ScrollViewProxy
-    ) {
+    private func moveSelection(_ direction: MoveCommandDirection) {
         guard let currentSelectedID = selectedItemID,
               let selectedIndex = items.firstIndex(where: { $0.id == currentSelectedID }) else {
             self.selectedItemID = items.first?.id
@@ -170,9 +182,6 @@ struct HistoryWindowView: View {
         }
 
         selectedItemID = nextID
-        withAnimation(.easeOut(duration: 0.12)) {
-            proxy.scrollTo(nextID, anchor: .center)
-        }
     }
 
     private func copyItem(_ id: ClipboardItem.ID?) {
@@ -187,23 +196,6 @@ struct HistoryWindowView: View {
     private func deleteItem(_ id: ClipboardItem.ID?) {
         store.deleteItem(with: id)
         showStatus("已删除")
-    }
-
-    private func cardTapGesture(
-        for item: HistoryPreviewItem,
-        proxy: ScrollViewProxy
-    ) -> some Gesture {
-        TapGesture(count: 2)
-            .exclusively(before: TapGesture(count: 1))
-            .onEnded { value in
-                switch value {
-                case .first:
-                    selectedItemID = item.id
-                    copyItem(item.id)
-                case .second:
-                    select(item.id, proxy: proxy)
-                }
-            }
     }
 
     private func showStatus(_ text: String) {
