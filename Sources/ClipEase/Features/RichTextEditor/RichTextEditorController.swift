@@ -190,11 +190,10 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     }
 
     private func primaryButton(_ title: String, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.contentTintColor = .white
+        let button = BlueActionButton(title: title, target: self, action: action)
         button.font = .systemFont(ofSize: 12, weight: .semibold)
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: 46).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
         return button
     }
 
@@ -392,5 +391,57 @@ private final class DraggableToolbarView: NSStackView {
 
     override func mouseDown(with event: NSEvent) {
         panel?.performDrag(with: event)
+    }
+}
+
+private final class BlueActionButton: NSButton {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configure()
+    }
+
+    convenience init(title: String, target: AnyObject?, action: Selector?) {
+        self.init(frame: .zero)
+        self.title = title
+        self.target = target
+        self.action = action
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    override var isHighlighted: Bool {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    private func configure() {
+        isBordered = false
+        wantsLayer = true
+        focusRingType = .none
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let bounds = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7)
+        (isHighlighted ? NSColor.systemBlue.withAlphaComponent(0.72) : NSColor.systemBlue).setFill()
+        path.fill()
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        let attributedTitle = NSAttributedString(string: title, attributes: attributes)
+        let titleSize = attributedTitle.size()
+        let titleRect = NSRect(
+            x: (self.bounds.width - titleSize.width) / 2,
+            y: (self.bounds.height - titleSize.height) / 2,
+            width: titleSize.width,
+            height: titleSize.height
+        )
+        attributedTitle.draw(in: titleRect)
     }
 }

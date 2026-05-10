@@ -334,7 +334,9 @@ struct HistoryWindowView: View {
 
             Divider()
 
-            pauseMenu
+            Menu("暂停 轻贴") {
+                pauseMenu
+            }
 
             Divider()
 
@@ -393,10 +395,10 @@ struct HistoryWindowView: View {
         }
     }
 
+    @ViewBuilder
     private var pauseMenu: some View {
-        Menu("暂停") {
-            Button("暂停") {
-                pauseRecording()
+            Button(recordingController.pauseMenuPrimaryTitle()) {
+                togglePauseFromMenu()
             }
 
             Button("暂停 15 分钟") {
@@ -423,7 +425,6 @@ struct HistoryWindowView: View {
                 appMenuController.pauseUntilEndOfToday()
                 showStatus("已暂停到今日结束")
             }
-        }
     }
 
     private var emptyState: some View {
@@ -573,6 +574,15 @@ struct HistoryWindowView: View {
     private func pauseRecording() {
         appMenuController.pauseRecording()
         showStatus("已暂停记录")
+    }
+
+    private func togglePauseFromMenu() {
+        if recordingController.isPaused {
+            appMenuController.resumeRecording()
+            showStatus("已恢复记录")
+        } else {
+            pauseRecording()
+        }
     }
 
     private func pauseRecording(for interval: TimeInterval, message: String) {

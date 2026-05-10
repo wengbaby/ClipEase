@@ -75,7 +75,7 @@ final class AppMenuController: NSObject {
         menu.addItem(makeItem("设置", action: #selector(settingsAction)))
         menu.addItem(.separator())
 
-        let pauseItem = NSMenuItem(title: "暂停", action: nil, keyEquivalent: "")
+        let pauseItem = NSMenuItem(title: "暂停 轻贴", action: nil, keyEquivalent: "")
         pauseItem.submenu = makePauseMenu()
         menu.addItem(pauseItem)
 
@@ -87,7 +87,7 @@ final class AppMenuController: NSObject {
 
     private func makePauseMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(makeItem("暂停", action: #selector(pauseAction)))
+        menu.addItem(makeItem(recordingController.pauseMenuPrimaryTitle(), action: #selector(togglePauseAction)))
         menu.addItem(makeItem("暂停 15 分钟", action: #selector(pause15MinutesAction)))
         menu.addItem(makeItem("暂停 30 分钟", action: #selector(pause30MinutesAction)))
         menu.addItem(makeItem("暂停 1 小时", action: #selector(pause1HourAction)))
@@ -123,8 +123,12 @@ final class AppMenuController: NSObject {
         showSettingsPlaceholder()
     }
 
-    @objc private func pauseAction() {
-        pauseRecording()
+    @objc private func togglePauseAction() {
+        if recordingController.isPaused {
+            resumeRecording()
+        } else {
+            pauseRecording()
+        }
     }
 
     @objc private func pause15MinutesAction() {
