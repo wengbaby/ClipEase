@@ -118,6 +118,16 @@ final class ClipboardHistoryStore: ObservableObject {
         save()
     }
 
+    func clearAllItems() {
+        let removedItems = items
+        items.removeAll()
+        removedItems.compactMap(\.imageFileName).forEach(persistence.deleteImage)
+        recentHashes.removeAll()
+        skippedClipboardTexts.removeAll()
+        skippedImageHashes.removeAll()
+        save()
+    }
+
     func togglePinned(for id: ClipboardItem.ID?) {
         guard let id,
               let index = items.firstIndex(where: { $0.id == id }) else {

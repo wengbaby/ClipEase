@@ -12,6 +12,7 @@ struct HistoryWindowView: View {
     @State private var isSearchVisible = false
     @State private var filter: HistoryFilter = .all
     @State private var canAutoPaste = false
+    @State private var isClearConfirmationPresented = false
 
     private var items: [HistoryPreviewItem] {
         store.items.map(HistoryPreviewItem.init)
@@ -196,6 +197,8 @@ struct HistoryWindowView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+
+            moreMenu
         }
         .padding(.horizontal, 22)
         .frame(height: 36)
@@ -285,6 +288,35 @@ struct HistoryWindowView: View {
             .allowsHitTesting(isSearchVisible)
     }
 
+    private var moreMenu: some View {
+        Menu {
+            Button("清空历史", role: .destructive) {
+                isClearConfirmationPresented = true
+            }
+            .disabled(store.items.isEmpty)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 24, height: 24)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .confirmationDialog(
+            "清空全部历史？",
+            isPresented: $isClearConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("清空历史", role: .destructive) {
+                clearAllItems()
+            }
+
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此操作会删除所有普通和置顶记录，以及已保存的图片文件。")
+        }
+        .help("更多操作")
+    }
+
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "doc.on.clipboard")
@@ -359,6 +391,12 @@ struct HistoryWindowView: View {
     private func deleteItem(_ id: ClipboardItem.ID?) {
         store.deleteItem(with: id)
         showStatus("已删除")
+    }
+
+    private func clearAllItems() {
+        store.clearAllItems()
+        selectedItemID = nil
+        showStatus("已清空")
     }
 
     private func togglePinned(_ id: ClipboardItem.ID?) {
