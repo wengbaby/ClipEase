@@ -184,6 +184,16 @@ struct HistoryWindowView: View {
                                             }
                                         }
 
+                                        if item.type == .color {
+                                            Button("复制 HEX") {
+                                                copyColorHex(item.id)
+                                            }
+
+                                            Button("复制 RGB") {
+                                                copyColorRGB(item.id)
+                                            }
+                                        }
+
                                         Button("预览") {
                                             showPreview(item.id)
                                         }
@@ -197,6 +207,14 @@ struct HistoryWindowView: View {
                                         }
 
                                         if item.type == .image {
+                                            Button("打开图片") {
+                                                openImage(item.id)
+                                            }
+
+                                            Button("复制图片路径") {
+                                                copyImagePath(item.id)
+                                            }
+
                                             Button("在 Finder 中显示") {
                                                 revealImageInFinder(item.id)
                                             }
@@ -766,6 +784,32 @@ struct HistoryWindowView: View {
         showStatus("已打开链接")
     }
 
+    private func copyColorHex(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              item.type == .color else {
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.text, forType: .string)
+        store.skipNextClipboardText(item.text)
+        showStatus("已复制 HEX")
+    }
+
+    private func copyColorRGB(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              item.type == .color,
+              let rgb = rgbString(from: item.text) else {
+            showStatus("无法转换 RGB")
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(rgb, forType: .string)
+        store.skipNextClipboardText(rgb)
+        showStatus("已复制 RGB")
+    }
+
     private func pasteItem(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id) else {
             return
@@ -871,6 +915,44 @@ struct HistoryWindowView: View {
 
         NSWorkspace.shared.activateFileViewerSelecting([imageURL])
         showStatus("已在 Finder 中显示")
+    }
+
+    private func openImage(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              let imageURL = store.imageFileURL(for: item) else {
+            showStatus("未找到图片文件")
+            return
+        }
+
+        NSWorkspace.shared.open(imageURL)
+        showStatus("已打开图片")
+    }
+
+    private func copyImagePath(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              let imageURL = store.imageFileURL(for: item) else {
+            showStatus("未找到图片文件")
+            return
+        }
+
+        let path = imageURL.path
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(path, forType: .string)
+        store.skipNextClipboardText(path)
+        showStatus("已复制图片路径")
+    }
+
+    private func rgbString(from hex: String) -> String? {
+        let normalized = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard normalized.count == 6,
+              let value = Int(normalized, radix: 16) else {
+            return nil
+        }
+
+        let red = (value >> 16) & 0xFF
+        let green = (value >> 8) & 0xFF
+        let blue = value & 0xFF
+        return "rgb(\(red), \(green), \(blue))"
     }
 
     private func immediateSelectionGesture(for item: HistoryPreviewItem) -> some Gesture {
