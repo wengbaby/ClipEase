@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct HistoryWindowView: View {
     @ObservedObject var store: ClipboardHistoryStore
@@ -102,6 +103,11 @@ struct HistoryWindowView: View {
             .keyboardShortcut("p", modifiers: [.command])
             .frame(width: 0, height: 0)
             .opacity(0)
+
+            NumberShortcutHandler { number in
+                selectVisibleCard(number: number)
+            }
+            .frame(width: 0, height: 0)
 
             VStack(alignment: .leading, spacing: 14) {
                 toolbar
@@ -294,6 +300,8 @@ struct HistoryWindowView: View {
                 }
 
                 autoPasteStatusButton
+                recordingStatusButton
+                retentionMenu
 
                 Spacer()
             }
@@ -338,8 +346,16 @@ struct HistoryWindowView: View {
     private var filterMenu: some View {
         Menu {
             ForEach(HistoryFilter.allCases) { filter in
-                Button(filter.title) {
+                Button {
                     self.filter = filter
+                    showStatus("筛选：\(filter.title)")
+                } label: {
+                    HStack {
+                        Text(filter.title)
+                        if self.filter == filter {
+                            Image(systemName: "checkmark")
+                        }
+                    }
                 }
             }
         } label: {
@@ -650,6 +666,19 @@ struct HistoryWindowView: View {
         if previewState.isVisible {
             showPreview(nextID)
         }
+    }
+
+    private func selectVisibleCard(number: Int) {
+        let index = number - 1
+        guard filteredItems.indices.contains(index) else {
+            return
+        }
+
+        selectedItemID = filteredItems[index].id
+        if previewState.isVisible {
+            showPreview(selectedItemID)
+        }
+        showStatus("已选中第 \(number) 张")
     }
 
     private func copyItem(_ id: ClipboardItem.ID?) {
@@ -967,6 +996,72 @@ private enum HistoryFilter: String, CaseIterable, Identifiable {
             "图片"
         case .pinned:
             "置顶"
+        }
+    }
+
+}
+
+private struct NumberShortcutHandler: NSViewRepresentable {
+    let onNumber: (Int) -> Void
+
+    func makeNSView(context: Context) -> ShortcutNSView {
+        let view = ShortcutNSView()
+        view.onNumber = onNumber
+        return view
+    }
+
+    func updateNSView(_ nsView: ShortcutNSView, context: Context) {
+        nsView.onNumber = onNumber
+    }
+
+    final class ShortcutNSView: NSView {
+        var onNumber: ((Int) -> Void)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                removeMonitor()
+            } else {
+                installMonitor()
+            }
+        }
+
+        private func installMonitor() {
+            guard monitor == nil else {
+                return
+            }
+
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      self.window?.isKeyWindow == true,
+                      !Self.isTextInputActive(),
+                      event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+                      let characters = event.charactersIgnoringModifiers,
+                      characters.count == 1,
+                      let number = Int(characters),
+                      (1...9).contains(number) else {
+                    return event
+                }
+
+                self.onNumber?(number)
+                return nil
+            }
+        }
+
+        private func removeMonitor() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+
+        private static func isTextInputActive() -> Bool {
+            guard let responder = NSApp.keyWindow?.firstResponder else {
+                return false
+            }
+
+            return responder is NSTextView
         }
     }
 }
