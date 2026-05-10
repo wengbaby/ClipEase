@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-enum ClipboardItemType: String {
+enum ClipboardItemType: String, Codable {
     case text
     case link
     case image
@@ -15,6 +15,10 @@ struct ClipboardItem: Identifiable, Equatable {
     let url: URL?
     let linkTitle: String?
     let linkSubtitle: String?
+    let imageFileName: String?
+    let imageWidth: Int?
+    let imageHeight: Int?
+    let imageHash: String?
     let createdAt: Date
     let sourceAppName: String
     let sourceBundleID: String?
@@ -34,7 +38,11 @@ struct ClipboardItem: Identifiable, Equatable {
         case .link:
             "链接"
         case .image:
-            "图片"
+            if let imageWidth, let imageHeight {
+                "\(imageWidth) × \(imageHeight)"
+            } else {
+                "图片"
+            }
         case .color:
             "颜色"
         }
@@ -90,6 +98,10 @@ extension ClipboardItem {
             url: nil,
             linkTitle: nil,
             linkSubtitle: nil,
+            imageFileName: nil,
+            imageWidth: nil,
+            imageHeight: nil,
+            imageHash: nil,
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
@@ -115,6 +127,38 @@ extension ClipboardItem {
             url: url,
             linkTitle: host.replacingOccurrences(of: "www.", with: ""),
             linkSubtitle: path.isEmpty || path == "/" ? url.absoluteString : "\(host)\(path)",
+            imageFileName: nil,
+            imageWidth: nil,
+            imageHeight: nil,
+            imageHash: nil,
+            createdAt: Date(),
+            sourceAppName: sourceApp.name,
+            sourceBundleID: sourceApp.bundleID,
+            iconName: sourceApp.iconName,
+            headerColorHex: sourceApp.headerColorHex,
+            isPinned: false,
+            pinnedAt: nil
+        )
+    }
+
+    static func image(
+        fileName: String,
+        width: Int,
+        height: Int,
+        hash: String,
+        sourceApp: SourceAppInfo
+    ) -> ClipboardItem {
+        ClipboardItem(
+            id: UUID(),
+            type: .image,
+            text: "",
+            url: nil,
+            linkTitle: nil,
+            linkSubtitle: nil,
+            imageFileName: fileName,
+            imageWidth: width,
+            imageHeight: height,
+            imageHash: hash,
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,

@@ -50,10 +50,16 @@ final class ClipboardMonitor {
             return
         }
 
-        guard let text = pasteboard.string(forType: .string) else {
+        if let image = pasteboard.readObjects(
+            forClasses: [NSImage.self],
+            options: nil
+        )?.first as? NSImage {
+            store.addImage(image, sourceApp: .current)
             return
         }
 
-        store.addText(text, sourceApp: .current)
+        if let text = pasteboard.string(forType: .string) {
+            store.addText(text, sourceApp: .current)
+        }
     }
 }

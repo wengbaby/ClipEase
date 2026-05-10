@@ -1,4 +1,13 @@
+import AppKit
+import CryptoKit
 import Foundation
+
+struct StoredClipboardImage {
+    let fileName: String
+    let width: Int
+    let height: Int
+    let hash: String
+}
 
 struct ClipboardHistoryPersistence {
     private let fileManager: FileManager
@@ -15,7 +24,7 @@ struct ClipboardHistoryPersistence {
     }
 
     func loadItems() -> [ClipboardItem] {
-        guard let fileURL = try? historyFileURL(),
+        guard let fileURL = try? ClipEaseStoragePaths.historyFileURL(fileManager: fileManager),
               fileManager.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL),
               let records = try? decoder.decode([PersistentClipboardItem].self, from: data) else {
@@ -27,7 +36,7 @@ struct ClipboardHistoryPersistence {
 
     func saveItems(_ items: [ClipboardItem]) {
         do {
-            let fileURL = try historyFileURL()
+            let fileURL = try ClipEaseStoragePaths.historyFileURL(fileManager: fileManager)
             try fileManager.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
@@ -40,16 +49,57 @@ struct ClipboardHistoryPersistence {
         }
     }
 
-    private func historyFileURL() throws -> URL {
-        let baseURL = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        return baseURL
-            .appendingPathComponent("ClipEase", isDirectory: true)
-            .appendingPathComponent("history.json")
+    func saveImage(_ image: NSImage) -> StoredClipboardImage? {
+        guard let imageData = image.pngData(),
+              let bitmap = NSBitmapImageRep(data: imageData) else {
+            return nil
+        }
+
+        let hash = SHA256.hash(data: imageData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let fileName = "\(UUID().uuidString).png"
+
+        do {
+            let directoryURL = try ClipEaseStoragePaths.imagesDirectory(fileManager: fileManager)
+            try fileManager.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true
+            )
+            let imageURL = directoryURL.appendingPathComponent(fileName)
+            try imageData.write(to: imageURL, options: [.atomic])
+            return StoredClipboardImage(
+                fileName: fileName,
+                width: bitmap.pixelsWide,
+                height: bitmap.pixelsHigh,
+                hash: hash
+            )
+        } catch {
+            NSLog("ClipEase failed to save clipboard image: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    func imageData(fileName: String) -> Data? {
+        guard let imageURL = try? ClipEaseStoragePaths.imageFileURL(
+            fileName: fileName,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+
+        return try? Data(contentsOf: imageURL)
+    }
+
+    func deleteImage(fileName: String) {
+        guard let imageURL = try? ClipEaseStoragePaths.imageFileURL(
+            fileName: fileName,
+            fileManager: fileManager
+        ) else {
+            return
+        }
+
+        try? fileManager.removeItem(at: imageURL)
     }
 }
 
@@ -60,6 +110,10 @@ private struct PersistentClipboardItem: Codable {
     let urlString: String?
     let linkTitle: String?
     let linkSubtitle: String?
+    let imageFileName: String?
+    let imageWidth: Int?
+    let imageHeight: Int?
+    let imageHash: String?
     let createdAt: Date
     let sourceAppName: String
     let sourceBundleID: String?
@@ -75,6 +129,10 @@ private struct PersistentClipboardItem: Codable {
         self.urlString = item.url?.absoluteString
         self.linkTitle = item.linkTitle
         self.linkSubtitle = item.linkSubtitle
+        self.imageFileName = item.imageFileName
+        self.imageWidth = item.imageWidth
+        self.imageHeight = item.imageHeight
+        self.imageHash = item.imageHash
         self.createdAt = item.createdAt
         self.sourceAppName = item.sourceAppName
         self.sourceBundleID = item.sourceBundleID
@@ -92,6 +150,10 @@ private struct PersistentClipboardItem: Codable {
             url: urlString.flatMap(URL.init(string:)),
             linkTitle: linkTitle,
             linkSubtitle: linkSubtitle,
+            imageFileName: imageFileName,
+            imageWidth: imageWidth,
+            imageHeight: imageHeight,
+            imageHash: imageHash,
             createdAt: createdAt,
             sourceAppName: sourceAppName,
             sourceBundleID: sourceBundleID,
@@ -103,3 +165,13 @@ private struct PersistentClipboardItem: Codable {
     }
 }
 
+private extension NSImage {
+    func pngData() -> Data? {
+        guard let tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffRepresentation) else {
+            return nil
+        }
+
+        return bitmap.representation(using: .png, properties: [:])
+    }
+}

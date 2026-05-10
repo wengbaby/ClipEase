@@ -34,7 +34,13 @@ final class PasteExecutor {
             pasteboard.setString(item.text, forType: .string)
             store.skipNextClipboardText(item.text)
         case .image:
-            break
+            guard let data = store.imageData(for: item),
+                  let image = NSImage(data: data) else {
+                return
+            }
+
+            pasteboard.writeObjects([image])
+            store.skipNextClipboardImage(item)
         }
     }
 

@@ -1,0 +1,32 @@
+import Foundation
+
+enum ClipEaseStoragePaths {
+    static func applicationSupportDirectory(fileManager: FileManager = .default) throws -> URL {
+        try fileManager
+            .url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            .appendingPathComponent("ClipEase", isDirectory: true)
+    }
+
+    static func historyFileURL(fileManager: FileManager = .default) throws -> URL {
+        try applicationSupportDirectory(fileManager: fileManager)
+            .appendingPathComponent("history.json")
+    }
+
+    static func imagesDirectory(fileManager: FileManager = .default) throws -> URL {
+        try applicationSupportDirectory(fileManager: fileManager)
+            .appendingPathComponent("Images", isDirectory: true)
+    }
+
+    static func imageFileURL(
+        fileName: String,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        try imagesDirectory(fileManager: fileManager)
+            .appendingPathComponent(fileName)
+    }
+}

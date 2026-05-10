@@ -18,6 +18,7 @@ struct HistoryPreviewItem: Identifiable {
     let footer: String
     let linkTitle: String?
     let linkSubtitle: String?
+    let imageFileName: String?
     let isPinned: Bool
 
     var searchText: String {
@@ -43,6 +44,7 @@ struct HistoryPreviewItem: Identifiable {
         self.footer = item.footer
         self.linkTitle = item.linkTitle
         self.linkSubtitle = item.linkSubtitle
+        self.imageFileName = item.imageFileName
         self.isPinned = item.isPinned
     }
 
@@ -57,6 +59,7 @@ struct HistoryPreviewItem: Identifiable {
         footer: String,
         linkTitle: String? = nil,
         linkSubtitle: String? = nil,
+        imageFileName: String? = nil,
         isPinned: Bool = false
     ) {
         self.id = id
@@ -69,6 +72,7 @@ struct HistoryPreviewItem: Identifiable {
         self.footer = footer
         self.linkTitle = linkTitle
         self.linkSubtitle = linkSubtitle
+        self.imageFileName = imageFileName
         self.isPinned = isPinned
     }
 

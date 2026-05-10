@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct HistoryCardView: View {
     let item: HistoryPreviewItem
@@ -74,18 +75,31 @@ struct HistoryCardView: View {
         case .link:
             linkPreview
         case .image:
-            ZStack {
-                CheckerboardView()
-                Image(systemName: "photo")
-                    .font(.system(size: 58, weight: .regular))
-                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
-            }
+            imagePreview
         case .color:
             ZStack {
                 Color.gray
                 Text(item.preview)
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(.white)
+            }
+        }
+    }
+
+    private var imagePreview: some View {
+        ZStack {
+            CheckerboardView()
+
+            if let image = loadImage() {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(10)
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 58, weight: .regular))
+                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
             }
         }
     }
@@ -138,5 +152,14 @@ struct HistoryCardView: View {
             .padding(.vertical, 12)
             .background(Color.white)
         }
+    }
+
+    private func loadImage() -> NSImage? {
+        guard let imageFileName = item.imageFileName,
+              let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
+            return nil
+        }
+
+        return NSImage(contentsOf: imageURL)
     }
 }

@@ -26,6 +26,8 @@ struct HistoryWindowView: View {
                 item.type == .text
             case .link:
                 item.type == .link
+            case .image:
+                item.type == .image
             case .pinned:
                 item.isPinned
             }
@@ -390,6 +392,7 @@ private enum HistoryFilter: String, CaseIterable, Identifiable {
     case all
     case text
     case link
+    case image
     case pinned
 
     var id: String {
@@ -404,6 +407,8 @@ private enum HistoryFilter: String, CaseIterable, Identifiable {
             "文字"
         case .link:
             "链接"
+        case .image:
+            "图片"
         case .pinned:
             "置顶"
         }

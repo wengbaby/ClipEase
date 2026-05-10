@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 @MainActor
 final class ClipboardHistoryStore: ObservableObject {
@@ -8,6 +9,7 @@ final class ClipboardHistoryStore: ObservableObject {
     private let persistence: ClipboardHistoryPersistence
     private var recentHashes: Set<String> = []
     private var skippedClipboardTexts: Set<String> = []
+    private var skippedImageHashes: Set<String> = []
 
     init(persistence: ClipboardHistoryPersistence = ClipboardHistoryPersistence()) {
         self.persistence = persistence
@@ -42,9 +44,38 @@ final class ClipboardHistoryStore: ObservableObject {
 
         items.insert(item, at: 0)
         sortItems()
-        if items.count > maxInMemoryItems {
-            items.removeLast(items.count - maxInMemoryItems)
+        trimItemsIfNeeded()
+        save()
+    }
+
+    func addImage(_ image: NSImage, sourceApp: SourceAppInfo) {
+        guard let storedImage = persistence.saveImage(image) else {
+            return
         }
+
+        if skippedImageHashes.remove(storedImage.hash) != nil {
+            persistence.deleteImage(fileName: storedImage.fileName)
+            return
+        }
+
+        let hash = "\(sourceApp.bundleID ?? "unknown"):\(storedImage.hash)"
+        guard !recentHashes.contains(hash) else {
+            persistence.deleteImage(fileName: storedImage.fileName)
+            return
+        }
+
+        recentHashes.insert(hash)
+        let item = ClipboardItem.image(
+            fileName: storedImage.fileName,
+            width: storedImage.width,
+            height: storedImage.height,
+            hash: storedImage.hash,
+            sourceApp: sourceApp
+        )
+
+        items.insert(item, at: 0)
+        sortItems()
+        trimItemsIfNeeded()
         save()
     }
 
@@ -61,7 +92,10 @@ final class ClipboardHistoryStore: ObservableObject {
             return
         }
 
+        let deletedItems = items.filter { $0.id == id }
         items.removeAll { $0.id == id }
+        deletedItems.compactMap(\.imageFileName).forEach(persistence.deleteImage)
+        rebuildRecentHashes()
         save()
     }
 
@@ -86,6 +120,22 @@ final class ClipboardHistoryStore: ObservableObject {
         skippedClipboardTexts.insert(normalizedText)
     }
 
+    func skipNextClipboardImage(_ item: ClipboardItem) {
+        guard let imageHash = item.imageHash else {
+            return
+        }
+
+        skippedImageHashes.insert(imageHash)
+    }
+
+    func imageData(for item: ClipboardItem) -> Data? {
+        guard let fileName = item.imageFileName else {
+            return nil
+        }
+
+        return persistence.imageData(fileName: fileName)
+    }
+
     private func sortItems() {
         items.sort { lhs, rhs in
             if lhs.isPinned != rhs.isPinned {
@@ -106,7 +156,23 @@ final class ClipboardHistoryStore: ObservableObject {
 
     private func rebuildRecentHashes() {
         recentHashes = Set(items.map { item in
-            "\(item.sourceBundleID ?? "unknown"):\(item.text)"
+            switch item.type {
+            case .image:
+                "\(item.sourceBundleID ?? "unknown"):\(item.imageHash ?? item.id.uuidString)"
+            case .text, .link, .color:
+                "\(item.sourceBundleID ?? "unknown"):\(item.text)"
+            }
         })
+    }
+
+    private func trimItemsIfNeeded() {
+        guard items.count > maxInMemoryItems else {
+            return
+        }
+
+        let removedItems = Array(items.suffix(items.count - maxInMemoryItems))
+        items.removeLast(items.count - maxInMemoryItems)
+        removedItems.compactMap(\.imageFileName).forEach(persistence.deleteImage)
+        rebuildRecentHashes()
     }
 }
