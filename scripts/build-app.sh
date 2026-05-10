@@ -7,6 +7,26 @@ APP_DIR="$ROOT_DIR/.build/ClipEase.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+BUMP_TYPE="none"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --bump)
+      BUMP_TYPE="${2:-}"
+      shift 2
+      ;;
+    --bump=*)
+      BUMP_TYPE="${1#*=}"
+      shift
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+python3 "$ROOT_DIR/scripts/bump_version.py" --bump "$BUMP_TYPE"
 
 swift build -c release --product ClipEase
 
@@ -17,4 +37,3 @@ cp "$BUILD_DIR/ClipEase" "$MACOS_DIR/ClipEase"
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 
 echo "Built $APP_DIR"
-

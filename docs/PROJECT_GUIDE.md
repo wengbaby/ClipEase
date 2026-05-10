@@ -16,6 +16,7 @@
 - 技术方案：[docs/TECHNICAL_SPEC.md](/Users/wpc/code/codex/ClipboardHistory/docs/TECHNICAL_SPEC.md)
 - 设计规范：[docs/DESIGN_SPEC.md](/Users/wpc/code/codex/ClipboardHistory/docs/DESIGN_SPEC.md)
 - 开发步骤：[docs/DEVELOPMENT_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEVELOPMENT_PLAN.md)
+- 版本规则：[docs/VERSIONING.md](/Users/wpc/code/codex/ClipboardHistory/docs/VERSIONING.md)
 - 日志规范：[docs/DEV_LOG_GUIDE.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEV_LOG_GUIDE.md)
 - 每日开发日志目录：[dev-logs](/Users/wpc/code/codex/ClipboardHistory/dev-logs)
 - 每日日志脚本：[scripts/daily_log.py](/Users/wpc/code/codex/ClipboardHistory/scripts/daily_log.py)
@@ -29,6 +30,8 @@
 5. 涉及界面、颜色、卡片、预览层或交互变化时，先更新 `docs/DESIGN_SPEC.md`。
 6. 每天结束开发时，更新当天 `dev-logs/YYYY-MM-DD.md`，记录完成事项、验证结果、风险和待办。
 7. 自动日志任务会每天创建或补全当天日志文件，但具体完成事项仍需要开发者按实际工作填写。
+8. 每次正式打包 `.app` 必须通过 `scripts/build-app.sh`，由脚本自动递增构建号。
+9. 每次代码修改后需要编译、打开本地 App 供测试，并提交到 git。
 
 ## 当前阶段原则
 
@@ -36,4 +39,3 @@
 - 本地优先：第一版所有数据保存在本机，不做云同步。
 - 小步推进：每次实现后要能运行、能验证、能回退。
 - 用户友好：默认体验简单，复杂功能放入设置或后续版本。
-
