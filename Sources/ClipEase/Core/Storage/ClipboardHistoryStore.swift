@@ -20,16 +20,12 @@ final class ClipboardHistoryStore: ObservableObject {
 
         recentHashes.insert(hash)
 
-        let item = ClipboardItem(
-            id: UUID(),
-            type: .text,
-            text: normalizedText,
-            createdAt: Date(),
-            sourceAppName: sourceApp.name,
-            sourceBundleID: sourceApp.bundleID,
-            iconName: sourceApp.iconName,
-            headerColor: sourceApp.headerColor
-        )
+        let item: ClipboardItem
+        if let url = URLParser.url(from: normalizedText) {
+            item = .link(url, originalText: normalizedText, sourceApp: sourceApp)
+        } else {
+            item = .text(normalizedText, sourceApp: sourceApp)
+        }
 
         items.insert(item, at: 0)
         if items.count > maxInMemoryItems {
@@ -37,4 +33,3 @@ final class ClipboardHistoryStore: ObservableObject {
         }
     }
 }
-

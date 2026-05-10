@@ -60,6 +60,8 @@ struct HistoryCardView: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(16)
+        case .link:
+            linkPreview
         case .image:
             ZStack {
                 CheckerboardView()
@@ -74,6 +76,56 @@ struct HistoryCardView: View {
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(.white)
             }
+        }
+    }
+
+    private var linkPreview: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.98, green: 0.99, blue: 1.0),
+                        Color(red: 0.94, green: 0.96, blue: 0.99)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.09, green: 0.28, blue: 0.62),
+                                Color(red: 0.05, green: 0.72, blue: 0.78)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 62, height: 62)
+                    .overlay {
+                        Image(systemName: "link")
+                            .font(.system(size: 27, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.linkTitle ?? item.preview)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.19))
+                    .lineLimit(1)
+
+                Text(item.linkSubtitle ?? item.preview)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.white)
         }
     }
 }

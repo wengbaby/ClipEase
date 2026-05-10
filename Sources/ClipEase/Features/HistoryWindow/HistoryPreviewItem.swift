@@ -2,6 +2,7 @@ import SwiftUI
 
 enum HistoryPreviewType {
     case text
+    case link
     case image
     case color
 }
@@ -15,6 +16,8 @@ struct HistoryPreviewItem: Identifiable {
     let headerColor: Color
     let preview: String
     let footer: String
+    let linkTitle: String?
+    let linkSubtitle: String?
 
     init(item: ClipboardItem) {
         self.id = item.id
@@ -25,6 +28,8 @@ struct HistoryPreviewItem: Identifiable {
         self.headerColor = item.headerColor
         self.preview = item.preview
         self.footer = item.footer
+        self.linkTitle = item.linkTitle
+        self.linkSubtitle = item.linkSubtitle
     }
 
     init(
@@ -35,7 +40,9 @@ struct HistoryPreviewItem: Identifiable {
         iconName: String,
         headerColor: Color,
         preview: String,
-        footer: String
+        footer: String,
+        linkTitle: String? = nil,
+        linkSubtitle: String? = nil
     ) {
         self.id = id
         self.type = type
@@ -45,6 +52,8 @@ struct HistoryPreviewItem: Identifiable {
         self.headerColor = headerColor
         self.preview = preview
         self.footer = footer
+        self.linkTitle = linkTitle
+        self.linkSubtitle = linkSubtitle
     }
 
     static let samples: [HistoryPreviewItem] = [
@@ -107,6 +116,18 @@ struct HistoryPreviewItem: Identifiable {
             headerColor: Color(red: 0.57, green: 0.38, blue: 0.92),
             preview: "",
             footer: "1440 × 900"
+        ),
+        HistoryPreviewItem(
+            id: UUID(uuidString: "77777777-7777-7777-7777-777777777777")!,
+            type: .link,
+            kind: "链接",
+            time: "现在",
+            iconName: "safari.fill",
+            headerColor: Color(red: 0.04, green: 0.50, blue: 0.95),
+            preview: "https://api.totapp.com/admin/accounts",
+            footer: "api.totapp.com/admin/accounts",
+            linkTitle: "api.totapp.com",
+            linkSubtitle: "api.totapp.com/admin/accounts"
         )
     ]
 }
@@ -116,6 +137,8 @@ extension HistoryPreviewType {
         switch type {
         case .text:
             self = .text
+        case .link:
+            self = .link
         case .image:
             self = .image
         case .color:

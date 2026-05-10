@@ -3,6 +3,7 @@ import SwiftUI
 
 enum ClipboardItemType {
     case text
+    case link
     case image
     case color
 }
@@ -11,6 +12,9 @@ struct ClipboardItem: Identifiable, Equatable {
     let id: UUID
     let type: ClipboardItemType
     let text: String
+    let url: URL?
+    let linkTitle: String?
+    let linkSubtitle: String?
     let createdAt: Date
     let sourceAppName: String
     let sourceBundleID: String?
@@ -21,6 +25,8 @@ struct ClipboardItem: Identifiable, Equatable {
         switch type {
         case .text:
             "文本"
+        case .link:
+            "链接"
         case .image:
             "图片"
         case .color:
@@ -36,6 +42,8 @@ struct ClipboardItem: Identifiable, Equatable {
         switch type {
         case .text:
             "\(text.count) 个字符"
+        case .link:
+            linkSubtitle ?? text
         case .image:
             "图片"
         case .color:
@@ -64,3 +72,46 @@ struct ClipboardItem: Identifiable, Equatable {
     }
 }
 
+extension ClipboardItem {
+    static func text(
+        _ text: String,
+        sourceApp: SourceAppInfo
+    ) -> ClipboardItem {
+        ClipboardItem(
+            id: UUID(),
+            type: .text,
+            text: text,
+            url: nil,
+            linkTitle: nil,
+            linkSubtitle: nil,
+            createdAt: Date(),
+            sourceAppName: sourceApp.name,
+            sourceBundleID: sourceApp.bundleID,
+            iconName: sourceApp.iconName,
+            headerColor: sourceApp.headerColor
+        )
+    }
+
+    static func link(
+        _ url: URL,
+        originalText: String,
+        sourceApp: SourceAppInfo
+    ) -> ClipboardItem {
+        let host = url.host(percentEncoded: false) ?? url.absoluteString
+        let path = url.path(percentEncoded: false)
+
+        return ClipboardItem(
+            id: UUID(),
+            type: .link,
+            text: originalText,
+            url: url,
+            linkTitle: host.replacingOccurrences(of: "www.", with: ""),
+            linkSubtitle: path.isEmpty || path == "/" ? url.absoluteString : "\(host)\(path)",
+            createdAt: Date(),
+            sourceAppName: sourceApp.name,
+            sourceBundleID: sourceApp.bundleID,
+            iconName: sourceApp.iconName,
+            headerColor: sourceApp.headerColor
+        )
+    }
+}
