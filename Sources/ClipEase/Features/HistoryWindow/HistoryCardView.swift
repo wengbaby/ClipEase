@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryCardView: View {
     let item: HistoryPreviewItem
+    let isSelected: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,9 +42,11 @@ struct HistoryCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(item.isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.black.opacity(0.08), lineWidth: item.isSelected ? 3 : 1)
+                .stroke(isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.black.opacity(0.08), lineWidth: isSelected ? 4 : 1)
         }
+        .scaleEffect(isSelected ? 1.02 : 1.0)
         .shadow(color: .black.opacity(0.08), radius: 10, x: 0, y: 4)
+        .animation(.easeOut(duration: 0.12), value: isSelected)
     }
 
     @ViewBuilder

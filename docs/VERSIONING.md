@@ -1,9 +1,21 @@
 # 版本规则
 
-轻贴使用两个版本字段：
+轻贴的完整版本显示格式为：
+
+```text
+x.x.x(YYMMDD.HHMM)
+```
+
+例如：
+
+```text
+1.0.0(260510.2202)
+```
+
+其中：
 
 - 产品版本：`CFBundleShortVersionString`，格式为 `主版本.小版本.修复版本`，例如 `0.1.0`。
-- 构建号：`CFBundleVersion`，每次正式打包 `.app` 自动加 1。
+- 构建号：`CFBundleVersion`，格式为 `YYMMDD.HHMM`，每次正式打包 `.app` 自动更新为当前时间。
 
 ## 产品版本递增
 
@@ -16,14 +28,14 @@
 
 当前开发早期默认使用：
 
-- 日常本地编译：只增加构建号。
+- 日常本地编译：只更新时间戳构建号。
 - 完成一个阶段：递增 `minor`。
 - 修复问题：递增 `patch`。
 - 第一版可用发布：从 `0.x.x` 进入 `1.0.0`。
 
 ## 命令
 
-只增加构建号：
+只更新时间戳构建号：
 
 ```bash
 scripts/build-app.sh
@@ -46,4 +58,3 @@ scripts/build-app.sh --bump patch
 ```bash
 scripts/build-app.sh --bump major
 ```
-

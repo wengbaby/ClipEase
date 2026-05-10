@@ -2,6 +2,7 @@
 
 import argparse
 import plistlib
+from datetime import datetime
 from pathlib import Path
 
 
@@ -46,7 +47,7 @@ def main() -> None:
     parser.add_argument(
         "--no-build",
         action="store_true",
-        help="Do not increment CFBundleVersion.",
+        help="Do not update CFBundleVersion timestamp.",
     )
     args = parser.parse_args()
 
@@ -54,11 +55,11 @@ def main() -> None:
         plist = plistlib.load(file)
 
     current_version = plist["CFBundleShortVersionString"]
-    current_build = int(plist["CFBundleVersion"])
+    current_build = plist["CFBundleVersion"]
 
     plist["CFBundleShortVersionString"] = next_version(current_version, args.bump)
     if not args.no_build:
-        plist["CFBundleVersion"] = str(current_build + 1)
+        plist["CFBundleVersion"] = datetime.now().strftime("%y%m%d.%H%M")
 
     with INFO_PLIST.open("wb") as file:
         plistlib.dump(plist, file, sort_keys=False)
@@ -71,4 +72,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
