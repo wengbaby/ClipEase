@@ -13,14 +13,15 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     init(onCreate: @escaping (Data, String) -> Void) {
         self.onCreate = onCreate
 
-        let panel = NSPanel(
+        let panel = RichTextEditorPanel(
             contentRect: NSRect(x: 0, y: 0, width: 820, height: 590),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        panel.title = "新建文本"
-        panel.titleVisibility = .hidden
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.center()
 
@@ -29,13 +30,13 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         textView.allowsUndo = true
         textView.importsGraphics = false
         textView.font = .systemFont(ofSize: 20)
-        textView.textColor = .labelColor
+        textView.textColor = .black
         textView.insertionPointColor = .systemBlue
         textView.textContainerInset = NSSize(width: 18, height: 16)
         textView.backgroundColor = .white
         textView.typingAttributes = [
             .font: NSFont.systemFont(ofSize: 20),
-            .foregroundColor: NSColor.labelColor
+            .foregroundColor: NSColor.black
         ]
 
         self.panel = panel
@@ -62,7 +63,9 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private func makeContentView() -> NSView {
         let rootView = NSView()
         rootView.wantsLayer = true
-        rootView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        rootView.layer?.backgroundColor = NSColor(red: 0.91, green: 0.91, blue: 0.93, alpha: 1.0).cgColor
+        rootView.layer?.cornerRadius = 12
+        rootView.layer?.masksToBounds = true
 
         let toolbar = NSStackView()
         toolbar.orientation = .horizontal
@@ -72,7 +75,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
         let cancelButton = toolbarButton("取消", action: #selector(cancelAction))
-        cancelButton.font = .systemFont(ofSize: 20, weight: .medium)
+        cancelButton.font = .systemFont(ofSize: 20, weight: .semibold)
 
         let styleGroup = NSStackView()
         styleGroup.orientation = .horizontal
@@ -99,6 +102,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         scrollView.layer?.cornerRadius = 8
         scrollView.layer?.backgroundColor = NSColor.white.cgColor
         scrollView.documentView = textView
+        textView.drawsBackground = true
 
         let footer = NSStackView()
         footer.orientation = .horizontal
@@ -116,12 +120,12 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         rootView.addSubview(footer)
 
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
-            toolbar.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 14),
-            toolbar.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -14),
+            toolbar.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 10),
+            toolbar.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 18),
+            toolbar.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -18),
             toolbar.heightAnchor.constraint(equalToConstant: 42),
 
-            scrollView.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 10),
+            scrollView.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 14),
             scrollView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 8),
             scrollView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -8),
             scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -14),
@@ -140,6 +144,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         let button = NSButton(title: title, target: self, action: action)
         button.bezelStyle = .rounded
         button.controlSize = .large
+        button.contentTintColor = .labelColor
         return button
     }
 
@@ -155,10 +160,11 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
     private func primaryButton(_ title: String, action: Selector) -> NSButton {
         let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .rounded
+        button.bezelStyle = .regularSquare
         button.controlSize = .large
         button.keyEquivalent = "\r"
         button.contentTintColor = .white
+        button.font = .systemFont(ofSize: 18, weight: .semibold)
         return button
     }
 
@@ -204,7 +210,10 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
         let mutableText = NSMutableAttributedString(attributedString: textView.attributedString())
         transform(mutableText, targetRange)
+        mutableText.addAttribute(.foregroundColor, value: NSColor.black, range: NSRange(location: 0, length: mutableText.length))
         textView.textStorage?.setAttributedString(mutableText)
+        textView.textColor = .black
+        textView.typingAttributes[.foregroundColor] = NSColor.black
         textView.setSelectedRange(range)
         updateFooter()
     }
@@ -265,6 +274,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
             }
         }
         textView.typingAttributes[.font] = NSFont.systemFont(ofSize: fontSize)
+        textView.typingAttributes[.foregroundColor] = NSColor.black
     }
 
     @objc private func cancelAction() {
@@ -288,5 +298,15 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
         onCreate(data, plainText)
         panel.close()
+    }
+}
+
+private final class RichTextEditorPanel: NSPanel {
+    override var canBecomeKey: Bool {
+        true
+    }
+
+    override var canBecomeMain: Bool {
+        true
     }
 }
