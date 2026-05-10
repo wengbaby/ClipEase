@@ -6,6 +6,7 @@ struct HistoryWindowView: View {
     let onClose: () -> Void
 
     @State private var selectedItemID: HistoryPreviewItem.ID?
+    @State private var statusText: String?
 
     private var items: [HistoryPreviewItem] {
         store.items.map(HistoryPreviewItem.init)
@@ -40,11 +41,15 @@ struct HistoryWindowView: View {
                                     )
                                     .id(item.id)
                                     .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        select(item.id, proxy: proxy)
-                                    }
-                                    .onTapGesture(count: 2) {
-                                        copyItem(item.id)
+                                    .gesture(cardTapGesture(for: item, proxy: proxy))
+                                    .contextMenu {
+                                        Button("复制") {
+                                            copyItem(item.id)
+                                        }
+
+                                        Button("删除", role: .destructive) {
+                                            deleteItem(item.id)
+                                        }
                                     }
                                 }
                             }
@@ -90,6 +95,16 @@ struct HistoryWindowView: View {
             Text("轻贴")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
+
+            if let statusText {
+                Text(statusText)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.55))
+                    .clipShape(Capsule())
+            }
 
             Spacer()
 
@@ -157,5 +172,38 @@ struct HistoryWindowView: View {
         }
 
         pasteExecutor.copyToPasteboard(item)
+        showStatus("已复制")
+    }
+
+    private func deleteItem(_ id: ClipboardItem.ID?) {
+        store.deleteItem(with: id)
+        showStatus("已删除")
+    }
+
+    private func cardTapGesture(
+        for item: HistoryPreviewItem,
+        proxy: ScrollViewProxy
+    ) -> some Gesture {
+        TapGesture(count: 2)
+            .exclusively(before: TapGesture(count: 1))
+            .onEnded { value in
+                switch value {
+                case .first:
+                    selectedItemID = item.id
+                    copyItem(item.id)
+                case .second:
+                    select(item.id, proxy: proxy)
+                }
+            }
+    }
+
+    private func showStatus(_ text: String) {
+        statusText = text
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            if statusText == text {
+                statusText = nil
+            }
+        }
     }
 }

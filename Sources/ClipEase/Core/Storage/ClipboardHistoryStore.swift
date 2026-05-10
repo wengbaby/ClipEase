@@ -46,6 +46,14 @@ final class ClipboardHistoryStore: ObservableObject {
         return items.first { $0.id == id }
     }
 
+    func deleteItem(with id: ClipboardItem.ID?) {
+        guard let id else {
+            return
+        }
+
+        items.removeAll { $0.id == id }
+    }
+
     func skipNextClipboardText(_ text: String) {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else {
