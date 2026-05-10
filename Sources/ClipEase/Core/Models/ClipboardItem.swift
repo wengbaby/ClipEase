@@ -114,6 +114,32 @@ extension ClipboardItem {
         )
     }
 
+    static func color(
+        _ hex: String,
+        sourceApp: SourceAppInfo
+    ) -> ClipboardItem {
+        ClipboardItem(
+            id: UUID(),
+            type: .color,
+            text: hex,
+            url: nil,
+            linkTitle: nil,
+            linkSubtitle: nil,
+            imageFileName: nil,
+            imageWidth: nil,
+            imageHeight: nil,
+            imageHash: nil,
+            richTextFileName: nil,
+            createdAt: Date(),
+            sourceAppName: sourceApp.name,
+            sourceBundleID: sourceApp.bundleID,
+            iconName: "paintpalette.fill",
+            headerColorHex: hex,
+            isPinned: false,
+            pinnedAt: nil
+        )
+    }
+
     static func link(
         _ url: URL,
         originalText: String,

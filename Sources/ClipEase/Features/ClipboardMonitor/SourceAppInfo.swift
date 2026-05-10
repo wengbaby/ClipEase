@@ -12,7 +12,11 @@ struct SourceAppInfo {
     }
 
     static var current: SourceAppInfo {
-        guard let app = NSWorkspace.shared.frontmostApplication else {
+        let app = NSWorkspace.shared.runningApplications.first { app in
+            app.isActive && app.bundleIdentifier != Bundle.main.bundleIdentifier
+        } ?? NSWorkspace.shared.frontmostApplication
+
+        guard let app else {
             return SourceAppInfo(
                 name: "未知应用",
                 bundleID: nil,

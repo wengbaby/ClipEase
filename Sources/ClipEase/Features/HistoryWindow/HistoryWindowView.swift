@@ -124,6 +124,12 @@ struct HistoryWindowView: View {
                                             copyItem(item.id)
                                         }
 
+                                        if item.type == .text || item.type == .link || item.type == .color {
+                                            Button("复制纯文本") {
+                                                copyPlainTextItem(item.id)
+                                            }
+                                        }
+
                                         Button("预览") {
                                             showPreview(item.id)
                                         }
@@ -134,6 +140,12 @@ struct HistoryWindowView: View {
 
                                         Button("删除", role: .destructive) {
                                             deleteItem(item.id)
+                                        }
+
+                                        if item.type == .image {
+                                            Button("在 Finder 中显示") {
+                                                revealImageInFinder(item.id)
+                                            }
                                         }
 
                                         if let sourceItem = store.item(with: item.id),
@@ -556,6 +568,15 @@ struct HistoryWindowView: View {
         showStatus("已复制")
     }
 
+    private func copyPlainTextItem(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id) else {
+            return
+        }
+
+        pasteExecutor.copyPlainTextToPasteboard(item)
+        showStatus("已复制纯文本")
+    }
+
     private func pasteItem(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id) else {
             return
@@ -624,6 +645,17 @@ struct HistoryWindowView: View {
 
         appMenuController.ignoreSourceApp(for: item)
         showStatus("已忽略 \(item.sourceAppName)")
+    }
+
+    private func revealImageInFinder(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              let imageURL = store.imageFileURL(for: item) else {
+            showStatus("未找到图片文件")
+            return
+        }
+
+        NSWorkspace.shared.activateFileViewerSelecting([imageURL])
+        showStatus("已在 Finder 中显示")
     }
 
     private func immediateSelectionGesture(for item: HistoryPreviewItem) -> some Gesture {

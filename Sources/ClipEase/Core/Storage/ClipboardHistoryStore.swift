@@ -32,6 +32,7 @@ final class ClipboardHistoryStore: ObservableObject {
         self.items = persistence.loadItems()
         sortItems()
         pruneExpiredItems()
+        save()
         rebuildRecentHashes()
     }
 
@@ -53,7 +54,9 @@ final class ClipboardHistoryStore: ObservableObject {
         recentHashes.insert(hash)
 
         let item: ClipboardItem
-        if let url = URLParser.url(from: normalizedText) {
+        if let hex = ColorParser.hexColor(from: normalizedText) {
+            item = .color(hex, sourceApp: sourceApp)
+        } else if let url = URLParser.url(from: normalizedText) {
             item = .link(url, originalText: normalizedText, sourceApp: sourceApp)
         } else {
             item = .text(normalizedText, sourceApp: sourceApp)
@@ -193,6 +196,14 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         return persistence.richTextData(fileName: fileName)
+    }
+
+    func imageFileURL(for item: ClipboardItem) -> URL? {
+        guard let fileName = item.imageFileName else {
+            return nil
+        }
+
+        return try? ClipEaseStoragePaths.imageFileURL(fileName: fileName)
     }
 
     private func sortItems() {

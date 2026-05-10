@@ -48,6 +48,12 @@ final class PasteExecutor {
         }
     }
 
+    func copyPlainTextToPasteboard(_ item: ClipboardItem) {
+        pasteboard.clearContents()
+        pasteboard.setString(item.text, forType: .string)
+        store.skipNextClipboardText(item.text)
+    }
+
     func pasteToFrontmostApp(_ item: ClipboardItem) -> PasteResult {
         copyToPasteboard(item)
 

@@ -112,6 +112,7 @@ ClipEase/
 - 判断是否暂停。
 - 判断来源 App 是否被忽略。
 - 识别文字、图片、链接。
+- 识别十六进制颜色值。
 - 做基础去重。
 - 将新记录交给 Store 保存。
 
@@ -142,6 +143,7 @@ ClipEase/
 - 阶段 4 先使用 `~/Library/Application Support/ClipEase/history.json` 保存历史索引。
 - 图片文件保存在 `~/Library/Application Support/ClipEase/Images`。
 - JSON 方案已覆盖文字、链接、图片、置顶、删除、排序和保存期限。
+- 保存期限清理在启动和策略变更时执行，清理后会立即写回历史文件。
 - 批量数据、复杂搜索和发布稳定后，再迁移到 SQLite 表结构。
 
 ### 4.5 PasteExecutor
