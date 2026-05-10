@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var store: ClipboardHistoryStore
@@ -190,40 +191,58 @@ struct SettingsView: View {
 
     private var ignoredAppsSection: some View {
         settingsSection(title: "忽略 App", subtitle: ignoredAppsSubtitle) {
-            if ignoredAppSettings.apps.isEmpty {
-                Text("暂未忽略任何 App。可在历史卡片右键菜单中添加。")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(ignoredAppSettings.apps) { app in
-                        HStack(spacing: 10) {
-                            Image(systemName: "app.dashed")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Button("添加 App") {
+                        addIgnoredAppFromPanel()
+                    }
+                    .buttonStyle(.borderedProminent)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(app.name)
-                                    .font(.system(size: 13, weight: .semibold))
+                    Button("清空") {
+                        ignoredAppSettings.removeAll()
+                        showStatus("已清空忽略 App")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(ignoredAppSettings.apps.isEmpty)
 
-                                Text(app.bundleID)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                    Spacer()
+                }
+
+                if ignoredAppSettings.apps.isEmpty {
+                    Text("暂未忽略任何 App。可点击添加，或在历史卡片右键菜单中添加。")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(ignoredAppSettings.apps) { app in
+                            HStack(spacing: 10) {
+                                Image(systemName: "app.dashed")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(app.name)
+                                        .font(.system(size: 13, weight: .semibold))
+
+                                    Text(app.bundleID)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+
+                                Button("移除") {
+                                    ignoredAppSettings.remove(bundleID: app.bundleID)
+                                    showStatus("已移除忽略 App")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
                             }
-
-                            Spacer()
-
-                            Button("移除") {
-                                ignoredAppSettings.remove(bundleID: app.bundleID)
-                                showStatus("已移除忽略 App")
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            .padding(10)
+                            .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                         }
-                        .padding(10)
-                        .background(Color(red: 0.96, green: 0.97, blue: 0.99))
-                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                     }
                 }
             }
@@ -290,6 +309,38 @@ struct SettingsView: View {
             if statusText == text {
                 statusText = nil
             }
+        }
+    }
+
+    private func addIgnoredAppFromPanel() {
+        let panel = NSOpenPanel()
+        panel.title = "选择要忽略的 App"
+        panel.prompt = "添加"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+
+        guard panel.runModal() == .OK,
+              let url = panel.url else {
+            return
+        }
+
+        guard let bundle = Bundle(url: url),
+              let bundleID = bundle.bundleIdentifier else {
+            showStatus("无法识别所选 App")
+            return
+        }
+
+        let appName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? url.deletingPathExtension().lastPathComponent
+
+        if ignoredAppSettings.add(bundleID: bundleID, name: appName) {
+            showStatus("已忽略 \(appName)")
+        } else {
+            showStatus("\(appName) 已在忽略列表")
         }
     }
 }

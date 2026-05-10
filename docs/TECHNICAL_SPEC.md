@@ -188,6 +188,7 @@ ClipEase/
 - 简单偏好使用 `UserDefaults`。
 - 忽略 App 列表可使用 JSON 或 SQLite 表。
 - 当前实现将忽略 App 列表存入 `UserDefaults`，键名为 `ignoredApps`，每项包含 `bundleID` 和 `name`。
+- 设置页使用 `NSOpenPanel` 选择 `.app`，通过 `Bundle(url:)` 读取 Bundle ID 和应用名称后加入忽略列表。
 - 当前实现将全局快捷键存入 `UserDefaults`，键名为 `globalShortcut.keyCode` 和 `globalShortcut.modifiers`，修改后会重新注册 Carbon HotKey。
 
 ## 5. 数据模型

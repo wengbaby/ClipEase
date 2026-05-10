@@ -29,19 +29,26 @@ final class IgnoredAppSettings: ObservableObject {
         return apps.contains { $0.bundleID == bundleID }
     }
 
-    func add(bundleID: String?, name: String) {
+    @discardableResult
+    func add(bundleID: String?, name: String) -> Bool {
         guard let bundleID,
               !bundleID.isEmpty,
               !contains(bundleID: bundleID) else {
-            return
+            return false
         }
 
         apps.append(IgnoredApp(bundleID: bundleID, name: name))
         sortAndSave()
+        return true
     }
 
     func remove(bundleID: String) {
         apps.removeAll { $0.bundleID == bundleID }
+        save()
+    }
+
+    func removeAll() {
+        apps.removeAll()
         save()
     }
 
