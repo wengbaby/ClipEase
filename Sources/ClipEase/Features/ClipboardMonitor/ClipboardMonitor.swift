@@ -5,14 +5,17 @@ import Foundation
 final class ClipboardMonitor {
     private let pasteboard: NSPasteboard
     private let store: ClipboardHistoryStore
+    private let recordingController: RecordingController
     private var timer: Timer?
     private var lastChangeCount: Int
 
     init(
         store: ClipboardHistoryStore,
+        recordingController: RecordingController,
         pasteboard: NSPasteboard = .general
     ) {
         self.store = store
+        self.recordingController = recordingController
         self.pasteboard = pasteboard
         self.lastChangeCount = pasteboard.changeCount
     }
@@ -43,6 +46,10 @@ final class ClipboardMonitor {
         }
 
         lastChangeCount = pasteboard.changeCount
+        guard !recordingController.isPaused else {
+            return
+        }
+
         guard let text = pasteboard.string(forType: .string) else {
             return
         }
@@ -50,4 +57,3 @@ final class ClipboardMonitor {
         store.addText(text, sourceApp: .current)
     }
 }
-

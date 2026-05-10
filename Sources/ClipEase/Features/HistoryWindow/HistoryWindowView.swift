@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryWindowView: View {
     @ObservedObject var store: ClipboardHistoryStore
+    @ObservedObject var recordingController: RecordingController
     let pasteExecutor: PasteExecutor
     let onClose: () -> Void
 
@@ -161,6 +162,8 @@ struct HistoryWindowView: View {
 
             Spacer()
 
+            recordingStatusButton
+
             autoPasteStatusButton
 
             searchField
@@ -211,6 +214,25 @@ struct HistoryWindowView: View {
         }
         .buttonStyle(.plain)
         .help(canAutoPaste ? "回车会自动粘贴到当前 App" : "点击打开辅助功能权限设置")
+    }
+
+    private var recordingStatusButton: some View {
+        Button(action: toggleRecording) {
+            HStack(spacing: 5) {
+                Image(systemName: recordingController.isPaused ? "pause.circle.fill" : "record.circle")
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text(recordingController.isPaused ? "已暂停" : "记录中")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(recordingController.isPaused ? Color(red: 0.78, green: 0.36, blue: 0.08) : Color(red: 0.18, green: 0.55, blue: 1.0))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.55))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(recordingController.isPaused ? "点击恢复记录" : "点击暂停记录")
     }
 
     private var searchField: some View {
@@ -356,6 +378,11 @@ struct HistoryWindowView: View {
 
         pasteExecutor.openAccessibilitySettings()
         showStatus("请授权轻贴")
+    }
+
+    private func toggleRecording() {
+        recordingController.togglePaused()
+        showStatus(recordingController.isPaused ? "已暂停记录" : "已恢复记录")
     }
 }
 
