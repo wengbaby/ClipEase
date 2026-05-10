@@ -15,6 +15,7 @@ struct HistoryWindowView: View {
     @State private var canAutoPaste = false
     @State private var isClearConfirmationPresented = false
     @State private var previewedItemID: ClipboardItem.ID?
+    @State private var cardFrames: [ClipboardItem.ID: CGRect] = [:]
 
     private var items: [HistoryPreviewItem] {
         store.items.map(HistoryPreviewItem.init)
@@ -84,6 +85,14 @@ struct HistoryWindowView: View {
                                         isSelected: selectedItemID == item.id
                                     )
                                     .id(item.id)
+                                    .background(
+                                        GeometryReader { proxy in
+                                            Color.clear.preference(
+                                                key: CardFramePreferenceKey.self,
+                                                value: [item.id: proxy.frame(in: .named("historyWindow"))]
+                                            )
+                                        }
+                                    )
                                     .contentShape(Rectangle())
                                     .highPriorityGesture(
                                         immediateSelectionGesture(for: item),
@@ -125,27 +134,22 @@ struct HistoryWindowView: View {
                                 proxy.scrollTo(id, anchor: .center)
                             }
                         }
+                        .onPreferenceChange(CardFramePreferenceKey.self) { frames in
+                            cardFrames = frames
+                        }
                     }
                 }
             }
             .padding(.top, 18)
 
             if let previewedItem = store.item(with: previewedItemID) {
-                VStack {
-                    Spacer()
-
-                    HistoryPreviewPopoverView(
-                        item: previewedItem,
-                        onClose: { previewedItemID = nil },
-                        onCopy: { copyItem(previewedItem.id) }
-                    )
-                    .padding(.bottom, 318)
-                }
+                previewOverlay(for: previewedItem)
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 .zIndex(2)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .coordinateSpace(name: "historyWindow")
         .focusable()
         .onAppear {
             selectedItemID = filteredItems.first?.id
@@ -171,6 +175,81 @@ struct HistoryWindowView: View {
             moveSelection(direction)
         }
         .onExitCommand(perform: onClose)
+    }
+
+    private func previewOverlay(for item: ClipboardItem) -> some View {
+        GeometryReader { proxy in
+            let cardFrame = cardFrames[item.id] ?? fallbackCardFrame(in: proxy.size)
+            let layout = previewLayout(for: item, cardFrame: cardFrame, containerSize: proxy.size)
+
+            HistoryPreviewPopoverView(
+                item: item,
+                arrowX: layout.arrowX,
+                size: layout.size,
+                onClose: { previewedItemID = nil },
+                onCopy: { copyItem(item.id) }
+            )
+            .position(x: layout.centerX, y: layout.centerY)
+        }
+        .allowsHitTesting(true)
+    }
+
+    private func previewLayout(
+        for item: ClipboardItem,
+        cardFrame: CGRect,
+        containerSize: CGSize
+    ) -> PreviewLayout {
+        let size = previewSize(for: item, containerSize: containerSize)
+        let horizontalMargin: CGFloat = 8
+        let centerX = min(
+            max(cardFrame.midX, horizontalMargin + size.width / 2),
+            containerSize.width - horizontalMargin - size.width / 2
+        )
+        let centerY = max(
+            size.height / 2 + 8,
+            cardFrame.minY - 14 - size.height / 2
+        )
+        let arrowX = min(
+            max(cardFrame.midX - (centerX - size.width / 2), 28),
+            size.width - 28
+        )
+
+        return PreviewLayout(size: size, centerX: centerX, centerY: centerY, arrowX: arrowX)
+    }
+
+    private func previewSize(for item: ClipboardItem, containerSize: CGSize) -> CGSize {
+        let maxWidth = max(360, containerSize.width - 16)
+        switch item.type {
+        case .image:
+            guard let width = item.imageWidth,
+                  let height = item.imageHeight,
+                  width > 0,
+                  height > 0 else {
+                return CGSize(width: min(560, maxWidth), height: 310)
+            }
+
+            let contentMaxWidth = min(maxWidth, 990)
+            let maxHeight = max(260, containerSize.height - 330)
+            let headerFooterHeight: CGFloat = 88
+            let imageRatio = CGFloat(width) / CGFloat(height)
+            let imageWidth = min(contentMaxWidth - 8, (maxHeight - headerFooterHeight) * imageRatio)
+            let imageHeight = imageWidth / imageRatio
+            return CGSize(
+                width: min(contentMaxWidth, imageWidth + 8),
+                height: min(maxHeight, imageHeight + headerFooterHeight)
+            )
+        case .text, .link, .color:
+            return CGSize(width: min(620, maxWidth), height: 330)
+        }
+    }
+
+    private func fallbackCardFrame(in containerSize: CGSize) -> CGRect {
+        CGRect(
+            x: 28,
+            y: max(0, containerSize.height - 310),
+            width: 250,
+            height: 270
+        )
     }
 
     private var toolbar: some View {
@@ -671,4 +750,19 @@ private enum HistoryFilter: String, CaseIterable, Identifiable {
             "置顶"
         }
     }
+}
+
+private struct CardFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [ClipboardItem.ID: CGRect] = [:]
+
+    static func reduce(value: inout [ClipboardItem.ID: CGRect], nextValue: () -> [ClipboardItem.ID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, newValue in newValue })
+    }
+}
+
+private struct PreviewLayout {
+    let size: CGSize
+    let centerX: CGFloat
+    let centerY: CGFloat
+    let arrowX: CGFloat
 }

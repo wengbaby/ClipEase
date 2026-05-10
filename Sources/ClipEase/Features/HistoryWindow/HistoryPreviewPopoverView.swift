@@ -3,6 +3,8 @@ import SwiftUI
 
 struct HistoryPreviewPopoverView: View {
     let item: ClipboardItem
+    let arrowX: CGFloat
+    let size: CGSize
     let onClose: () -> Void
     let onCopy: () -> Void
 
@@ -19,14 +21,15 @@ struct HistoryPreviewPopoverView: View {
 
             footer
         }
-        .frame(width: 560, height: 310)
+        .frame(width: size.width, height: size.height)
         .background(Color(red: 0.94, green: 0.95, blue: 0.98))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 12)
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .bottomLeading) {
             Triangle()
                 .fill(Color(red: 0.94, green: 0.95, blue: 0.98))
                 .frame(width: 26, height: 14)
+                .offset(x: arrowX - 13)
                 .offset(y: 14)
         }
     }

@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 final class HistoryWindowController: NSObject, NSWindowDelegate {
-    private let panelHeight: CGFloat = 360
+    private let panelHeight: CGFloat = 760
     private let store: ClipboardHistoryStore
     private let pasteExecutor: PasteExecutor
     private let recordingController: RecordingController
