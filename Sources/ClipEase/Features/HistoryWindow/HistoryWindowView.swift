@@ -19,6 +19,7 @@ struct HistoryWindowView: View {
     @State private var canAutoPaste = false
     @State private var isClearConfirmationPresented = false
     @State private var cardFrames: [ClipboardItem.ID: CGRect] = [:]
+    @State private var isCommandKeyPressed = false
     @FocusState private var isSearchFocused: Bool
 
     private var items: [HistoryPreviewItem] {
@@ -104,7 +105,9 @@ struct HistoryWindowView: View {
             .frame(width: 0, height: 0)
             .opacity(0)
 
-            NumberShortcutHandler { number in
+            NumberShortcutHandler { isPressed in
+                isCommandKeyPressed = isPressed
+            } onNumber: { number in
                 selectVisibleCard(number: number)
             }
             .frame(width: 0, height: 0)
@@ -124,7 +127,9 @@ struct HistoryWindowView: View {
                                     HistoryCardView(
                                         item: item,
                                         isSelected: selectedItemID == item.id,
-                                        searchQuery: searchText
+                                        searchQuery: searchText,
+                                        shortcutNumber: shortcutNumber(for: item.id),
+                                        isShortcutOverlayVisible: isCommandKeyPressed
                                     )
                                     .id(item.id)
                                     .background(
@@ -681,6 +686,14 @@ struct HistoryWindowView: View {
         showStatus("已选中第 \(number) 张")
     }
 
+    private func shortcutNumber(for id: HistoryPreviewItem.ID) -> Int? {
+        guard let index = filteredItems.prefix(9).firstIndex(where: { $0.id == id }) else {
+            return nil
+        }
+
+        return filteredItems.distance(from: filteredItems.startIndex, to: index) + 1
+    }
+
     private func copyItem(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id) else {
             return
@@ -1002,58 +1015,81 @@ private enum HistoryFilter: String, CaseIterable, Identifiable {
 }
 
 private struct NumberShortcutHandler: NSViewRepresentable {
+    let onCommandStateChange: (Bool) -> Void
     let onNumber: (Int) -> Void
 
     func makeNSView(context: Context) -> ShortcutNSView {
         let view = ShortcutNSView()
+        view.onCommandStateChange = onCommandStateChange
         view.onNumber = onNumber
         return view
     }
 
     func updateNSView(_ nsView: ShortcutNSView, context: Context) {
+        nsView.onCommandStateChange = onCommandStateChange
         nsView.onNumber = onNumber
     }
 
     final class ShortcutNSView: NSView {
+        var onCommandStateChange: ((Bool) -> Void)?
         var onNumber: ((Int) -> Void)?
         private var monitor: Any?
+        private var flagsMonitor: Any?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
-                removeMonitor()
+                removeMonitors()
             } else {
-                installMonitor()
+                installMonitors()
             }
         }
 
-        private func installMonitor() {
-            guard monitor == nil else {
-                return
+        private func installMonitors() {
+            if monitor == nil {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                    guard let self,
+                          self.window?.isKeyWindow == true,
+                          !Self.isTextInputActive(),
+                          event.modifierFlags.contains(.command),
+                          let characters = event.charactersIgnoringModifiers,
+                          characters.count == 1,
+                          let number = Int(characters),
+                          (1...9).contains(number) else {
+                        return event
+                    }
+
+                    self.onNumber?(number)
+                    return nil
+                }
             }
 
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self,
-                      self.window?.isKeyWindow == true,
-                      !Self.isTextInputActive(),
-                      event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
-                      let characters = event.charactersIgnoringModifiers,
-                      characters.count == 1,
-                      let number = Int(characters),
-                      (1...9).contains(number) else {
+            if flagsMonitor == nil {
+                flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                    guard let self,
+                          self.window?.isKeyWindow == true else {
+                        self?.onCommandStateChange?(false)
+                        return event
+                    }
+
+                    self.onCommandStateChange?(event.modifierFlags.contains(.command))
                     return event
                 }
-
-                self.onNumber?(number)
-                return nil
             }
         }
 
-        private func removeMonitor() {
+        private func removeMonitors() {
             if let monitor {
                 NSEvent.removeMonitor(monitor)
                 self.monitor = nil
             }
+
+            if let flagsMonitor {
+                NSEvent.removeMonitor(flagsMonitor)
+                self.flagsMonitor = nil
+            }
+
+            onCommandStateChange?(false)
         }
 
         private static func isTextInputActive() -> Bool {

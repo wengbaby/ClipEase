@@ -5,6 +5,8 @@ struct HistoryCardView: View {
     let item: HistoryPreviewItem
     let isSelected: Bool
     let searchQuery: String
+    let shortcutNumber: Int?
+    let isShortcutOverlayVisible: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,6 +51,18 @@ struct HistoryCardView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.black.opacity(0.08), lineWidth: isSelected ? 4 : 1)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if isShortcutOverlayVisible,
+               let shortcutNumber {
+                Text("\(shortcutNumber)")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Color.black.opacity(0.62))
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .padding(10)
+            }
         }
         .shadow(
             color: .black.opacity(isSelected ? 0.14 : 0.08),
