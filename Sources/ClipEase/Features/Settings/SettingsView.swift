@@ -18,6 +18,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     retentionSection
+                    shortcutSection
                     recordingSection
                     permissionsSection
                     historySection
@@ -103,6 +104,21 @@ struct SettingsView: View {
                     showStatus("已暂停到今日结束")
                 }
                 .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var shortcutSection: some View {
+        settingsSection(title: "快捷键", subtitle: "自定义快捷键后续接入") {
+            HStack {
+                Label("Command + Shift + V", systemImage: "keyboard")
+                    .font(.system(size: 13, weight: .medium))
+
+                Spacer()
+
+                Text("已启用")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
             }
         }
     }

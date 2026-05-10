@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var historyWindowController: HistoryWindowController?
     private var clipboardMonitor: ClipboardMonitor?
     private var appMenuController: AppMenuController?
+    private var globalHotKeyController: GlobalHotKeyController?
     private let historyStore = ClipboardHistoryStore()
     private let recordingController = RecordingController()
     private lazy var pasteExecutor = PasteExecutor(store: historyStore)
@@ -28,6 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             historyWindowController: historyWindowController,
             appMenuController: appMenuController
         )
+        let globalHotKeyController = GlobalHotKeyController(
+            historyWindowController: historyWindowController
+        )
+        self.globalHotKeyController = globalHotKeyController
+        globalHotKeyController.start()
         let clipboardMonitor = ClipboardMonitor(
             store: historyStore,
             recordingController: recordingController
@@ -37,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        globalHotKeyController?.stop()
         clipboardMonitor?.stop()
     }
 }
