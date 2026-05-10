@@ -5,7 +5,11 @@ struct SourceAppInfo {
     let name: String
     let bundleID: String?
     let iconName: String
-    let headerColor: Color
+    let headerColorHex: String
+
+    var headerColor: Color {
+        Color.clipeaseHex(headerColorHex)
+    }
 
     static var current: SourceAppInfo {
         guard let app = NSWorkspace.shared.frontmostApplication else {
@@ -13,7 +17,7 @@ struct SourceAppInfo {
                 name: "未知应用",
                 bundleID: nil,
                 iconName: "app.fill",
-                headerColor: Color(red: 0.18, green: 0.55, blue: 1.0)
+                headerColorHex: "#2E8CFF"
             )
         }
 
@@ -21,7 +25,7 @@ struct SourceAppInfo {
             name: app.localizedName ?? "未知应用",
             bundleID: app.bundleIdentifier,
             iconName: iconName(for: app.bundleIdentifier),
-            headerColor: headerColor(for: app.bundleIdentifier)
+            headerColorHex: headerColorHex(for: app.bundleIdentifier)
         )
     }
 
@@ -51,27 +55,26 @@ struct SourceAppInfo {
         return "app.fill"
     }
 
-    private static func headerColor(for bundleID: String?) -> Color {
+    private static func headerColorHex(for bundleID: String?) -> String {
         guard let bundleID else {
-            return Color(red: 0.18, green: 0.55, blue: 1.0)
+            return "#2E8CFF"
         }
 
         if bundleID.contains("Safari") {
-            return Color(red: 0.00, green: 0.72, blue: 0.66)
+            return "#00B8A8"
         }
         if bundleID.contains("Notes") {
-            return Color(red: 0.98, green: 0.76, blue: 0.18)
+            return "#FAC22E"
         }
         if bundleID.contains("Messages") || bundleID.contains("WeChat") {
-            return Color(red: 0.04, green: 0.70, blue: 0.38)
+            return "#0AB361"
         }
         if bundleID.contains("Xcode") {
-            return Color(red: 0.10, green: 0.45, blue: 0.95)
+            return "#1973F2"
         }
         if bundleID.contains("com.apple.finder") {
-            return Color(red: 0.20, green: 0.56, blue: 1.0)
+            return "#338FFF"
         }
-        return Color(red: 0.18, green: 0.55, blue: 1.0)
+        return "#2E8CFF"
     }
 }
-

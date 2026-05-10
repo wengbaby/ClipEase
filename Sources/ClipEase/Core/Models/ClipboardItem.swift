@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-enum ClipboardItemType {
+enum ClipboardItemType: String {
     case text
     case link
     case image
@@ -19,9 +19,13 @@ struct ClipboardItem: Identifiable, Equatable {
     let sourceAppName: String
     let sourceBundleID: String?
     let iconName: String
-    let headerColor: Color
+    let headerColorHex: String
     var isPinned: Bool
     var pinnedAt: Date?
+
+    var headerColor: Color {
+        Color.clipeaseHex(headerColorHex)
+    }
 
     var kind: String {
         switch type {
@@ -90,7 +94,7 @@ extension ClipboardItem {
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
             iconName: sourceApp.iconName,
-            headerColor: sourceApp.headerColor,
+            headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
             pinnedAt: nil
         )
@@ -115,7 +119,7 @@ extension ClipboardItem {
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
             iconName: sourceApp.iconName,
-            headerColor: sourceApp.headerColor,
+            headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
             pinnedAt: nil
         )

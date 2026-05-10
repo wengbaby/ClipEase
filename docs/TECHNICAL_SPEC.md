@@ -132,10 +132,16 @@ ClipEase/
 - 置顶、删除、清空。
 - 保存期限清理。
 
-第一版使用 SQLite：
+目标方案使用 SQLite：
 
 - 一张 `clipboard_items` 表保存索引和文字内容。
 - 图片文件保存在 Application Support 下的 `Images` 目录。
+
+当前实现备注：
+
+- 阶段 4 先使用 `~/Library/Application Support/ClipEase/history.json` 保存文字和链接历史。
+- JSON 方案用于快速验证历史恢复、删除、置顶和排序的完整链路。
+- 图片历史、保存期限和批量数据稳定后，再迁移到 SQLite 表结构。
 
 ### 4.5 PasteExecutor
 
@@ -530,4 +536,3 @@ SQLite 保存：
 - `SMAppService`：https://developer.apple.com/documentation/servicemanagement/smappservice
 - Accessibility Trust：https://developer.apple.com/documentation/applicationservices/1462083-axisprocesstrustedwithoptions
 - `CGEvent`：https://developer.apple.com/documentation/coregraphics/cgevent
-

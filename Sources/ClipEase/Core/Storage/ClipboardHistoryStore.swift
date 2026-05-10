@@ -5,8 +5,16 @@ final class ClipboardHistoryStore: ObservableObject {
     @Published private(set) var items: [ClipboardItem] = []
 
     private let maxInMemoryItems = 80
+    private let persistence: ClipboardHistoryPersistence
     private var recentHashes: Set<String> = []
     private var skippedClipboardTexts: Set<String> = []
+
+    init(persistence: ClipboardHistoryPersistence = ClipboardHistoryPersistence()) {
+        self.persistence = persistence
+        self.items = persistence.loadItems()
+        sortItems()
+        rebuildRecentHashes()
+    }
 
     func addText(_ text: String, sourceApp: SourceAppInfo) {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -37,6 +45,7 @@ final class ClipboardHistoryStore: ObservableObject {
         if items.count > maxInMemoryItems {
             items.removeLast(items.count - maxInMemoryItems)
         }
+        save()
     }
 
     func item(with id: ClipboardItem.ID?) -> ClipboardItem? {
@@ -53,6 +62,7 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         items.removeAll { $0.id == id }
+        save()
     }
 
     func togglePinned(for id: ClipboardItem.ID?) {
@@ -64,6 +74,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items[index].isPinned.toggle()
         items[index].pinnedAt = items[index].isPinned ? Date() : nil
         sortItems()
+        save()
     }
 
     func skipNextClipboardText(_ text: String) {
@@ -87,5 +98,15 @@ final class ClipboardHistoryStore: ObservableObject {
 
             return lhs.createdAt > rhs.createdAt
         }
+    }
+
+    private func save() {
+        persistence.saveItems(items)
+    }
+
+    private func rebuildRecentHashes() {
+        recentHashes = Set(items.map { item in
+            "\(item.sourceBundleID ?? "unknown"):\(item.text)"
+        })
     }
 }
