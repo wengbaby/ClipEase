@@ -10,7 +10,7 @@ enum AppIconCache {
     static func cacheIcon(for app: NSRunningApplication) -> CachedAppIcon? {
         guard let bundleID = app.bundleIdentifier,
               let icon = app.icon,
-              let iconData = icon.pngData() else {
+              let iconData = icon.pngData(size: NSSize(width: 256, height: 256)) else {
             return nil
         }
 
@@ -34,6 +34,15 @@ enum AppIconCache {
             NSLog("ClipEase failed to cache app icon: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    static func clearCache() {
+        guard let directoryURL = try? ClipEaseStoragePaths.appIconsDirectory(),
+              FileManager.default.fileExists(atPath: directoryURL.path) else {
+            return
+        }
+
+        try? FileManager.default.removeItem(at: directoryURL)
     }
 
     private static func sanitized(_ bundleID: String) -> String {
@@ -84,8 +93,9 @@ private extension NSImage {
         return image
     }
 
-    func pngData() -> Data? {
-        guard let tiffRepresentation,
+    func pngData(size: NSSize? = nil) -> Data? {
+        let image = size.flatMap { resized(to: $0) } ?? self
+        guard let tiffRepresentation = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffRepresentation) else {
             return nil
         }

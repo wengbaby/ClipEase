@@ -51,6 +51,11 @@ struct HistoryPreviewPopoverView: View {
             Text(item.kind)
                 .font(.system(size: 15, weight: .semibold))
 
+            Text("来自 \(item.sourceAppName)")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
             Spacer()
 
             Button(action: onCopy) {

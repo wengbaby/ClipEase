@@ -276,6 +276,13 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.bordered)
 
+                    Button("清空图标缓存") {
+                        AppIconCache.clearCache()
+                        refreshStorageUsage()
+                        showStatus("已清空图标缓存")
+                    }
+                    .buttonStyle(.bordered)
+
                     Button("刷新用量") {
                         refreshStorageUsage()
                         showStatus("已刷新存储用量")

@@ -155,6 +155,14 @@ struct HistoryWindowView: View {
                                             Button("忽略 \(sourceItem.sourceAppName)") {
                                                 ignoreSourceApp(item.id)
                                             }
+
+                                            Button("复制来源 App 名称") {
+                                                copySourceAppName(item.id)
+                                            }
+
+                                            Button("复制来源 Bundle ID") {
+                                                copySourceBundleID(item.id)
+                                            }
                                         }
                                     }
                                 }
@@ -645,6 +653,28 @@ struct HistoryWindowView: View {
 
         appMenuController.ignoreSourceApp(for: item)
         showStatus("已忽略 \(item.sourceAppName)")
+    }
+
+    private func copySourceAppName(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id) else {
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.sourceAppName, forType: .string)
+        showStatus("已复制来源名称")
+    }
+
+    private func copySourceBundleID(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              let bundleID = item.sourceBundleID else {
+            showStatus("无来源 Bundle ID")
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(bundleID, forType: .string)
+        showStatus("已复制 Bundle ID")
     }
 
     private func revealImageInFinder(_ id: ClipboardItem.ID?) {

@@ -29,7 +29,7 @@ struct HistoryCardView: View {
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.vertical, 7)
             .background(item.headerColor)
 
             preview
@@ -62,7 +62,7 @@ struct HistoryCardView: View {
             if let icon = loadSourceIcon() {
                 Image(nsImage: icon)
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
                     .frame(width: 64, height: 64)
             } else {
                 Image(systemName: item.iconName)
@@ -70,7 +70,6 @@ struct HistoryCardView: View {
             }
         }
         .frame(width: 64, height: 64)
-        .clipped()
         .help(item.sourceAppName)
     }
 
