@@ -44,7 +44,7 @@ struct HistoryWindowView: View {
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
                 .ignoresSafeArea()
 
-            Button(action: { copyItem(selectedItemID) }) {
+            Button(action: { pasteItem(selectedItemID) }) {
                 EmptyView()
             }
             .buttonStyle(.plain)
@@ -257,6 +257,19 @@ struct HistoryWindowView: View {
 
         pasteExecutor.copyToPasteboard(item)
         showStatus("已复制")
+    }
+
+    private func pasteItem(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id) else {
+            return
+        }
+
+        switch pasteExecutor.pasteToFrontmostApp(item) {
+        case .copiedOnly:
+            showStatus("已复制")
+        case .pasted:
+            showStatus("已粘贴")
+        }
     }
 
     private func deleteItem(_ id: ClipboardItem.ID?) {

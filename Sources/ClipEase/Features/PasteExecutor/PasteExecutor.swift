@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 
 @MainActor
 final class PasteExecutor {
@@ -24,5 +25,39 @@ final class PasteExecutor {
             break
         }
     }
+
+    func pasteToFrontmostApp(_ item: ClipboardItem) -> PasteResult {
+        copyToPasteboard(item)
+
+        guard AXIsProcessTrusted() else {
+            return .copiedOnly
+        }
+
+        sendCommandV()
+        return .pasted
+    }
+
+    private func sendCommandV() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let keyDown = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: KeyCode.v,
+            keyDown: true
+        )
+        let keyUp = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: KeyCode.v,
+            keyDown: false
+        )
+
+        keyDown?.flags = .maskCommand
+        keyUp?.flags = .maskCommand
+        keyDown?.post(tap: .cghidEventTap)
+        keyUp?.post(tap: .cghidEventTap)
+    }
 }
 
+enum PasteResult {
+    case copiedOnly
+    case pasted
+}
