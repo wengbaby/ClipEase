@@ -16,7 +16,7 @@ struct HistoryWindowView: View {
 
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 18) {
+                        HStack(spacing: 20) {
                             ForEach(sampleItems) { item in
                                 HistoryCardView(
                                     item: item,
@@ -29,8 +29,9 @@ struct HistoryWindowView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 22)
-                        .padding(.bottom, 24)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 8)
+                        .padding(.bottom, 22)
                     }
                 }
             }

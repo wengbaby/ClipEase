@@ -38,13 +38,13 @@ struct HistoryCardView: View {
                 .padding(.vertical, 10)
                 .background(Color.white)
         }
-        .frame(width: 260, height: 280)
+        .frame(width: 250, height: 270)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.black.opacity(0.08), lineWidth: isSelected ? 4 : 1)
         }
-        .scaleEffect(isSelected ? 1.02 : 1.0)
+        .scaleEffect(isSelected ? 1.01 : 1.0)
         .shadow(color: .black.opacity(0.08), radius: 10, x: 0, y: 4)
         .animation(.easeOut(duration: 0.12), value: isSelected)
     }
