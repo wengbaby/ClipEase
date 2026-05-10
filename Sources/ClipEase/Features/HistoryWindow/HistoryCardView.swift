@@ -59,21 +59,18 @@ struct HistoryCardView: View {
 
     private var sourceIcon: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(Color.white.opacity(0.86))
-
             if let icon = loadSourceIcon() {
                 Image(nsImage: icon)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 58, height: 58)
+                    .frame(width: 64, height: 64)
             } else {
                 Image(systemName: item.iconName)
-                    .font(.system(size: 27, weight: .semibold))
+                    .font(.system(size: 34, weight: .semibold))
             }
         }
-        .frame(width: 50, height: 50)
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .frame(width: 64, height: 64)
+        .clipped()
         .help(item.sourceAppName)
     }
 

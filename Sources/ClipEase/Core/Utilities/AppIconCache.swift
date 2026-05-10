@@ -59,10 +59,14 @@ enum AppIconCache {
 
         return String(
             format: "#%02X%02X%02X",
-            Int(color.redComponent * 255),
-            Int(color.greenComponent * 255),
-            Int(color.blueComponent * 255)
+            darken(color.redComponent),
+            darken(color.greenComponent),
+            darken(color.blueComponent)
         )
+    }
+
+    private static func darken(_ component: CGFloat) -> Int {
+        max(0, min(255, Int(component * 255 * 0.72)))
     }
 }
 
