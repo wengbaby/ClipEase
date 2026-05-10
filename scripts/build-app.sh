@@ -8,9 +8,14 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BUMP_TYPE="none"
+RUN_APP="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --run)
+      RUN_APP="true"
+      shift
+      ;;
     --bump)
       BUMP_TYPE="${2:-}"
       shift 2
@@ -37,3 +42,11 @@ cp "$BUILD_DIR/ClipEase" "$MACOS_DIR/ClipEase"
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 
 echo "Built $APP_DIR"
+
+if [[ "$RUN_APP" == "true" ]]; then
+  pkill -x ClipEase >/dev/null 2>&1 || true
+  sleep 1
+  open -n "$APP_DIR"
+  sleep 1
+  pgrep -fl ClipEase || true
+fi

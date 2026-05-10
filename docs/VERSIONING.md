@@ -58,3 +58,11 @@ scripts/build-app.sh --bump patch
 ```bash
 scripts/build-app.sh --bump major
 ```
+
+打包并重启本地 App：
+
+```bash
+scripts/build-app.sh --run
+```
+
+该命令会先关闭旧的 ClipEase 进程，再打开新的 `.app`，避免测试时出现多个菜单栏实例。

@@ -4,3 +4,8 @@
 
 当前项目处于需求与开发规划阶段。实施前请先阅读 [docs/PROJECT_GUIDE.md](/Users/wpc/code/codex/ClipboardHistory/docs/PROJECT_GUIDE.md)，并按文档中的开发顺序推进。
 
+本地打包并启动：
+
+```bash
+scripts/build-app.sh --run
+```
