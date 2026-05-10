@@ -11,7 +11,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var pasteExecutor = PasteExecutor(store: historyStore)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let appMenuController = AppMenuController(recordingController: recordingController)
+        let appMenuController = AppMenuController(
+            historyStore: historyStore,
+            recordingController: recordingController
+        )
         self.appMenuController = appMenuController
         let historyWindowController = HistoryWindowController(
             store: historyStore,

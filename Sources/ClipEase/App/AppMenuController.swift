@@ -2,11 +2,48 @@ import AppKit
 
 @MainActor
 final class AppMenuController: NSObject {
+    private let historyStore: ClipboardHistoryStore
     private let recordingController: RecordingController
 
-    init(recordingController: RecordingController) {
+    init(
+        historyStore: ClipboardHistoryStore,
+        recordingController: RecordingController
+    ) {
+        self.historyStore = historyStore
         self.recordingController = recordingController
         super.init()
+    }
+
+    func createTextItem() {
+        let alert = NSAlert()
+        alert.messageText = "新建文本"
+        alert.informativeText = "输入要保存到轻贴历史的文本。"
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 420, height: 170))
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .bezelBorder
+
+        let textView = NSTextView(frame: scrollView.bounds)
+        textView.font = .systemFont(ofSize: 14)
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        scrollView.documentView = textView
+
+        alert.accessoryView = scrollView
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else {
+            return
+        }
+
+        let text = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            return
+        }
+
+        historyStore.addText(text, sourceApp: .clipease)
     }
 
     func showHelp() {
@@ -51,7 +88,7 @@ final class AppMenuController: NSObject {
 
     func makeStatusBarMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(makeItem("新建文本", action: #selector(newTextPlaceholder)))
+        menu.addItem(makeItem("新建文本", action: #selector(newTextAction)))
         menu.addItem(.separator())
         menu.addItem(makeItem("帮助", action: #selector(helpAction)))
         menu.addItem(makeItem("设置", action: #selector(settingsAction)))
@@ -93,8 +130,8 @@ final class AppMenuController: NSObject {
         NSWorkspace.shared.open(url)
     }
 
-    @objc private func newTextPlaceholder() {
-        showSettingsPlaceholder()
+    @objc private func newTextAction() {
+        createTextItem()
     }
 
     @objc private func helpAction() {

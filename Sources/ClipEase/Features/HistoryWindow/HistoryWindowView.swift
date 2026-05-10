@@ -316,7 +316,8 @@ struct HistoryWindowView: View {
     private var moreMenu: some View {
         Menu {
             Button("新建文本") {
-                showStatus("新建文本稍后实现")
+                appMenuController.createTextItem()
+                showStatus("已新建文本")
             }
 
             Divider()

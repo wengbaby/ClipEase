@@ -29,6 +29,13 @@ struct SourceAppInfo {
         )
     }
 
+    static let clipease = SourceAppInfo(
+        name: "轻贴",
+        bundleID: "com.clipease.app",
+        iconName: "doc.on.clipboard",
+        headerColorHex: "#2E8CFF"
+    )
+
     private static func iconName(for bundleID: String?) -> String {
         guard let bundleID else {
             return "app.fill"
