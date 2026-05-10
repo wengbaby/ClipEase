@@ -93,7 +93,8 @@ struct HistoryWindowView: View {
                                 ForEach(filteredItems) { item in
                                     HistoryCardView(
                                         item: item,
-                                        isSelected: selectedItemID == item.id
+                                        isSelected: selectedItemID == item.id,
+                                        searchQuery: searchText
                                     )
                                     .id(item.id)
                                     .background(
@@ -127,6 +128,16 @@ struct HistoryWindowView: View {
                                         if item.type == .text || item.type == .link || item.type == .color {
                                             Button("复制纯文本") {
                                                 copyPlainTextItem(item.id)
+                                            }
+
+                                            Button("粘贴为纯文本") {
+                                                pastePlainTextItem(item.id)
+                                            }
+                                        }
+
+                                        if item.type == .link {
+                                            Button("复制为 Markdown 链接") {
+                                                copyMarkdownLink(item.id)
                                             }
                                         }
 
@@ -275,6 +286,10 @@ struct HistoryWindowView: View {
                 .foregroundStyle(.primary)
 
                 filterMenu
+
+                if isSearchVisible || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || filter != .all {
+                    resultCountBadge
+                }
             }
 
             HStack(spacing: 12) {
@@ -312,6 +327,17 @@ struct HistoryWindowView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+    }
+
+    private var resultCountBadge: some View {
+        Text("\(filteredItems.count) / \(items.count)")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.45))
+            .clipShape(Capsule())
+            .help("当前筛选结果数量 / 全部数量")
     }
 
     private var autoPasteStatusButton: some View {
@@ -583,6 +609,36 @@ struct HistoryWindowView: View {
 
         pasteExecutor.copyPlainTextToPasteboard(item)
         showStatus("已复制纯文本")
+    }
+
+    private func pastePlainTextItem(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id) else {
+            return
+        }
+
+        canAutoPaste = pasteExecutor.canAutoPaste
+        switch pasteExecutor.pastePlainTextToFrontmostApp(item) {
+        case .copiedOnly:
+            showStatus("已复制纯文本")
+        case .pasted:
+            showStatus("已粘贴纯文本")
+        }
+    }
+
+    private func copyMarkdownLink(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              item.type == .link else {
+            return
+        }
+
+        let title = (item.linkTitle?.isEmpty == false ? item.linkTitle : nil)
+            ?? item.url?.host(percentEncoded: false)
+            ?? item.text
+        let markdown = "[\(title)](\(item.text))"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(markdown, forType: .string)
+        store.skipNextClipboardText(markdown)
+        showStatus("已复制 Markdown 链接")
     }
 
     private func pasteItem(_ id: ClipboardItem.ID?) {

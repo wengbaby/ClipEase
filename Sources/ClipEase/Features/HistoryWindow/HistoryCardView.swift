@@ -4,6 +4,7 @@ import AppKit
 struct HistoryCardView: View {
     let item: HistoryPreviewItem
     let isSelected: Bool
+    let searchQuery: String
 
     var body: some View {
         VStack(spacing: 0) {
@@ -77,9 +78,8 @@ struct HistoryCardView: View {
     private var preview: some View {
         switch item.type {
         case .text:
-            Text(item.preview)
+            highlightedText(item.preview, baseColor: Color(red: 0.12, green: 0.14, blue: 0.17))
                 .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(Color(red: 0.12, green: 0.14, blue: 0.17))
                 .lineLimit(7)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -154,9 +154,8 @@ struct HistoryCardView: View {
                     .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.19))
                     .lineLimit(1)
 
-                Text(item.linkSubtitle ?? item.preview)
+                highlightedText(item.linkSubtitle ?? item.preview, baseColor: Color.secondary)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -182,5 +181,26 @@ struct HistoryCardView: View {
         }
 
         return NSImage(contentsOf: iconURL)
+    }
+
+    private func highlightedText(_ text: String, baseColor: Color) -> Text {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty,
+              let range = text.range(
+                of: query,
+                options: [.caseInsensitive, .diacriticInsensitive]
+              ) else {
+            return Text(text).foregroundColor(baseColor)
+        }
+
+        let prefix = String(text[..<range.lowerBound])
+        let match = String(text[range])
+        let suffix = String(text[range.upperBound...])
+
+        return Text(prefix).foregroundColor(baseColor)
+            + Text(match)
+                .foregroundColor(Color(red: 0.02, green: 0.42, blue: 0.95))
+                .fontWeight(.bold)
+            + Text(suffix).foregroundColor(baseColor)
     }
 }

@@ -54,6 +54,21 @@ final class PasteExecutor {
         store.skipNextClipboardText(item.text)
     }
 
+    func pastePlainTextToFrontmostApp(_ item: ClipboardItem) -> PasteResult {
+        copyPlainTextToPasteboard(item)
+
+        guard AXIsProcessTrusted() else {
+            return .copiedOnly
+        }
+
+        beforeAutoPaste?()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            sendCommandV()
+        }
+        return .pasted
+    }
+
     func pasteToFrontmostApp(_ item: ClipboardItem) -> PasteResult {
         copyToPasteboard(item)
 
