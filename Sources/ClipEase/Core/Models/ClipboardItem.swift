@@ -20,6 +20,8 @@ struct ClipboardItem: Identifiable, Equatable {
     let sourceBundleID: String?
     let iconName: String
     let headerColor: Color
+    var isPinned: Bool
+    var pinnedAt: Date?
 
     var kind: String {
         switch type {
@@ -88,7 +90,9 @@ extension ClipboardItem {
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
             iconName: sourceApp.iconName,
-            headerColor: sourceApp.headerColor
+            headerColor: sourceApp.headerColor,
+            isPinned: false,
+            pinnedAt: nil
         )
     }
 
@@ -111,7 +115,9 @@ extension ClipboardItem {
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
             iconName: sourceApp.iconName,
-            headerColor: sourceApp.headerColor
+            headerColor: sourceApp.headerColor,
+            isPinned: false,
+            pinnedAt: nil
         )
     }
 }

@@ -18,6 +18,7 @@ struct HistoryPreviewItem: Identifiable {
     let footer: String
     let linkTitle: String?
     let linkSubtitle: String?
+    let isPinned: Bool
 
     init(item: ClipboardItem) {
         self.id = item.id
@@ -30,6 +31,7 @@ struct HistoryPreviewItem: Identifiable {
         self.footer = item.footer
         self.linkTitle = item.linkTitle
         self.linkSubtitle = item.linkSubtitle
+        self.isPinned = item.isPinned
     }
 
     init(
@@ -42,7 +44,8 @@ struct HistoryPreviewItem: Identifiable {
         preview: String,
         footer: String,
         linkTitle: String? = nil,
-        linkSubtitle: String? = nil
+        linkSubtitle: String? = nil,
+        isPinned: Bool = false
     ) {
         self.id = id
         self.type = type
@@ -54,6 +57,7 @@ struct HistoryPreviewItem: Identifiable {
         self.footer = footer
         self.linkTitle = linkTitle
         self.linkSubtitle = linkSubtitle
+        self.isPinned = isPinned
     }
 
     static let samples: [HistoryPreviewItem] = [

@@ -33,6 +33,7 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         items.insert(item, at: 0)
+        sortItems()
         if items.count > maxInMemoryItems {
             items.removeLast(items.count - maxInMemoryItems)
         }
@@ -54,6 +55,17 @@ final class ClipboardHistoryStore: ObservableObject {
         items.removeAll { $0.id == id }
     }
 
+    func togglePinned(for id: ClipboardItem.ID?) {
+        guard let id,
+              let index = items.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        items[index].isPinned.toggle()
+        items[index].pinnedAt = items[index].isPinned ? Date() : nil
+        sortItems()
+    }
+
     func skipNextClipboardText(_ text: String) {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else {
@@ -61,5 +73,19 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         skippedClipboardTexts.insert(normalizedText)
+    }
+
+    private func sortItems() {
+        items.sort { lhs, rhs in
+            if lhs.isPinned != rhs.isPinned {
+                return lhs.isPinned && !rhs.isPinned
+            }
+
+            if lhs.isPinned, rhs.isPinned {
+                return (lhs.pinnedAt ?? lhs.createdAt) > (rhs.pinnedAt ?? rhs.createdAt)
+            }
+
+            return lhs.createdAt > rhs.createdAt
+        }
     }
 }

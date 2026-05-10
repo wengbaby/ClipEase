@@ -50,6 +50,10 @@ struct HistoryWindowView: View {
                                             copyItem(item.id)
                                         }
 
+                                        Button(item.isPinned ? "取消置顶" : "置顶") {
+                                            togglePinned(item.id)
+                                        }
+
                                         Button("删除", role: .destructive) {
                                             deleteItem(item.id)
                                         }
@@ -186,6 +190,15 @@ struct HistoryWindowView: View {
     private func deleteItem(_ id: ClipboardItem.ID?) {
         store.deleteItem(with: id)
         showStatus("已删除")
+    }
+
+    private func togglePinned(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id) else {
+            return
+        }
+
+        store.togglePinned(for: id)
+        showStatus(item.isPinned ? "已取消置顶" : "已置顶")
     }
 
     private func immediateSelectionGesture(for item: HistoryPreviewItem) -> some Gesture {

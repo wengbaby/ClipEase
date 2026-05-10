@@ -8,8 +8,16 @@ struct HistoryCardView: View {
         VStack(spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.kind)
-                        .font(.system(size: 16, weight: .bold))
+                    HStack(spacing: 5) {
+                        Text(item.kind)
+                            .font(.system(size: 16, weight: .bold))
+
+                        if item.isPinned {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 11, weight: .bold))
+                        }
+                    }
+
                     Text(item.time)
                         .font(.system(size: 13, weight: .medium))
                 }
