@@ -45,62 +45,25 @@ enum AppIconCache {
     }
 
     private static func dominantColorHex(from image: NSImage) -> String {
-        guard let resized = image.resized(to: NSSize(width: 28, height: 28)),
+        guard let resized = image.resized(to: NSSize(width: 32, height: 32)),
               let bitmap = NSBitmapImageRep(data: resized.tiffRepresentation ?? Data()) else {
             return "#2E8CFF"
         }
 
-        var buckets: [ColorBucket: Int] = [:]
-
-        for x in 0..<bitmap.pixelsWide {
-            for y in 0..<bitmap.pixelsHigh {
-                guard let color = bitmap.colorAt(x: x, y: y),
-                      color.alphaComponent > 0.35 else {
-                    continue
-                }
-
-                let red = Int(color.redComponent * 255)
-                let green = Int(color.greenComponent * 255)
-                let blue = Int(color.blueComponent * 255)
-                guard !isNearWhite(red: red, green: green, blue: blue),
-                      !isNearBlack(red: red, green: green, blue: blue) else {
-                    continue
-                }
-
-                let bucket = ColorBucket(
-                    red: (red / 24) * 24,
-                    green: (green / 24) * 24,
-                    blue: (blue / 24) * 24
-                )
-                buckets[bucket, default: 0] += 1
-            }
-        }
-
-        guard let dominant = buckets.max(by: { $0.value < $1.value })?.key else {
+        let centerX = bitmap.pixelsWide / 2
+        let centerY = bitmap.pixelsHigh / 2
+        guard let color = bitmap.colorAt(x: centerX, y: centerY),
+              color.alphaComponent > 0.1 else {
             return "#2E8CFF"
         }
 
         return String(
             format: "#%02X%02X%02X",
-            min(dominant.red + 12, 255),
-            min(dominant.green + 12, 255),
-            min(dominant.blue + 12, 255)
+            Int(color.redComponent * 255),
+            Int(color.greenComponent * 255),
+            Int(color.blueComponent * 255)
         )
     }
-
-    private static func isNearWhite(red: Int, green: Int, blue: Int) -> Bool {
-        red > 235 && green > 235 && blue > 235
-    }
-
-    private static func isNearBlack(red: Int, green: Int, blue: Int) -> Bool {
-        red < 24 && green < 24 && blue < 24
-    }
-}
-
-private struct ColorBucket: Hashable {
-    let red: Int
-    let green: Int
-    let blue: Int
 }
 
 private extension NSImage {

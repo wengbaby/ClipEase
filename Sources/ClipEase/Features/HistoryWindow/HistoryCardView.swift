@@ -65,8 +65,8 @@ struct HistoryCardView: View {
             if let icon = loadSourceIcon() {
                 Image(nsImage: icon)
                     .resizable()
-                    .scaledToFit()
-                    .padding(1)
+                    .scaledToFill()
+                    .frame(width: 58, height: 58)
             } else {
                 Image(systemName: item.iconName)
                     .font(.system(size: 27, weight: .semibold))
