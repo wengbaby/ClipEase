@@ -41,13 +41,9 @@ struct HistoryWindowView: View {
                                     )
                                     .id(item.id)
                                     .contentShape(Rectangle())
-                                    .simultaneousGesture(immediateSelectionGesture(for: item))
                                     .highPriorityGesture(
-                                        TapGesture(count: 2)
-                                            .onEnded {
-                                                selectedItemID = item.id
-                                                copyItem(item.id)
-                                            }
+                                        immediateSelectionGesture(for: item),
+                                        including: .all
                                     )
                                     .contextMenu {
                                         Button("复制") {
