@@ -79,6 +79,22 @@ struct HistoryWindowView: View {
             .frame(width: 0, height: 0)
             .opacity(0)
 
+            Button(action: { copyItem(selectedItemID) }) {
+                EmptyView()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("c", modifiers: [.command])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
+            Button(action: { deleteItem(selectedItemID) }) {
+                EmptyView()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.delete, modifiers: [])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
             VStack(alignment: .leading, spacing: 14) {
                 toolbar
 
@@ -136,6 +152,14 @@ struct HistoryWindowView: View {
                                         }
 
                                         if item.type == .link {
+                                            Button("打开链接") {
+                                                openLink(item.id)
+                                            }
+
+                                            Button("复制链接地址") {
+                                                copyLinkURL(item.id)
+                                            }
+
                                             Button("复制为 Markdown 链接") {
                                                 copyMarkdownLink(item.id)
                                             }
@@ -639,6 +663,30 @@ struct HistoryWindowView: View {
         NSPasteboard.general.setString(markdown, forType: .string)
         store.skipNextClipboardText(markdown)
         showStatus("已复制 Markdown 链接")
+    }
+
+    private func copyLinkURL(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              item.type == .link else {
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.text, forType: .string)
+        store.skipNextClipboardText(item.text)
+        showStatus("已复制链接地址")
+    }
+
+    private func openLink(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              item.type == .link,
+              let url = item.url else {
+            showStatus("无法打开链接")
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+        showStatus("已打开链接")
     }
 
     private func pasteItem(_ id: ClipboardItem.ID?) {
