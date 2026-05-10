@@ -20,6 +20,18 @@ struct HistoryPreviewItem: Identifiable {
     let linkSubtitle: String?
     let isPinned: Bool
 
+    var searchText: String {
+        [
+            kind,
+            preview,
+            footer,
+            linkTitle,
+            linkSubtitle
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+    }
+
     init(item: ClipboardItem) {
         self.id = item.id
         self.type = HistoryPreviewType(item.type)
