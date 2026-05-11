@@ -150,7 +150,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         panel.delegate = self
         panel.onEscape = { [weak self] in
-            self?.close()
+            self?.inputState.dispatch(.close)
         }
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]

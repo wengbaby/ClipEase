@@ -22,7 +22,8 @@ struct HistoryWindowView: View {
     @State private var isClearConfirmationPresented = false
     @State private var cardFrames: [ClipboardItem.ID: CGRect] = [:]
     @State private var isCommandKeyPressed = false
-    @FocusState private var isSearchFocused: Bool
+    @State private var isSearchFocused = false
+    @State private var searchFocusRequestID = 0
 
     private let backgroundColor = Color(red: 0.78, green: 0.82, blue: 0.92)
 
@@ -538,6 +539,7 @@ struct HistoryWindowView: View {
             SearchTextField(
                 text: $searchText,
                 isFocused: $isSearchFocused,
+                focusRequestID: searchFocusRequestID,
                 onSubmit: {
                     pasteItem(selectedItemID)
                 }
@@ -1104,6 +1106,7 @@ struct HistoryWindowView: View {
         let fallbackID = selectedItemID
         searchText = ""
         isSearchFocused = isSearchVisible
+        inputState.setTextInputFocused(isSearchVisible)
         restoreSelectionAfterClearingSearch(preferredID: fallbackID)
     }
 
@@ -1112,6 +1115,7 @@ struct HistoryWindowView: View {
             isSearchVisible = false
             isSearchFocused = false
         }
+        inputState.setTextInputFocused(false)
     }
 
     private func togglePinnedFilter() {
@@ -1129,7 +1133,7 @@ struct HistoryWindowView: View {
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 20_000_000)
-            isSearchFocused = true
+            focusSearchField()
         }
     }
 
@@ -1137,6 +1141,7 @@ struct HistoryWindowView: View {
         searchText = ""
         isSearchVisible = false
         isSearchFocused = false
+        inputState.setTextInputFocused(false)
     }
 
     private func ensureSelectionInFilteredItems() {
@@ -1290,7 +1295,13 @@ struct HistoryWindowView: View {
         }
 
         searchText += text
+        focusSearchField()
+    }
+
+    private func focusSearchField() {
         isSearchFocused = true
+        searchFocusRequestID += 1
+        inputState.setTextInputFocused(true)
     }
 }
 
@@ -1324,7 +1335,8 @@ private enum HistoryFilter: String, CaseIterable, Identifiable {
 
 private struct SearchTextField: NSViewRepresentable {
     @Binding var text: String
-    @FocusState.Binding var isFocused: Bool
+    @Binding var isFocused: Bool
+    let focusRequestID: Int
     let onSubmit: () -> Void
 
     func makeNSView(context: Context) -> NSTextField {
@@ -1355,7 +1367,10 @@ private struct SearchTextField: NSViewRepresentable {
             if nsView.window?.firstResponder !== nsView.currentEditor() {
                 nsView.window?.makeFirstResponder(nsView)
             }
-            context.coordinator.moveInsertionPointToEnd(in: nsView)
+            if context.coordinator.handledFocusRequestID != focusRequestID {
+                context.coordinator.handledFocusRequestID = focusRequestID
+                context.coordinator.moveInsertionPointToEndSoon(in: nsView)
+            }
         } else if nsView.window?.firstResponder === nsView.currentEditor() {
             nsView.window?.makeFirstResponder(nil)
         }
@@ -1368,6 +1383,7 @@ private struct SearchTextField: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchTextField
+        var handledFocusRequestID = 0
 
         init(parent: SearchTextField) {
             self.parent = parent
@@ -1383,9 +1399,6 @@ private struct SearchTextField: NSViewRepresentable {
 
         func controlTextDidBeginEditing(_ notification: Notification) {
             parent.isFocused = true
-            if let textField = notification.object as? NSTextField {
-                moveInsertionPointToEnd(in: textField)
-            }
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
@@ -1415,6 +1428,19 @@ private struct SearchTextField: NSViewRepresentable {
             let endLocation = (textField.stringValue as NSString).length
             if editor.selectedRange.location != endLocation || editor.selectedRange.length != 0 {
                 editor.selectedRange = NSRange(location: endLocation, length: 0)
+            }
+        }
+
+        func moveInsertionPointToEndSoon(in textField: NSTextField) {
+            DispatchQueue.main.async { [weak textField] in
+                guard let textField else {
+                    return
+                }
+
+                if textField.window?.firstResponder !== textField.currentEditor() {
+                    textField.window?.makeFirstResponder(textField)
+                }
+                self.moveInsertionPointToEnd(in: textField)
             }
         }
     }
