@@ -45,9 +45,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             globalShortcutSettings: globalShortcutSettings,
             pasteExecutor: pasteExecutor
         )
-        let window = NSWindow(
+        let window = SettingsWindow(
             contentRect: NSRect(origin: .zero, size: defaultWindowSize),
-            styleMask: [.titled, .closable, .miniaturizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -56,6 +56,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.contentView = NSHostingView(rootView: settingsView)
         window.center()
         window.delegate = self
+        window.onCommandW = { [weak window] in
+            window?.performClose(nil)
+        }
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -63,5 +66,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         window = nil
+    }
+}
+
+private final class SettingsWindow: NSWindow {
+    var onCommandW: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "w" {
+            onCommandW?()
+            return
+        }
+
+        super.keyDown(with: event)
     }
 }

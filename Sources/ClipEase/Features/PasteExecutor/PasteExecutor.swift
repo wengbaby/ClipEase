@@ -16,7 +16,18 @@ final class PasteExecutor {
     }
 
     var canAutoPaste: Bool {
-        AXIsProcessTrusted()
+        AXIsProcessTrustedWithOptions(nil)
+    }
+
+    func refreshAccessibilityPermission(promptIfNeeded: Bool = false) -> Bool {
+        if promptIfNeeded {
+            let options = [
+                "AXTrustedCheckOptionPrompt": true
+            ] as CFDictionary
+            return AXIsProcessTrustedWithOptions(options)
+        }
+
+        return AXIsProcessTrustedWithOptions(nil)
     }
 
     func openAccessibilitySettings() {
@@ -57,7 +68,7 @@ final class PasteExecutor {
     func pastePlainTextToFrontmostApp(_ item: ClipboardItem) -> PasteResult {
         copyPlainTextToPasteboard(item)
 
-        guard AXIsProcessTrusted() else {
+        guard refreshAccessibilityPermission() else {
             return .copiedOnly
         }
 
@@ -72,7 +83,7 @@ final class PasteExecutor {
     func pasteToFrontmostApp(_ item: ClipboardItem) -> PasteResult {
         copyToPasteboard(item)
 
-        guard AXIsProcessTrusted() else {
+        guard refreshAccessibilityPermission() else {
             return .copiedOnly
         }
 

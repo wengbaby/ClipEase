@@ -107,9 +107,12 @@ struct SettingsView: View {
         .frame(minWidth: 820, minHeight: 560)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
-            canAutoPaste = pasteExecutor.canAutoPaste
+            refreshAutoPastePermission()
             loginItemController.refresh()
             refreshStorageUsage()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshAutoPastePermission()
         }
         .confirmationDialog(
             "清空全部历史？",
@@ -371,12 +374,12 @@ struct SettingsView: View {
 
                 Button("打开系统设置") {
                     pasteExecutor.openAccessibilitySettings()
-                    canAutoPaste = pasteExecutor.canAutoPaste
+                    refreshAutoPastePermission(promptIfNeeded: true)
                 }
                 .buttonStyle(.bordered)
 
                 Button("刷新状态") {
-                    canAutoPaste = pasteExecutor.canAutoPaste
+                    refreshAutoPastePermission()
                     showStatus(canAutoPaste ? "已授权自动粘贴" : "仍需授权")
                 }
                 .buttonStyle(.bordered)
@@ -632,6 +635,10 @@ struct SettingsView: View {
 
     private func refreshStorageUsage() {
         storageUsageText = StorageUsageCalculator.formattedApplicationSupportSize()
+    }
+
+    private func refreshAutoPastePermission(promptIfNeeded: Bool = false) {
+        canAutoPaste = pasteExecutor.refreshAccessibilityPermission(promptIfNeeded: promptIfNeeded)
     }
 
     private func openDirectory(_ url: URL?) {

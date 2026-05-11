@@ -1104,13 +1104,14 @@ struct HistoryWindowView: View {
     }
 
     private func openAccessibilitySettingsIfNeeded() {
-        canAutoPaste = pasteExecutor.canAutoPaste
+        canAutoPaste = pasteExecutor.refreshAccessibilityPermission()
         guard !canAutoPaste else {
             showStatus("自动粘贴已启用")
             return
         }
 
         pasteExecutor.openAccessibilitySettings()
+        canAutoPaste = pasteExecutor.refreshAccessibilityPermission(promptIfNeeded: true)
         showStatus("请授权轻贴")
     }
 

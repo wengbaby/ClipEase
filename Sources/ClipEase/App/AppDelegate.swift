@@ -58,4 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         globalHotKeyController?.stop()
         clipboardMonitor?.stop()
     }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
 }
