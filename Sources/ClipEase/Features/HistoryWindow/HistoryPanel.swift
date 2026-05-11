@@ -5,11 +5,11 @@ final class HistoryPanel: NSPanel {
     var onEscape: (() -> Void)?
 
     override var canBecomeKey: Bool {
-        true
+        false
     }
 
     override var canBecomeMain: Bool {
-        true
+        false
     }
 
     override func keyDown(with event: NSEvent) {

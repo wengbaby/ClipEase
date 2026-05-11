@@ -7,7 +7,6 @@ final class PasteExecutor {
     private let store: ClipboardHistoryStore
     private let permissionState: AccessibilityPermissionState
     var beforeAutoPaste: (() -> Void)?
-    var targetApplicationProvider: (() -> NSRunningApplication?)?
 
     init(
         store: ClipboardHistoryStore,
@@ -84,9 +83,8 @@ final class PasteExecutor {
 
         beforeAutoPaste?()
         Task { @MainActor in
-            let target = activatePasteTarget()
-            try? await Task.sleep(nanoseconds: 260_000_000)
-            sendCommandV(to: target)
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            sendCommandV()
         }
         return .pasted
     }
@@ -105,24 +103,13 @@ final class PasteExecutor {
 
         beforeAutoPaste?()
         Task { @MainActor in
-            let target = activatePasteTarget()
-            try? await Task.sleep(nanoseconds: 260_000_000)
-            sendCommandV(to: target)
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            sendCommandV()
         }
         return .pasted
     }
 
-    private func activatePasteTarget() -> NSRunningApplication? {
-        guard let app = targetApplicationProvider?(),
-              !app.isTerminated else {
-            return nil
-        }
-
-        app.activate(options: [.activateIgnoringOtherApps])
-        return app
-    }
-
-    private func sendCommandV(to app: NSRunningApplication?) {
+    private func sendCommandV() {
         let source = CGEventSource(stateID: .hidSystemState)
         let keyDown = CGEvent(
             keyboardEventSource: source,
@@ -137,15 +124,8 @@ final class PasteExecutor {
 
         keyDown?.flags = .maskCommand
         keyUp?.flags = .maskCommand
-        if let app,
-           !app.isTerminated {
-            let processIdentifier = app.processIdentifier
-            keyDown?.postToPid(processIdentifier)
-            keyUp?.postToPid(processIdentifier)
-        } else {
-            keyDown?.post(tap: .cghidEventTap)
-            keyUp?.post(tap: .cghidEventTap)
-        }
+        keyDown?.post(tap: .cghidEventTap)
+        keyUp?.post(tap: .cghidEventTap)
     }
 }
 

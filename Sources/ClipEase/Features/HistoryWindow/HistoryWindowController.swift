@@ -59,8 +59,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             panel.setFrame(targetFrame, display: true)
         }
 
-        panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        panel.orderFrontRegardless()
         panel.displayIfNeeded()
 
         guard shouldAnimate else {
