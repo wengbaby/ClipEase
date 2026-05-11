@@ -7,6 +7,12 @@ struct HistoryPreviewPopoverView: View {
     let size: CGSize
     let onClose: () -> Void
     let onCopy: () -> Void
+    let onOpen: () -> Void
+    let onReveal: () -> Void
+    let onCopyURL: () -> Void
+    let onCopyMarkdown: () -> Void
+    let onCopyPath: () -> Void
+    let onCopyRGB: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -64,9 +70,39 @@ struct HistoryPreviewPopoverView: View {
             }
             .buttonStyle(.plain)
             .help("复制")
+
+            if item.type != .text {
+                actionMenu
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    private var actionMenu: some View {
+        Menu {
+            switch item.type {
+            case .link:
+                Button("打开链接", action: onOpen)
+                Button("复制链接地址", action: onCopyURL)
+                Button("复制为 Markdown 链接", action: onCopyMarkdown)
+            case .image:
+                Button("打开图片", action: onOpen)
+                Button("在 Finder 中显示", action: onReveal)
+                Button("复制图片路径", action: onCopyPath)
+            case .color:
+                Button("复制 HEX", action: onCopy)
+                Button("复制 RGB", action: onCopyRGB)
+            case .text:
+                EmptyView()
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 15, weight: .medium))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("更多操作")
     }
 
     @ViewBuilder

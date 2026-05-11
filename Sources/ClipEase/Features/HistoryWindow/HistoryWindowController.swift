@@ -137,11 +137,98 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             screenFrame: screenFrame,
             onCopy: { [pasteExecutor] in
                 pasteExecutor.copyToPasteboard(item)
+            },
+            onOpen: { [weak self] in
+                self?.openPreviewItem(item)
+            },
+            onReveal: { [weak self] in
+                self?.revealPreviewItem(item)
+            },
+            onCopyURL: { [weak self] in
+                self?.copyPlainPreviewText(item.text)
+            },
+            onCopyMarkdown: { [weak self] in
+                self?.copyPlainPreviewText(self?.markdownLink(for: item))
+            },
+            onCopyPath: { [weak self] in
+                self?.copyPlainPreviewText(self?.imagePath(for: item))
+            },
+            onCopyRGB: { [weak self] in
+                self?.copyPlainPreviewText(self?.rgbString(from: item.text))
             }
         )
         previewWindowController.installOutsideClickMonitor { [weak self] in
             self?.closePreview()
         }
+    }
+
+    private func openPreviewItem(_ item: ClipboardItem) {
+        switch item.type {
+        case .link:
+            if let url = item.url {
+                NSWorkspace.shared.open(url)
+            }
+        case .image:
+            if let url = imageURL(for: item) {
+                NSWorkspace.shared.open(url)
+            }
+        case .text, .color:
+            break
+        }
+    }
+
+    private func revealPreviewItem(_ item: ClipboardItem) {
+        guard let url = imageURL(for: item) else {
+            return
+        }
+
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func copyPlainPreviewText(_ text: String?) {
+        guard let text,
+              !text.isEmpty else {
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        store.skipNextClipboardText(text)
+    }
+
+    private func markdownLink(for item: ClipboardItem) -> String? {
+        guard item.type == .link else {
+            return nil
+        }
+
+        let title = (item.linkTitle?.isEmpty == false ? item.linkTitle : nil)
+            ?? item.url?.host(percentEncoded: false)
+            ?? item.text
+        return "[\(title)](\(item.text))"
+    }
+
+    private func imagePath(for item: ClipboardItem) -> String? {
+        imageURL(for: item)?.path
+    }
+
+    private func imageURL(for item: ClipboardItem) -> URL? {
+        guard item.type == .image,
+              let fileName = item.imageFileName else {
+            return nil
+        }
+
+        return try? ClipEaseStoragePaths.imageFileURL(fileName: fileName)
+    }
+
+    private func rgbString(from hex: String) -> String? {
+        guard let components = ClipEaseColorComponents(hex: hex) else {
+            return nil
+        }
+
+        let red = Int(round(components.red * 255))
+        let green = Int(round(components.green * 255))
+        let blue = Int(round(components.blue * 255))
+        return "rgb(\(red), \(green), \(blue))"
     }
 
     private func closePreview() {

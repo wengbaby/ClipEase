@@ -14,7 +14,13 @@ final class HistoryPreviewWindowController {
         item: ClipboardItem,
         anchorScreenPoint: CGPoint,
         screenFrame: CGRect,
-        onCopy: @escaping () -> Void
+        onCopy: @escaping () -> Void,
+        onOpen: @escaping () -> Void,
+        onReveal: @escaping () -> Void,
+        onCopyURL: @escaping () -> Void,
+        onCopyMarkdown: @escaping () -> Void,
+        onCopyPath: @escaping () -> Void,
+        onCopyRGB: @escaping () -> Void
     ) {
         let size = previewSize(for: item, screenFrame: screenFrame)
         let arrowHeight: CGFloat = 14
@@ -42,7 +48,13 @@ final class HistoryPreviewWindowController {
                 onClose: { [weak self] in
                     self?.close()
                 },
-                onCopy: onCopy
+                onCopy: onCopy,
+                onOpen: onOpen,
+                onReveal: onReveal,
+                onCopyURL: onCopyURL,
+                onCopyMarkdown: onCopyMarkdown,
+                onCopyPath: onCopyPath,
+                onCopyRGB: onCopyRGB
             )
         )
 
