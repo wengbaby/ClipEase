@@ -24,37 +24,19 @@ struct HistoryWindowView: View {
     @State private var isCommandKeyPressed = false
     @State private var isSearchFocused = false
     @State private var searchFocusRequestID = 0
+    @State private var allPreviewItems: [HistoryPreviewItem] = []
+    @State private var filteredPreviewItems: [HistoryPreviewItem] = []
+    @State private var searchTask: Task<Void, Never>?
+    @State private var preheatTask: Task<Void, Never>?
 
     private let backgroundColor = Color(red: 0.78, green: 0.82, blue: 0.92)
 
     private var items: [HistoryPreviewItem] {
-        store.items.map(HistoryPreviewItem.init)
+        allPreviewItems
     }
 
     private var filteredItems: [HistoryPreviewItem] {
-        let filteredByType = items.filter { item in
-            switch filter {
-            case .all:
-                true
-            case .text:
-                item.type == .text
-            case .link:
-                item.type == .link
-            case .image:
-                item.type == .image
-            case .pinned:
-                item.isPinned
-            }
-        }
-
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            return filteredByType
-        }
-
-        return filteredByType.filter { item in
-            item.searchText.localizedCaseInsensitiveContains(query)
-        }
+        filteredPreviewItems
     }
 
     private var renderedItems: ArraySlice<HistoryPreviewItem> {
@@ -281,11 +263,18 @@ struct HistoryWindowView: View {
             transaction.animation = nil
         }
         .onAppear {
+            rebuildPreviewItems()
+            scheduleSearchUpdate(immediate: true)
             selectedItemID = filteredItems.first?.id
             accessibilityPermissionState.refresh()
-            preheatVisibleAssets()
+        }
+        .onDisappear {
+            searchTask?.cancel()
+            preheatTask?.cancel()
         }
         .onChange(of: store.items) { newItems in
+            rebuildPreviewItems()
+            scheduleSearchUpdate(immediate: true)
             guard let firstItem = newItems.first else {
                 selectedItemID = nil
                 closePreview()
@@ -302,15 +291,13 @@ struct HistoryWindowView: View {
             }
         }
         .onChange(of: searchText) { _ in
-            ensureSelectionInFilteredItems()
-            preheatVisibleAssets()
+            scheduleSearchUpdate()
         }
         .onChange(of: filter) { _ in
-            ensureSelectionInFilteredItems()
-            preheatVisibleAssets()
+            scheduleSearchUpdate(immediate: true)
         }
         .onChange(of: renderState.visibleItemLimit) { _ in
-            preheatVisibleAssets()
+            schedulePreheatVisibleAssets()
         }
         .onChange(of: inputState.request) { request in
             guard let request else {
@@ -1135,6 +1122,80 @@ struct HistoryWindowView: View {
         }
     }
 
+    private func rebuildPreviewItems() {
+        allPreviewItems = store.items.map(HistoryPreviewItem.init)
+    }
+
+    private func scheduleSearchUpdate(immediate: Bool = false) {
+        searchTask?.cancel()
+        let sourceItems = allPreviewItems
+        let currentFilter = filter
+        let currentSearchText = searchText
+
+        searchTask = Task {
+            if !immediate {
+                try? await Task.sleep(nanoseconds: 90_000_000)
+            }
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.filterItems(sourceItems, filter: currentFilter, searchText: currentSearchText)
+            }.value
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                filteredPreviewItems = result
+                ensureSelectionInFilteredItems()
+                schedulePreheatVisibleAssets()
+            }
+        }
+    }
+
+    nonisolated private static func filterItems(
+        _ items: [HistoryPreviewItem],
+        filter: HistoryFilter,
+        searchText: String
+    ) -> [HistoryPreviewItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedQuery = query.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+
+        return items.filter { item in
+            guard itemMatchesFilter(item, filter: filter) else {
+                return false
+            }
+
+            guard !normalizedQuery.isEmpty else {
+                return true
+            }
+
+            return item.normalizedSearchText.contains(normalizedQuery)
+        }
+    }
+
+    nonisolated private static func itemMatchesFilter(
+        _ item: HistoryPreviewItem,
+        filter: HistoryFilter
+    ) -> Bool {
+        switch filter {
+        case .all:
+            true
+        case .text:
+            item.type == .text
+        case .link:
+            item.type == .link
+        case .image:
+            item.type == .image
+        case .pinned:
+            item.isPinned
+        }
+    }
+
     private func ensureSelectionInFilteredItems() {
         if filteredItems.isEmpty {
             selectedItemID = nil
@@ -1166,6 +1227,18 @@ struct HistoryWindowView: View {
         for item in itemsToPreheat {
             preheatImageThumbnail(for: item)
             preheatSourceIcon(for: item)
+        }
+    }
+
+    private func schedulePreheatVisibleAssets() {
+        preheatTask?.cancel()
+        preheatTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            preheatVisibleAssets()
         }
     }
 
@@ -1329,7 +1402,7 @@ struct HistoryWindowView: View {
     }
 }
 
-private enum HistoryFilter: String, CaseIterable, Identifiable {
+private enum HistoryFilter: String, CaseIterable, Identifiable, Sendable {
     case all
     case text
     case link

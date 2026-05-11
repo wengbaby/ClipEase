@@ -1,13 +1,13 @@
 import SwiftUI
 
-enum HistoryPreviewType {
+enum HistoryPreviewType: Sendable {
     case text
     case link
     case image
     case color
 }
 
-struct HistoryPreviewItem: Identifiable {
+struct HistoryPreviewItem: Identifiable, Sendable {
     let id: UUID
     let type: HistoryPreviewType
     let kind: String
@@ -22,6 +22,7 @@ struct HistoryPreviewItem: Identifiable {
     let linkSubtitle: String?
     let imageFileName: String?
     let isPinned: Bool
+    let normalizedSearchText: String
 
     var searchText: String {
         [
@@ -51,6 +52,14 @@ struct HistoryPreviewItem: Identifiable {
         self.linkSubtitle = item.linkSubtitle
         self.imageFileName = item.imageFileName
         self.isPinned = item.isPinned
+        self.normalizedSearchText = Self.normalizedSearchText(
+            kind: item.kind,
+            preview: item.preview,
+            footer: item.footer,
+            sourceAppName: item.sourceAppName,
+            linkTitle: item.linkTitle,
+            linkSubtitle: item.linkSubtitle
+        )
     }
 
     init(
@@ -83,6 +92,35 @@ struct HistoryPreviewItem: Identifiable {
         self.linkSubtitle = linkSubtitle
         self.imageFileName = imageFileName
         self.isPinned = isPinned
+        self.normalizedSearchText = Self.normalizedSearchText(
+            kind: kind,
+            preview: preview,
+            footer: footer,
+            sourceAppName: sourceAppName,
+            linkTitle: linkTitle,
+            linkSubtitle: linkSubtitle
+        )
+    }
+
+    private static func normalizedSearchText(
+        kind: String,
+        preview: String,
+        footer: String,
+        sourceAppName: String,
+        linkTitle: String?,
+        linkSubtitle: String?
+    ) -> String {
+        [
+            kind,
+            preview,
+            footer,
+            sourceAppName,
+            linkTitle,
+            linkSubtitle
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
     static let samples: [HistoryPreviewItem] = [
