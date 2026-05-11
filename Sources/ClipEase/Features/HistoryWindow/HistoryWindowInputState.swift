@@ -13,6 +13,7 @@ enum HistoryKeyboardAction: Equatable {
     case delete
     case togglePinned
     case appendSearchText(String)
+    case enterFirstSearchResult
 }
 
 struct HistoryKeyboardRequest: Equatable {

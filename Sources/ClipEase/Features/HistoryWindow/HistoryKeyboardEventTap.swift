@@ -76,7 +76,7 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             }
 
             if inputState?.isTextInputFocusedSnapshot == true,
-               action != .close {
+               !Self.shouldHandleWhileTextInputFocused(action) {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -100,6 +100,8 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             }
 
             switch keyCode {
+            case KeyCode.one, KeyCode.two, KeyCode.three, KeyCode.four, KeyCode.five, KeyCode.six, KeyCode.seven, KeyCode.eight, KeyCode.nine:
+                return nil
             case KeyCode.f:
                 return .openSearch
             case KeyCode.c:
@@ -154,6 +156,15 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             return 9
         default:
             return nil
+        }
+    }
+
+    private static func shouldHandleWhileTextInputFocused(_ action: HistoryKeyboardAction) -> Bool {
+        switch action {
+        case .close, .selectVisibleCard:
+            return true
+        case .moveLeft, .moveRight, .paste, .togglePreview, .openSearch, .copy, .delete, .togglePinned, .appendSearchText, .enterFirstSearchResult:
+            return false
         }
     }
 

@@ -540,6 +540,9 @@ struct HistoryWindowView: View {
                 text: $searchText,
                 isFocused: $isSearchFocused,
                 focusRequestID: searchFocusRequestID,
+                hasSearchResult: !filteredItems.isEmpty,
+                onEnterFirstResult: enterFirstSearchResultFromSearchField,
+                onReplaceSearch: replaceSearchText,
                 onSubmit: {
                     pasteItem(selectedItemID)
                 }
@@ -782,10 +785,6 @@ struct HistoryWindowView: View {
         guard let item = store.item(with: id) else {
             return
         }
-
-        if isSearchVisible {
-            closeSearchBeforePaste()
-        }
         accessibilityPermissionState.refresh()
         switch pasteExecutor.pastePlainTextToFrontmostApp(item) {
         case .copiedOnly:
@@ -872,9 +871,6 @@ struct HistoryWindowView: View {
             return
         }
 
-        if isSearchVisible {
-            closeSearchBeforePaste()
-        }
         accessibilityPermissionState.refresh()
         switch pasteExecutor.pasteToFrontmostApp(item) {
         case .copiedOnly:
@@ -1137,13 +1133,6 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func closeSearchBeforePaste() {
-        searchText = ""
-        isSearchVisible = false
-        isSearchFocused = false
-        inputState.setTextInputFocused(false)
-    }
-
     private func ensureSelectionInFilteredItems() {
         if filteredItems.isEmpty {
             selectedItemID = nil
@@ -1284,6 +1273,8 @@ struct HistoryWindowView: View {
             togglePinned(selectedItemID)
         case .appendSearchText(let text):
             appendSearchText(text)
+        case .enterFirstSearchResult:
+            enterFirstSearchResultFromSearchField()
         }
     }
 
@@ -1296,6 +1287,25 @@ struct HistoryWindowView: View {
 
         searchText += text
         focusSearchField()
+    }
+
+    private func replaceSearchText(_ text: String) {
+        searchText = text
+        focusSearchField()
+    }
+
+    private func enterFirstSearchResultFromSearchField() {
+        guard let firstID = filteredItems.first?.id else {
+            focusSearchField()
+            return
+        }
+
+        selectedItemID = firstID
+        isSearchFocused = false
+        inputState.setTextInputFocused(false)
+        if previewState.isVisible {
+            showPreview(firstID)
+        }
     }
 
     private func focusSearchField() {
@@ -1337,6 +1347,9 @@ private struct SearchTextField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let focusRequestID: Int
+    let hasSearchResult: Bool
+    let onEnterFirstResult: () -> Void
+    let onReplaceSearch: (String) -> Void
     let onSubmit: () -> Void
 
     func makeNSView(context: Context) -> NSTextField {
@@ -1408,9 +1421,20 @@ private struct SearchTextField: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.insertNewline(_:)):
-                parent.onSubmit()
+                if isCursorAtEnd(in: textView), parent.hasSearchResult {
+                    parent.onEnterFirstResult()
+                } else {
+                    parent.onSubmit()
+                }
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
+                return true
+            case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveDown(_:)):
+                guard isCursorAtEnd(in: textView), parent.hasSearchResult else {
+                    return false
+                }
+
+                parent.onEnterFirstResult()
                 return true
             case #selector(NSResponder.selectAll(_:)):
                 textView.selectAll(nil)
@@ -1418,6 +1442,18 @@ private struct SearchTextField: NSViewRepresentable {
             default:
                 return false
             }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, shouldChangeCharactersIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            guard let replacementString,
+                  replacementString.isEmpty == false,
+                  isCursorAtEnd(in: textView),
+                  parent.hasSearchResult else {
+                return true
+            }
+
+            parent.onReplaceSearch(replacementString)
+            return false
         }
 
         func moveInsertionPointToEnd(in textField: NSTextField) {
@@ -1442,6 +1478,11 @@ private struct SearchTextField: NSViewRepresentable {
                 }
                 self.moveInsertionPointToEnd(in: textField)
             }
+        }
+
+        private func isCursorAtEnd(in textView: NSTextView) -> Bool {
+            let range = textView.selectedRange()
+            return range.length == 0 && range.location == (textView.string as NSString).length
         }
     }
 }
