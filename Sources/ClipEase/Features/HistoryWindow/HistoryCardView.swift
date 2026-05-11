@@ -53,8 +53,7 @@ struct HistoryCardView: View {
                 .stroke(isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.black.opacity(0.08), lineWidth: isSelected ? 4 : 1)
         }
         .overlay(alignment: .bottomTrailing) {
-            if isShortcutOverlayVisible,
-               let shortcutNumber {
+            if let shortcutNumber {
                 Text("\(shortcutNumber)")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
@@ -62,6 +61,9 @@ struct HistoryCardView: View {
                     .background(Color.black.opacity(0.62))
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                     .padding(10)
+                    .opacity(isShortcutOverlayVisible ? 1 : 0)
+                    .scaleEffect(isShortcutOverlayVisible ? 1 : 0.86)
+                    .animation(.easeOut(duration: 0.12), value: isShortcutOverlayVisible)
             }
         }
         .shadow(

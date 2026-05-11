@@ -519,11 +519,13 @@ struct HistoryWindowView: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(width: 220, height: 30)
+        .frame(width: isSearchVisible ? 220 : 0, height: 30)
         .background(Color.white.opacity(isSearchVisible ? 0.72 : 0))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .opacity(isSearchVisible ? 1 : 0)
-            .allowsHitTesting(isSearchVisible)
+        .opacity(isSearchVisible ? 1 : 0)
+        .allowsHitTesting(isSearchVisible)
+        .animation(.easeOut(duration: 0.16), value: isSearchVisible)
+        .animation(.easeOut(duration: 0.12), value: searchText.isEmpty)
     }
 
     private var moreMenu: some View {
@@ -985,16 +987,20 @@ struct HistoryWindowView: View {
 
     private func toggleSearch() {
         if isSearchVisible {
-            clearSearch()
+            withAnimation(.easeOut(duration: 0.16)) {
+                clearSearch()
+            }
         } else {
             openSearch()
         }
     }
 
     private func clearSearch() {
-        searchText = ""
-        isSearchVisible = false
-        isSearchFocused = false
+        withAnimation(.easeOut(duration: 0.16)) {
+            searchText = ""
+            isSearchVisible = false
+            isSearchFocused = false
+        }
     }
 
     private func togglePinnedFilter() {
@@ -1003,7 +1009,9 @@ struct HistoryWindowView: View {
     }
 
     private func openSearch() {
-        isSearchVisible = true
+        withAnimation(.easeOut(duration: 0.16)) {
+            isSearchVisible = true
+        }
         Task { @MainActor in
             isSearchFocused = true
         }

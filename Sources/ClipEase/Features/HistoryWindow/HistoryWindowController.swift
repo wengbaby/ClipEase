@@ -11,6 +11,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let previewWindowController = HistoryPreviewWindowController()
     private let previewState = HistoryPreviewState()
     private var panel: HistoryPanel?
+    private var isClosing = false
 
     init(
         store: ClipboardHistoryStore,
@@ -37,6 +38,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     func show() {
         let panel = panel ?? makePanel()
         self.panel = panel
+        isClosing = false
         let targetFrame = frameForPanel()
         let shouldAnimate = !panel.isVisible
 
@@ -63,8 +65,28 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func close() {
-        panel?.orderOut(nil)
         closePreview()
+        guard let panel,
+              panel.isVisible,
+              !isClosing else {
+            panel?.orderOut(nil)
+            return
+        }
+
+        isClosing = true
+        let targetFrame = panel.frame.offsetBy(dx: 0, dy: -46)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.14
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+            panel.animator().setFrame(targetFrame, display: true)
+        } completionHandler: { [weak self, weak panel] in
+            Task { @MainActor in
+                panel?.orderOut(nil)
+                panel?.alphaValue = 1
+                self?.isClosing = false
+            }
+        }
     }
 
     private func makePanel() -> HistoryPanel {
