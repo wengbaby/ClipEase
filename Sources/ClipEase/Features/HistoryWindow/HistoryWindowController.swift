@@ -17,6 +17,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let inputState = HistoryWindowInputState()
     private lazy var keyboardEventTap = HistoryKeyboardEventTap(inputState: inputState)
     private var panel: HistoryPanel?
+    private var outsideClickMonitor: Any?
     private var isClosing = false
     private weak var previousFrontmostApplication: NSRunningApplication?
 
@@ -65,6 +66,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.makeKey()
         panel.displayIfNeeded()
         keyboardEventTap.start()
+        installOutsideClickMonitor()
 
         guard shouldAnimate else {
             return
@@ -88,6 +90,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     func close() {
         keyboardEventTap.stop()
+        removeOutsideClickMonitor()
         closePreview()
         guard let panel,
               panel.isVisible,
@@ -114,6 +117,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     func hideImmediatelyForAutoPaste() {
         keyboardEventTap.stop()
+        removeOutsideClickMonitor()
         closePreview()
         panel?.orderOut(nil)
         panel?.hasShadow = true
@@ -197,6 +201,22 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         previousFrontmostApplication = frontmostApplication
+    }
+
+    private func installOutsideClickMonitor() {
+        removeOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in
+                self?.close()
+            }
+        }
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+            self.outsideClickMonitor = nil
+        }
     }
 
     private func showPreview(_ item: ClipboardItem, cardFrame: CGRect) {

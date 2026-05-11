@@ -744,11 +744,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        selectedItemID = filteredItems[index].id
-        if previewState.isVisible {
-            showPreview(selectedItemID)
-        }
-        showStatus("已选中第 \(number) 张")
+        pasteItem(filteredItems[index].id)
     }
 
     private func shortcutNumber(for id: HistoryPreviewItem.ID) -> Int? {
@@ -1261,7 +1257,7 @@ struct HistoryWindowView: View {
         case .togglePreview:
             togglePreviewForSelectedItem()
         case .close:
-            if isSearchVisible {
+            if isSearchFocused {
                 clearSearch()
             } else {
                 closePreview()
