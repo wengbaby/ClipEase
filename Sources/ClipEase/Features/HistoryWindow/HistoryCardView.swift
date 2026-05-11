@@ -199,12 +199,33 @@ struct HistoryCardView: View {
 
     private func loadImage() -> NSImage? {
         guard let imageFileName = item.imageFileName,
+              let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(fileName: imageFileName),
               let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
             return nil
         }
 
-        return ImageMemoryCache.shared.image(for: "history-image:\(imageFileName)") {
-            NSImage(contentsOf: imageURL)
+        return ImageMemoryCache.shared.image(for: "history-thumbnail:\(imageFileName)") {
+            if let thumbnail = NSImage(contentsOf: thumbnailURL) {
+                return thumbnail
+            }
+
+            guard let image = NSImage(contentsOf: imageURL) else {
+                return nil
+            }
+
+            guard let thumbnail = image.clipeaseCardThumbnail(maxPixelSize: CGSize(width: 500, height: 360)),
+                  let thumbnailData = thumbnail.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: thumbnailData),
+                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
+                return image
+            }
+
+            try? FileManager.default.createDirectory(
+                at: thumbnailURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? pngData.write(to: thumbnailURL, options: [.atomic])
+            return thumbnail
         }
     }
 
@@ -245,5 +266,37 @@ struct HistoryCardView: View {
         let green = Int(round(components.green * 255))
         let blue = Int(round(components.blue * 255))
         return "rgb(\(red), \(green), \(blue))"
+    }
+}
+
+private extension NSImage {
+    func clipeaseCardThumbnail(maxPixelSize: CGSize) -> NSImage? {
+        guard let source = cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+
+        let sourceWidth = CGFloat(source.width)
+        let sourceHeight = CGFloat(source.height)
+        guard sourceWidth > 0, sourceHeight > 0 else {
+            return nil
+        }
+
+        let scale = min(maxPixelSize.width / sourceWidth, maxPixelSize.height / sourceHeight, 1)
+        let targetSize = NSSize(
+            width: max(1, floor(sourceWidth * scale)),
+            height: max(1, floor(sourceHeight * scale))
+        )
+        let thumbnail = NSImage(size: targetSize)
+        thumbnail.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        NSImage(cgImage: source, size: NSSize(width: sourceWidth, height: sourceHeight))
+            .draw(
+                in: NSRect(origin: .zero, size: targetSize),
+                from: NSRect(origin: .zero, size: NSSize(width: sourceWidth, height: sourceHeight)),
+                operation: .copy,
+                fraction: 1
+            )
+        thumbnail.unlockFocus()
+        return thumbnail
     }
 }

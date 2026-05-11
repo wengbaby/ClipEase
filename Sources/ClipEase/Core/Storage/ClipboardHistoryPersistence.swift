@@ -14,6 +14,8 @@ struct StoredRichText {
 }
 
 struct ClipboardHistoryPersistence {
+    private static let thumbnailMaxPixelSize = CGSize(width: 500, height: 360)
+
     private let fileManager: FileManager
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -78,6 +80,7 @@ struct ClipboardHistoryPersistence {
             )
             let imageURL = directoryURL.appendingPathComponent(fileName)
             try imageData.write(to: imageURL, options: [.atomic])
+            saveThumbnail(for: image, fileName: fileName)
             return StoredClipboardImage(
                 fileName: fileName,
                 width: bitmap.pixelsWide,
@@ -110,6 +113,53 @@ struct ClipboardHistoryPersistence {
         }
 
         try? fileManager.removeItem(at: imageURL)
+        deleteThumbnail(fileName: fileName)
+    }
+
+    func thumbnailImage(fileName: String) -> NSImage? {
+        if let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(
+            fileName: fileName,
+            fileManager: fileManager
+        ),
+           fileManager.fileExists(atPath: thumbnailURL.path),
+           let image = NSImage(contentsOf: thumbnailURL) {
+            return image
+        }
+
+        guard let imageURL = try? ClipEaseStoragePaths.imageFileURL(
+            fileName: fileName,
+            fileManager: fileManager
+        ),
+              let image = NSImage(contentsOf: imageURL) else {
+            return nil
+        }
+
+        saveThumbnail(for: image, fileName: fileName)
+        return NSImage(
+            contentsOf: (try? ClipEaseStoragePaths.thumbnailFileURL(
+                fileName: fileName,
+                fileManager: fileManager
+            )) ?? imageURL
+        ) ?? image
+    }
+
+    func deleteThumbnail(fileName: String) {
+        guard let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(
+            fileName: fileName,
+            fileManager: fileManager
+        ) else {
+            return
+        }
+
+        try? fileManager.removeItem(at: thumbnailURL)
+    }
+
+    static func clearThumbnailCache(fileManager: FileManager = .default) {
+        guard let directoryURL = try? ClipEaseStoragePaths.thumbnailsDirectory(fileManager: fileManager) else {
+            return
+        }
+
+        try? fileManager.removeItem(at: directoryURL)
     }
 
     func saveRichText(_ data: Data) -> StoredRichText? {
@@ -167,6 +217,25 @@ struct ClipboardHistoryPersistence {
             try fileManager.moveItem(at: fileURL, to: backupURL)
         } catch {
             NSLog("ClipEase failed to back up corrupted history: \(error.localizedDescription)")
+        }
+    }
+
+    private func saveThumbnail(for image: NSImage, fileName: String) {
+        guard let thumbnail = image.clipeaseThumbnail(maxPixelSize: Self.thumbnailMaxPixelSize),
+              let thumbnailData = thumbnail.pngData() else {
+            return
+        }
+
+        do {
+            let directoryURL = try ClipEaseStoragePaths.thumbnailsDirectory(fileManager: fileManager)
+            try fileManager.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true
+            )
+            let thumbnailURL = directoryURL.appendingPathComponent(fileName)
+            try thumbnailData.write(to: thumbnailURL, options: [.atomic])
+        } catch {
+            NSLog("ClipEase failed to save clipboard thumbnail: \(error.localizedDescription)")
         }
     }
 }
@@ -247,5 +316,35 @@ private extension NSImage {
         }
 
         return bitmap.representation(using: .png, properties: [:])
+    }
+
+    func clipeaseThumbnail(maxPixelSize: CGSize) -> NSImage? {
+        guard let source = cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+
+        let sourceWidth = CGFloat(source.width)
+        let sourceHeight = CGFloat(source.height)
+        guard sourceWidth > 0, sourceHeight > 0 else {
+            return nil
+        }
+
+        let scale = min(maxPixelSize.width / sourceWidth, maxPixelSize.height / sourceHeight, 1)
+        let targetSize = NSSize(
+            width: max(1, floor(sourceWidth * scale)),
+            height: max(1, floor(sourceHeight * scale))
+        )
+        let image = NSImage(size: targetSize)
+        image.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        NSImage(cgImage: source, size: NSSize(width: sourceWidth, height: sourceHeight))
+            .draw(
+                in: NSRect(origin: .zero, size: targetSize),
+                from: NSRect(origin: .zero, size: NSSize(width: sourceWidth, height: sourceHeight)),
+                operation: .copy,
+                fraction: 1
+            )
+        image.unlockFocus()
+        return image
     }
 }

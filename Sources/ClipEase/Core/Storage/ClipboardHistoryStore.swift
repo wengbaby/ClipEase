@@ -210,6 +210,14 @@ final class ClipboardHistoryStore: ObservableObject {
         return persistence.imageData(fileName: fileName)
     }
 
+    func thumbnailImage(for item: ClipboardItem) -> NSImage? {
+        guard let fileName = item.imageFileName else {
+            return nil
+        }
+
+        return persistence.thumbnailImage(fileName: fileName)
+    }
+
     func richTextData(for item: ClipboardItem) -> Data? {
         guard let fileName = item.richTextFileName else {
             return nil

@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var canAutoPaste = false
     @State private var isClearConfirmationPresented = false
     @State private var isClearIconCacheConfirmationPresented = false
+    @State private var isClearThumbnailCacheConfirmationPresented = false
     @State private var statusText: String?
     @State private var isRecordingShortcut = false
     @State private var storageUsageText = "计算中"
@@ -72,6 +73,21 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("此操作只会删除来源 App 图标缓存，不会删除历史记录。后续新复制内容会重新生成图标缓存。")
+        }
+        .confirmationDialog(
+            "清空缩略图缓存？",
+            isPresented: $isClearThumbnailCacheConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("清空缩略图缓存", role: .destructive) {
+                ClipboardHistoryPersistence.clearThumbnailCache()
+                refreshStorageUsage()
+                showStatus("已清空缩略图缓存")
+            }
+
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此操作只会删除图片卡片使用的缩略图缓存，不会删除原始图片或历史记录。后续显示图片卡片时会重新生成。")
         }
     }
 
@@ -315,8 +331,22 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.bordered)
 
+                    Button("打开缩略图缓存") {
+                        openDirectory(try? ClipEaseStoragePaths.thumbnailsDirectory())
+                    }
+                    .buttonStyle(.bordered)
+
                     Button("清空图标缓存") {
                         isClearIconCacheConfirmationPresented = true
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+
+                HStack(spacing: 10) {
+                    Button("清空缩略图缓存") {
+                        isClearThumbnailCacheConfirmationPresented = true
                     }
                     .buttonStyle(.bordered)
 
