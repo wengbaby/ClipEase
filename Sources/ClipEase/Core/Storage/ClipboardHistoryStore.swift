@@ -12,9 +12,10 @@ final class ClipboardHistoryStore: ObservableObject {
         }
     }
 
-    private static let retentionPolicyKey = "history.retentionPolicy"
-    private static let debugTextPrefix = "轻贴性能测试文本 "
-    private static let deferredSaveDelay: UInt64 = 350_000_000
+    nonisolated private static let retentionPolicyKey = "history.retentionPolicy"
+    nonisolated private static let debugTextPrefix = "轻贴性能测试文本 "
+    nonisolated private static let deferredSaveDelay: UInt64 = 350_000_000
+    nonisolated private static let debugBatchSize = 500
     private let persistence: ClipboardHistoryPersistence
     private let saveWriter: ClipboardHistorySaveWriter
     private let userDefaults: UserDefaults
@@ -22,7 +23,12 @@ final class ClipboardHistoryStore: ObservableObject {
     private var skippedClipboardTexts: Set<String> = []
     private var skippedImageHashes: Set<String> = []
     private var deferredSaveTask: Task<Void, Never>?
+    private var debugGenerationTask: Task<Void, Never>?
     private var saveRevision = 0
+
+    var debugTextItemCount: Int {
+        items.lazy.filter(Self.isDebugTextItem).count
+    }
 
     init(
         persistence: ClipboardHistoryPersistence = ClipboardHistoryPersistence(),
@@ -195,24 +201,32 @@ final class ClipboardHistoryStore: ObservableObject {
             return
         }
 
-        let now = Date()
+        debugGenerationTask?.cancel()
         let sourceApp = SourceAppInfo.clipease
-        let newItems = (0..<count).map { index in
-            ClipboardItem.debugText(
-                "\(Self.debugTextPrefix)\(index + 1) keyword-\(index % 25) 搜索测试 \(UUID().uuidString)",
-                createdAt: now.addingTimeInterval(TimeInterval(-index)),
+        debugGenerationTask = Task(priority: .utility) { [weak self] in
+            let newItems = await ClipboardHistoryStore.makeDebugTextItems(
+                count: count,
                 sourceApp: sourceApp
             )
-        }
 
-        items.insert(contentsOf: newItems, at: 0)
-        sortItems()
-        pruneExpiredItems()
-        rebuildRecentHashes()
-        scheduleSave()
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                guard let self else {
+                    return
+                }
+
+                self.mergeDebugTextItems(newItems)
+                self.debugGenerationTask = nil
+            }
+        }
     }
 
     func clearDebugTextItems() -> Int {
+        debugGenerationTask?.cancel()
+        debugGenerationTask = nil
         let removedItems = items.filter(Self.isDebugTextItem)
         guard !removedItems.isEmpty else {
             return 0
@@ -225,7 +239,21 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     func flushPendingSave() {
+        debugGenerationTask?.cancel()
+        debugGenerationTask = nil
         saveImmediately()
+    }
+
+    private func mergeDebugTextItems(_ newItems: [ClipboardItem]) {
+        guard !newItems.isEmpty else {
+            return
+        }
+
+        items.insert(contentsOf: newItems, at: 0)
+        sortItems()
+        pruneExpiredItems()
+        rebuildRecentHashes()
+        scheduleSave()
     }
 
     func skipNextClipboardText(_ text: String) {
@@ -370,6 +398,35 @@ final class ClipboardHistoryStore: ObservableObject {
         item.type == .text
             && item.sourceBundleID == SourceAppInfo.clipease.bundleID
             && item.text.hasPrefix(debugTextPrefix)
+    }
+
+    nonisolated private static func makeDebugTextItems(
+        count: Int,
+        sourceApp: SourceAppInfo
+    ) async -> [ClipboardItem] {
+        let now = Date()
+        var items: [ClipboardItem] = []
+        items.reserveCapacity(count)
+
+        for index in 0..<count {
+            if Task.isCancelled {
+                return []
+            }
+
+            items.append(
+                ClipboardItem.debugText(
+                    "\(debugTextPrefix)\(index + 1) keyword-\(index % 25) 搜索测试 \(UUID().uuidString)",
+                    createdAt: now.addingTimeInterval(TimeInterval(-index)),
+                    sourceApp: sourceApp
+                )
+            )
+
+            if index > 0, index % debugBatchSize == 0 {
+                await Task.yield()
+            }
+        }
+
+        return items
     }
 }
 

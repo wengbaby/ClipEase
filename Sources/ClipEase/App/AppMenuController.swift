@@ -91,6 +91,10 @@ final class AppMenuController: NSObject {
         historyStore.addDebugTextItems(count: count)
     }
 
+    var debugTextItemCount: Int {
+        historyStore.debugTextItemCount
+    }
+
     func clearDebugTextItems() -> Int {
         historyStore.clearDebugTextItems()
     }

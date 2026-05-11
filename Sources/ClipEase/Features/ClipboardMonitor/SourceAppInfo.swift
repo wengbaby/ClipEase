@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct SourceAppInfo {
+struct SourceAppInfo: Sendable {
     let name: String
     let bundleID: String?
     let iconName: String

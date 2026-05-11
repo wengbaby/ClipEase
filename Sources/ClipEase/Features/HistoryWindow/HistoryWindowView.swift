@@ -619,6 +619,10 @@ struct HistoryWindowView: View {
             Divider()
 
             Menu("开发测试") {
+                Text("测试文本：\(appMenuController.debugTextItemCount) 条")
+
+                Divider()
+
                 Button("添加 1,000 条文本") {
                     addDebugTextItems(count: 1_000)
                 }
@@ -951,7 +955,7 @@ struct HistoryWindowView: View {
 
     private func addDebugTextItems(count: Int) {
         appMenuController.addDebugTextItems(count: count)
-        showStatus("已添加 \(count) 条测试文本")
+        showStatus("正在生成 \(count) 条测试文本")
     }
 
     private func clearDebugTextItems() {
