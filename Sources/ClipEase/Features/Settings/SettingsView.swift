@@ -94,7 +94,7 @@ struct SettingsView: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("轻贴设置")
+                Text("轻贴ClipEase 设置")
                     .font(.system(size: 20, weight: .semibold))
 
                 Text("管理历史、记录状态和权限")
@@ -293,83 +293,105 @@ struct SettingsView: View {
 
     private var historySection: some View {
         settingsSection(title: "历史数据", subtitle: historySubtitle) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Button("导出历史") {
+            VStack(alignment: .leading, spacing: 12) {
+                historyActionGroup(title: "导入与导出") {
+                    historyButton("导出历史", prominent: true) {
                         exportHistory()
                     }
-                    .buttonStyle(.borderedProminent)
                     .disabled(store.items.isEmpty)
 
-                    Button("导入历史") {
+                    historyButton("导入历史") {
                         importHistory()
                     }
-                    .buttonStyle(.bordered)
 
-                    Button("导出备份包") {
+                    historyButton("导出备份包", minWidth: 104) {
                         exportBackup()
                     }
-                    .buttonStyle(.bordered)
                     .disabled(store.items.isEmpty)
 
-                    Button("导入备份包") {
+                    historyButton("导入备份包", minWidth: 104) {
                         importBackup()
                     }
-                    .buttonStyle(.bordered)
+                }
 
-                    Button("打开数据目录") {
+                Divider()
+
+                historyActionGroup(title: "目录与缓存") {
+                    historyButton("打开数据目录", minWidth: 104) {
                         openDirectory(try? ClipEaseStoragePaths.applicationSupportDirectory())
                     }
-                    .buttonStyle(.bordered)
 
-                    Button("刷新用量") {
+                    historyButton("打开图片目录", minWidth: 104) {
+                        openDirectory(try? ClipEaseStoragePaths.imagesDirectory())
+                    }
+
+                    historyButton("打开图标缓存", minWidth: 104) {
+                        openDirectory(try? ClipEaseStoragePaths.appIconsDirectory())
+                    }
+
+                    historyButton("打开缩略图缓存", minWidth: 116) {
+                        openDirectory(try? ClipEaseStoragePaths.thumbnailsDirectory())
+                    }
+
+                    historyButton("刷新用量") {
                         refreshStorageUsage()
                         showStatus("已刷新存储用量")
                     }
-                    .buttonStyle(.bordered)
-
-                    Spacer()
                 }
 
-                HStack(spacing: 10) {
-                    Button("打开图片目录") {
-                        openDirectory(try? ClipEaseStoragePaths.imagesDirectory())
-                    }
-                    .buttonStyle(.bordered)
+                Divider()
 
-                    Button("打开图标缓存") {
-                        openDirectory(try? ClipEaseStoragePaths.appIconsDirectory())
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("打开缩略图缓存") {
-                        openDirectory(try? ClipEaseStoragePaths.thumbnailsDirectory())
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("清空图标缓存") {
+                historyActionGroup(title: "清理") {
+                    historyButton("清空图标缓存", minWidth: 104) {
                         isClearIconCacheConfirmationPresented = true
                     }
-                    .buttonStyle(.bordered)
 
-                    Spacer()
-                }
-
-                HStack(spacing: 10) {
-                    Button("清空缩略图缓存") {
+                    historyButton("清空缩略图缓存", minWidth: 116) {
                         isClearThumbnailCacheConfirmationPresented = true
                     }
+
+                    Button("清空历史", role: .destructive) {
+                        isClearConfirmationPresented = true
+                    }
                     .buttonStyle(.bordered)
-
-                    Spacer()
+                    .frame(minWidth: 88)
+                    .disabled(store.items.isEmpty)
                 }
-
-                Button("清空历史", role: .destructive) {
-                    isClearConfirmationPresented = true
-                }
-                .buttonStyle(.bordered)
-                .disabled(store.items.isEmpty)
             }
+        }
+    }
+
+    private func historyActionGroup<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                content()
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func historyButton(
+        _ title: String,
+        minWidth: CGFloat = 88,
+        prominent: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        if prominent {
+            Button(title, action: action)
+                .buttonStyle(.borderedProminent)
+                .frame(minWidth: minWidth)
+        } else {
+            Button(title, action: action)
+                .buttonStyle(.bordered)
+                .frame(minWidth: minWidth)
         }
     }
 
