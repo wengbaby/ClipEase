@@ -4,6 +4,8 @@ import SwiftUI
 @MainActor
 final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let panelHeight: CGFloat = 360
+    private let panelAnimationDistance: CGFloat = 360
+    private let panelBackgroundColor = NSColor(red: 0.78, green: 0.82, blue: 0.92, alpha: 1.0)
     private let store: ClipboardHistoryStore
     private let pasteExecutor: PasteExecutor
     private let recordingController: RecordingController
@@ -45,7 +47,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         if shouldAnimate {
             panel.hasShadow = false
             panel.alphaValue = 1
-            panel.setFrame(targetFrame.offsetBy(dx: 0, dy: -44), display: false)
+            panel.setFrame(hiddenFrame(for: targetFrame), display: false)
         } else {
             panel.setFrame(targetFrame, display: true)
         }
@@ -63,9 +65,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.15
                 context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
-                panel.animator().setFrame(targetFrame, display: true)
+                panel.animator().setFrame(targetFrame, display: false)
             } completionHandler: { [weak panel] in
                 Task { @MainActor in
+                    panel?.displayIfNeeded()
                     panel?.hasShadow = true
                 }
             }
@@ -83,11 +86,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         isClosing = true
         panel.hasShadow = false
-        let targetFrame = panel.frame.offsetBy(dx: 0, dy: -44)
+        let targetFrame = hiddenFrame(for: panel.frame)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
-            panel.animator().setFrame(targetFrame, display: true)
+            panel.animator().setFrame(targetFrame, display: false)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
                 panel?.orderOut(nil)
@@ -133,10 +136,15 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isMovable = false
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
+        panel.animationBehavior = .none
+        panel.backgroundColor = panelBackgroundColor
+        panel.isOpaque = true
         panel.hasShadow = true
-        panel.contentView = NSHostingView(rootView: contentView)
+
+        let hostingView = NSHostingView(rootView: contentView)
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = panelBackgroundColor.cgColor
+        panel.contentView = hostingView
         return panel
     }
 
@@ -149,6 +157,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             width: frame.width,
             height: panelHeight
         )
+    }
+
+    private func hiddenFrame(for frame: NSRect) -> NSRect {
+        frame.offsetBy(dx: 0, dy: -panelAnimationDistance)
     }
 
     private func showPreview(_ item: ClipboardItem, cardFrame: CGRect) {

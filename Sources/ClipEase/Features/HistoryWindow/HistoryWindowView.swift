@@ -22,6 +22,8 @@ struct HistoryWindowView: View {
     @State private var isCommandKeyPressed = false
     @FocusState private var isSearchFocused: Bool
 
+    private let backgroundColor = Color(red: 0.78, green: 0.82, blue: 0.92)
+
     private var items: [HistoryPreviewItem] {
         store.items.map(HistoryPreviewItem.init)
     }
@@ -54,15 +56,7 @@ struct HistoryWindowView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.82, green: 0.77, blue: 0.94),
-                    Color(red: 0.72, green: 0.84, blue: 0.92),
-                    Color(red: 0.90, green: 0.78, blue: 0.92)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
+            backgroundColor
             .ignoresSafeArea()
 
             Button(action: { pasteItem(selectedItemID) }) {
@@ -272,6 +266,9 @@ struct HistoryWindowView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .coordinateSpace(name: "historyWindow")
         .focusable()
+        .transaction { transaction in
+            transaction.animation = nil
+        }
         .onAppear {
             selectedItemID = filteredItems.first?.id
             canAutoPaste = pasteExecutor.canAutoPaste
