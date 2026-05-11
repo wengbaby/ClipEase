@@ -1181,8 +1181,12 @@ struct HistoryWindowView: View {
             }
 
             await MainActor.run {
-                filteredPreviewItems = result
-                ensureSelectionInFilteredItems()
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    filteredPreviewItems = result
+                    ensureSelectionInFilteredItems()
+                }
                 schedulePreheatVisibleAssets()
             }
         }
@@ -1490,9 +1494,10 @@ private struct SearchTextField: NSViewRepresentable {
     let onCancel: () -> Void
     let onSubmit: () -> Void
 
-    func makeNSView(context: Context) -> NSTextField {
-        let textField = NSTextField()
+    func makeNSView(context: Context) -> SearchNSTextField {
+        let textField = SearchNSTextField()
         textField.delegate = context.coordinator
+        textField.coordinator = context.coordinator
         textField.isBordered = false
         textField.isBezeled = false
         textField.drawsBackground = false
@@ -1504,8 +1509,9 @@ private struct SearchTextField: NSViewRepresentable {
         return textField
     }
 
-    func updateNSView(_ nsView: NSTextField, context: Context) {
+    func updateNSView(_ nsView: SearchNSTextField, context: Context) {
         context.coordinator.parent = self
+        nsView.coordinator = context.coordinator
         if nsView.stringValue != text {
             nsView.stringValue = text
         }
@@ -1529,6 +1535,48 @@ private struct SearchTextField: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
+    }
+
+    @MainActor
+    final class SearchNSTextField: NSTextField {
+        weak var coordinator: Coordinator?
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            guard event.modifierFlags.contains(.command),
+                  let characters = event.charactersIgnoringModifiers?.lowercased(),
+                  characters.count == 1,
+                  let coordinator,
+                  let editor = currentEditor() as? NSTextView else {
+                return super.performKeyEquivalent(with: event)
+            }
+
+            switch characters {
+            case "a":
+                editor.selectAll(nil)
+                return true
+            case "c":
+                editor.copy(nil)
+                return true
+            case "x":
+                editor.cut(nil)
+                return true
+            case "v":
+                editor.paste(nil)
+                return true
+            case "z":
+                if event.modifierFlags.contains(.shift) {
+                    editor.undoManager?.redo()
+                } else {
+                    editor.undoManager?.undo()
+                }
+                return true
+            case "w":
+                coordinator.parent.onCancel()
+                return true
+            default:
+                return super.performKeyEquivalent(with: event)
+            }
+        }
     }
 
     @MainActor
