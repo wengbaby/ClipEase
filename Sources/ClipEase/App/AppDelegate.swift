@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         self.historyWindowController = historyWindowController
         pasteExecutor.beforeAutoPaste = { [weak historyWindowController] in
-            historyWindowController?.close()
+            historyWindowController?.hideImmediatelyForAutoPaste()
         }
         pasteExecutor.targetApplicationProvider = { [weak historyWindowController] in
             historyWindowController?.pasteTargetApplication()

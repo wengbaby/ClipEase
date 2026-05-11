@@ -84,9 +84,9 @@ final class PasteExecutor {
 
         beforeAutoPaste?()
         Task { @MainActor in
-            activatePasteTarget()
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            sendCommandV()
+            let target = activatePasteTarget()
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            sendCommandV(to: target)
         }
         return .pasted
     }
@@ -105,23 +105,24 @@ final class PasteExecutor {
 
         beforeAutoPaste?()
         Task { @MainActor in
-            activatePasteTarget()
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            sendCommandV()
+            let target = activatePasteTarget()
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            sendCommandV(to: target)
         }
         return .pasted
     }
 
-    private func activatePasteTarget() {
+    private func activatePasteTarget() -> NSRunningApplication? {
         guard let app = targetApplicationProvider?(),
               !app.isTerminated else {
-            return
+            return nil
         }
 
         app.activate(options: [.activateIgnoringOtherApps])
+        return app
     }
 
-    private func sendCommandV() {
+    private func sendCommandV(to app: NSRunningApplication?) {
         let source = CGEventSource(stateID: .hidSystemState)
         let keyDown = CGEvent(
             keyboardEventSource: source,
@@ -136,8 +137,15 @@ final class PasteExecutor {
 
         keyDown?.flags = .maskCommand
         keyUp?.flags = .maskCommand
-        keyDown?.post(tap: .cghidEventTap)
-        keyUp?.post(tap: .cghidEventTap)
+        if let app,
+           !app.isTerminated {
+            let processIdentifier = app.processIdentifier
+            keyDown?.postToPid(processIdentifier)
+            keyUp?.postToPid(processIdentifier)
+        } else {
+            keyDown?.post(tap: .cghidEventTap)
+            keyUp?.post(tap: .cghidEventTap)
+        }
     }
 }
 

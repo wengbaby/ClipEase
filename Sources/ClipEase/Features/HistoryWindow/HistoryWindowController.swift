@@ -108,6 +108,13 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    func hideImmediatelyForAutoPaste() {
+        closePreview()
+        panel?.orderOut(nil)
+        panel?.hasShadow = true
+        isClosing = false
+    }
+
     private func makePanel() -> HistoryPanel {
         let contentView = HistoryWindowView(
             store: store,
