@@ -72,7 +72,7 @@ struct HistoryPreviewPopoverView: View {
     @ViewBuilder
     private var content: some View {
         switch item.type {
-        case .text, .color:
+        case .text:
             ScrollView {
                 Text(item.text)
                     .font(.system(size: 15, weight: .regular))
@@ -82,6 +82,8 @@ struct HistoryPreviewPopoverView: View {
                     .padding(16)
             }
             .background(Color.white)
+        case .color:
+            colorContent
         case .link:
             VStack(alignment: .leading, spacing: 10) {
                 Text(item.linkTitle ?? item.text)
@@ -118,6 +120,27 @@ struct HistoryPreviewPopoverView: View {
         }
     }
 
+    private var colorContent: some View {
+        let components = ClipEaseColorComponents(hex: item.text)
+
+        return ZStack {
+            Color.clipeaseHex(item.text)
+
+            VStack(spacing: 10) {
+                Text(item.text)
+                    .font(.system(size: 36, weight: .bold))
+                    .textSelection(.enabled)
+
+                if let components {
+                    Text(rgbText(from: components))
+                        .font(.system(size: 16, weight: .semibold))
+                        .textSelection(.enabled)
+                }
+            }
+            .foregroundStyle(components?.readableTextColor ?? .white)
+        }
+    }
+
     private var footer: some View {
         HStack {
             Text(item.footer)
@@ -141,6 +164,13 @@ struct HistoryPreviewPopoverView: View {
         }
 
         return NSImage(contentsOf: imageURL)
+    }
+
+    private func rgbText(from components: ClipEaseColorComponents) -> String {
+        let red = Int(round(components.red * 255))
+        let green = Int(round(components.green * 255))
+        let blue = Int(round(components.blue * 255))
+        return "rgb(\(red), \(green), \(blue))"
     }
 }
 

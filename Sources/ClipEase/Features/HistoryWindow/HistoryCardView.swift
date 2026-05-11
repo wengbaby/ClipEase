@@ -103,12 +103,26 @@ struct HistoryCardView: View {
         case .image:
             imagePreview
         case .color:
-            ZStack {
-                Color.gray
+            colorPreview
+        }
+    }
+
+    private var colorPreview: some View {
+        let components = ClipEaseColorComponents(hex: item.preview)
+
+        return ZStack {
+            Color.clipeaseHex(item.preview)
+
+            VStack(spacing: 8) {
                 Text(item.preview)
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 30, weight: .bold))
+
+                if let components {
+                    Text(rgbText(from: components))
+                        .font(.system(size: 13, weight: .semibold))
+                }
             }
+            .foregroundStyle(components?.readableTextColor ?? .white)
         }
     }
 
@@ -216,5 +230,12 @@ struct HistoryCardView: View {
                 .foregroundColor(Color(red: 0.02, green: 0.42, blue: 0.95))
                 .fontWeight(.bold)
             + Text(suffix).foregroundColor(baseColor)
+    }
+
+    private func rgbText(from components: ClipEaseColorComponents) -> String {
+        let red = Int(round(components.red * 255))
+        let green = Int(round(components.green * 255))
+        let blue = Int(round(components.blue * 255))
+        return "rgb(\(red), \(green), \(blue))"
     }
 }
