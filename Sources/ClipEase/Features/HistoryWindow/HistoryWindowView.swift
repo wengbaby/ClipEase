@@ -322,6 +322,9 @@ struct HistoryWindowView: View {
         .onChange(of: isSearchFocused) { isFocused in
             inputState.setTextInputFocused(isFocused)
         }
+        .onChange(of: isSearchVisible) { isVisible in
+            inputState.setSearchVisible(isVisible)
+        }
         .onMoveCommand { direction in
             moveSelection(direction)
         }
@@ -543,6 +546,7 @@ struct HistoryWindowView: View {
                 hasSearchResult: !filteredItems.isEmpty,
                 onEnterFirstResult: enterFirstSearchResultFromSearchField,
                 onReplaceSearch: replaceSearchText,
+                onCancel: handleSearchCancel,
                 onSubmit: {
                     pasteItem(selectedItemID)
                 }
@@ -1112,6 +1116,7 @@ struct HistoryWindowView: View {
             isSearchFocused = false
         }
         inputState.setTextInputFocused(false)
+        inputState.setSearchVisible(false)
     }
 
     private func togglePinnedFilter() {
@@ -1127,6 +1132,7 @@ struct HistoryWindowView: View {
         withAnimation(.easeOut(duration: 0.16)) {
             isSearchVisible = true
         }
+        inputState.setSearchVisible(true)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 20_000_000)
             focusSearchField()
@@ -1283,6 +1289,7 @@ struct HistoryWindowView: View {
             withAnimation(.easeOut(duration: 0.16)) {
                 isSearchVisible = true
             }
+            inputState.setSearchVisible(true)
         }
 
         searchText += text
@@ -1292,6 +1299,15 @@ struct HistoryWindowView: View {
     private func replaceSearchText(_ text: String) {
         searchText = text
         focusSearchField()
+    }
+
+    private func handleSearchCancel() {
+        if isSearchVisible {
+            clearSearch()
+        } else {
+            closePreview()
+            onClose()
+        }
     }
 
     private func enterFirstSearchResultFromSearchField() {
@@ -1350,6 +1366,7 @@ private struct SearchTextField: NSViewRepresentable {
     let hasSearchResult: Bool
     let onEnterFirstResult: () -> Void
     let onReplaceSearch: (String) -> Void
+    let onCancel: () -> Void
     let onSubmit: () -> Void
 
     func makeNSView(context: Context) -> NSTextField {
@@ -1428,6 +1445,7 @@ private struct SearchTextField: NSViewRepresentable {
                 }
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
+                parent.onCancel()
                 return true
             case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveDown(_:)):
                 guard isCursorAtEnd(in: textView), parent.hasSearchResult else {

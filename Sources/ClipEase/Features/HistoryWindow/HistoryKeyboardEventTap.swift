@@ -75,8 +75,12 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
                 return Unmanaged.passUnretained(event)
             }
 
-            if inputState?.isTextInputFocusedSnapshot == true,
-               !Self.shouldHandleWhileTextInputFocused(action) {
+            if inputState?.isTextInputFocusedSnapshot == true {
+                return Unmanaged.passUnretained(event)
+            }
+
+            if inputState?.isSearchVisibleSnapshot == true,
+               case .selectVisibleCard = action {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -156,15 +160,6 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             return 9
         default:
             return nil
-        }
-    }
-
-    private static func shouldHandleWhileTextInputFocused(_ action: HistoryKeyboardAction) -> Bool {
-        switch action {
-        case .close, .selectVisibleCard:
-            return true
-        case .moveLeft, .moveRight, .paste, .togglePreview, .openSearch, .copy, .delete, .togglePinned, .appendSearchText, .enterFirstSearchResult:
-            return false
         }
     }
 

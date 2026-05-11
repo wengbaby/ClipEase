@@ -27,11 +27,18 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
 
     private let lock = NSLock()
     private var textInputFocused = false
+    private var searchVisible = false
 
     var isTextInputFocusedSnapshot: Bool {
         lock.lock()
         defer { lock.unlock() }
         return textInputFocused
+    }
+
+    var isSearchVisibleSnapshot: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return searchVisible
     }
 
     func dispatch(_ action: HistoryKeyboardAction) {
@@ -52,8 +59,15 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
         lock.unlock()
     }
 
+    func setSearchVisible(_ isVisible: Bool) {
+        lock.lock()
+        searchVisible = isVisible
+        lock.unlock()
+    }
+
     func resetTransientState() {
         setCommandKeyPressed(false)
         setTextInputFocused(false)
+        setSearchVisible(false)
     }
 }
