@@ -535,13 +535,14 @@ struct HistoryWindowView: View {
 
     private var searchField: some View {
         HStack(spacing: 6) {
-            TextField("搜索", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13, weight: .medium))
-                .focused($isSearchFocused)
-                .onSubmit {
+            SearchTextField(
+                text: $searchText,
+                isFocused: $isSearchFocused,
+                onSubmit: {
                     pasteItem(selectedItemID)
                 }
+            )
+            .font(.system(size: 13, weight: .medium))
 
             if !searchText.isEmpty {
                 Button(action: clearSearchText) {
@@ -1283,7 +1284,9 @@ struct HistoryWindowView: View {
 
     private func appendSearchText(_ text: String) {
         if !isSearchVisible {
-            openSearch()
+            withAnimation(.easeOut(duration: 0.16)) {
+                isSearchVisible = true
+            }
         }
 
         searchText += text
@@ -1317,6 +1320,104 @@ private enum HistoryFilter: String, CaseIterable, Identifiable {
         }
     }
 
+}
+
+private struct SearchTextField: NSViewRepresentable {
+    @Binding var text: String
+    @FocusState.Binding var isFocused: Bool
+    let onSubmit: () -> Void
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField()
+        textField.delegate = context.coordinator
+        textField.isBordered = false
+        textField.isBezeled = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.font = .systemFont(ofSize: 13, weight: .medium)
+        textField.placeholderString = "搜索"
+        textField.lineBreakMode = .byTruncatingTail
+        textField.cell?.sendsActionOnEndEditing = false
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+
+        if nsView.font?.pointSize != 13 {
+            nsView.font = .systemFont(ofSize: 13, weight: .medium)
+        }
+
+        if isFocused {
+            if nsView.window?.firstResponder !== nsView.currentEditor() {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+            context.coordinator.moveInsertionPointToEnd(in: nsView)
+        } else if nsView.window?.firstResponder === nsView.currentEditor() {
+            nsView.window?.makeFirstResponder(nil)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: SearchTextField
+
+        init(parent: SearchTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else {
+                return
+            }
+
+            parent.text = textField.stringValue
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            parent.isFocused = true
+            if let textField = notification.object as? NSTextField {
+                moveInsertionPointToEnd(in: textField)
+            }
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            parent.isFocused = false
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                parent.onSubmit()
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                return true
+            case #selector(NSResponder.selectAll(_:)):
+                textView.selectAll(nil)
+                return true
+            default:
+                return false
+            }
+        }
+
+        func moveInsertionPointToEnd(in textField: NSTextField) {
+            guard let editor = textField.currentEditor() else {
+                return
+            }
+
+            let endLocation = (textField.stringValue as NSString).length
+            if editor.selectedRange.location != endLocation || editor.selectedRange.length != 0 {
+                editor.selectedRange = NSRange(location: endLocation, length: 0)
+            }
+        }
+    }
 }
 
 private struct NumberShortcutHandler: NSViewRepresentable {

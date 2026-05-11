@@ -71,11 +71,12 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
 
         case .keyDown:
-            if inputState?.isTextInputFocusedSnapshot == true {
+            guard let action = Self.action(for: event) else {
                 return Unmanaged.passUnretained(event)
             }
 
-            guard let action = Self.action(for: event) else {
+            if inputState?.isTextInputFocusedSnapshot == true,
+               action != .close {
                 return Unmanaged.passUnretained(event)
             }
 
