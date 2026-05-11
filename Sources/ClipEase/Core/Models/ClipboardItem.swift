@@ -135,9 +135,9 @@ extension ClipboardItem {
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
-            iconName: "paintpalette.fill",
-            iconFileName: nil,
-            headerColorHex: hex,
+            iconName: sourceApp.iconName,
+            iconFileName: sourceApp.iconFileName,
+            headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
             pinnedAt: nil
         )
