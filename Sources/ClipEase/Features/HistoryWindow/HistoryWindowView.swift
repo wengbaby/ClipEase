@@ -544,7 +544,7 @@ struct HistoryWindowView: View {
                 }
 
             if !searchText.isEmpty {
-                Button(action: clearSearch) {
+                Button(action: clearSearchText) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 12, weight: .semibold))
                 }
@@ -1092,13 +1092,25 @@ struct HistoryWindowView: View {
     }
 
     private func clearSearch() {
+        if searchText.isEmpty {
+            closeSearch()
+        } else {
+            clearSearchText()
+        }
+    }
+
+    private func clearSearchText() {
         let fallbackID = selectedItemID
+        searchText = ""
+        isSearchFocused = isSearchVisible
+        restoreSelectionAfterClearingSearch(preferredID: fallbackID)
+    }
+
+    private func closeSearch() {
         withAnimation(.easeOut(duration: 0.16)) {
-            searchText = ""
             isSearchVisible = false
             isSearchFocused = false
         }
-        restoreSelectionAfterClearingSearch(preferredID: fallbackID)
     }
 
     private func togglePinnedFilter() {
