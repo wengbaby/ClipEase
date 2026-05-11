@@ -1102,6 +1102,13 @@ struct HistoryWindowView: View {
         inputState.setSearchVisible(false)
     }
 
+    private func clearAndCloseSearch() {
+        let fallbackID = selectedItemID
+        searchText = ""
+        restoreSelectionAfterClearingSearch(preferredID: fallbackID)
+        closeSearch()
+    }
+
     private func togglePinnedFilter() {
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -1333,7 +1340,7 @@ struct HistoryWindowView: View {
             if isSearchFocused {
                 clearSearch()
             } else if isSearchVisible {
-                closeSearch()
+                clearAndCloseSearch()
             } else {
                 closePreview()
                 onClose()
