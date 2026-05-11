@@ -103,7 +103,7 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 820, minHeight: 560)
-        .background(Color(red: 0.94, green: 0.95, blue: 0.97))
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             canAutoPaste = pasteExecutor.canAutoPaste
             loginItemController.refresh()
@@ -157,36 +157,43 @@ struct SettingsView: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("轻贴")
-                .font(.system(size: 16, weight: .semibold))
-                .padding(.horizontal, 14)
-                .padding(.top, 18)
-                .padding(.bottom, 6)
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("轻贴")
+                    .font(.system(size: 16, weight: .semibold))
+
+                Text("ClipEase")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 18)
+            .padding(.bottom, 8)
 
             ForEach(SettingsCategory.allCases) { category in
-                Button {
-                    selectedCategory = category
-                } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(selectedCategory == category ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.16) : Color.clear)
+
                     Label(category.title, systemImage: category.iconName)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 13, weight: .regular))
+                        .imageScale(.medium)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(selectedCategory == category ? Color.white.opacity(0.9) : Color.clear)
-                        )
-                        .foregroundStyle(selectedCategory == category ? Color(red: 0.08, green: 0.10, blue: 0.14) : .secondary)
+                        .foregroundStyle(selectedCategory == category ? Color.primary : .secondary)
                 }
-                .buttonStyle(.plain)
+                .frame(height: 28)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    selectedCategory = category
+                }
             }
 
             Spacer()
         }
         .padding(.horizontal, 10)
         .frame(width: 150)
-        .background(Color(red: 0.90, green: 0.92, blue: 0.95))
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private var header: some View {
@@ -581,7 +588,7 @@ struct SettingsView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.86))
+        .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
