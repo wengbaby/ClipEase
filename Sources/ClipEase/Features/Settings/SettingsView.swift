@@ -543,6 +543,10 @@ struct SettingsView: View {
                         isClearThumbnailCacheConfirmationPresented = true
                     }
 
+                    historyButton("清理孤立附件", minWidth: 116) {
+                        cleanOrphanedAttachments()
+                    }
+
                     Button("清空历史", role: .destructive) {
                         isClearConfirmationPresented = true
                     }
@@ -672,6 +676,16 @@ struct SettingsView: View {
 
     private func refreshStorageUsage() {
         storageUsageText = StorageUsageCalculator.formattedApplicationSupportSize()
+    }
+
+    private func cleanOrphanedAttachments() {
+        let result = OrphanedAttachmentCleaner.clean(items: store.items)
+        refreshStorageUsage()
+        if result.removedFiles > 0 {
+            showStatus("已清理 \(result.removedFiles) 个文件，释放 \(result.formattedRemovedSize)")
+        } else {
+            showStatus("没有可清理的孤立附件")
+        }
     }
 
     private func openDirectory(_ url: URL?) {
