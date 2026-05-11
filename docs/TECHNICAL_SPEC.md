@@ -160,7 +160,9 @@ ClipEase/
 - 设置页可查看 Application Support 目录占用，并打开数据目录、图片目录和图标缓存目录。
 - 设置页可将历史记录导出为 JSON 文件，导出后在 Finder 中定位文件。
 - 设置页可导入轻贴导出的 JSON 文件，采用追加合并方式写入 Store。
-- 当前 JSON 导入只恢复文字、链接和颜色记录；图片和富文本附件需要后续备份包格式承载实际文件。
+- 设置页可导出 `.clipeasebackup` 备份包目录，包含 `history.json`、`Images` 和 `RichTexts`。
+- 设置页可导入 `.clipeasebackup` 备份包目录，采用追加合并方式写入 Store，并恢复图片和富文本附件。
+- JSON 导入只恢复文字、链接和颜色记录；图片和富文本附件通过备份包承载实际文件。
 - `history.json` 读取失败时，会移动备份为 `history-corrupt-YYYYMMDD-HHMMSS.json` 后空历史启动，避免损坏文件被覆盖。
 - 批量数据、复杂搜索和发布稳定后，再迁移到 SQLite 表结构。
 

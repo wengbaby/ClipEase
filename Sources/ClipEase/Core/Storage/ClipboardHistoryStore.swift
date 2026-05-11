@@ -173,6 +173,10 @@ final class ClipboardHistoryStore: ObservableObject {
         return newItems.count
     }
 
+    func importBackupItems(_ importedItems: [ClipboardItem]) -> Int {
+        importItems(importedItems)
+    }
+
     func togglePinned(for id: ClipboardItem.ID?) {
         guard let id,
               let index = items.firstIndex(where: { $0.id == id }) else {

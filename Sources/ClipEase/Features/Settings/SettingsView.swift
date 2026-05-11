@@ -306,6 +306,17 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.bordered)
 
+                    Button("导出备份包") {
+                        exportBackup()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(store.items.isEmpty)
+
+                    Button("导入备份包") {
+                        importBackup()
+                    }
+                    .buttonStyle(.bordered)
+
                     Button("打开数据目录") {
                         openDirectory(try? ClipEaseStoragePaths.applicationSupportDirectory())
                     }
@@ -503,6 +514,50 @@ struct SettingsView: View {
             showStatus(importedCount > 0 ? "已导入 \(importedCount) 条历史" : "没有可导入的新历史")
         } catch {
             showStatus("导入失败")
+        }
+    }
+
+    private func exportBackup() {
+        let panel = NSSavePanel()
+        panel.title = "导出轻贴备份包"
+        panel.prompt = "导出"
+        panel.nameFieldStringValue = "ClipEase-Backup-\(exportDateString()).clipeasebackup"
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK,
+              let url = panel.url else {
+            return
+        }
+
+        do {
+            try HistoryExportService.exportBackup(items: store.items, to: url)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            showStatus("已导出备份包")
+        } catch {
+            showStatus("备份包导出失败")
+        }
+    }
+
+    private func importBackup() {
+        let panel = NSOpenPanel()
+        panel.title = "导入轻贴备份包"
+        panel.prompt = "导入"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+
+        guard panel.runModal() == .OK,
+              let url = panel.url else {
+            return
+        }
+
+        do {
+            let importedItems = try HistoryExportService.importBackup(from: url)
+            let importedCount = store.importBackupItems(importedItems)
+            refreshStorageUsage()
+            showStatus(importedCount > 0 ? "已导入 \(importedCount) 条备份历史" : "没有可导入的新历史")
+        } catch {
+            showStatus("备份包导入失败")
         }
     }
 
