@@ -231,4 +231,32 @@ extension ClipboardItem {
             pinnedAt: nil
         )
     }
+
+    static func debugText(
+        _ text: String,
+        createdAt: Date,
+        sourceApp: SourceAppInfo
+    ) -> ClipboardItem {
+        ClipboardItem(
+            id: UUID(),
+            type: .text,
+            text: text,
+            url: nil,
+            linkTitle: nil,
+            linkSubtitle: nil,
+            imageFileName: nil,
+            imageWidth: nil,
+            imageHeight: nil,
+            imageHash: nil,
+            richTextFileName: nil,
+            createdAt: createdAt,
+            sourceAppName: sourceApp.name,
+            sourceBundleID: sourceApp.bundleID,
+            iconName: sourceApp.iconName,
+            iconFileName: sourceApp.iconFileName,
+            headerColorHex: sourceApp.headerColorHex,
+            isPinned: false,
+            pinnedAt: nil
+        )
+    }
 }

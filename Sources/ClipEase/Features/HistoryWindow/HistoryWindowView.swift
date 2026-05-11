@@ -618,6 +618,18 @@ struct HistoryWindowView: View {
 
             Divider()
 
+            Menu("开发测试") {
+                Button("添加 1,000 条文本") {
+                    addDebugTextItems(count: 1_000)
+                }
+
+                Button("添加 10,000 条文本") {
+                    addDebugTextItems(count: 10_000)
+                }
+            }
+
+            Divider()
+
             Button("退出") {
                 appMenuController.quit()
             }
@@ -929,6 +941,11 @@ struct HistoryWindowView: View {
         store.clearAllItems()
         selectedItemID = nil
         showStatus("已清空")
+    }
+
+    private func addDebugTextItems(count: Int) {
+        appMenuController.addDebugTextItems(count: count)
+        showStatus("已添加 \(count) 条测试文本")
     }
 
     private func togglePinned(_ id: ClipboardItem.ID?) {

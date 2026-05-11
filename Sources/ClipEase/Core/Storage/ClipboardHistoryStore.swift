@@ -13,7 +13,6 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private static let retentionPolicyKey = "history.retentionPolicy"
-    private let maxInMemoryItems = 80
     private let persistence: ClipboardHistoryPersistence
     private let userDefaults: UserDefaults
     private var recentHashes: Set<String> = []
@@ -65,7 +64,6 @@ final class ClipboardHistoryStore: ObservableObject {
         items.insert(item, at: 0)
         sortItems()
         pruneExpiredItems()
-        trimItemsIfNeeded()
         save()
     }
 
@@ -87,7 +85,6 @@ final class ClipboardHistoryStore: ObservableObject {
         items.insert(item, at: 0)
         sortItems()
         pruneExpiredItems()
-        trimItemsIfNeeded()
         save()
     }
 
@@ -119,7 +116,6 @@ final class ClipboardHistoryStore: ObservableObject {
         items.insert(item, at: 0)
         sortItems()
         pruneExpiredItems()
-        trimItemsIfNeeded()
         save()
     }
 
@@ -167,7 +163,6 @@ final class ClipboardHistoryStore: ObservableObject {
         items.append(contentsOf: newItems)
         sortItems()
         pruneExpiredItems()
-        trimItemsIfNeeded()
         rebuildRecentHashes()
         save()
         return newItems.count
@@ -186,6 +181,28 @@ final class ClipboardHistoryStore: ObservableObject {
         items[index].isPinned.toggle()
         items[index].pinnedAt = items[index].isPinned ? Date() : nil
         sortItems()
+        save()
+    }
+
+    func addDebugTextItems(count: Int) {
+        guard count > 0 else {
+            return
+        }
+
+        let now = Date()
+        let sourceApp = SourceAppInfo.clipease
+        let newItems = (0..<count).map { index in
+            ClipboardItem.debugText(
+                "轻贴性能测试文本 \(index + 1) keyword-\(index % 25) 搜索测试 \(UUID().uuidString)",
+                createdAt: now.addingTimeInterval(TimeInterval(-index)),
+                sourceApp: sourceApp
+            )
+        }
+
+        items.insert(contentsOf: newItems, at: 0)
+        sortItems()
+        pruneExpiredItems()
+        rebuildRecentHashes()
         save()
     }
 
@@ -290,17 +307,6 @@ final class ClipboardHistoryStore: ObservableObject {
         items.removeAll { item in
             !item.isPinned && item.createdAt < cutoffDate
         }
-        deleteExternalFiles(for: removedItems)
-        rebuildRecentHashes()
-    }
-
-    private func trimItemsIfNeeded() {
-        guard items.count > maxInMemoryItems else {
-            return
-        }
-
-        let removedItems = Array(items.suffix(items.count - maxInMemoryItems))
-        items.removeLast(items.count - maxInMemoryItems)
         deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
     }
