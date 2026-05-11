@@ -4,7 +4,6 @@ import AppKit
 struct HistoryWindowView: View {
     @ObservedObject var store: ClipboardHistoryStore
     @ObservedObject var previewState: HistoryPreviewState
-    @ObservedObject var performanceState: HistoryWindowPerformanceState
     @ObservedObject var recordingController: RecordingController
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
@@ -55,13 +54,16 @@ struct HistoryWindowView: View {
 
     var body: some View {
         ZStack {
-            if performanceState.useLightweightBackground {
-                Color(red: 0.84, green: 0.79, blue: 0.95)
-                    .ignoresSafeArea()
-            } else {
-                VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
-                    .ignoresSafeArea()
-            }
+            LinearGradient(
+                colors: [
+                    Color(red: 0.82, green: 0.77, blue: 0.94),
+                    Color(red: 0.72, green: 0.84, blue: 0.92),
+                    Color(red: 0.90, green: 0.78, blue: 0.92)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .ignoresSafeArea()
 
             Button(action: { pasteItem(selectedItemID) }) {
                 EmptyView()
@@ -128,7 +130,7 @@ struct HistoryWindowView: View {
                 } else {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 20) {
+                            LazyHStack(spacing: 20) {
                                 ForEach(filteredItems) { item in
                                     HistoryCardView(
                                         item: item,
