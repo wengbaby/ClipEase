@@ -391,6 +391,35 @@ struct SettingsView: View {
                         .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(.secondary)
                 }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("当前运行 App")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(accessibilityPermissionState.currentAppPath)
+                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+
+                    HStack(spacing: 10) {
+                        Button("显示当前 App") {
+                            accessibilityPermissionState.revealCurrentAppInFinder()
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("复制 App 路径") {
+                            accessibilityPermissionState.copyCurrentAppPath()
+                            showStatus("已复制 App 路径")
+                        }
+                        .buttonStyle(.bordered)
+
+                        Spacer()
+                    }
+                }
             }
         }
     }

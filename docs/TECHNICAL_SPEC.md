@@ -166,6 +166,7 @@ ClipEase/
 - `history.json` 读取失败时，会移动备份为 `history-corrupt-YYYYMMDD-HHMMSS.json` 后空历史启动，避免损坏文件被覆盖。
 - 辅助功能权限使用统一的 `AccessibilityPermissionState` 管理，历史窗口和设置页共享同一状态。
 - App 激活、设置页显示、历史窗口显示和手动刷新时重新读取辅助功能权限。
+- 权限页显示当前运行的 App 路径，并支持在 Finder 中定位当前 App 与复制 App 路径，便于排查 macOS 授权对象不一致。
 - 批量数据、复杂搜索和发布稳定后，再迁移到 SQLite 表结构。
 
 ### 4.5 PasteExecutor

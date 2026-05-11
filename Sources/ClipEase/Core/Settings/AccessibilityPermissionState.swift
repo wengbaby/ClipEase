@@ -5,6 +5,14 @@ import ApplicationServices
 final class AccessibilityPermissionState: ObservableObject {
     @Published private(set) var isTrusted = false
 
+    var currentAppURL: URL {
+        Bundle.main.bundleURL
+    }
+
+    var currentAppPath: String {
+        currentAppURL.path
+    }
+
     init() {
         refresh()
     }
@@ -29,5 +37,14 @@ final class AccessibilityPermissionState: ObservableObject {
         }
 
         NSWorkspace.shared.open(url)
+    }
+
+    func revealCurrentAppInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting([currentAppURL])
+    }
+
+    func copyCurrentAppPath() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(currentAppPath, forType: .string)
     }
 }
