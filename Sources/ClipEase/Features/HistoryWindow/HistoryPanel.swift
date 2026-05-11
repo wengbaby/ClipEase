@@ -3,14 +3,13 @@ import AppKit
 @MainActor
 final class HistoryPanel: NSPanel {
     var onEscape: (() -> Void)?
-    var allowsKeyboardFocus = false
 
     override var canBecomeKey: Bool {
-        allowsKeyboardFocus
+        true
     }
 
     override var canBecomeMain: Bool {
-        allowsKeyboardFocus
+        false
     }
 
     override func keyDown(with event: NSEvent) {

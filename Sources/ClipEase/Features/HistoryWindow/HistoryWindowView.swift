@@ -10,7 +10,6 @@ struct HistoryWindowView: View {
     @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
-    let onSearchFocusModeChange: (Bool) -> Void
     let onClose: () -> Void
     let onPreview: (ClipboardItem, CGRect) -> Void
     let onClosePreview: () -> Void
@@ -1097,7 +1096,6 @@ struct HistoryWindowView: View {
             isSearchVisible = false
             isSearchFocused = false
         }
-        onSearchFocusModeChange(false)
     }
 
     private func togglePinnedFilter() {
@@ -1110,7 +1108,6 @@ struct HistoryWindowView: View {
     }
 
     private func openSearch() {
-        onSearchFocusModeChange(true)
         withAnimation(.easeOut(duration: 0.16)) {
             isSearchVisible = true
         }
@@ -1124,7 +1121,6 @@ struct HistoryWindowView: View {
         searchText = ""
         isSearchVisible = false
         isSearchFocused = false
-        onSearchFocusModeChange(false)
     }
 
     private func ensureSelectionInFilteredItems() {

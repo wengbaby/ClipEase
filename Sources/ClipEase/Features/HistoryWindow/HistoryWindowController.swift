@@ -54,7 +54,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         if shouldAnimate {
             renderState.prepareForShow()
-            panel.allowsKeyboardFocus = false
             panel.hasShadow = false
             panel.alphaValue = 1
             panel.setFrame(hiddenFrame(for: targetFrame), display: false)
@@ -63,6 +62,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         panel.orderFrontRegardless()
+        panel.makeKey()
         panel.displayIfNeeded()
         keyboardEventTap.start()
 
@@ -88,9 +88,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     func close() {
         keyboardEventTap.stop()
-        if panel?.allowsKeyboardFocus == true {
-            setSearchFocusMode(false)
-        }
         closePreview()
         guard let panel,
               panel.isVisible,
@@ -117,9 +114,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     func hideImmediatelyForAutoPaste() {
         keyboardEventTap.stop()
-        if panel?.allowsKeyboardFocus == true {
-            setSearchFocusMode(false)
-        }
         closePreview()
         panel?.orderOut(nil)
         panel?.hasShadow = true
@@ -136,9 +130,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             accessibilityPermissionState: accessibilityPermissionState,
             appMenuController: appMenuController,
             pasteExecutor: pasteExecutor,
-            onSearchFocusModeChange: { [weak self] isEnabled in
-                self?.setSearchFocusMode(isEnabled)
-            },
             onClose: { [weak self] in
                 self?.close()
             },
@@ -197,21 +188,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     func pasteTargetApplication() -> NSRunningApplication? {
         previousFrontmostApplication
-    }
-
-    private func setSearchFocusMode(_ isEnabled: Bool) {
-        guard let panel else {
-            return
-        }
-
-        panel.allowsKeyboardFocus = isEnabled
-        if isEnabled {
-            NSApp.activate(ignoringOtherApps: true)
-            panel.makeKeyAndOrderFront(nil)
-        } else if panel.isKeyWindow {
-            panel.orderFrontRegardless()
-            previousFrontmostApplication?.activate(options: [])
-        }
     }
 
     private func captureFrontmostApplicationIfNeeded() {
