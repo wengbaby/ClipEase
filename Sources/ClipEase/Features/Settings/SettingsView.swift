@@ -97,8 +97,10 @@ struct SettingsView: View {
                     VStack(spacing: 14) {
                         selectedContent
                     }
-                    .padding(18)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
                 }
+                .background(Color(nsColor: .windowBackgroundColor))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -160,7 +162,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("轻贴")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
 
                 Text("ClipEase")
                     .font(.system(size: 11, weight: .medium))
@@ -178,6 +180,7 @@ struct SettingsView: View {
                     Label(category.title, systemImage: category.iconName)
                         .font(.system(size: 13, weight: .regular))
                         .imageScale(.medium)
+                        .symbolVariant(selectedCategory == category ? .fill : .none)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12)
                         .foregroundStyle(selectedCategory == category ? Color.primary : .secondary)
@@ -193,17 +196,17 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 10)
         .frame(width: 150)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text(selectedCategory.title)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
 
                 Text(selectedCategory.subtitle)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.secondary)
             }
 
@@ -219,7 +222,8 @@ struct SettingsView: View {
                     .clipShape(Capsule())
             }
         }
-        .padding(18)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 
     @ViewBuilder
@@ -262,9 +266,33 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.borderedProminent)
 
+                Button("暂停 15 分钟") {
+                    recordingController.pause(for: 15 * 60)
+                    showStatus("已暂停 15 分钟")
+                }
+                .buttonStyle(.bordered)
+
                 Button("暂停 30 分钟") {
                     recordingController.pause(for: 30 * 60)
                     showStatus("已暂停 30 分钟")
+                }
+                .buttonStyle(.bordered)
+
+                Button("暂停 1 小时") {
+                    recordingController.pause(for: 60 * 60)
+                    showStatus("已暂停 1 小时")
+                }
+                .buttonStyle(.bordered)
+
+                Button("暂停 3 小时") {
+                    recordingController.pause(for: 3 * 60 * 60)
+                    showStatus("已暂停 3 小时")
+                }
+                .buttonStyle(.bordered)
+
+                Button("暂停 6 小时") {
+                    recordingController.pause(for: 6 * 60 * 60)
+                    showStatus("已暂停 6 小时")
                 }
                 .buttonStyle(.bordered)
 
@@ -377,19 +405,19 @@ struct SettingsView: View {
 
                 if ignoredAppSettings.apps.isEmpty {
                     Text("暂未忽略任何 App。可点击添加，或在历史卡片右键菜单中添加。")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(.secondary)
                 } else {
                     VStack(spacing: 8) {
                         ForEach(ignoredAppSettings.apps) { app in
                             HStack(spacing: 10) {
                                 Image(systemName: "app.dashed")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: 14, weight: .regular))
                                     .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(app.name)
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(.system(size: 13, weight: .regular))
 
                                     Text(app.bundleID)
                                         .font(.system(size: 11, weight: .medium))
@@ -407,7 +435,7 @@ struct SettingsView: View {
                                 .controlSize(.small)
                             }
                             .padding(10)
-                            .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+                            .background(Color(nsColor: .windowBackgroundColor))
                             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                         }
                     }
@@ -524,7 +552,7 @@ struct SettingsView: View {
         settingsSection(title: "关于轻贴", subtitle: "ClipEase \(AppVersionInfo.displayVersion)") {
             HStack(spacing: 10) {
                 Label("简洁好用的 macOS 粘贴板历史助手", systemImage: "info.circle")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.secondary)
 
                 Spacer()
@@ -577,10 +605,10 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
 
                 Text(subtitle)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.secondary)
             }
 
