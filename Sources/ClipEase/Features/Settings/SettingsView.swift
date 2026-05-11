@@ -1,6 +1,70 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+private enum SettingsCategory: String, CaseIterable, Identifiable {
+    case general
+    case shortcut
+    case recording
+    case history
+    case permissions
+    case about
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .general:
+            "通用"
+        case .shortcut:
+            "快捷键"
+        case .recording:
+            "记录"
+        case .history:
+            "历史数据"
+        case .permissions:
+            "权限"
+        case .about:
+            "关于"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .general:
+            "保存期限和启动方式"
+        case .shortcut:
+            "打开或关闭底部历史窗口"
+        case .recording:
+            "记录状态和忽略 App"
+        case .history:
+            "导入、导出、备份和本地文件"
+        case .permissions:
+            "自动粘贴需要的系统权限"
+        case .about:
+            "版本信息和项目入口"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .general:
+            "gearshape"
+        case .shortcut:
+            "keyboard"
+        case .recording:
+            "record.circle"
+        case .history:
+            "externaldrive"
+        case .permissions:
+            "lock.shield"
+        case .about:
+            "info.circle"
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var store: ClipboardHistoryStore
     @ObservedObject var recordingController: RecordingController
@@ -16,28 +80,29 @@ struct SettingsView: View {
     @State private var statusText: String?
     @State private var isRecordingShortcut = false
     @State private var storageUsageText = "计算中"
+    @State private var selectedCategory: SettingsCategory = .general
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
+        HStack(spacing: 0) {
+            sidebar
 
             Divider()
 
-            ScrollView {
-                VStack(spacing: 14) {
-                    retentionSection
-                    shortcutSection
-                    launchAtLoginSection
-                    recordingSection
-                    ignoredAppsSection
-                    permissionsSection
-                    historySection
-                    aboutSection
+            VStack(alignment: .leading, spacing: 0) {
+                header
+
+                Divider()
+
+                ScrollView {
+                    VStack(spacing: 14) {
+                        selectedContent
+                    }
+                    .padding(18)
                 }
-                .padding(18)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 680, minHeight: 560)
+        .frame(minWidth: 820, minHeight: 560)
         .background(Color(red: 0.94, green: 0.95, blue: 0.97))
         .onAppear {
             canAutoPaste = pasteExecutor.canAutoPaste
@@ -91,13 +156,46 @@ struct SettingsView: View {
         }
     }
 
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("轻贴")
+                .font(.system(size: 16, weight: .semibold))
+                .padding(.horizontal, 14)
+                .padding(.top, 18)
+                .padding(.bottom, 6)
+
+            ForEach(SettingsCategory.allCases) { category in
+                Button {
+                    selectedCategory = category
+                } label: {
+                    Label(category.title, systemImage: category.iconName)
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(selectedCategory == category ? Color.white.opacity(0.9) : Color.clear)
+                        )
+                        .foregroundStyle(selectedCategory == category ? Color(red: 0.08, green: 0.10, blue: 0.14) : .secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 150)
+        .background(Color(red: 0.90, green: 0.92, blue: 0.95))
+    }
+
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("轻贴ClipEase 设置")
+                Text(selectedCategory.title)
                     .font(.system(size: 20, weight: .semibold))
 
-                Text("管理历史、记录状态和权限")
+                Text(selectedCategory.subtitle)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -115,6 +213,26 @@ struct SettingsView: View {
             }
         }
         .padding(18)
+    }
+
+    @ViewBuilder
+    private var selectedContent: some View {
+        switch selectedCategory {
+        case .general:
+            retentionSection
+            launchAtLoginSection
+        case .shortcut:
+            shortcutSection
+        case .recording:
+            recordingSection
+            ignoredAppsSection
+        case .history:
+            historySection
+        case .permissions:
+            permissionsSection
+        case .about:
+            aboutSection
+        }
     }
 
     private var retentionSection: some View {

@@ -3,8 +3,8 @@ import SwiftUI
 
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
-    private let defaultWindowSize = NSSize(width: 720, height: 640)
-    private let minimumWindowSize = NSSize(width: 680, height: 560)
+    private let defaultWindowSize = NSSize(width: 880, height: 640)
+    private let minimumWindowSize = NSSize(width: 820, height: 560)
     private let store: ClipboardHistoryStore
     private let recordingController: RecordingController
     private let loginItemController: LoginItemController
