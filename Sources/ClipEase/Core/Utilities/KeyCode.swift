@@ -21,10 +21,24 @@ enum KeyCode {
     static let t: UInt16 = 17
     static let u: UInt16 = 32
     static let escape: UInt16 = 53
+    static let returnKey: UInt16 = 36
+    static let enter: UInt16 = 76
+    static let delete: UInt16 = 51
     static let v: UInt16 = 9
     static let w: UInt16 = 13
     static let x: UInt16 = 7
     static let y: UInt16 = 16
     static let z: UInt16 = 6
     static let space: UInt16 = 49
+    static let leftArrow: UInt16 = 123
+    static let rightArrow: UInt16 = 124
+    static let one: UInt16 = 18
+    static let two: UInt16 = 19
+    static let three: UInt16 = 20
+    static let four: UInt16 = 21
+    static let five: UInt16 = 23
+    static let six: UInt16 = 22
+    static let seven: UInt16 = 26
+    static let eight: UInt16 = 28
+    static let nine: UInt16 = 25
 }

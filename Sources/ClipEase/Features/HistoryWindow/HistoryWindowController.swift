@@ -14,6 +14,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let previewWindowController = HistoryPreviewWindowController()
     private let previewState = HistoryPreviewState()
     private let renderState = HistoryWindowRenderState()
+    private let inputState = HistoryWindowInputState()
+    private lazy var keyboardEventTap = HistoryKeyboardEventTap(inputState: inputState)
     private var panel: HistoryPanel?
     private var isClosing = false
     private weak var previousFrontmostApplication: NSRunningApplication?
@@ -61,6 +63,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         panel.orderFrontRegardless()
         panel.displayIfNeeded()
+        keyboardEventTap.start()
 
         guard shouldAnimate else {
             return
@@ -83,6 +86,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func close() {
+        keyboardEventTap.stop()
         closePreview()
         guard let panel,
               panel.isVisible,
@@ -108,6 +112,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func hideImmediatelyForAutoPaste() {
+        keyboardEventTap.stop()
         closePreview()
         panel?.orderOut(nil)
         panel?.hasShadow = true
@@ -119,6 +124,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             store: store,
             previewState: previewState,
             renderState: renderState,
+            inputState: inputState,
             recordingController: recordingController,
             accessibilityPermissionState: accessibilityPermissionState,
             appMenuController: appMenuController,

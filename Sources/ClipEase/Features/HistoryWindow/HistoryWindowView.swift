@@ -5,6 +5,7 @@ struct HistoryWindowView: View {
     @ObservedObject var store: ClipboardHistoryStore
     @ObservedObject var previewState: HistoryPreviewState
     @ObservedObject var renderState: HistoryWindowRenderState
+    @ObservedObject var inputState: HistoryWindowInputState
     @ObservedObject var recordingController: RecordingController
     @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
     let appMenuController: AppMenuController
@@ -140,7 +141,7 @@ struct HistoryWindowView: View {
                                         isSelected: selectedItemID == item.id,
                                         searchQuery: searchText,
                                         shortcutNumber: shortcutNumber(for: item.id),
-                                        isShortcutOverlayVisible: isCommandKeyPressed,
+                                        isShortcutOverlayVisible: isCommandKeyPressed || inputState.isCommandKeyPressed,
                                         entranceOffset: 0
                                     )
                                     .id(item.id)
@@ -309,6 +310,16 @@ struct HistoryWindowView: View {
         }
         .onChange(of: renderState.visibleItemLimit) { _ in
             preheatVisibleAssets()
+        }
+        .onChange(of: inputState.request) { request in
+            guard let request else {
+                return
+            }
+
+            handleKeyboardAction(request.action)
+        }
+        .onChange(of: isSearchFocused) { isFocused in
+            inputState.setTextInputFocused(isFocused)
         }
         .onMoveCommand { direction in
             moveSelection(direction)
@@ -1188,6 +1199,32 @@ struct HistoryWindowView: View {
     private func pauseRecording(for interval: TimeInterval, message: String) {
         appMenuController.pauseRecording(for: interval)
         showStatus(message)
+    }
+
+    private func handleKeyboardAction(_ action: HistoryKeyboardAction) {
+        switch action {
+        case .moveLeft:
+            moveSelection(.left)
+        case .moveRight:
+            moveSelection(.right)
+        case .paste:
+            pasteItem(selectedItemID)
+        case .togglePreview:
+            togglePreviewForSelectedItem()
+        case .close:
+            closePreview()
+            onClose()
+        case .selectVisibleCard(let number):
+            selectVisibleCard(number: number)
+        case .openSearch:
+            openSearch()
+        case .copy:
+            copyItem(selectedItemID)
+        case .delete:
+            deleteItem(selectedItemID)
+        case .togglePinned:
+            togglePinned(selectedItemID)
+        }
     }
 }
 
