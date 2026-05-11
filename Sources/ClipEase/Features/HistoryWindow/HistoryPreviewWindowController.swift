@@ -63,26 +63,17 @@ final class HistoryPreviewWindowController {
             panel.setFrame(frame, display: true)
         } else {
             let startFrame = frame.offsetBy(dx: 0, dy: -12)
-            panel.alphaValue = shouldAnimatePreview(for: item) ? 0 : 1
+            panel.alphaValue = 0
             panel.setFrame(startFrame, display: false)
             panel.orderFrontRegardless()
 
-            guard shouldAnimatePreview(for: item) else {
-                panel.setFrame(frame, display: true)
-                return
-            }
-
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.09
+                context.duration = 0.13
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().alphaValue = 1
                 panel.animator().setFrame(frame, display: true)
             }
         }
-    }
-
-    private func shouldAnimatePreview(for item: ClipboardItem) -> Bool {
-        item.type != .text || item.text.count < 1200
     }
 
     func close() {

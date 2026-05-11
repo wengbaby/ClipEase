@@ -10,6 +10,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let appMenuController: AppMenuController
     private let previewWindowController = HistoryPreviewWindowController()
     private let previewState = HistoryPreviewState()
+    private let animationState = HistoryWindowAnimationState()
     private var panel: HistoryPanel?
     private var isClosing = false
 
@@ -43,23 +44,22 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let shouldAnimate = !panel.isVisible
 
         if shouldAnimate {
-            panel.alphaValue = 1
-            panel.setFrame(targetFrame.offsetBy(dx: 0, dy: -38), display: false)
-        } else {
-            panel.setFrame(targetFrame, display: true)
+            animationState.contentOffset = 34
         }
+        panel.setFrame(targetFrame, display: !shouldAnimate)
 
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         guard shouldAnimate else {
+            animationState.contentOffset = 0
             return
         }
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.13
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().setFrame(targetFrame, display: true)
+        Task { @MainActor in
+            withAnimation(.easeOut(duration: 0.13)) {
+                animationState.contentOffset = 0
+            }
         }
     }
 
@@ -73,14 +73,15 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         isClosing = true
-        let targetFrame = panel.frame.offsetBy(dx: 0, dy: -46)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.11
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().setFrame(targetFrame, display: true)
-        } completionHandler: { [weak self, weak panel] in
-            Task { @MainActor in
+        withAnimation(.easeIn(duration: 0.10)) {
+            animationState.contentOffset = 34
+        }
+
+        Task { [weak self, weak panel] in
+            try? await Task.sleep(nanoseconds: 105_000_000)
+            await MainActor.run {
                 panel?.orderOut(nil)
+                self?.animationState.contentOffset = 0
                 self?.isClosing = false
             }
         }
@@ -90,6 +91,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let contentView = HistoryWindowView(
             store: store,
             previewState: previewState,
+            animationState: animationState,
             recordingController: recordingController,
             appMenuController: appMenuController,
             pasteExecutor: pasteExecutor,

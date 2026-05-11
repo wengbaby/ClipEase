@@ -4,6 +4,7 @@ import AppKit
 struct HistoryWindowView: View {
     @ObservedObject var store: ClipboardHistoryStore
     @ObservedObject var previewState: HistoryPreviewState
+    @ObservedObject var animationState: HistoryWindowAnimationState
     @ObservedObject var recordingController: RecordingController
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
@@ -129,7 +130,8 @@ struct HistoryWindowView: View {
                                         isSelected: selectedItemID == item.id,
                                         searchQuery: searchText,
                                         shortcutNumber: shortcutNumber(for: item.id),
-                                        isShortcutOverlayVisible: isCommandKeyPressed
+                                        isShortcutOverlayVisible: isCommandKeyPressed,
+                                        entranceOffset: animationState.contentOffset
                                     )
                                     .id(item.id)
                                     .background(
@@ -429,9 +431,7 @@ struct HistoryWindowView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(filter == .pinned ? Color(red: 0.18, green: 0.55, blue: 1.0) : .secondary)
-        .transaction { transaction in
-            transaction.animation = nil
-        }
+        .animation(.easeOut(duration: 0.08), value: filter == .pinned)
         .help(filter == .pinned ? "显示全部" : "只看置顶")
     }
 
@@ -1013,9 +1013,7 @@ struct HistoryWindowView: View {
     }
 
     private func togglePinnedFilter() {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
+        withAnimation(.easeOut(duration: 0.08)) {
             filter = filter == .pinned ? .all : .pinned
         }
         showStatus(filter == .pinned ? "只看置顶" : "显示全部")

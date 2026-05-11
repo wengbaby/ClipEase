@@ -7,6 +7,7 @@ struct HistoryCardView: View {
     let searchQuery: String
     let shortcutNumber: Int?
     let isShortcutOverlayVisible: Bool
+    let entranceOffset: CGFloat
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,6 +73,7 @@ struct HistoryCardView: View {
             x: 0,
             y: isSelected ? 5 : 3
         )
+        .offset(y: entranceOffset)
     }
 
     private var sourceIcon: some View {
@@ -201,7 +203,9 @@ struct HistoryCardView: View {
             return nil
         }
 
-        return NSImage(contentsOf: imageURL)
+        return ImageMemoryCache.shared.image(for: "history-image:\(imageFileName)") {
+            NSImage(contentsOf: imageURL)
+        }
     }
 
     private func loadSourceIcon() -> NSImage? {
@@ -210,7 +214,9 @@ struct HistoryCardView: View {
             return nil
         }
 
-        return NSImage(contentsOf: iconURL)
+        return ImageMemoryCache.shared.image(for: "app-icon:\(iconFileName)") {
+            NSImage(contentsOf: iconURL)
+        }
     }
 
     private func highlightedText(_ text: String, baseColor: Color) -> Text {
