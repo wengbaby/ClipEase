@@ -12,6 +12,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let appMenuController: AppMenuController
     private let previewWindowController = HistoryPreviewWindowController()
     private let previewState = HistoryPreviewState()
+    private let renderState = HistoryWindowRenderState()
     private var panel: HistoryPanel?
     private var isClosing = false
 
@@ -45,6 +46,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let shouldAnimate = !panel.isVisible
 
         if shouldAnimate {
+            renderState.prepareForShow()
             panel.hasShadow = false
             panel.alphaValue = 1
             panel.setFrame(hiddenFrame(for: targetFrame), display: false)
@@ -70,6 +72,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 Task { @MainActor in
                     panel?.displayIfNeeded()
                     panel?.hasShadow = true
+                    self.renderState.revealAllItems()
                 }
             }
         }
@@ -104,6 +107,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let contentView = HistoryWindowView(
             store: store,
             previewState: previewState,
+            renderState: renderState,
             recordingController: recordingController,
             appMenuController: appMenuController,
             pasteExecutor: pasteExecutor,

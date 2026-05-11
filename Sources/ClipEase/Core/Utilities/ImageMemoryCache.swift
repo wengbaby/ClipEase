@@ -20,4 +20,8 @@ final class ImageMemoryCache {
         cache.setObject(image, forKey: key as NSString)
         return image
     }
+
+    func preheatImage(for key: String, load: () -> NSImage?) {
+        _ = image(for: key, load: load)
+    }
 }

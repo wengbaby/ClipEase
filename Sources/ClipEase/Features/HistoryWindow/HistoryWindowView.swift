@@ -4,6 +4,7 @@ import AppKit
 struct HistoryWindowView: View {
     @ObservedObject var store: ClipboardHistoryStore
     @ObservedObject var previewState: HistoryPreviewState
+    @ObservedObject var renderState: HistoryWindowRenderState
     @ObservedObject var recordingController: RecordingController
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
@@ -52,6 +53,14 @@ struct HistoryWindowView: View {
         return filteredByType.filter { item in
             item.searchText.localizedCaseInsensitiveContains(query)
         }
+    }
+
+    private var renderedItems: ArraySlice<HistoryPreviewItem> {
+        guard let visibleItemLimit = renderState.visibleItemLimit else {
+            return filteredItems[...]
+        }
+
+        return filteredItems.prefix(visibleItemLimit)
     }
 
     var body: some View {
@@ -125,7 +134,7 @@ struct HistoryWindowView: View {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(spacing: 20) {
-                                ForEach(filteredItems) { item in
+                                ForEach(renderedItems) { item in
                                     HistoryCardView(
                                         item: item,
                                         isSelected: selectedItemID == item.id,
@@ -272,6 +281,7 @@ struct HistoryWindowView: View {
         .onAppear {
             selectedItemID = filteredItems.first?.id
             canAutoPaste = pasteExecutor.canAutoPaste
+            preheatVisibleAssets()
         }
         .onChange(of: store.items) { newItems in
             guard let firstItem = newItems.first else {
@@ -291,9 +301,14 @@ struct HistoryWindowView: View {
         }
         .onChange(of: searchText) { _ in
             ensureSelectionInFilteredItems()
+            preheatVisibleAssets()
         }
         .onChange(of: filter) { _ in
             ensureSelectionInFilteredItems()
+            preheatVisibleAssets()
+        }
+        .onChange(of: renderState.visibleItemLimit) { _ in
+            preheatVisibleAssets()
         }
         .onMoveCommand { direction in
             moveSelection(direction)
@@ -1037,6 +1052,41 @@ struct HistoryWindowView: View {
         }
 
         selectedItemID = filteredItems.first?.id
+    }
+
+    private func preheatVisibleAssets() {
+        let itemsToPreheat = filteredItems.prefix(HistoryWindowRenderState.preheatItemLimit)
+        for item in itemsToPreheat {
+            preheatImageThumbnail(for: item)
+            preheatSourceIcon(for: item)
+        }
+    }
+
+    private func preheatImageThumbnail(for item: HistoryPreviewItem) {
+        guard let imageFileName = item.imageFileName,
+              let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(fileName: imageFileName),
+              let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
+            return
+        }
+
+        ImageMemoryCache.shared.preheatImage(for: "history-thumbnail:\(imageFileName)") {
+            if let thumbnail = NSImage(contentsOf: thumbnailURL) {
+                return thumbnail
+            }
+
+            return NSImage(contentsOf: imageURL)
+        }
+    }
+
+    private func preheatSourceIcon(for item: HistoryPreviewItem) {
+        guard let iconFileName = item.iconFileName,
+              let iconURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: iconFileName) else {
+            return
+        }
+
+        ImageMemoryCache.shared.preheatImage(for: "app-icon:\(iconFileName)") {
+            NSImage(contentsOf: iconURL)
+        }
     }
 
     private func nextSelectionID(afterDeleting id: ClipboardItem.ID?) -> ClipboardItem.ID? {
