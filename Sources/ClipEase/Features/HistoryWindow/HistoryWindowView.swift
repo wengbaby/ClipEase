@@ -100,6 +100,30 @@ struct HistoryWindowView: View {
             .frame(width: 0, height: 0)
             .opacity(0)
 
+            Button(action: closeWindowFromShortcut) {
+                EmptyView()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("w", modifiers: [.command])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
+            Button(action: createTextFromShortcut) {
+                EmptyView()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("n", modifiers: [.command])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
+            Button(action: toggleRecordingFromShortcut) {
+                EmptyView()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("t", modifiers: [.command])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+
             NumberShortcutHandler { isPressed in
                 isCommandKeyPressed = isPressed
             } onNumber: { number in
@@ -1355,6 +1379,12 @@ struct HistoryWindowView: View {
             deleteItem(selectedItemID)
         case .togglePinned:
             togglePinned(selectedItemID)
+        case .closeWindow:
+            closeWindowFromShortcut()
+        case .createText:
+            createTextFromShortcut()
+        case .toggleRecording:
+            toggleRecordingFromShortcut()
         case .appendSearchText(let text):
             appendSearchText(text)
         case .enterFirstSearchResult:
@@ -1383,8 +1413,7 @@ struct HistoryWindowView: View {
         if isSearchVisible {
             clearSearch()
         } else {
-            closePreview()
-            onClose()
+            closeWindowFromShortcut()
         }
     }
 
@@ -1406,6 +1435,20 @@ struct HistoryWindowView: View {
         isSearchFocused = true
         searchFocusRequestID += 1
         inputState.setTextInputFocused(true)
+    }
+
+    private func closeWindowFromShortcut() {
+        closePreview()
+        onClose()
+    }
+
+    private func createTextFromShortcut() {
+        closeWindowFromShortcut()
+        appMenuController.createTextItem()
+    }
+
+    private func toggleRecordingFromShortcut() {
+        toggleRecording()
     }
 }
 

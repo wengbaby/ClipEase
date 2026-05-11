@@ -100,14 +100,18 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             }
 
             switch keyCode {
-            case KeyCode.one, KeyCode.two, KeyCode.three, KeyCode.four, KeyCode.five, KeyCode.six, KeyCode.seven, KeyCode.eight, KeyCode.nine:
-                return nil
             case KeyCode.f:
                 return .openSearch
             case KeyCode.c:
                 return .copy
+            case KeyCode.n:
+                return .createText
             case KeyCode.p:
                 return .togglePinned
+            case KeyCode.t:
+                return .toggleRecording
+            case KeyCode.w:
+                return .closeWindow
             default:
                 return nil
             }
@@ -163,7 +167,7 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         switch action {
         case .close, .selectVisibleCard:
             return true
-        case .moveLeft, .moveRight, .paste, .togglePreview, .openSearch, .copy, .delete, .togglePinned, .appendSearchText, .enterFirstSearchResult:
+        case .moveLeft, .moveRight, .paste, .togglePreview, .openSearch, .copy, .delete, .togglePinned, .closeWindow, .createText, .toggleRecording, .appendSearchText, .enterFirstSearchResult:
             return false
         }
     }

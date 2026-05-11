@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class HistoryWindowRenderState: ObservableObject {
     static let initialVisibleItemLimit = 14
+    static let expandedVisibleItemLimit = 40
     static let preheatItemLimit = 18
 
     @Published private(set) var visibleItemLimit: Int?
@@ -12,6 +13,6 @@ final class HistoryWindowRenderState: ObservableObject {
     }
 
     func revealAllItems() {
-        visibleItemLimit = nil
+        visibleItemLimit = Self.expandedVisibleItemLimit
     }
 }

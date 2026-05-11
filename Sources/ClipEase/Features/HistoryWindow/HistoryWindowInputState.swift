@@ -12,6 +12,9 @@ enum HistoryKeyboardAction: Equatable {
     case copy
     case delete
     case togglePinned
+    case closeWindow
+    case createText
+    case toggleRecording
     case appendSearchText(String)
     case enterFirstSearchResult
 }
