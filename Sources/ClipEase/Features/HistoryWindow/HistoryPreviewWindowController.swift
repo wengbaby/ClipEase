@@ -40,7 +40,7 @@ final class HistoryPreviewWindowController {
         let panel = panel ?? makePanel()
         let isAlreadyVisible = panel.isVisible
         self.panel = panel
-        panel.contentView = NSHostingView(
+        let hostingView = NSHostingView(
             rootView: HistoryPreviewPopoverView(
                 item: item,
                 arrowX: arrowX,
@@ -57,26 +57,32 @@ final class HistoryPreviewWindowController {
                 onCopyRGB: onCopyRGB
             )
         )
+        panel.contentView = hostingView
 
         if isAlreadyVisible {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().setFrame(frame, display: true)
-            }
+            panel.setFrame(frame, display: true)
         } else {
-            let startFrame = frame.offsetBy(dx: 0, dy: -24)
-            panel.alphaValue = 0
+            let startFrame = frame.offsetBy(dx: 0, dy: -12)
+            panel.alphaValue = shouldAnimatePreview(for: item) ? 0 : 1
             panel.setFrame(startFrame, display: false)
             panel.orderFrontRegardless()
 
+            guard shouldAnimatePreview(for: item) else {
+                panel.setFrame(frame, display: true)
+                return
+            }
+
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
+                context.duration = 0.09
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().alphaValue = 1
                 panel.animator().setFrame(frame, display: true)
             }
         }
+    }
+
+    private func shouldAnimatePreview(for item: ClipboardItem) -> Bool {
+        item.type != .text || item.text.count < 1200
     }
 
     func close() {

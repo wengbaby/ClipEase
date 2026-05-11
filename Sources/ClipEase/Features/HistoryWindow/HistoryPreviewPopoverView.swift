@@ -109,15 +109,8 @@ struct HistoryPreviewPopoverView: View {
     private var content: some View {
         switch item.type {
         case .text:
-            ScrollView {
-                Text(item.text)
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(Color(red: 0.12, green: 0.14, blue: 0.17))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(16)
-            }
-            .background(Color.white)
+            LazyPreviewTextView(text: item.text)
+                .background(Color.white)
         case .color:
             colorContent
         case .link:

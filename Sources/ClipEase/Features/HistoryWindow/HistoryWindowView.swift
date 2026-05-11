@@ -349,8 +349,14 @@ struct HistoryWindowView: View {
                 .foregroundStyle(.primary)
 
                 filterMenu
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
 
                 pinnedFilterButton
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
 
                 if isSearchVisible || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || filter != .all {
                     resultCountBadge
@@ -423,6 +429,9 @@ struct HistoryWindowView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(filter == .pinned ? Color(red: 0.18, green: 0.55, blue: 1.0) : .secondary)
+        .transaction { transaction in
+            transaction.animation = nil
+        }
         .help(filter == .pinned ? "显示全部" : "只看置顶")
     }
 
@@ -1004,7 +1013,11 @@ struct HistoryWindowView: View {
     }
 
     private func togglePinnedFilter() {
-        filter = filter == .pinned ? .all : .pinned
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            filter = filter == .pinned ? .all : .pinned
+        }
         showStatus(filter == .pinned ? "只看置顶" : "显示全部")
     }
 

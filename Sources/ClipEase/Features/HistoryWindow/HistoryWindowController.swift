@@ -43,8 +43,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let shouldAnimate = !panel.isVisible
 
         if shouldAnimate {
-            panel.alphaValue = 0
-            panel.setFrame(targetFrame.offsetBy(dx: 0, dy: -56), display: false)
+            panel.alphaValue = 1
+            panel.setFrame(targetFrame.offsetBy(dx: 0, dy: -38), display: false)
         } else {
             panel.setFrame(targetFrame, display: true)
         }
@@ -57,9 +57,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
+            context.duration = 0.13
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
             panel.animator().setFrame(targetFrame, display: true)
         }
     }
@@ -76,14 +75,12 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         isClosing = true
         let targetFrame = panel.frame.offsetBy(dx: 0, dy: -46)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.14
+            context.duration = 0.11
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().alphaValue = 0
             panel.animator().setFrame(targetFrame, display: true)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
                 panel?.orderOut(nil)
-                panel?.alphaValue = 1
                 self?.isClosing = false
             }
         }

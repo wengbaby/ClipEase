@@ -63,7 +63,7 @@ struct HistoryCardView: View {
                     .padding(10)
                     .opacity(isShortcutOverlayVisible ? 1 : 0)
                     .scaleEffect(isShortcutOverlayVisible ? 1 : 0.86)
-                    .animation(.easeOut(duration: 0.12), value: isShortcutOverlayVisible)
+                    .animation(.easeOut(duration: 0.06), value: isShortcutOverlayVisible)
             }
         }
         .shadow(
