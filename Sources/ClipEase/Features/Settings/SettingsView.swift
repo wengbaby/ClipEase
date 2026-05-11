@@ -71,9 +71,9 @@ struct SettingsView: View {
     @ObservedObject var loginItemController: LoginItemController
     @ObservedObject var ignoredAppSettings: IgnoredAppSettings
     @ObservedObject var globalShortcutSettings: GlobalShortcutSettings
+    @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
     let pasteExecutor: PasteExecutor
 
-    @State private var canAutoPaste = false
     @State private var isClearConfirmationPresented = false
     @State private var isClearIconCacheConfirmationPresented = false
     @State private var isClearThumbnailCacheConfirmationPresented = false
@@ -107,12 +107,12 @@ struct SettingsView: View {
         .frame(minWidth: 820, minHeight: 560)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
-            refreshAutoPastePermission()
+            accessibilityPermissionState.refresh()
             loginItemController.refresh()
             refreshStorageUsage()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshAutoPastePermission()
+            accessibilityPermissionState.refresh()
         }
         .confirmationDialog(
             "清空全部历史？",
@@ -364,25 +364,33 @@ struct SettingsView: View {
     }
 
     private var permissionsSection: some View {
-        settingsSection(title: "自动粘贴权限", subtitle: canAutoPaste ? "已授权，可以自动粘贴到当前 App" : "未授权时只会复制到剪贴板") {
-            HStack {
-                Label(canAutoPaste ? "已授权" : "需授权", systemImage: canAutoPaste ? "checkmark.circle.fill" : "exclamationmark.lock")
+        settingsSection(title: "自动粘贴权限", subtitle: accessibilityPermissionState.isTrusted ? "已授权，可以自动粘贴到当前 App" : "未授权时只会复制到剪贴板") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label(accessibilityPermissionState.isTrusted ? "已授权" : "需授权", systemImage: accessibilityPermissionState.isTrusted ? "checkmark.circle.fill" : "exclamationmark.lock")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(canAutoPaste ? Color.green : Color.orange)
+                    .foregroundStyle(accessibilityPermissionState.isTrusted ? Color.green : Color.orange)
 
-                Spacer()
+                    Spacer()
 
-                Button("打开系统设置") {
-                    pasteExecutor.openAccessibilitySettings()
-                    refreshAutoPastePermission(promptIfNeeded: true)
+                    Button("打开系统设置") {
+                        accessibilityPermissionState.openSystemSettings()
+                        accessibilityPermissionState.refresh(promptIfNeeded: true)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("刷新状态") {
+                        accessibilityPermissionState.refresh()
+                        showStatus(accessibilityPermissionState.isTrusted ? "已授权自动粘贴" : "仍需授权")
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
 
-                Button("刷新状态") {
-                    refreshAutoPastePermission()
-                    showStatus(canAutoPaste ? "已授权自动粘贴" : "仍需授权")
+                if !accessibilityPermissionState.isTrusted {
+                    Text("如果已授权但仍显示需权限，请确认系统设置中授权的是当前运行的 ClipEase.app。开发版本可能和旧路径中的 App 被 macOS 识别为不同应用。")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.bordered)
             }
         }
     }
@@ -635,10 +643,6 @@ struct SettingsView: View {
 
     private func refreshStorageUsage() {
         storageUsageText = StorageUsageCalculator.formattedApplicationSupportSize()
-    }
-
-    private func refreshAutoPastePermission(promptIfNeeded: Bool = false) {
-        canAutoPaste = pasteExecutor.refreshAccessibilityPermission(promptIfNeeded: promptIfNeeded)
     }
 
     private func openDirectory(_ url: URL?) {

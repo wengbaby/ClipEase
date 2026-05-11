@@ -8,6 +8,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let panelBackgroundColor = NSColor(red: 0.78, green: 0.82, blue: 0.92, alpha: 1.0)
     private let store: ClipboardHistoryStore
     private let pasteExecutor: PasteExecutor
+    private let accessibilityPermissionState: AccessibilityPermissionState
     private let recordingController: RecordingController
     private let appMenuController: AppMenuController
     private let previewWindowController = HistoryPreviewWindowController()
@@ -19,11 +20,13 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     init(
         store: ClipboardHistoryStore,
         pasteExecutor: PasteExecutor,
+        accessibilityPermissionState: AccessibilityPermissionState,
         recordingController: RecordingController,
         appMenuController: AppMenuController
     ) {
         self.store = store
         self.pasteExecutor = pasteExecutor
+        self.accessibilityPermissionState = accessibilityPermissionState
         self.recordingController = recordingController
         self.appMenuController = appMenuController
         super.init()
@@ -109,6 +112,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             previewState: previewState,
             renderState: renderState,
             recordingController: recordingController,
+            accessibilityPermissionState: accessibilityPermissionState,
             appMenuController: appMenuController,
             pasteExecutor: pasteExecutor,
             onClose: { [weak self] in

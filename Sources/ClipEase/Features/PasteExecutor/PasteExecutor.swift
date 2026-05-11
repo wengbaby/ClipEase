@@ -5,37 +5,29 @@ import ApplicationServices
 final class PasteExecutor {
     private let pasteboard: NSPasteboard
     private let store: ClipboardHistoryStore
+    private let permissionState: AccessibilityPermissionState
     var beforeAutoPaste: (() -> Void)?
 
     init(
         store: ClipboardHistoryStore,
+        permissionState: AccessibilityPermissionState,
         pasteboard: NSPasteboard = .general
     ) {
         self.store = store
+        self.permissionState = permissionState
         self.pasteboard = pasteboard
     }
 
     var canAutoPaste: Bool {
-        AXIsProcessTrustedWithOptions(nil)
+        permissionState.isTrusted
     }
 
     func refreshAccessibilityPermission(promptIfNeeded: Bool = false) -> Bool {
-        if promptIfNeeded {
-            let options = [
-                "AXTrustedCheckOptionPrompt": true
-            ] as CFDictionary
-            return AXIsProcessTrustedWithOptions(options)
-        }
-
-        return AXIsProcessTrustedWithOptions(nil)
+        permissionState.refresh(promptIfNeeded: promptIfNeeded)
     }
 
     func openAccessibilitySettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
-            return
-        }
-
-        NSWorkspace.shared.open(url)
+        permissionState.openSystemSettings()
     }
 
     func copyToPasteboard(_ item: ClipboardItem) {

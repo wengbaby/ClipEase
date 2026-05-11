@@ -6,6 +6,7 @@ struct HistoryWindowView: View {
     @ObservedObject var previewState: HistoryPreviewState
     @ObservedObject var renderState: HistoryWindowRenderState
     @ObservedObject var recordingController: RecordingController
+    @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
     let onClose: () -> Void
@@ -17,7 +18,6 @@ struct HistoryWindowView: View {
     @State private var searchText = ""
     @State private var isSearchVisible = false
     @State private var filter: HistoryFilter = .all
-    @State private var canAutoPaste = false
     @State private var isClearConfirmationPresented = false
     @State private var cardFrames: [ClipboardItem.ID: CGRect] = [:]
     @State private var isCommandKeyPressed = false
@@ -280,7 +280,7 @@ struct HistoryWindowView: View {
         }
         .onAppear {
             selectedItemID = filteredItems.first?.id
-            canAutoPaste = pasteExecutor.canAutoPaste
+            accessibilityPermissionState.refresh()
             preheatVisibleAssets()
         }
         .onChange(of: store.items) { newItems in
@@ -453,20 +453,20 @@ struct HistoryWindowView: View {
     private var autoPasteStatusButton: some View {
         Button(action: openAccessibilitySettingsIfNeeded) {
             HStack(spacing: 5) {
-                Image(systemName: canAutoPaste ? "keyboard.badge.eye" : "exclamationmark.lock")
+                Image(systemName: accessibilityPermissionState.isTrusted ? "keyboard.badge.eye" : "exclamationmark.lock")
                     .font(.system(size: 12, weight: .semibold))
 
-                Text(canAutoPaste ? "自动粘贴" : "需授权")
+                Text(accessibilityPermissionState.isTrusted ? "自动粘贴" : "需授权")
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(canAutoPaste ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color(red: 0.78, green: 0.36, blue: 0.08))
+            .foregroundStyle(accessibilityPermissionState.isTrusted ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color(red: 0.78, green: 0.36, blue: 0.08))
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
             .background(Color.white.opacity(0.55))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(canAutoPaste ? "回车会自动粘贴到当前 App" : "点击打开辅助功能权限设置")
+        .help(accessibilityPermissionState.isTrusted ? "回车会自动粘贴到当前 App" : "点击打开辅助功能权限设置")
     }
 
     private var recordingStatusButton: some View {
@@ -761,7 +761,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        canAutoPaste = pasteExecutor.canAutoPaste
+        accessibilityPermissionState.refresh()
         switch pasteExecutor.pastePlainTextToFrontmostApp(item) {
         case .copiedOnly:
             showStatus("已复制纯文本")
@@ -841,7 +841,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        canAutoPaste = pasteExecutor.canAutoPaste
+        accessibilityPermissionState.refresh()
         switch pasteExecutor.pasteToFrontmostApp(item) {
         case .copiedOnly:
             showStatus("已复制")
@@ -1104,14 +1104,14 @@ struct HistoryWindowView: View {
     }
 
     private func openAccessibilitySettingsIfNeeded() {
-        canAutoPaste = pasteExecutor.refreshAccessibilityPermission()
-        guard !canAutoPaste else {
+        accessibilityPermissionState.refresh()
+        guard !accessibilityPermissionState.isTrusted else {
             showStatus("自动粘贴已启用")
             return
         }
 
-        pasteExecutor.openAccessibilitySettings()
-        canAutoPaste = pasteExecutor.refreshAccessibilityPermission(promptIfNeeded: true)
+        accessibilityPermissionState.openSystemSettings()
+        accessibilityPermissionState.refresh(promptIfNeeded: true)
         showStatus("请授权轻贴")
     }
 

@@ -12,7 +12,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let loginItemController = LoginItemController()
     private let ignoredAppSettings = IgnoredAppSettings()
     private let globalShortcutSettings = GlobalShortcutSettings()
-    private lazy var pasteExecutor = PasteExecutor(store: historyStore)
+    private let accessibilityPermissionState = AccessibilityPermissionState()
+    private lazy var pasteExecutor = PasteExecutor(
+        store: historyStore,
+        permissionState: accessibilityPermissionState
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let appMenuController = AppMenuController(
@@ -21,12 +25,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             loginItemController: loginItemController,
             ignoredAppSettings: ignoredAppSettings,
             globalShortcutSettings: globalShortcutSettings,
+            accessibilityPermissionState: accessibilityPermissionState,
             pasteExecutor: pasteExecutor
         )
         self.appMenuController = appMenuController
         let historyWindowController = HistoryWindowController(
             store: historyStore,
             pasteExecutor: pasteExecutor,
+            accessibilityPermissionState: accessibilityPermissionState,
             recordingController: recordingController,
             appMenuController: appMenuController
         )
@@ -52,6 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         self.clipboardMonitor = clipboardMonitor
         clipboardMonitor.start()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        accessibilityPermissionState.refresh()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

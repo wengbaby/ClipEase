@@ -7,6 +7,7 @@ final class AppMenuController: NSObject {
     private let loginItemController: LoginItemController
     private let ignoredAppSettings: IgnoredAppSettings
     private let globalShortcutSettings: GlobalShortcutSettings
+    private let accessibilityPermissionState: AccessibilityPermissionState
     private let pasteExecutor: PasteExecutor
     private var richTextEditorController: RichTextEditorController?
     private var settingsWindowController: SettingsWindowController?
@@ -18,6 +19,7 @@ final class AppMenuController: NSObject {
         loginItemController: LoginItemController,
         ignoredAppSettings: IgnoredAppSettings,
         globalShortcutSettings: GlobalShortcutSettings,
+        accessibilityPermissionState: AccessibilityPermissionState,
         pasteExecutor: PasteExecutor
     ) {
         self.historyStore = historyStore
@@ -25,6 +27,7 @@ final class AppMenuController: NSObject {
         self.loginItemController = loginItemController
         self.ignoredAppSettings = ignoredAppSettings
         self.globalShortcutSettings = globalShortcutSettings
+        self.accessibilityPermissionState = accessibilityPermissionState
         self.pasteExecutor = pasteExecutor
         super.init()
     }
@@ -54,6 +57,7 @@ final class AppMenuController: NSObject {
             loginItemController: loginItemController,
             ignoredAppSettings: ignoredAppSettings,
             globalShortcutSettings: globalShortcutSettings,
+            accessibilityPermissionState: accessibilityPermissionState,
             pasteExecutor: pasteExecutor
         )
         self.settingsWindowController = settingsWindowController

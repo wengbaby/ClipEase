@@ -10,6 +10,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let loginItemController: LoginItemController
     private let ignoredAppSettings: IgnoredAppSettings
     private let globalShortcutSettings: GlobalShortcutSettings
+    private let accessibilityPermissionState: AccessibilityPermissionState
     private let pasteExecutor: PasteExecutor
     private var window: SettingsWindow?
 
@@ -19,6 +20,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         loginItemController: LoginItemController,
         ignoredAppSettings: IgnoredAppSettings,
         globalShortcutSettings: GlobalShortcutSettings,
+        accessibilityPermissionState: AccessibilityPermissionState,
         pasteExecutor: PasteExecutor
     ) {
         self.store = store
@@ -26,6 +28,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.loginItemController = loginItemController
         self.ignoredAppSettings = ignoredAppSettings
         self.globalShortcutSettings = globalShortcutSettings
+        self.accessibilityPermissionState = accessibilityPermissionState
         self.pasteExecutor = pasteExecutor
         super.init()
     }
@@ -43,6 +46,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             loginItemController: loginItemController,
             ignoredAppSettings: ignoredAppSettings,
             globalShortcutSettings: globalShortcutSettings,
+            accessibilityPermissionState: accessibilityPermissionState,
             pasteExecutor: pasteExecutor
         )
         let window = SettingsWindow(
