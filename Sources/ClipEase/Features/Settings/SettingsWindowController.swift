@@ -11,7 +11,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let ignoredAppSettings: IgnoredAppSettings
     private let globalShortcutSettings: GlobalShortcutSettings
     private let pasteExecutor: PasteExecutor
-    private var window: NSWindow?
+    private var window: SettingsWindow?
 
     init(
         store: ClipboardHistoryStore,
@@ -57,15 +57,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.center()
         window.delegate = self
         window.onCommandW = { [weak window] in
-            window?.performClose(nil)
+            window?.orderOut(nil)
         }
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func windowWillClose(_ notification: Notification) {
-        window = nil
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
     }
 }
 
