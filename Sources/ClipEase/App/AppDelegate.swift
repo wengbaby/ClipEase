@@ -40,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pasteExecutor.beforeAutoPaste = { [weak historyWindowController] in
             historyWindowController?.close()
         }
+        pasteExecutor.targetApplicationProvider = { [weak historyWindowController] in
+            historyWindowController?.pasteTargetApplication()
+        }
         self.statusBarController = StatusBarController(
             historyWindowController: historyWindowController,
             appMenuController: appMenuController,

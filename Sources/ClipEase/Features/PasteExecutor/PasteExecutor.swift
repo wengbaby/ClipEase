@@ -7,6 +7,7 @@ final class PasteExecutor {
     private let store: ClipboardHistoryStore
     private let permissionState: AccessibilityPermissionState
     var beforeAutoPaste: (() -> Void)?
+    var targetApplicationProvider: (() -> NSRunningApplication?)?
 
     init(
         store: ClipboardHistoryStore,
@@ -83,7 +84,8 @@ final class PasteExecutor {
 
         beforeAutoPaste?()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 120_000_000)
+            activatePasteTarget()
+            try? await Task.sleep(nanoseconds: 180_000_000)
             sendCommandV()
         }
         return .pasted
@@ -103,10 +105,20 @@ final class PasteExecutor {
 
         beforeAutoPaste?()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 120_000_000)
+            activatePasteTarget()
+            try? await Task.sleep(nanoseconds: 180_000_000)
             sendCommandV()
         }
         return .pasted
+    }
+
+    private func activatePasteTarget() {
+        guard let app = targetApplicationProvider?(),
+              !app.isTerminated else {
+            return
+        }
+
+        app.activate(options: [.activateIgnoringOtherApps])
     }
 
     private func sendCommandV() {

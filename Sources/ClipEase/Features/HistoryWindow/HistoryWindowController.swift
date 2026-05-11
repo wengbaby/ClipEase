@@ -16,6 +16,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let renderState = HistoryWindowRenderState()
     private var panel: HistoryPanel?
     private var isClosing = false
+    private weak var previousFrontmostApplication: NSRunningApplication?
 
     init(
         store: ClipboardHistoryStore,
@@ -42,6 +43,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        captureFrontmostApplicationIfNeeded()
         let panel = panel ?? makePanel()
         self.panel = panel
         isClosing = false
@@ -169,6 +171,19 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func hiddenFrame(for frame: NSRect) -> NSRect {
         frame.offsetBy(dx: 0, dy: -panelAnimationDistance)
+    }
+
+    func pasteTargetApplication() -> NSRunningApplication? {
+        previousFrontmostApplication
+    }
+
+    private func captureFrontmostApplicationIfNeeded() {
+        guard let frontmostApplication = NSWorkspace.shared.frontmostApplication,
+              frontmostApplication.bundleIdentifier != Bundle.main.bundleIdentifier else {
+            return
+        }
+
+        previousFrontmostApplication = frontmostApplication
     }
 
     private func showPreview(_ item: ClipboardItem, cardFrame: CGRect) {
