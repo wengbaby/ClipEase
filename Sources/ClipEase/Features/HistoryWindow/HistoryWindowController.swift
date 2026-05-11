@@ -186,7 +186,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             anchorScreenPoint: anchorScreenPoint,
             screenFrame: screenFrame,
             onCopy: { [pasteExecutor] in
-                pasteExecutor.copyToPasteboard(item)
+                _ = pasteExecutor.copyToPasteboard(item)
             },
             onOpen: { [weak self] in
                 self?.openPreviewItem(item)

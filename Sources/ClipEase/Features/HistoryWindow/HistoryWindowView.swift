@@ -743,8 +743,12 @@ struct HistoryWindowView: View {
             return
         }
 
-        pasteExecutor.copyToPasteboard(item)
-        showStatus("已复制")
+        switch pasteExecutor.copyToPasteboard(item) {
+        case .copied:
+            showStatus(copyStatus(for: item))
+        case .failed(let reason):
+            showStatus(reason)
+        }
     }
 
     private func copyPlainTextItem(_ id: ClipboardItem.ID?) {
@@ -752,8 +756,12 @@ struct HistoryWindowView: View {
             return
         }
 
-        pasteExecutor.copyPlainTextToPasteboard(item)
-        showStatus("已复制纯文本")
+        switch pasteExecutor.copyPlainTextToPasteboard(item) {
+        case .copied:
+            showStatus("已复制纯文本")
+        case .failed(let reason):
+            showStatus(reason)
+        }
     }
 
     private func pastePlainTextItem(_ id: ClipboardItem.ID?) {
@@ -764,9 +772,11 @@ struct HistoryWindowView: View {
         accessibilityPermissionState.refresh()
         switch pasteExecutor.pastePlainTextToFrontmostApp(item) {
         case .copiedOnly:
-            showStatus("已复制纯文本")
+            showStatus("已复制纯文本，需授权后自动粘贴")
         case .pasted:
-            showStatus("已粘贴纯文本")
+            showStatus("已粘贴纯文本到当前 App")
+        case .failed(let reason):
+            showStatus(reason)
         }
     }
 
@@ -844,9 +854,11 @@ struct HistoryWindowView: View {
         accessibilityPermissionState.refresh()
         switch pasteExecutor.pasteToFrontmostApp(item) {
         case .copiedOnly:
-            showStatus("已复制")
+            showStatus(copiedOnlyStatus(for: item))
         case .pasted:
-            showStatus("已粘贴")
+            showStatus(pastedStatus(for: item))
+        case .failed(let reason):
+            showStatus(reason)
         }
     }
 
@@ -1006,6 +1018,45 @@ struct HistoryWindowView: View {
             if statusText == text {
                 statusText = nil
             }
+        }
+    }
+
+    private func copyStatus(for item: ClipboardItem) -> String {
+        switch item.type {
+        case .text:
+            item.richTextFileName == nil ? "已复制文本" : "已复制富文本"
+        case .link:
+            "已复制链接"
+        case .image:
+            "已复制图片"
+        case .color:
+            "已复制颜色"
+        }
+    }
+
+    private func copiedOnlyStatus(for item: ClipboardItem) -> String {
+        switch item.type {
+        case .text:
+            item.richTextFileName == nil ? "已复制文本，需授权后自动粘贴" : "已复制富文本，需授权后自动粘贴"
+        case .link:
+            "已复制链接，需授权后自动粘贴"
+        case .image:
+            "已复制图片，需授权后自动粘贴"
+        case .color:
+            "已复制颜色，需授权后自动粘贴"
+        }
+    }
+
+    private func pastedStatus(for item: ClipboardItem) -> String {
+        switch item.type {
+        case .text:
+            item.richTextFileName == nil ? "已粘贴文本到当前 App" : "已粘贴富文本到当前 App"
+        case .link:
+            "已粘贴链接到当前 App"
+        case .image:
+            "已粘贴图片到当前 App"
+        case .color:
+            "已粘贴颜色到当前 App"
         }
     }
 

@@ -30,7 +30,7 @@ final class PasteExecutor {
         permissionState.openSystemSettings()
     }
 
-    func copyToPasteboard(_ item: ClipboardItem) {
+    func copyToPasteboard(_ item: ClipboardItem) -> PasteboardCopyResult {
         pasteboard.clearContents()
 
         switch item.type {
@@ -38,27 +38,44 @@ final class PasteExecutor {
             if let richTextData = store.richTextData(for: item) {
                 pasteboard.setData(richTextData, forType: .rtf)
             }
-            pasteboard.setString(item.text, forType: .string)
+            guard pasteboard.setString(item.text, forType: .string) else {
+                return .failed("无法写入剪贴板")
+            }
             store.skipNextClipboardText(item.text)
+            return .copied
         case .image:
-            guard let data = store.imageData(for: item),
-                  let image = NSImage(data: data) else {
-                return
+            guard let data = store.imageData(for: item) else {
+                return .failed("未找到图片文件")
             }
 
-            pasteboard.writeObjects([image])
+            guard let image = NSImage(data: data) else {
+                return .failed("图片文件无法读取")
+            }
+
+            guard pasteboard.writeObjects([image]) else {
+                return .failed("无法写入图片到剪贴板")
+            }
             store.skipNextClipboardImage(item)
+            return .copied
         }
     }
 
-    func copyPlainTextToPasteboard(_ item: ClipboardItem) {
+    func copyPlainTextToPasteboard(_ item: ClipboardItem) -> PasteboardCopyResult {
         pasteboard.clearContents()
-        pasteboard.setString(item.text, forType: .string)
+        guard pasteboard.setString(item.text, forType: .string) else {
+            return .failed("无法写入剪贴板")
+        }
         store.skipNextClipboardText(item.text)
+        return .copied
     }
 
     func pastePlainTextToFrontmostApp(_ item: ClipboardItem) -> PasteResult {
-        copyPlainTextToPasteboard(item)
+        switch copyPlainTextToPasteboard(item) {
+        case .copied:
+            break
+        case .failed(let reason):
+            return .failed(reason)
+        }
 
         guard refreshAccessibilityPermission() else {
             return .copiedOnly
@@ -73,7 +90,12 @@ final class PasteExecutor {
     }
 
     func pasteToFrontmostApp(_ item: ClipboardItem) -> PasteResult {
-        copyToPasteboard(item)
+        switch copyToPasteboard(item) {
+        case .copied:
+            break
+        case .failed(let reason):
+            return .failed(reason)
+        }
 
         guard refreshAccessibilityPermission() else {
             return .copiedOnly
@@ -107,7 +129,13 @@ final class PasteExecutor {
     }
 }
 
+enum PasteboardCopyResult {
+    case copied
+    case failed(String)
+}
+
 enum PasteResult {
     case copiedOnly
     case pasted
+    case failed(String)
 }
