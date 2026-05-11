@@ -10,6 +10,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let appMenuController: AppMenuController
     private let previewWindowController = HistoryPreviewWindowController()
     private let previewState = HistoryPreviewState()
+    private let performanceState = HistoryWindowPerformanceState()
     private var panel: HistoryPanel?
     private var isClosing = false
 
@@ -44,6 +45,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         if shouldAnimate {
             panel.hasShadow = false
+            performanceState.useLightweightBackground = true
             panel.alphaValue = 1
             panel.setFrame(targetFrame.offsetBy(dx: 0, dy: -44), display: false)
         } else {
@@ -61,9 +63,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             context.duration = 0.16
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
             panel.animator().setFrame(targetFrame, display: true)
-        } completionHandler: { [weak panel] in
+        } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
                 panel?.hasShadow = true
+                self?.performanceState.useLightweightBackground = false
             }
         }
     }
@@ -79,6 +82,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         isClosing = true
         panel.hasShadow = false
+        performanceState.useLightweightBackground = true
         let targetFrame = panel.frame.offsetBy(dx: 0, dy: -44)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.13
@@ -88,6 +92,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             Task { @MainActor in
                 panel?.orderOut(nil)
                 panel?.hasShadow = true
+                self?.performanceState.useLightweightBackground = false
                 self?.isClosing = false
             }
         }
@@ -97,6 +102,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let contentView = HistoryWindowView(
             store: store,
             previewState: previewState,
+            performanceState: performanceState,
             recordingController: recordingController,
             appMenuController: appMenuController,
             pasteExecutor: pasteExecutor,
