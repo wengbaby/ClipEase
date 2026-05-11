@@ -26,6 +26,7 @@ struct HistoryWindowView: View {
     @State private var searchFocusRequestID = 0
     @State private var allPreviewItems: [HistoryPreviewItem] = []
     @State private var filteredPreviewItems: [HistoryPreviewItem] = []
+    @State private var previewBuildTask: Task<Void, Never>?
     @State private var searchTask: Task<Void, Never>?
     @State private var preheatTask: Task<Void, Never>?
 
@@ -287,32 +288,16 @@ struct HistoryWindowView: View {
             transaction.animation = nil
         }
         .onAppear {
-            rebuildPreviewItems()
-            scheduleSearchUpdate(immediate: true)
-            selectedItemID = filteredItems.first?.id
+            schedulePreviewItemsRebuild(from: store.items)
             accessibilityPermissionState.refresh()
         }
         .onDisappear {
+            previewBuildTask?.cancel()
             searchTask?.cancel()
             preheatTask?.cancel()
         }
         .onChange(of: store.items) { newItems in
-            rebuildPreviewItems()
-            scheduleSearchUpdate(immediate: true)
-            guard let firstItem = newItems.first else {
-                selectedItemID = nil
-                closePreview()
-                return
-            }
-
-            if selectedItemID == nil || !newItems.contains(where: { $0.id == selectedItemID }) {
-                selectedItemID = firstItem.id
-            }
-
-            if let previewedItemID = previewState.itemID,
-               !newItems.contains(where: { $0.id == previewedItemID }) {
-                closePreview()
-            }
+            schedulePreviewItemsRebuild(from: newItems)
         }
         .onChange(of: searchText) { _ in
             scheduleSearchUpdate()
@@ -1185,13 +1170,46 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func rebuildPreviewItems() {
-        allPreviewItems = store.items.map(HistoryPreviewItem.init)
+    private func schedulePreviewItemsRebuild(from sourceItems: [ClipboardItem]) {
+        previewBuildTask?.cancel()
+        let currentSelectedID = selectedItemID
+        let currentPreviewedItemID = previewState.itemID
+
+        previewBuildTask = Task {
+            let previewItems = await Task.detached(priority: .userInitiated) {
+                sourceItems.map(HistoryPreviewItem.init)
+            }.value
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    allPreviewItems = previewItems
+                }
+
+                scheduleSearchUpdate(sourceItems: previewItems, immediate: true)
+                restoreSelectionAfterPreviewRebuild(
+                    preferredID: currentSelectedID,
+                    previewedID: currentPreviewedItemID,
+                    sourceItems: sourceItems
+                )
+            }
+        }
     }
 
     private func scheduleSearchUpdate(immediate: Bool = false) {
+        scheduleSearchUpdate(sourceItems: allPreviewItems, immediate: immediate)
+    }
+
+    private func scheduleSearchUpdate(
+        sourceItems: [HistoryPreviewItem],
+        immediate: Bool = false
+    ) {
         searchTask?.cancel()
-        let sourceItems = allPreviewItems
         let currentFilter = filter
         let currentSearchText = searchText
 
@@ -1286,6 +1304,30 @@ struct HistoryWindowView: View {
 
         if previewState.isVisible {
             showPreview(selectedItemID)
+        }
+    }
+
+    private func restoreSelectionAfterPreviewRebuild(
+        preferredID: HistoryPreviewItem.ID?,
+        previewedID: HistoryPreviewItem.ID?,
+        sourceItems: [ClipboardItem]
+    ) {
+        guard let firstItem = sourceItems.first else {
+            selectedItemID = nil
+            closePreview()
+            return
+        }
+
+        if let preferredID,
+           sourceItems.contains(where: { $0.id == preferredID }) {
+            selectedItemID = preferredID
+        } else {
+            selectedItemID = firstItem.id
+        }
+
+        if let previewedID,
+           !sourceItems.contains(where: { $0.id == previewedID }) {
+            closePreview()
         }
     }
 
