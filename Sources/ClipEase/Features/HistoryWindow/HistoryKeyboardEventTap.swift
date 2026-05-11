@@ -71,12 +71,11 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
 
         case .keyDown:
-            guard let action = Self.action(for: event) else {
+            if inputState?.isTextInputFocusedSnapshot == true {
                 return Unmanaged.passUnretained(event)
             }
 
-            if inputState?.isTextInputFocusedSnapshot == true,
-               !Self.shouldHandleWhileTextInputFocused(action) {
+            guard let action = Self.action(for: event) else {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -125,7 +124,10 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         case KeyCode.delete:
             return .delete
         default:
-            return nil
+            guard let text = printableCharacters(from: event) else {
+                return nil
+            }
+            return .appendSearchText(text)
         }
     }
 
@@ -154,13 +156,27 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         }
     }
 
-    private static func shouldHandleWhileTextInputFocused(_ action: HistoryKeyboardAction) -> Bool {
-        switch action {
-        case .close:
-            return true
-        case .moveLeft, .moveRight, .paste, .togglePreview, .selectVisibleCard, .openSearch, .copy, .delete, .togglePinned:
-            return false
+    private static func printableCharacters(from event: CGEvent) -> String? {
+        var actualLength = 0
+        var buffer = [UniChar](repeating: 0, count: 8)
+        event.keyboardGetUnicodeString(
+            maxStringLength: buffer.count,
+            actualStringLength: &actualLength,
+            unicodeString: &buffer
+        )
+
+        guard actualLength > 0 else {
+            return nil
         }
+
+        let text = String(utf16CodeUnits: buffer, count: actualLength)
+        guard text.rangeOfCharacter(from: .newlines) == nil,
+              text.rangeOfCharacter(from: .controlCharacters) == nil,
+              text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return nil
+        }
+
+        return text
     }
 
     private static let eventCallback: CGEventTapCallBack = { _, type, event, userInfo in

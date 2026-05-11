@@ -1264,7 +1264,18 @@ struct HistoryWindowView: View {
             deleteItem(selectedItemID)
         case .togglePinned:
             togglePinned(selectedItemID)
+        case .appendSearchText(let text):
+            appendSearchText(text)
         }
+    }
+
+    private func appendSearchText(_ text: String) {
+        if !isSearchVisible {
+            openSearch()
+        }
+
+        searchText += text
+        isSearchFocused = true
     }
 }
 
