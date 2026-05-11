@@ -91,6 +91,10 @@ final class AppMenuController: NSObject {
         historyStore.addDebugTextItems(count: count)
     }
 
+    func clearDebugTextItems() -> Int {
+        historyStore.clearDebugTextItems()
+    }
+
     func showAbout() {
         let alert = NSAlert()
         alert.messageText = "关于轻贴"

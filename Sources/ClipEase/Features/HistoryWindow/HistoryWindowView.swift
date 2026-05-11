@@ -626,6 +626,12 @@ struct HistoryWindowView: View {
                 Button("添加 10,000 条文本") {
                     addDebugTextItems(count: 10_000)
                 }
+
+                Divider()
+
+                Button("清除测试文本", role: .destructive) {
+                    clearDebugTextItems()
+                }
             }
 
             Divider()
@@ -946,6 +952,11 @@ struct HistoryWindowView: View {
     private func addDebugTextItems(count: Int) {
         appMenuController.addDebugTextItems(count: count)
         showStatus("已添加 \(count) 条测试文本")
+    }
+
+    private func clearDebugTextItems() {
+        let removedCount = appMenuController.clearDebugTextItems()
+        showStatus(removedCount > 0 ? "已清除 \(removedCount) 条测试文本" : "没有测试文本")
     }
 
     private func togglePinned(_ id: ClipboardItem.ID?) {

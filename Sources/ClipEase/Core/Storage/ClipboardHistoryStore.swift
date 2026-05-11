@@ -8,22 +8,28 @@ final class ClipboardHistoryStore: ObservableObject {
         didSet {
             userDefaults.set(retentionPolicy.rawValue, forKey: Self.retentionPolicyKey)
             pruneExpiredItems()
-            save()
+            saveImmediately()
         }
     }
 
     private static let retentionPolicyKey = "history.retentionPolicy"
+    private static let debugTextPrefix = "轻贴性能测试文本 "
+    private static let deferredSaveDelay: UInt64 = 350_000_000
     private let persistence: ClipboardHistoryPersistence
+    private let saveWriter: ClipboardHistorySaveWriter
     private let userDefaults: UserDefaults
     private var recentHashes: Set<String> = []
     private var skippedClipboardTexts: Set<String> = []
     private var skippedImageHashes: Set<String> = []
+    private var deferredSaveTask: Task<Void, Never>?
+    private var saveRevision = 0
 
     init(
         persistence: ClipboardHistoryPersistence = ClipboardHistoryPersistence(),
         userDefaults: UserDefaults = .standard
     ) {
         self.persistence = persistence
+        self.saveWriter = ClipboardHistorySaveWriter(persistence: persistence)
         self.userDefaults = userDefaults
         self.retentionPolicy = HistoryRetentionPolicy(
             rawValue: userDefaults.integer(forKey: Self.retentionPolicyKey)
@@ -31,7 +37,7 @@ final class ClipboardHistoryStore: ObservableObject {
         self.items = persistence.loadItems()
         sortItems()
         pruneExpiredItems()
-        save()
+        saveImmediately()
         rebuildRecentHashes()
     }
 
@@ -64,7 +70,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items.insert(item, at: 0)
         sortItems()
         pruneExpiredItems()
-        save()
+        scheduleSave()
     }
 
     func addRichText(_ data: Data, plainText: String, sourceApp: SourceAppInfo) {
@@ -85,7 +91,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items.insert(item, at: 0)
         sortItems()
         pruneExpiredItems()
-        save()
+        scheduleSave()
     }
 
     func addImage(_ image: NSImage, sourceApp: SourceAppInfo) {
@@ -116,7 +122,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items.insert(item, at: 0)
         sortItems()
         pruneExpiredItems()
-        save()
+        scheduleSave()
     }
 
     func item(with id: ClipboardItem.ID?) -> ClipboardItem? {
@@ -136,7 +142,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items.removeAll { $0.id == id }
         deleteExternalFiles(for: deletedItems)
         rebuildRecentHashes()
-        save()
+        saveImmediately()
     }
 
     func clearAllItems() {
@@ -146,7 +152,7 @@ final class ClipboardHistoryStore: ObservableObject {
         recentHashes.removeAll()
         skippedClipboardTexts.removeAll()
         skippedImageHashes.removeAll()
-        save()
+        saveImmediately()
     }
 
     func importItems(_ importedItems: [ClipboardItem]) -> Int {
@@ -164,7 +170,7 @@ final class ClipboardHistoryStore: ObservableObject {
         sortItems()
         pruneExpiredItems()
         rebuildRecentHashes()
-        save()
+        scheduleSave()
         return newItems.count
     }
 
@@ -181,7 +187,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items[index].isPinned.toggle()
         items[index].pinnedAt = items[index].isPinned ? Date() : nil
         sortItems()
-        save()
+        scheduleSave()
     }
 
     func addDebugTextItems(count: Int) {
@@ -193,7 +199,7 @@ final class ClipboardHistoryStore: ObservableObject {
         let sourceApp = SourceAppInfo.clipease
         let newItems = (0..<count).map { index in
             ClipboardItem.debugText(
-                "轻贴性能测试文本 \(index + 1) keyword-\(index % 25) 搜索测试 \(UUID().uuidString)",
+                "\(Self.debugTextPrefix)\(index + 1) keyword-\(index % 25) 搜索测试 \(UUID().uuidString)",
                 createdAt: now.addingTimeInterval(TimeInterval(-index)),
                 sourceApp: sourceApp
             )
@@ -203,7 +209,23 @@ final class ClipboardHistoryStore: ObservableObject {
         sortItems()
         pruneExpiredItems()
         rebuildRecentHashes()
-        save()
+        scheduleSave()
+    }
+
+    func clearDebugTextItems() -> Int {
+        let removedItems = items.filter(Self.isDebugTextItem)
+        guard !removedItems.isEmpty else {
+            return 0
+        }
+
+        items.removeAll(where: Self.isDebugTextItem)
+        rebuildRecentHashes()
+        saveImmediately()
+        return removedItems.count
+    }
+
+    func flushPendingSave() {
+        saveImmediately()
     }
 
     func skipNextClipboardText(_ text: String) {
@@ -269,8 +291,36 @@ final class ClipboardHistoryStore: ObservableObject {
         }
     }
 
-    private func save() {
-        persistence.saveItems(items)
+    private func scheduleSave() {
+        deferredSaveTask?.cancel()
+        let snapshot = items
+        let revision = nextSaveRevision()
+        let saveWriter = saveWriter
+
+        deferredSaveTask = Task.detached(priority: .utility) {
+            do {
+                try await Task.sleep(nanoseconds: ClipboardHistoryStore.deferredSaveDelay)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            saveWriter.saveAsync(snapshot, revision: revision)
+        }
+    }
+
+    private func saveImmediately() {
+        deferredSaveTask?.cancel()
+        deferredSaveTask = nil
+        saveWriter.saveSync(items, revision: nextSaveRevision())
+    }
+
+    private func nextSaveRevision() -> Int {
+        saveRevision += 1
+        return saveRevision
     }
 
     private func rebuildRecentHashes() {
@@ -314,5 +364,42 @@ final class ClipboardHistoryStore: ObservableObject {
     private func deleteExternalFiles(for items: [ClipboardItem]) {
         items.compactMap(\.imageFileName).forEach(persistence.deleteImage)
         items.compactMap(\.richTextFileName).forEach(persistence.deleteRichText)
+    }
+
+    private static func isDebugTextItem(_ item: ClipboardItem) -> Bool {
+        item.type == .text
+            && item.sourceBundleID == SourceAppInfo.clipease.bundleID
+            && item.text.hasPrefix(debugTextPrefix)
+    }
+}
+
+private final class ClipboardHistorySaveWriter: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "app.clipease.history-save", qos: .utility)
+    private let persistence: ClipboardHistoryPersistence
+    private var latestRevision = 0
+
+    init(persistence: ClipboardHistoryPersistence) {
+        self.persistence = persistence
+    }
+
+    func saveAsync(_ items: [ClipboardItem], revision: Int) {
+        queue.async { [self] in
+            saveIfCurrent(items, revision: revision)
+        }
+    }
+
+    func saveSync(_ items: [ClipboardItem], revision: Int) {
+        queue.sync { [self] in
+            saveIfCurrent(items, revision: revision)
+        }
+    }
+
+    private func saveIfCurrent(_ items: [ClipboardItem], revision: Int) {
+        guard revision >= latestRevision else {
+            return
+        }
+
+        latestRevision = revision
+        persistence.saveItems(items)
     }
 }

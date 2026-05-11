@@ -1,14 +1,14 @@
 import Foundation
 import SwiftUI
 
-enum ClipboardItemType: String, Codable {
+enum ClipboardItemType: String, Codable, Sendable {
     case text
     case link
     case image
     case color
 }
 
-struct ClipboardItem: Identifiable, Equatable {
+struct ClipboardItem: Identifiable, Equatable, Sendable {
     let id: UUID
     let type: ClipboardItemType
     let text: String

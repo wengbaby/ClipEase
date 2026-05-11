@@ -65,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        historyStore.flushPendingSave()
         globalHotKeyController?.stop()
         clipboardMonitor?.stop()
     }

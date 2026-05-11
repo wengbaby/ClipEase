@@ -2,18 +2,18 @@ import AppKit
 import CryptoKit
 import Foundation
 
-struct StoredClipboardImage {
+struct StoredClipboardImage: Sendable {
     let fileName: String
     let width: Int
     let height: Int
     let hash: String
 }
 
-struct StoredRichText {
+struct StoredRichText: Sendable {
     let fileName: String
 }
 
-struct ClipboardHistoryPersistence {
+struct ClipboardHistoryPersistence: @unchecked Sendable {
     private static let thumbnailMaxPixelSize = CGSize(width: 500, height: 360)
 
     private let fileManager: FileManager
