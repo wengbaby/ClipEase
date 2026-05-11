@@ -540,9 +540,6 @@ struct HistoryWindowView: View {
                 .font(.system(size: 13, weight: .medium))
                 .focused($isSearchFocused)
                 .onSubmit {
-                    if isSearchVisible {
-                        closeSearchBeforePaste()
-                    }
                     pasteItem(selectedItemID)
                 }
 
@@ -864,7 +861,11 @@ struct HistoryWindowView: View {
     }
 
     private func pasteItem(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
+        guard filteredItems.contains(where: { $0.id == id }),
+              let item = store.item(with: id) else {
+            if isSearchVisible {
+                showStatus("没有可粘贴的搜索结果")
+            }
             return
         }
 
@@ -1091,11 +1092,13 @@ struct HistoryWindowView: View {
     }
 
     private func clearSearch() {
+        let fallbackID = selectedItemID
         withAnimation(.easeOut(duration: 0.16)) {
             searchText = ""
             isSearchVisible = false
             isSearchFocused = false
         }
+        restoreSelectionAfterClearingSearch(preferredID: fallbackID)
     }
 
     private func togglePinnedFilter() {
@@ -1124,12 +1127,29 @@ struct HistoryWindowView: View {
     }
 
     private func ensureSelectionInFilteredItems() {
-        if let selectedItemID,
-           filteredItems.contains(where: { $0.id == selectedItemID }) {
+        if filteredItems.isEmpty {
+            selectedItemID = nil
+            closePreview()
             return
         }
 
         selectedItemID = filteredItems.first?.id
+        if previewState.isVisible {
+            showPreview(selectedItemID)
+        }
+    }
+
+    private func restoreSelectionAfterClearingSearch(preferredID: HistoryPreviewItem.ID?) {
+        if let preferredID,
+           filteredItems.contains(where: { $0.id == preferredID }) {
+            selectedItemID = preferredID
+        } else {
+            selectedItemID = filteredItems.first?.id
+        }
+
+        if previewState.isVisible {
+            showPreview(selectedItemID)
+        }
     }
 
     private func preheatVisibleAssets() {
@@ -1228,8 +1248,12 @@ struct HistoryWindowView: View {
         case .togglePreview:
             togglePreviewForSelectedItem()
         case .close:
-            closePreview()
-            onClose()
+            if isSearchVisible {
+                clearSearch()
+            } else {
+                closePreview()
+                onClose()
+            }
         case .selectVisibleCard(let number):
             selectVisibleCard(number: number)
         case .openSearch:
