@@ -37,7 +37,7 @@ struct SettingsView: View {
                 .padding(18)
             }
         }
-        .frame(minWidth: 560, minHeight: 520)
+        .frame(minWidth: 680, minHeight: 560)
         .background(Color(red: 0.94, green: 0.95, blue: 0.97))
         .onAppear {
             canAutoPaste = pasteExecutor.canAutoPaste

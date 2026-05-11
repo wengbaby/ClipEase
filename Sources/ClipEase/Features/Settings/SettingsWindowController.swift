@@ -3,6 +3,8 @@ import SwiftUI
 
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
+    private let defaultWindowSize = NSSize(width: 720, height: 640)
+    private let minimumWindowSize = NSSize(width: 680, height: 560)
     private let store: ClipboardHistoryStore
     private let recordingController: RecordingController
     private let loginItemController: LoginItemController
@@ -44,12 +46,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             pasteExecutor: pasteExecutor
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            contentRect: NSRect(origin: .zero, size: defaultWindowSize),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         window.title = "轻贴设置"
+        window.minSize = minimumWindowSize
         window.contentView = NSHostingView(rootView: settingsView)
         window.center()
         window.delegate = self
