@@ -1259,6 +1259,8 @@ struct HistoryWindowView: View {
         case .close:
             if isSearchFocused {
                 clearSearch()
+            } else if isSearchVisible {
+                closeSearch()
             } else {
                 closePreview()
                 onClose()
