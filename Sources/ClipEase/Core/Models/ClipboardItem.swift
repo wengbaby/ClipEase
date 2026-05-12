@@ -20,7 +20,7 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     let imageHeight: Int?
     let imageHash: String?
     let richTextFileName: String?
-    let createdAt: Date
+    var createdAt: Date
     let sourceAppName: String
     let sourceBundleID: String?
     let iconName: String
@@ -148,16 +148,16 @@ extension ClipboardItem {
         originalText: String,
         sourceApp: SourceAppInfo
     ) -> ClipboardItem {
-        let host = url.host(percentEncoded: false) ?? url.absoluteString
         let path = url.path(percentEncoded: false)
+        let title = path.isEmpty || path == "/" ? "/" : URL(fileURLWithPath: path).lastPathComponent
 
         return ClipboardItem(
             id: UUID(),
             type: .link,
             text: originalText,
             url: url,
-            linkTitle: host.replacingOccurrences(of: "www.", with: ""),
-            linkSubtitle: path.isEmpty || path == "/" ? url.absoluteString : "\(host)\(path)",
+            linkTitle: title,
+            linkSubtitle: url.absoluteString,
             imageFileName: nil,
             imageWidth: nil,
             imageHeight: nil,

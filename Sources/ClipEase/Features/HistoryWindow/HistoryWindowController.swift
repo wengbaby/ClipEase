@@ -18,6 +18,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private lazy var keyboardEventTap = HistoryKeyboardEventTap(inputState: inputState)
     private var panel: HistoryPanel?
     private var outsideClickMonitor: Any?
+    private var localOutsideClickMonitor: Any?
     private var isClosing = false
     private weak var previousFrontmostApplication: NSRunningApplication?
 
@@ -205,10 +206,14 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func installOutsideClickMonitor() {
         removeOutsideClickMonitor()
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             Task { @MainActor in
-                self?.close()
+                self?.closeIfClickIsOutsideHistory(event)
             }
+        }
+        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            self?.closeIfClickIsOutsideHistory(event)
+            return event
         }
     }
 
@@ -217,6 +222,27 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             NSEvent.removeMonitor(outsideClickMonitor)
             self.outsideClickMonitor = nil
         }
+        if let localOutsideClickMonitor {
+            NSEvent.removeMonitor(localOutsideClickMonitor)
+            self.localOutsideClickMonitor = nil
+        }
+    }
+
+    private func closeIfClickIsOutsideHistory(_ event: NSEvent) {
+        guard let panel, panel.isVisible else {
+            return
+        }
+
+        if event.window === panel {
+            return
+        }
+
+        let screenPoint = NSEvent.mouseLocation
+        if panel.frame.contains(screenPoint) || previewWindowController.contains(screenPoint: screenPoint) {
+            return
+        }
+
+        close()
     }
 
     private func showPreview(_ item: ClipboardItem, cardFrame: CGRect) {

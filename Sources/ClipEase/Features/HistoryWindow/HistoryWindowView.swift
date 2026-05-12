@@ -264,18 +264,10 @@ struct HistoryWindowView: View {
                             .padding(.vertical, 8)
                             .padding(.bottom, 22)
                         }
-                        .onChange(of: selectedItemID) { id in
-                            guard let id else {
-                                return
-                            }
-
-                            withAnimation(.easeOut(duration: 0.12)) {
-                                proxy.scrollTo(id, anchor: .center)
-                            }
-                        }
                         .onPreferenceChange(CardFramePreferenceKey.self) { frames in
                             cardFrames = frames
                         }
+                        .background(HorizontalScrollWheelRedirector())
                     }
                 }
             }
@@ -780,6 +772,7 @@ struct HistoryWindowView: View {
 
         switch pasteExecutor.copyToPasteboard(item) {
         case .copied:
+            store.markUsed(item.id)
             showStatus(copyStatus(for: item))
         case .failed(let reason):
             showStatus(reason)
@@ -793,6 +786,7 @@ struct HistoryWindowView: View {
 
         switch pasteExecutor.copyPlainTextToPasteboard(item) {
         case .copied:
+            store.markUsed(item.id)
             showStatus("已复制纯文本")
         case .failed(let reason):
             showStatus(reason)
@@ -806,8 +800,10 @@ struct HistoryWindowView: View {
         accessibilityPermissionState.refresh()
         switch pasteExecutor.pastePlainTextToFrontmostApp(item) {
         case .copiedOnly:
+            store.markUsed(item.id)
             showStatus("已复制纯文本，需授权后自动粘贴")
         case .pasted:
+            store.markUsed(item.id)
             showStatus("已粘贴纯文本到当前 App")
         case .failed(let reason):
             showStatus(reason)
@@ -892,8 +888,10 @@ struct HistoryWindowView: View {
         accessibilityPermissionState.refresh()
         switch pasteExecutor.pasteToFrontmostApp(item) {
         case .copiedOnly:
+            store.markUsed(item.id)
             showStatus(copiedOnlyStatus(for: item))
         case .pasted:
+            store.markUsed(item.id)
             showStatus(pastedStatus(for: item))
         case .failed(let reason):
             showStatus(reason)
@@ -1044,7 +1042,7 @@ struct HistoryWindowView: View {
     private func immediateSelectionGesture(for item: HistoryPreviewItem) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { _ in
-                if previewState.isVisible, previewState.itemID != item.id {
+                if previewState.isVisible {
                     closePreview()
                 }
 
@@ -1832,6 +1830,31 @@ private struct NumberShortcutHandler: NSViewRepresentable {
             }
 
             return responder is NSTextView
+        }
+    }
+}
+
+private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
+    func makeNSView(context: Context) -> ScrollRedirectView {
+        ScrollRedirectView()
+    }
+
+    func updateNSView(_ nsView: ScrollRedirectView, context: Context) {}
+
+    final class ScrollRedirectView: NSView {
+        override func scrollWheel(with event: NSEvent) {
+            guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX),
+                  let scrollView = enclosingScrollView else {
+                super.scrollWheel(with: event)
+                return
+            }
+
+            let clipView = scrollView.contentView
+            let documentWidth = scrollView.documentView?.bounds.width ?? 0
+            let maxX = max(documentWidth - clipView.bounds.width, 0)
+            let nextX = min(max(clipView.bounds.minX + event.scrollingDeltaY, 0), maxX)
+            clipView.scroll(to: NSPoint(x: nextX, y: clipView.bounds.minY))
+            scrollView.reflectScrolledClipView(clipView)
         }
     }
 }

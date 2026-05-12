@@ -5,6 +5,7 @@ import SwiftUI
 final class HistoryPreviewWindowController {
     private var panel: NSPanel?
     private var outsideClickMonitor: Any?
+    private var localOutsideClickMonitor: Any?
 
     var frame: CGRect? {
         panel?.frame
@@ -91,10 +92,20 @@ final class HistoryPreviewWindowController {
 
     func installOutsideClickMonitor(onOutsideClick: @escaping @MainActor () -> Void) {
         removeOutsideClickMonitor()
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in
+                guard self?.contains(screenPoint: NSEvent.mouseLocation) == false else {
+                    return
+                }
                 onOutsideClick()
             }
+        }
+        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard self?.contains(screenPoint: NSEvent.mouseLocation) == false else {
+                return event
+            }
+            onOutsideClick()
+            return event
         }
     }
 
@@ -119,6 +130,10 @@ final class HistoryPreviewWindowController {
         if let outsideClickMonitor {
             NSEvent.removeMonitor(outsideClickMonitor)
             self.outsideClickMonitor = nil
+        }
+        if let localOutsideClickMonitor {
+            NSEvent.removeMonitor(localOutsideClickMonitor)
+            self.localOutsideClickMonitor = nil
         }
     }
 

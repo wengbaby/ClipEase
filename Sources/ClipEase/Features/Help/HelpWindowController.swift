@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 final class HelpWindowController: NSObject, NSWindowDelegate {
-    private var window: NSWindow?
+    private var window: HelpWindow?
 
     func show() {
         if let window {
@@ -12,7 +12,7 @@ final class HelpWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let window = NSWindow(
+        let window = HelpWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 500),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
@@ -22,12 +22,30 @@ final class HelpWindowController: NSObject, NSWindowDelegate {
         window.contentView = NSHostingView(rootView: HelpView())
         window.center()
         window.delegate = self
+        window.onCommandW = { [weak window] in
+            window?.orderOut(nil)
+        }
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func windowWillClose(_ notification: Notification) {
-        window = nil
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
+    }
+}
+
+private final class HelpWindow: NSWindow {
+    var onCommandW: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "w" {
+            onCommandW?()
+            return
+        }
+
+        super.keyDown(with: event)
     }
 }

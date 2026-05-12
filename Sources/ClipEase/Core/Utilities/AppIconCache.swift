@@ -54,28 +54,62 @@ enum AppIconCache {
     }
 
     private static func dominantColorHex(from image: NSImage) -> String {
-        guard let resized = image.resized(to: NSSize(width: 32, height: 32)),
+        guard let resized = image.resized(to: NSSize(width: 48, height: 48)),
               let bitmap = NSBitmapImageRep(data: resized.tiffRepresentation ?? Data()) else {
             return "#2E8CFF"
         }
 
-        let centerX = bitmap.pixelsWide / 2
-        let centerY = bitmap.pixelsHigh / 2
-        guard let color = bitmap.colorAt(x: centerX, y: centerY),
-              color.alphaComponent > 0.1 else {
+        let center = CGPoint(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)
+        var selectedColor: NSColor?
+        var selectedScore = CGFloat.greatestFiniteMagnitude
+
+        for y in max(0, Int(center.y) - 8)..<min(bitmap.pixelsHigh, Int(center.y) + 9) {
+            for x in max(0, Int(center.x) - 8)..<min(bitmap.pixelsWide, Int(center.x) + 9) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      color.alphaComponent > 0.2,
+                      !isIgnoredNeutral(color) else {
+                    continue
+                }
+
+                let score = brightness(color) - saturation(color) * 0.18
+                if score < selectedScore {
+                    selectedScore = score
+                    selectedColor = color
+                }
+            }
+        }
+
+        guard let selectedColor else {
             return "#2E8CFF"
         }
 
         return String(
             format: "#%02X%02X%02X",
-            darken(color.redComponent),
-            darken(color.greenComponent),
-            darken(color.blueComponent)
+            component(selectedColor.redComponent),
+            component(selectedColor.greenComponent),
+            component(selectedColor.blueComponent)
         )
     }
 
-    private static func darken(_ component: CGFloat) -> Int {
-        max(0, min(255, Int(component * 255 * 0.72)))
+    private static func isIgnoredNeutral(_ color: NSColor) -> Bool {
+        (brightness(color) > 0.86 && saturation(color) < 0.24) || saturation(color) < 0.1
+    }
+
+    private static func brightness(_ color: NSColor) -> CGFloat {
+        max(color.redComponent, color.greenComponent, color.blueComponent)
+    }
+
+    private static func saturation(_ color: NSColor) -> CGFloat {
+        let maxComponent = max(color.redComponent, color.greenComponent, color.blueComponent)
+        let minComponent = min(color.redComponent, color.greenComponent, color.blueComponent)
+        guard maxComponent > 0 else {
+            return 0
+        }
+        return (maxComponent - minComponent) / maxComponent
+    }
+
+    private static func component(_ value: CGFloat) -> Int {
+        max(0, min(255, Int(value * 255)))
     }
 }
 

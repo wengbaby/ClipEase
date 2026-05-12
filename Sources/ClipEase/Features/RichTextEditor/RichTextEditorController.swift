@@ -8,14 +8,22 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private let characterLabel: NSTextField
     private let wordLabel: NSTextField
     private let lineLabel: NSTextField
-    private var fontSize: CGFloat = 20
+    private var boldButton: NSButton?
+    private var italicButton: NSButton?
+    private var underlineButton: NSButton?
+    private var strikethroughButton: NSButton?
+    private var isBoldActive = false
+    private var isItalicActive = false
+    private var isUnderlineActive = false
+    private var isStrikethroughActive = false
+    private var fontSize: CGFloat = 16
 
     init(onCreate: @escaping (Data, String) -> Void) {
         self.onCreate = onCreate
 
         let panel = RichTextEditorPanel(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 360),
-            styleMask: [.borderless, .fullSizeContentView],
+            styleMask: [.borderless, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -23,6 +31,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.isReleasedWhenClosed = false
+        panel.minSize = NSSize(width: 420, height: 300)
         panel.center()
 
         let textView = NSTextView(frame: .zero)
@@ -51,6 +60,9 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
         textView.delegate = self
         panel.contentView = makeContentView()
+        panel.onCommandW = { [weak panel] in
+            panel?.close()
+        }
     }
 
     func show() {
@@ -95,10 +107,18 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         styleGroup.orientation = .horizontal
         styleGroup.spacing = 20
         styleGroup.alignment = .centerY
-        styleGroup.addArrangedSubview(iconButton("B", action: #selector(toggleBold), font: .boldSystemFont(ofSize: 12)))
-        styleGroup.addArrangedSubview(iconButton("I", action: #selector(toggleItalic), font: Self.italicFont(size: 12)))
-        styleGroup.addArrangedSubview(iconButton("U", action: #selector(toggleUnderline), font: .systemFont(ofSize: 12)))
-        styleGroup.addArrangedSubview(iconButton("S", action: #selector(toggleStrikethrough), font: .systemFont(ofSize: 12)))
+        let boldButton = iconButton("B", action: #selector(toggleBold), font: .boldSystemFont(ofSize: 12))
+        let italicButton = iconButton("I", action: #selector(toggleItalic), font: Self.italicFont(size: 12))
+        let underlineButton = iconButton("U", action: #selector(toggleUnderline), font: .systemFont(ofSize: 12))
+        let strikethroughButton = iconButton("S", action: #selector(toggleStrikethrough), font: .systemFont(ofSize: 12))
+        self.boldButton = boldButton
+        self.italicButton = italicButton
+        self.underlineButton = underlineButton
+        self.strikethroughButton = strikethroughButton
+        styleGroup.addArrangedSubview(boldButton)
+        styleGroup.addArrangedSubview(italicButton)
+        styleGroup.addArrangedSubview(underlineButton)
+        styleGroup.addArrangedSubview(strikethroughButton)
         styleGroup.addArrangedSubview(iconButton("A-", action: #selector(decreaseFontSize), font: .systemFont(ofSize: 12, weight: .semibold)))
         styleGroup.addArrangedSubview(iconButton("A+", action: #selector(increaseFontSize), font: .systemFont(ofSize: 12, weight: .semibold)))
 
@@ -185,7 +205,10 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         button.font = font
         button.contentTintColor = .secondaryLabelColor
         button.setButtonType(.momentaryPushIn)
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 7
         button.widthAnchor.constraint(greaterThanOrEqualToConstant: 18).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 22).isActive = true
         return button
     }
 
@@ -232,13 +255,13 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
     private func applyToSelection(_ transform: (NSMutableAttributedString, NSRange) -> Void) {
         let range = textView.selectedRange()
-        let targetRange = range.length > 0 ? range : NSRange(location: 0, length: textView.attributedString().length)
-        guard targetRange.length > 0 else {
+        guard range.length > 0 else {
+            updateTypingAttributes()
             return
         }
 
         let mutableText = NSMutableAttributedString(attributedString: textView.attributedString())
-        transform(mutableText, targetRange)
+        transform(mutableText, range)
         applyBlackColor(to: mutableText)
         textView.textStorage?.setAttributedString(mutableText)
         enforceBlackText()
@@ -247,40 +270,54 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     }
 
     @objc private func toggleBold() {
+        isBoldActive.toggle()
+        updateStyleButtons()
         applyToSelection { text, range in
             text.enumerateAttribute(.font, in: range) { value, subrange, _ in
                 let font = value as? NSFont ?? .systemFont(ofSize: self.fontSize)
-                let traits = NSFontManager.shared.traits(of: font)
-                let convertedFont = traits.contains(.boldFontMask)
-                    ? NSFontManager.shared.convert(font, toNotHaveTrait: .boldFontMask)
-                    : NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+                let convertedFont = self.isBoldActive
+                    ? NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+                    : NSFontManager.shared.convert(font, toNotHaveTrait: .boldFontMask)
                 text.addAttribute(.font, value: convertedFont, range: subrange)
             }
         }
     }
 
     @objc private func toggleItalic() {
+        isItalicActive.toggle()
+        updateStyleButtons()
         applyToSelection { text, range in
             text.enumerateAttribute(.font, in: range) { value, subrange, _ in
                 let font = value as? NSFont ?? .systemFont(ofSize: self.fontSize)
-                let traits = NSFontManager.shared.traits(of: font)
-                let convertedFont = traits.contains(.italicFontMask)
-                    ? NSFontManager.shared.convert(font, toNotHaveTrait: .italicFontMask)
-                    : NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+                let convertedFont = self.isItalicActive
+                    ? NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+                    : NSFontManager.shared.convert(font, toNotHaveTrait: .italicFontMask)
                 text.addAttribute(.font, value: convertedFont, range: subrange)
             }
         }
     }
 
     @objc private func toggleUnderline() {
+        isUnderlineActive.toggle()
+        updateStyleButtons()
         applyToSelection { text, range in
-            text.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            if self.isUnderlineActive {
+                text.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            } else {
+                text.removeAttribute(.underlineStyle, range: range)
+            }
         }
     }
 
     @objc private func toggleStrikethrough() {
+        isStrikethroughActive.toggle()
+        updateStyleButtons()
         applyToSelection { text, range in
-            text.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            if self.isStrikethroughActive {
+                text.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            } else {
+                text.removeAttribute(.strikethroughStyle, range: range)
+            }
         }
     }
 
@@ -301,8 +338,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
                 text.addAttribute(.font, value: convertedFont, range: subrange)
             }
         }
-        textView.typingAttributes[.font] = NSFont.systemFont(ofSize: fontSize)
-        enforceBlackText()
+        updateTypingAttributes()
     }
 
     private func enforceBlackText() {
@@ -325,10 +361,49 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private func normalizedTypingAttributes() -> [NSAttributedString.Key: Any] {
         var attributes = textView.typingAttributes
         attributes[.foregroundColor] = NSColor.black
-        if attributes[.font] == nil {
-            attributes[.font] = NSFont.systemFont(ofSize: fontSize)
+        attributes[.font] = typingFont()
+        if isUnderlineActive {
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        } else {
+            attributes.removeValue(forKey: .underlineStyle)
+        }
+        if isStrikethroughActive {
+            attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        } else {
+            attributes.removeValue(forKey: .strikethroughStyle)
         }
         return attributes
+    }
+
+    private func updateTypingAttributes() {
+        textView.typingAttributes = normalizedTypingAttributes()
+        panel.makeFirstResponder(textView)
+    }
+
+    private func typingFont() -> NSFont {
+        var font = NSFont.systemFont(ofSize: fontSize)
+        if isBoldActive {
+            font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        }
+        if isItalicActive {
+            font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+        }
+        return font
+    }
+
+    private func updateStyleButtons() {
+        updateToggleButton(boldButton, isActive: isBoldActive)
+        updateToggleButton(italicButton, isActive: isItalicActive)
+        updateToggleButton(underlineButton, isActive: isUnderlineActive)
+        updateToggleButton(strikethroughButton, isActive: isStrikethroughActive)
+        updateTypingAttributes()
+    }
+
+    private func updateToggleButton(_ button: NSButton?, isActive: Bool) {
+        button?.contentTintColor = isActive ? .controlAccentColor : .secondaryLabelColor
+        button?.layer?.backgroundColor = isActive
+            ? NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor
+            : NSColor.clear.cgColor
     }
 
     private func applyBlackColor(to text: NSMutableAttributedString) {
@@ -368,12 +443,24 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 }
 
 private final class RichTextEditorPanel: NSPanel {
+    var onCommandW: (() -> Void)?
+
     override var canBecomeKey: Bool {
         true
     }
 
     override var canBecomeMain: Bool {
         true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "w" {
+            onCommandW?()
+            return
+        }
+
+        super.keyDown(with: event)
     }
 }
 

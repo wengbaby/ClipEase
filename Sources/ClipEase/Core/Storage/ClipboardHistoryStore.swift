@@ -196,6 +196,18 @@ final class ClipboardHistoryStore: ObservableObject {
         scheduleSave()
     }
 
+    func markUsed(_ id: ClipboardItem.ID?) {
+        guard let id,
+              let index = items.firstIndex(where: { $0.id == id }),
+              !items[index].isPinned else {
+            return
+        }
+
+        items[index].createdAt = Date()
+        sortItems()
+        scheduleSave()
+    }
+
     func addDebugTextItems(count: Int) {
         guard count > 0 else {
             return
