@@ -83,6 +83,7 @@ struct SettingsView: View {
     @State private var storageUsageText = "计算中"
     @State private var isStorageUsageRefreshing = false
     @State private var isCleaningOrphanedAttachments = false
+    @State private var isCheckingHistoryData = false
     @State private var isHistoryTransferInProgress = false
     @State private var selectedCategory: SettingsCategory = .general
 
@@ -555,6 +556,11 @@ struct SettingsView: View {
                 Divider()
 
                 historyActionGroup(title: "清理") {
+                    historyButton("检查数据") {
+                        checkHistoryDataHealth()
+                    }
+                    .disabled(isCheckingHistoryData)
+
                     historyButton("清空图标缓存", minWidth: 104) {
                         isClearIconCacheConfirmationPresented = true
                     }
@@ -733,6 +739,23 @@ struct SettingsView: View {
                 } else {
                     showStatus("没有可清理的孤立附件")
                 }
+            }
+        }
+    }
+
+    private func checkHistoryDataHealth() {
+        isCheckingHistoryData = true
+        showProgress("正在检查数据...")
+        let items = store.items
+
+        Task {
+            let report = await Task.detached(priority: .utility) {
+                HistoryDataHealthChecker.check(items: items)
+            }.value
+
+            await MainActor.run {
+                isCheckingHistoryData = false
+                showStatus(report.summary)
             }
         }
     }
