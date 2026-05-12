@@ -1932,8 +1932,8 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
             let clipView = scrollView.contentView
             let documentWidth = scrollView.documentView?.bounds.width ?? 0
             let maxX = max(documentWidth - clipView.bounds.width, 0)
-            let multiplier: CGFloat = event.hasPreciseScrollingDeltas ? 2.4 : 8.0
-            let delta = event.scrollingDeltaY * multiplier
+            let multiplier: CGFloat = event.hasPreciseScrollingDeltas ? 5.0 : 18.0
+            let delta = -event.scrollingDeltaY * multiplier
             let nextX = min(max(clipView.bounds.minX + delta, 0), maxX)
             clipView.scroll(to: NSPoint(x: nextX, y: clipView.bounds.minY))
             scrollView.reflectScrolledClipView(clipView)

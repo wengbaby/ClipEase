@@ -147,7 +147,6 @@ struct HistoryPreviewPopoverView: View {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
-                        .padding(12)
                 } else {
                     Image(systemName: "photo")
                         .font(.system(size: 52, weight: .regular))
