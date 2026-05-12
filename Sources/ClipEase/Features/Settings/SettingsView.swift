@@ -77,9 +77,12 @@ struct SettingsView: View {
     @State private var isClearConfirmationPresented = false
     @State private var isClearIconCacheConfirmationPresented = false
     @State private var isClearThumbnailCacheConfirmationPresented = false
+    @State private var isCleanOrphanedAttachmentsConfirmationPresented = false
     @State private var statusText: String?
     @State private var isRecordingShortcut = false
     @State private var storageUsageText = "计算中"
+    @State private var isStorageUsageRefreshing = false
+    @State private var isCleaningOrphanedAttachments = false
     @State private var selectedCategory: SettingsCategory = .general
 
     var body: some View {
@@ -113,6 +116,19 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             accessibilityPermissionState.refresh()
+        }
+        .confirmationDialog(
+            "清理孤立附件？",
+            isPresented: $isCleanOrphanedAttachmentsConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("清理孤立附件", role: .destructive) {
+                cleanOrphanedAttachments()
+            }
+
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此操作只会删除没有被当前历史记录引用的图片、缩略图和富文本文件，不会删除历史记录。")
         }
         .confirmationDialog(
             "清空全部历史？",
@@ -530,6 +546,7 @@ struct SettingsView: View {
                         refreshStorageUsage()
                         showStatus("已刷新存储用量")
                     }
+                    .disabled(isStorageUsageRefreshing)
                 }
 
                 Divider()
@@ -544,8 +561,9 @@ struct SettingsView: View {
                     }
 
                     historyButton("清理孤立附件", minWidth: 116) {
-                        cleanOrphanedAttachments()
+                        isCleanOrphanedAttachmentsConfirmationPresented = true
                     }
+                    .disabled(isCleaningOrphanedAttachments)
 
                     Button("清空历史", role: .destructive) {
                         isClearConfirmationPresented = true
@@ -675,16 +693,40 @@ struct SettingsView: View {
     }
 
     private func refreshStorageUsage() {
-        storageUsageText = StorageUsageCalculator.formattedApplicationSupportSize()
+        isStorageUsageRefreshing = true
+        Task {
+            let usageText = await Task.detached(priority: .utility) {
+                StorageUsageCalculator.formattedApplicationSupportSize()
+            }.value
+
+            await MainActor.run {
+                storageUsageText = usageText
+                isStorageUsageRefreshing = false
+            }
+        }
     }
 
     private func cleanOrphanedAttachments() {
-        let result = OrphanedAttachmentCleaner.clean(items: store.items)
-        refreshStorageUsage()
-        if result.removedFiles > 0 {
-            showStatus("已清理 \(result.removedFiles) 个文件，释放 \(result.formattedRemovedSize)")
-        } else {
-            showStatus("没有可清理的孤立附件")
+        isCleaningOrphanedAttachments = true
+        let items = store.items
+
+        Task {
+            let result = await Task.detached(priority: .utility) {
+                OrphanedAttachmentCleaner.clean(items: items)
+            }.value
+            let usageText = await Task.detached(priority: .utility) {
+                StorageUsageCalculator.formattedApplicationSupportSize()
+            }.value
+
+            await MainActor.run {
+                storageUsageText = usageText
+                isCleaningOrphanedAttachments = false
+                if result.removedFiles > 0 {
+                    showStatus("已清理 \(result.removedFiles) 个文件，释放 \(result.formattedRemovedSize)")
+                } else {
+                    showStatus("没有可清理的孤立附件")
+                }
+            }
         }
     }
 

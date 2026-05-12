@@ -179,7 +179,7 @@ ClipEase/
 - 设置页可导入轻贴导出的 JSON 文件，采用追加合并方式写入 Store。
 - 设置页可导出 `.clipeasebackup` 备份包目录，包含 `history.json`、`Images` 和 `RichTexts`。
 - 设置页可导入 `.clipeasebackup` 备份包目录，采用追加合并方式写入 Store，并恢复图片和富文本附件。
-- 设置页可清理孤立附件：扫描 `Images`、`Thumbnails` 和 `RichTexts`，删除没有被当前历史记录引用的文件，并刷新存储用量。
+- 设置页可清理孤立附件：扫描 `Images`、`Thumbnails` 和 `RichTexts`，删除没有被当前历史记录引用的文件，并刷新存储用量；存储用量计算和孤立附件清理必须在后台任务执行，清理前需要确认，避免设置窗口卡顿或误删。
 - JSON 导入只恢复文字、链接和颜色记录；图片和富文本附件通过备份包承载实际文件。
 - `history.json` 读取失败时，会移动备份为 `history-corrupt-YYYYMMDD-HHMMSS.json` 后空历史启动，避免损坏文件被覆盖。
 - 辅助功能权限使用统一的 `AccessibilityPermissionState` 管理，历史窗口和设置页共享同一状态。
