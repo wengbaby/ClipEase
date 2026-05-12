@@ -42,12 +42,7 @@ def main() -> None:
         "--bump",
         choices=["none", "major", "minor", "patch"],
         default="none",
-        help="Marketing version bump. Build number always increments unless --no-build is set.",
-    )
-    parser.add_argument(
-        "--no-build",
-        action="store_true",
-        help="Do not update CFBundleVersion timestamp.",
+        help="Marketing version bump. CFBundleVersion timestamp is always updated.",
     )
     args = parser.parse_args()
 
@@ -58,8 +53,7 @@ def main() -> None:
     current_build = plist["CFBundleVersion"]
 
     plist["CFBundleShortVersionString"] = next_version(current_version, args.bump)
-    if not args.no_build:
-        plist["CFBundleVersion"] = datetime.now().strftime("%y%m%d.%H%M")
+    plist["CFBundleVersion"] = datetime.now().strftime("%y%m%d.%H%M")
 
     with INFO_PLIST.open("wb") as file:
         plistlib.dump(plist, file, sort_keys=False)
