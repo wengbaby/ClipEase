@@ -321,8 +321,8 @@ final class HistoryPreviewWindowController {
         }
 
         return CGSize(
-            width: max(390, min(maxWindowSize.width, contentWidth)),
-            height: max(260, min(maxWindowSize.height, contentHeight + chromeHeight))
+            width: min(maxWindowSize.width, max(390, ceil(contentWidth))),
+            height: min(maxWindowSize.height, max(260, ceil(contentHeight) + chromeHeight))
         )
     }
 

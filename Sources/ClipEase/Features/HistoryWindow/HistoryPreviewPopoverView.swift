@@ -140,20 +140,7 @@ struct HistoryPreviewPopoverView: View {
                 .padding(12)
             }
         case .image:
-            ZStack {
-                CheckerboardView()
-
-                if isContentReady, let image = previewImage {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    Image(systemName: "photo")
-                        .font(.system(size: 52, weight: .regular))
-                        .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
-                }
-            }
-            .background(Color.white)
+            imageContent
             .task(id: isContentReady) {
                 guard isContentReady, item.type == .image else {
                     previewImage = nil
@@ -163,6 +150,44 @@ struct HistoryPreviewPopoverView: View {
                 previewImage = await loadImage()
             }
         }
+    }
+
+    private var imageContent: some View {
+        ZStack {
+            CheckerboardView()
+
+            if isContentReady, let image = previewImage {
+                GeometryReader { proxy in
+                    let imageSize = fittedImageSize(image.size, in: proxy.size)
+
+                    Image(nsImage: image)
+                        .resizable()
+                        .frame(width: imageSize.width, height: imageSize.height)
+                        .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                }
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 52, weight: .regular))
+                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+            }
+        }
+        .clipped()
+        .background(Color.white)
+    }
+
+    private func fittedImageSize(_ imageSize: CGSize, in containerSize: CGSize) -> CGSize {
+        guard imageSize.width > 0,
+              imageSize.height > 0,
+              containerSize.width > 0,
+              containerSize.height > 0 else {
+            return containerSize
+        }
+
+        let scale = min(containerSize.width / imageSize.width, containerSize.height / imageSize.height)
+        return CGSize(
+            width: floor(imageSize.width * scale),
+            height: floor(imageSize.height * scale)
+        )
     }
 
     private var previewPlaceholder: some View {
