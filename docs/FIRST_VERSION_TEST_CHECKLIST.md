@@ -94,6 +94,7 @@
 ## 10. 发布前
 
 - [ ] `swift build` 通过。
+- [ ] `scripts/smoke_check.py` 通过。
 - [ ] `scripts/build-app.sh --run` 可构建并启动 App。
 - [ ] App 关于页版本号显示正确。
 - [ ] Git 工作区干净。

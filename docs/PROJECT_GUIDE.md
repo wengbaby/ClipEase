@@ -21,6 +21,7 @@
 - 日志规范：[docs/DEV_LOG_GUIDE.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEV_LOG_GUIDE.md)
 - 每日开发日志目录：[dev-logs](/Users/wpc/code/codex/ClipboardHistory/dev-logs)
 - 每日日志脚本：[scripts/daily_log.py](/Users/wpc/code/codex/ClipboardHistory/scripts/daily_log.py)
+- 发布前 smoke check：[scripts/smoke_check.py](/Users/wpc/code/codex/ClipboardHistory/scripts/smoke_check.py)
 
 ## 工作说明
 
@@ -33,6 +34,7 @@
 7. 自动日志任务会每天创建或补全当天日志文件，但具体完成事项仍需要开发者按实际工作填写。
 8. 每次正式打包 `.app` 必须通过 `scripts/build-app.sh`，由脚本自动递增版本并更新时间戳构建号。
 9. 每次代码修改后需要编译、打开本地 App 供测试，并提交到 git。
+10. 第一版发布前必须执行 `scripts/smoke_check.py` 和 `docs/FIRST_VERSION_TEST_CHECKLIST.md`，自动检查通过后再做手动验收。
 
 ## 当前阶段原则
 

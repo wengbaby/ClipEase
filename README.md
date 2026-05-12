@@ -21,3 +21,9 @@
 ```bash
 scripts/build-app.sh --run
 ```
+
+发布前基础检查：
+
+```bash
+scripts/smoke_check.py
+```
