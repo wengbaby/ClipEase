@@ -134,10 +134,7 @@ struct HistoryPreviewPopoverView: View {
                 CheckerboardView()
 
                 if let image = loadImage() {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .padding(12)
+                    ScrollableImagePreview(image: image)
                 } else {
                     Image(systemName: "photo")
                         .font(.system(size: 52, weight: .regular))

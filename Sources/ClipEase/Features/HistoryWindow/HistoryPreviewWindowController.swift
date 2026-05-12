@@ -6,6 +6,8 @@ final class HistoryPreviewWindowController {
     private var panel: NSPanel?
     private var outsideClickMonitor: Any?
     private var localOutsideClickMonitor: Any?
+    private let arrowHeight: CGFloat = 14
+    private let horizontalMargin: CGFloat = 12
 
     var frame: CGRect? {
         panel?.frame
@@ -24,8 +26,6 @@ final class HistoryPreviewWindowController {
         onCopyRGB: @escaping () -> Void
     ) {
         let size = previewSize(for: item, screenFrame: screenFrame)
-        let arrowHeight: CGFloat = 14
-        let horizontalMargin: CGFloat = 12
         let originX = min(
             max(anchorScreenPoint.x - size.width / 2, screenFrame.minX + horizontalMargin),
             screenFrame.maxX - horizontalMargin - size.width
@@ -138,28 +138,50 @@ final class HistoryPreviewWindowController {
     }
 
     private func previewSize(for item: ClipboardItem, screenFrame: CGRect) -> CGSize {
-        switch item.type {
-        case .image:
-            guard let width = item.imageWidth,
-                  let height = item.imageHeight,
-                  width > 0,
-                  height > 0 else {
-                return CGSize(width: 560, height: 310)
-            }
+        let contentLimit = contentSizeLimit(for: screenFrame)
+        let chromeHeight: CGFloat = 86
+        let maxWindowSize = CGSize(
+            width: min(contentLimit.width, screenFrame.width - horizontalMargin * 2),
+            height: min(contentLimit.height + chromeHeight, screenFrame.height - 130)
+        )
 
-            let maxWidth = min(screenFrame.width - 24, 1000)
-            let maxHeight = min(screenFrame.height - 130, 760)
-            let chromeHeight: CGFloat = 86
-            let ratio = CGFloat(width) / CGFloat(height)
-            let imageWidth = min(maxWidth - 8, (maxHeight - chromeHeight) * ratio)
-            let imageHeight = imageWidth / ratio
+        switch item.type {
+        case .image, .link:
             return CGSize(
-                width: max(390, imageWidth + 8),
-                height: max(260, min(maxHeight, imageHeight + chromeHeight))
+                width: max(390, maxWindowSize.width),
+                height: max(260, maxWindowSize.height)
             )
-        case .text, .link, .color:
-            return CGSize(width: min(620, screenFrame.width - 24), height: 330)
+        case .text:
+            let measuredTextSize = measuredSize(for: item.text)
+            return CGSize(
+                width: min(maxWindowSize.width, max(390, measuredTextSize.width + 32)),
+                height: min(maxWindowSize.height, max(260, measuredTextSize.height + chromeHeight))
+            )
+        case .color:
+            return CGSize(
+                width: min(620, maxWindowSize.width),
+                height: min(330, maxWindowSize.height)
+            )
         }
+    }
+
+    private func contentSizeLimit(for screenFrame: CGRect) -> CGSize {
+        let width = screenFrame.width * 0.5
+        return CGSize(width: width, height: width * 9 / 16)
+    }
+
+    private func measuredSize(for text: String) -> CGSize {
+        let font = NSFont.systemFont(ofSize: 15, weight: .regular)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let lines = text.components(separatedBy: .newlines)
+        let maxLineWidth = lines
+            .map { ($0.isEmpty ? " " : $0).size(withAttributes: attributes).width }
+            .max() ?? 0
+        let lineHeight = font.boundingRectForFont.height + 4
+        return CGSize(
+            width: ceil(maxLineWidth),
+            height: ceil(CGFloat(max(1, lines.count)) * lineHeight)
+        )
     }
 }
 
