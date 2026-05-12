@@ -4,6 +4,27 @@ private let backupManifestFileName = "history.json"
 private let backupImagesDirectoryName = "Images"
 private let backupRichTextsDirectoryName = "RichTexts"
 
+struct BackupImportResult: Sendable {
+    let items: [ClipboardItem]
+    let totalItems: Int
+    let missingAttachmentCount: Int
+
+    var skippedItemCount: Int {
+        max(0, totalItems - items.count)
+    }
+}
+
+enum HistoryExportError: LocalizedError {
+    case missingBackupManifest
+
+    var errorDescription: String? {
+        switch self {
+        case .missingBackupManifest:
+            "备份包缺少 history.json"
+        }
+    }
+}
+
 enum HistoryExportService {
     static func export(items: [ClipboardItem], to url: URL) throws {
         let encoder = JSONEncoder()
@@ -50,18 +71,31 @@ enum HistoryExportService {
             .compactMap(\.clipboardItemForImport)
     }
 
-    static func importBackup(from url: URL) throws -> [ClipboardItem] {
+    static func importBackup(from url: URL) throws -> BackupImportResult {
         let manifestURL = url.appendingPathComponent(backupManifestFileName)
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+            throw HistoryExportError.missingBackupManifest
+        }
+
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
         let data = try Data(contentsOf: manifestURL)
         let export = try decoder.decode(HistoryExport.self, from: data)
+        var missingAttachmentCount = 0
         let items = try export.items.compactMap { item throws -> ClipboardItem? in
-            try item.clipboardItemForBackupImport(backupURL: url)
+            let importedItem = try item.clipboardItemForBackupImport(
+                backupURL: url,
+                missingAttachmentCount: &missingAttachmentCount
+            )
+            return importedItem
         }
 
-        return items
+        return BackupImportResult(
+            items: items,
+            totalItems: export.items.count,
+            missingAttachmentCount: missingAttachmentCount
+        )
     }
 
     private static func copyAttachments(
@@ -172,7 +206,10 @@ private struct ExportedClipboardItem: Codable {
         }
     }
 
-    func clipboardItemForBackupImport(backupURL: URL) throws -> ClipboardItem? {
+    func clipboardItemForBackupImport(
+        backupURL: URL,
+        missingAttachmentCount: inout Int
+    ) throws -> ClipboardItem? {
         let itemType = ClipboardItemType(rawValue: type) ?? .text
         switch itemType {
         case .image:
@@ -186,6 +223,7 @@ private struct ExportedClipboardItem: Codable {
                 .appendingPathComponent(backupImagesDirectoryName, isDirectory: true)
                 .appendingPathComponent(imageFileName)
             guard FileManager.default.fileExists(atPath: backupImageURL.path) else {
+                missingAttachmentCount += 1
                 return nil
             }
 
@@ -227,6 +265,8 @@ private struct ExportedClipboardItem: Codable {
                         to: try ClipEaseStoragePaths.richTextFileURL(fileName: richTextFileName)
                     )
                     restoredRichTextFileName = richTextFileName
+                } else {
+                    missingAttachmentCount += 1
                 }
             }
 

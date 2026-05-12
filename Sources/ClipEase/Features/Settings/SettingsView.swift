@@ -886,15 +886,39 @@ struct SettingsView: View {
             await MainActor.run {
                 isHistoryTransferInProgress = false
                 switch result {
-                case .success(let importedItems):
-                    let importedCount = store.importBackupItems(importedItems)
+                case .success(let importResult):
+                    let importedCount = store.importBackupItems(importResult.items)
                     refreshStorageUsage()
-                    showStatus(importedCount > 0 ? "已导入 \(importedCount) 条备份历史" : "没有可导入的新历史")
+                    showStatus(backupImportStatusText(
+                        importedCount: importedCount,
+                        result: importResult
+                    ))
                 case .failure(let error):
                     showOperationError("备份包导入失败", error: error)
                 }
             }
         }
+    }
+
+    private func backupImportStatusText(
+        importedCount: Int,
+        result: BackupImportResult
+    ) -> String {
+        if importedCount == 0, result.items.isEmpty {
+            return result.missingAttachmentCount > 0
+                ? "没有可导入的新历史，缺失附件 \(result.missingAttachmentCount) 个"
+                : "没有可导入的新历史"
+        }
+
+        let duplicateOrSkippedCount = max(0, result.totalItems - importedCount)
+        var parts = ["已导入 \(importedCount) 条"]
+        if duplicateOrSkippedCount > 0 {
+            parts.append("跳过 \(duplicateOrSkippedCount) 条")
+        }
+        if result.missingAttachmentCount > 0 {
+            parts.append("缺失附件 \(result.missingAttachmentCount) 个")
+        }
+        return parts.joined(separator: "，")
     }
 
     private func showOperationError(_ title: String, error: Error) {
