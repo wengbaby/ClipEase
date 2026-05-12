@@ -26,6 +26,10 @@ final class HistoryPreviewWindowController {
         onCopyRGB: @escaping () -> Void
     ) {
         let size = previewSize(for: item, screenFrame: screenFrame)
+        let originY = min(
+            max(anchorScreenPoint.y, screenFrame.minY + 8),
+            screenFrame.maxY - size.height - arrowHeight - 8
+        )
         let originX = min(
             max(anchorScreenPoint.x - size.width / 2, screenFrame.minX + horizontalMargin),
             screenFrame.maxX - horizontalMargin - size.width
@@ -33,7 +37,7 @@ final class HistoryPreviewWindowController {
         let arrowX = min(max(anchorScreenPoint.x - originX, 28), size.width - 28)
         let frame = CGRect(
             x: originX,
-            y: anchorScreenPoint.y,
+            y: originY,
             width: size.width,
             height: size.height + arrowHeight
         )
@@ -152,7 +156,7 @@ final class HistoryPreviewWindowController {
                 height: max(260, maxWindowSize.height)
             )
         case .text:
-            let measuredTextSize = measuredSize(for: item.text)
+            let measuredTextSize = measuredSize(for: item.text, wrappingWidth: maxWindowSize.width - 32)
             return CGSize(
                 width: min(maxWindowSize.width, max(390, measuredTextSize.width + 32)),
                 height: min(maxWindowSize.height, max(260, measuredTextSize.height + chromeHeight))
@@ -170,17 +174,26 @@ final class HistoryPreviewWindowController {
         return CGSize(width: width, height: width * 9 / 16)
     }
 
-    private func measuredSize(for text: String) -> CGSize {
+    private func measuredSize(for text: String, wrappingWidth: CGFloat) -> CGSize {
         let font = NSFont.systemFont(ofSize: 15, weight: .regular)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let lines = text.components(separatedBy: .newlines)
-        let maxLineWidth = lines
-            .map { ($0.isEmpty ? " " : $0).size(withAttributes: attributes).width }
-            .max() ?? 0
-        let lineHeight = font.boundingRectForFont.height + 4
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        let attributedText = NSAttributedString(
+            string: text.isEmpty ? " " : text,
+            attributes: [
+                .font: font,
+                .paragraphStyle: paragraphStyle
+            ]
+        )
+        let boundingRect = attributedText.boundingRect(
+            with: CGSize(width: wrappingWidth, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        let singleLineWidth = (text.isEmpty ? " " : text).size(withAttributes: [.font: font]).width
+
         return CGSize(
-            width: ceil(maxLineWidth),
-            height: ceil(CGFloat(max(1, lines.count)) * lineHeight)
+            width: ceil(min(max(singleLineWidth, 390 - 32), wrappingWidth)),
+            height: ceil(boundingRect.height + 32)
         )
     }
 }

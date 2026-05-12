@@ -12,24 +12,24 @@ struct LazyPreviewTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 16, height: 16)
         textView.font = .systemFont(ofSize: 15, weight: .regular)
         textView.textColor = NSColor(red: 0.12, green: 0.14, blue: 0.17, alpha: 1)
-        textView.isHorizontallyResizable = true
+        textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.maxSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
-        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
+            width: 0,
             height: CGFloat.greatestFiniteMagnitude
         )
-        textView.autoresizingMask = [.width, .height]
+        textView.autoresizingMask = [.width]
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .white
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
+        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.documentView = textView
         return scrollView
