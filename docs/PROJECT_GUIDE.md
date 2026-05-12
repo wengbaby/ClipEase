@@ -18,6 +18,8 @@
 - 开发步骤：[docs/DEVELOPMENT_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEVELOPMENT_PLAN.md)
 - 版本规则：[docs/VERSIONING.md](/Users/wpc/code/codex/ClipboardHistory/docs/VERSIONING.md)
 - 第一版回归测试清单：[docs/FIRST_VERSION_TEST_CHECKLIST.md](/Users/wpc/code/codex/ClipboardHistory/docs/FIRST_VERSION_TEST_CHECKLIST.md)
+- 第一版发布说明：[docs/RELEASE_NOTES.md](/Users/wpc/code/codex/ClipboardHistory/docs/RELEASE_NOTES.md)
+- 已知限制：[docs/KNOWN_ISSUES.md](/Users/wpc/code/codex/ClipboardHistory/docs/KNOWN_ISSUES.md)
 - 日志规范：[docs/DEV_LOG_GUIDE.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEV_LOG_GUIDE.md)
 - 每日开发日志目录：[dev-logs](/Users/wpc/code/codex/ClipboardHistory/dev-logs)
 - 每日日志脚本：[scripts/daily_log.py](/Users/wpc/code/codex/ClipboardHistory/scripts/daily_log.py)

@@ -16,6 +16,11 @@
 
 第一版发布前按 [第一版回归测试清单](./docs/FIRST_VERSION_TEST_CHECKLIST.md) 逐项验收。
 
+发布资料：
+
+- [第一版发布说明](./docs/RELEASE_NOTES.md)
+- [已知限制](./docs/KNOWN_ISSUES.md)
+
 本地打包并启动：
 
 ```bash
