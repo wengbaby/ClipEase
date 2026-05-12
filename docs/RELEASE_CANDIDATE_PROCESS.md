@@ -36,7 +36,7 @@ scripts/smoke_check.py
 
 ## 构建 RC 包
 
-当自动检查通过且无已知阻塞问题时，构建 `1.0.0` 候选包：
+当自动检查通过且无已知阻塞问题时，首次进入第一版 RC 需要构建 `1.0.0` 候选包：
 
 ```bash
 scripts/build-app.sh --bump major --run
@@ -49,15 +49,23 @@ scripts/build-app.sh --bump major --run
 - 构建 `.build/ClipEase.app`。
 - 关闭旧的 ClipEase 进程并启动新包。
 
+如果已经进入 `1.0.x` RC 修复轮，后续阻塞 bug 修复后使用 patch 规则构建新的候选包：
+
+```bash
+scripts/build-app.sh --bump patch --run
+```
+
+该命令会递增修复版本，例如 `1.0.1 -> 1.0.2`，同时更新时间戳构建号。
+
 ## RC 完成标准
 
 - `.build/ClipEase.app` 可启动。
-- 关于页显示 `1.0.0(YYMMDD.HHMM)`。
+- 关于页显示当前 RC 版本，例如 `1.0.2(YYMMDD.HHMM)`。
 - Git 工作区干净。
 - GitHub `main` 已推送最新提交。
 - `docs/RELEASE_CANDIDATE_REPORT.md` 已记录本轮检查结果。
 
 ## RC 后处理
 
-- 如果用户回归通过：保留当前 `1.0.0` 作为第一版候选。
-- 如果发现阻塞问题：修复后用 patch 规则进入 `1.0.1(YYMMDD.HHMM)`，再重新跑本流程。
+- 如果用户回归通过：保留当前 `1.0.x` 作为第一版发布候选。
+- 如果发现阻塞问题：修复后用 patch 规则进入下一个 `1.0.x(YYMMDD.HHMM)`，再重新跑本流程。

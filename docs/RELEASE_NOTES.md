@@ -45,6 +45,8 @@ scripts/build-app.sh --run
 
 随后按 [第一版回归测试清单](./FIRST_VERSION_TEST_CHECKLIST.md) 进行手动验收。
 
+进入第一版 RC 后，阻塞修复使用 patch 版本递增，例如 `1.0.1 -> 1.0.2`。任何一次打包都会更新时间戳构建号。
+
 ## 数据安全
 
 - 历史索引使用本地 JSON 文件保存。
@@ -52,10 +54,16 @@ scripts/build-app.sh --run
 - 历史文件损坏时，轻贴会先备份损坏文件，再以空历史安全启动。
 - 导入历史采用追加合并，不覆盖现有历史。
 
-## 升级到 1.0.0
+## 升级到第一版
 
-当第一版回归测试无阻塞问题后，使用大版本规则构建发布候选包：
+从 `0.x.x` 首次进入第一版时，使用大版本规则构建 `1.0.0` 候选包：
 
 ```bash
 scripts/build-app.sh --bump major --run
+```
+
+如果已经是 `1.0.x` 修复轮，则使用 patch 规则构建新的候选包：
+
+```bash
+scripts/build-app.sh --bump patch --run
 ```
