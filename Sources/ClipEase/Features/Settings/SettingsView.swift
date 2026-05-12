@@ -760,7 +760,7 @@ struct SettingsView: View {
             NSWorkspace.shared.activateFileViewerSelecting([url])
             showStatus("已导出历史")
         } catch {
-            showStatus("导出失败")
+            showOperationError("导出历史失败", error: error)
         }
     }
 
@@ -784,7 +784,7 @@ struct SettingsView: View {
             refreshStorageUsage()
             showStatus(importedCount > 0 ? "已导入 \(importedCount) 条历史" : "没有可导入的新历史")
         } catch {
-            showStatus("导入失败")
+            showOperationError("导入历史失败", error: error)
         }
     }
 
@@ -805,7 +805,7 @@ struct SettingsView: View {
             NSWorkspace.shared.activateFileViewerSelecting([url])
             showStatus("已导出备份包")
         } catch {
-            showStatus("备份包导出失败")
+            showOperationError("备份包导出失败", error: error)
         }
     }
 
@@ -828,8 +828,14 @@ struct SettingsView: View {
             refreshStorageUsage()
             showStatus(importedCount > 0 ? "已导入 \(importedCount) 条备份历史" : "没有可导入的新历史")
         } catch {
-            showStatus("备份包导入失败")
+            showOperationError("备份包导入失败", error: error)
         }
+    }
+
+    private func showOperationError(_ title: String, error: Error) {
+        let message = error.localizedDescription
+        NSLog("ClipEase \(title): \(message)")
+        showStatus("\(title)：\(message)")
     }
 
     private func openGitHub() {
