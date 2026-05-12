@@ -7,7 +7,7 @@ APP_DIR="$ROOT_DIR/.build/ClipEase.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
-BUMP_TYPE="none"
+BUMP_TYPE="patch"
 RUN_APP="false"
 
 while [[ $# -gt 0 ]]; do
