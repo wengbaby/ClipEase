@@ -112,7 +112,7 @@ struct HistoryPreviewPopoverView: View {
         switch item.type {
         case .text:
             if isContentReady {
-                LazyPreviewTextView(text: item.text)
+                LazyPreviewTextView(text: item.text, isReady: isContentReady)
                     .background(Color.white)
             } else {
                 previewPlaceholder
@@ -144,7 +144,10 @@ struct HistoryPreviewPopoverView: View {
                 CheckerboardView()
 
                 if isContentReady, let image = previewImage {
-                    ScrollableImagePreview(image: image)
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(12)
                 } else {
                     Image(systemName: "photo")
                         .font(.system(size: 52, weight: .regular))

@@ -1437,12 +1437,13 @@ struct HistoryWindowView: View {
         case .togglePreview:
             togglePreviewForSelectedItem()
         case .close:
-            if isSearchFocused {
+            if previewState.isVisible {
+                closePreview()
+            } else if isSearchFocused {
                 clearSearch()
             } else if isSearchVisible {
                 clearAndCloseSearch()
             } else {
-                closePreview()
                 onClose()
             }
         case .selectVisibleCard(let number):
@@ -1854,16 +1855,13 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
     }
 
     final class ScrollRedirectView: NSView {
-        private weak var targetScrollView: NSScrollView?
         private var localMonitor: Any?
 
         func installMonitorIfNeeded() {
-            guard localMonitor == nil,
-                  let scrollView = enclosingScrollView else {
+            guard localMonitor == nil else {
                 return
             }
 
-            targetScrollView = scrollView
             localMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 guard let self,
                       self.redirect(event) else {
@@ -1890,14 +1888,9 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
 
         private func redirect(_ event: NSEvent) -> Bool {
             guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX),
-                  let scrollView = targetScrollView ?? enclosingScrollView,
-                  let window = scrollView.window,
-                  event.window === window else {
-                return false
-            }
-
-            let point = scrollView.convert(event.locationInWindow, from: nil)
-            guard scrollView.bounds.contains(point) else {
+                  let window,
+                  event.window === window,
+                  let scrollView = horizontalScrollView(in: window, at: event.locationInWindow) else {
                 return false
             }
 
@@ -1909,6 +1902,29 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
             scrollView.reflectScrolledClipView(clipView)
             return true
         }
+
+        private func horizontalScrollView(in window: NSWindow, at locationInWindow: NSPoint) -> NSScrollView? {
+            guard let contentView = window.contentView else {
+                return nil
+            }
+
+            let candidates = contentView.allDescendants.compactMap { $0 as? NSScrollView }
+            return candidates.first { scrollView in
+                let point = scrollView.convert(locationInWindow, from: nil)
+                guard scrollView.bounds.contains(point),
+                      let documentView = scrollView.documentView else {
+                    return false
+                }
+
+                return documentView.bounds.width > scrollView.contentView.bounds.width + 2
+            }
+        }
+    }
+}
+
+private extension NSView {
+    var allDescendants: [NSView] {
+        subviews + subviews.flatMap(\.allDescendants)
     }
 }
 
