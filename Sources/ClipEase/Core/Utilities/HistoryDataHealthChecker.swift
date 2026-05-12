@@ -36,6 +36,15 @@ struct HistoryDataHealthReport: Sendable {
         }
         return parts.joined(separator: "，")
     }
+
+    var detailText: String {
+        """
+        缺失图片：\(missingImageFiles)
+        缺失富文本：\(missingRichTextFiles)
+        孤立附件：\(orphanedAttachmentFiles)
+        孤立附件占用：\(formattedOrphanedAttachmentSize)
+        """
+    }
 }
 
 enum HistoryDataHealthChecker {

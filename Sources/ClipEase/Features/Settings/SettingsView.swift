@@ -756,8 +756,18 @@ struct SettingsView: View {
             await MainActor.run {
                 isCheckingHistoryData = false
                 showStatus(report.summary)
+                showHistoryDataHealthReport(report)
             }
         }
+    }
+
+    private func showHistoryDataHealthReport(_ report: HistoryDataHealthReport) {
+        let alert = NSAlert()
+        alert.messageText = report.hasIssues ? "发现数据问题" : "数据正常"
+        alert.informativeText = report.detailText
+        alert.alertStyle = report.hasIssues ? .warning : .informational
+        alert.addButton(withTitle: "好的")
+        alert.runModal()
     }
 
     private func openDirectory(_ url: URL?) {
