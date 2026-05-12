@@ -4,6 +4,8 @@
 
 当前项目处于第一版 RC 稳定性收尾阶段。实施前请先阅读 [docs/PROJECT_GUIDE.md](./docs/PROJECT_GUIDE.md)，并按文档中的开发顺序推进。
 
+第二版已进入方案头脑风暴阶段，当前只整理和确认方案，不实施功能代码。
+
 ## 当前功能
 
 - 菜单栏常驻和底部横向历史窗口
@@ -22,6 +24,9 @@
 - [发布候选流程](./docs/RELEASE_CANDIDATE_PROCESS.md)
 - [发布候选报告](./docs/RELEASE_CANDIDATE_REPORT.md)
 - [已知限制](./docs/KNOWN_ISSUES.md)
+- [第二版产品方案](./docs/V2_PRODUCT_PLAN.md)
+- [第二版技术方案草案](./docs/V2_TECHNICAL_PLAN.md)
+- [第二版开发计划草案](./docs/V2_DEVELOPMENT_PLAN.md)
 
 本地打包并启动：
 
