@@ -29,6 +29,7 @@ struct HistoryWindowView: View {
     @State private var previewBuildTask: Task<Void, Never>?
     @State private var searchTask: Task<Void, Never>?
     @State private var preheatTask: Task<Void, Never>?
+    @State private var windowWidth: CGFloat = 0
 
     private let backgroundColor = Color(red: 0.78, green: 0.82, blue: 0.92)
 
@@ -163,7 +164,7 @@ struct HistoryWindowView: View {
                                     )
                                     .contentShape(Rectangle())
                                     .highPriorityGesture(
-                                        immediateSelectionGesture(for: item),
+                                        immediateSelectionGesture(for: item, proxy: proxy),
                                         including: .all
                                     )
                                     .simultaneousGesture(
@@ -274,6 +275,17 @@ struct HistoryWindowView: View {
             .padding(.top, 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        windowWidth = proxy.size.width
+                    }
+                    .onChange(of: proxy.size.width) { width in
+                        windowWidth = width
+                    }
+            }
+        )
         .coordinateSpace(name: "historyWindow")
         .focusable()
         .transaction { transaction in
@@ -1039,7 +1051,10 @@ struct HistoryWindowView: View {
         return "rgb(\(red), \(green), \(blue))"
     }
 
-    private func immediateSelectionGesture(for item: HistoryPreviewItem) -> some Gesture {
+    private func immediateSelectionGesture(
+        for item: HistoryPreviewItem,
+        proxy: ScrollViewProxy
+    ) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { _ in
                 if previewState.isVisible {
@@ -1049,7 +1064,27 @@ struct HistoryWindowView: View {
                 if selectedItemID != item.id {
                     selectedItemID = item.id
                 }
+
+                revealPartiallyVisibleCardIfNeeded(item.id, proxy: proxy)
             }
+    }
+
+    private func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID, proxy: ScrollViewProxy) {
+        guard let frame = cardFrames[id] else {
+            return
+        }
+
+        let leftVisibleEdge: CGFloat = 28
+        let rightVisibleEdge = max(leftVisibleEdge, windowWidth - 28)
+        if frame.minX < leftVisibleEdge {
+            withAnimation(.easeOut(duration: 0.12)) {
+                proxy.scrollTo(id, anchor: .leading)
+            }
+        } else if frame.maxX > rightVisibleEdge {
+            withAnimation(.easeOut(duration: 0.12)) {
+                proxy.scrollTo(id, anchor: .trailing)
+            }
+        }
     }
 
     private func closePreview() {
@@ -1897,7 +1932,9 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
             let clipView = scrollView.contentView
             let documentWidth = scrollView.documentView?.bounds.width ?? 0
             let maxX = max(documentWidth - clipView.bounds.width, 0)
-            let nextX = min(max(clipView.bounds.minX + event.scrollingDeltaY, 0), maxX)
+            let multiplier: CGFloat = event.hasPreciseScrollingDeltas ? 2.4 : 8.0
+            let delta = event.scrollingDeltaY * multiplier
+            let nextX = min(max(clipView.bounds.minX + delta, 0), maxX)
             clipView.scroll(to: NSPoint(x: nextX, y: clipView.bounds.minY))
             scrollView.reflectScrolledClipView(clipView)
             return true

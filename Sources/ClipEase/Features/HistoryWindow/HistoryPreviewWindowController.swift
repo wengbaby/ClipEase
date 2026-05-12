@@ -268,7 +268,9 @@ final class HistoryPreviewWindowController {
         )
 
         switch item.type {
-        case .image, .link:
+        case .image:
+            return imagePreviewSize(for: item, maxWindowSize: maxWindowSize, chromeHeight: chromeHeight)
+        case .link:
             return CGSize(
                 width: max(390, maxWindowSize.width),
                 height: max(260, maxWindowSize.height)
@@ -290,6 +292,38 @@ final class HistoryPreviewWindowController {
     private func contentSizeLimit(for screenFrame: CGRect) -> CGSize {
         let width = screenFrame.width * 0.5
         return CGSize(width: width, height: width * 9 / 16)
+    }
+
+    private func imagePreviewSize(
+        for item: ClipboardItem,
+        maxWindowSize: CGSize,
+        chromeHeight: CGFloat
+    ) -> CGSize {
+        guard let imageWidth = item.imageWidth,
+              let imageHeight = item.imageHeight,
+              imageWidth > 0,
+              imageHeight > 0 else {
+            return CGSize(
+                width: max(390, maxWindowSize.width),
+                height: max(260, maxWindowSize.height)
+            )
+        }
+
+        let maxContentWidth = maxWindowSize.width
+        let maxContentHeight = maxWindowSize.height - chromeHeight
+        let ratio = CGFloat(imageWidth) / CGFloat(imageHeight)
+        var contentWidth = maxContentWidth
+        var contentHeight = contentWidth / ratio
+
+        if contentHeight > maxContentHeight {
+            contentHeight = maxContentHeight
+            contentWidth = contentHeight * ratio
+        }
+
+        return CGSize(
+            width: max(390, min(maxWindowSize.width, contentWidth)),
+            height: max(260, min(maxWindowSize.height, contentHeight + chromeHeight))
+        )
     }
 
     private func estimatedTextSize(for text: String, wrappingWidth: CGFloat) -> CGSize {
