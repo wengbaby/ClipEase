@@ -185,10 +185,6 @@ struct HistoryCardView: View {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.19))
                     .lineLimit(1)
-
-                highlightedText(item.linkSubtitle ?? item.preview, baseColor: Color.secondary)
-                    .font(.system(size: 14, weight: .medium))
-                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)

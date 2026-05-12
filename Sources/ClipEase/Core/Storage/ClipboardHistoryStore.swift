@@ -77,6 +77,12 @@ final class ClipboardHistoryStore: ObservableObject {
         sortItems()
         pruneExpiredItems()
         scheduleSave()
+
+        if item.type == .link,
+           item.linkTitle == "/",
+           let url = item.url {
+            fetchLinkTitle(for: item.id, url: url)
+        }
     }
 
     func addRichText(_ data: Data, plainText: String, sourceApp: SourceAppInfo) {
@@ -205,6 +211,29 @@ final class ClipboardHistoryStore: ObservableObject {
 
         items[index].createdAt = Date()
         sortItems()
+        scheduleSave()
+    }
+
+    private func fetchLinkTitle(for id: ClipboardItem.ID, url: URL) {
+        Task.detached(priority: .utility) {
+            guard let title = await LinkTitleFetcher.title(for: url) else {
+                return
+            }
+
+            await MainActor.run {
+                self.updateLinkTitle(title, for: id)
+            }
+        }
+    }
+
+    private func updateLinkTitle(_ title: String, for id: ClipboardItem.ID) {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].type == .link,
+              items[index].linkTitle != title else {
+            return
+        }
+
+        items[index].linkTitle = title
         scheduleSave()
     }
 

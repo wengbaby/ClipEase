@@ -13,7 +13,7 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     let type: ClipboardItemType
     let text: String
     let url: URL?
-    let linkTitle: String?
+    var linkTitle: String?
     let linkSubtitle: String?
     let imageFileName: String?
     let imageWidth: Int?

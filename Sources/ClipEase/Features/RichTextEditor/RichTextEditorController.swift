@@ -17,6 +17,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private var isUnderlineActive = false
     private var isStrikethroughActive = false
     private var fontSize: CGFloat = 16
+    var onClose: (() -> Void)?
 
     init(onCreate: @escaping (Data, String) -> Void) {
         self.onCreate = onCreate
@@ -58,7 +59,9 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         self.lineLabel = Self.makeFooterLabel("0 行")
         super.init()
 
+        panel.editorTextView = textView
         textView.delegate = self
+        panel.delegate = self
         panel.contentView = makeContentView()
         panel.onCommandW = { [weak panel] in
             panel?.close()
@@ -442,8 +445,15 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     }
 }
 
+extension RichTextEditorController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        onClose?()
+    }
+}
+
 private final class RichTextEditorPanel: NSPanel {
     var onCommandW: (() -> Void)?
+    weak var editorTextView: NSTextView?
 
     override var canBecomeKey: Bool {
         true
@@ -451,6 +461,40 @@ private final class RichTextEditorPanel: NSPanel {
 
     override var canBecomeMain: Bool {
         true
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.command),
+              let key = event.charactersIgnoringModifiers?.lowercased() else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        switch key {
+        case "a":
+            editorTextView?.selectAll(nil)
+            return true
+        case "c":
+            editorTextView?.copy(nil)
+            return true
+        case "x":
+            editorTextView?.cut(nil)
+            return true
+        case "v":
+            editorTextView?.paste(nil)
+            return true
+        case "z":
+            if event.modifierFlags.contains(.shift) {
+                editorTextView?.undoManager?.redo()
+            } else {
+                editorTextView?.undoManager?.undo()
+            }
+            return true
+        case "w":
+            onCommandW?()
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
     }
 
     override func keyDown(with event: NSEvent) {

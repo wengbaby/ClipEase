@@ -9,7 +9,7 @@ final class AppMenuController: NSObject {
     private let globalShortcutSettings: GlobalShortcutSettings
     private let accessibilityPermissionState: AccessibilityPermissionState
     private let pasteExecutor: PasteExecutor
-    private var richTextEditorController: RichTextEditorController?
+    private var richTextEditorControllers: [RichTextEditorController] = []
     private var settingsWindowController: SettingsWindowController?
     private var helpWindowController: HelpWindowController?
 
@@ -40,7 +40,14 @@ final class AppMenuController: NSObject {
                 sourceApp: .clipease
             )
         }
-        richTextEditorController = editorController
+        editorController.onClose = { [weak self, weak editorController] in
+            guard let editorController else {
+                return
+            }
+
+            self?.richTextEditorControllers.removeAll { $0 === editorController }
+        }
+        richTextEditorControllers.append(editorController)
         editorController.show()
     }
 

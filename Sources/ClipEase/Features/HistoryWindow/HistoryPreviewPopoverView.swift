@@ -114,29 +114,21 @@ struct HistoryPreviewPopoverView: View {
         case .color:
             colorContent
         case .link:
-            VStack(alignment: .leading, spacing: 10) {
-                Text(item.linkTitle ?? "/")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.13, green: 0.14, blue: 0.16))
-                    .lineLimit(2)
-
-                Text(item.url?.absoluteString ?? item.text)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
-
-                Spacer()
+            ZStack(alignment: .bottomTrailing) {
+                LinkPreviewWebView(url: item.url)
+                    .background(Color.white)
 
                 Button(action: onOpen) {
-                    Label("打开链接", systemImage: "arrow.up.right.square")
-                        .font(.system(size: 13, weight: .semibold))
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(Color.black.opacity(0.62))
+                        .clipShape(Circle())
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
+                .padding(12)
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color.white)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onOpen)
         case .image:
             ZStack {
                 CheckerboardView()

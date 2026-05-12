@@ -13,60 +13,30 @@ enum URLParser {
             return url
         }
 
-        guard isLikelyBareURL(candidate),
-              let url = URL(string: "https://\(candidate)"),
-              isSupported(url) else {
-            return nil
-        }
-
-        return url
+        return nil
     }
 
     private static func hasExplicitHTTPScheme(_ candidate: String) -> Bool {
-        candidate.localizedCaseInsensitiveCompare("http://") == .orderedSame
-            || candidate.localizedCaseInsensitiveCompare("https://") == .orderedSame
-            || candidate.lowercased().hasPrefix("http://")
-            || candidate.lowercased().hasPrefix("https://")
-    }
-
-    private static func isLikelyBareURL(_ candidate: String) -> Bool {
-        guard !candidate.contains("_"),
-              !candidate.hasPrefix("."),
-              !candidate.hasSuffix(".") else {
-            return false
-        }
-
         let lowercased = candidate.lowercased()
-        let host = String(lowercased.split(separator: "/", maxSplits: 1).first ?? "")
-        guard host.isHostLikeDomain else {
-            return false
-        }
-
-        if candidate.split(separator: "/", maxSplits: 1).count == 1,
-           let fileExtension = host.split(separator: ".").last,
-           Self.commonDocumentExtensions.contains(String(fileExtension)) {
-            return false
-        }
-
-        return true
+        return lowercased.hasPrefix("http://") || lowercased.hasPrefix("https://")
     }
 
     private static func isSupported(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(),
               ["http", "https"].contains(scheme),
               let host = url.host(percentEncoded: false),
-              host.isHostLikeDomain else {
+              !host.isEmpty,
+              isSupportedHost(host) else {
             return false
         }
 
         return true
     }
 
-    private static let commonDocumentExtensions: Set<String> = [
-        "md", "txt", "rtf", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-        "json", "xml", "csv", "swift", "js", "ts", "css", "html", "png", "jpg",
-        "jpeg", "gif", "webp", "svg", "heic", "zip", "dmg"
-    ]
+    private static func isSupportedHost(_ host: String) -> Bool {
+        host.isHostLikeDomain || host.isIPv4Address || host.localizedCaseInsensitiveCompare("localhost") == .orderedSame
+    }
+
 }
 
 private extension String {
@@ -89,6 +59,21 @@ private extension String {
             return part.allSatisfy { character in
                 character.isLetter || character.isNumber || character == "-"
             }
+        }
+    }
+
+    var isIPv4Address: Bool {
+        let parts = split(separator: ".")
+        guard parts.count == 4 else {
+            return false
+        }
+
+        return parts.allSatisfy { part in
+            guard let value = Int(part), (0...255).contains(value) else {
+                return false
+            }
+
+            return String(value) == part || part == "0"
         }
     }
 }
