@@ -70,6 +70,8 @@ def check_app_bundle_if_present() -> None:
 
 def check_release_docs() -> None:
     require_file("docs/RELEASE_NOTES.md")
+    require_file("docs/RELEASE_CANDIDATE_PROCESS.md")
+    require_file("docs/RELEASE_CANDIDATE_REPORT.md")
     require_file("docs/KNOWN_ISSUES.md")
     checklist = require_file("docs/FIRST_VERSION_TEST_CHECKLIST.md")
     text = checklist.read_text(encoding="utf-8")

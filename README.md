@@ -19,6 +19,8 @@
 发布资料：
 
 - [第一版发布说明](./docs/RELEASE_NOTES.md)
+- [发布候选流程](./docs/RELEASE_CANDIDATE_PROCESS.md)
+- [发布候选报告](./docs/RELEASE_CANDIDATE_REPORT.md)
 - [已知限制](./docs/KNOWN_ISSUES.md)
 
 本地打包并启动：

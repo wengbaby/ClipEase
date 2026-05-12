@@ -19,6 +19,8 @@
 - 版本规则：[docs/VERSIONING.md](/Users/wpc/code/codex/ClipboardHistory/docs/VERSIONING.md)
 - 第一版回归测试清单：[docs/FIRST_VERSION_TEST_CHECKLIST.md](/Users/wpc/code/codex/ClipboardHistory/docs/FIRST_VERSION_TEST_CHECKLIST.md)
 - 第一版发布说明：[docs/RELEASE_NOTES.md](/Users/wpc/code/codex/ClipboardHistory/docs/RELEASE_NOTES.md)
+- 发布候选流程：[docs/RELEASE_CANDIDATE_PROCESS.md](/Users/wpc/code/codex/ClipboardHistory/docs/RELEASE_CANDIDATE_PROCESS.md)
+- 发布候选报告：[docs/RELEASE_CANDIDATE_REPORT.md](/Users/wpc/code/codex/ClipboardHistory/docs/RELEASE_CANDIDATE_REPORT.md)
 - 已知限制：[docs/KNOWN_ISSUES.md](/Users/wpc/code/codex/ClipboardHistory/docs/KNOWN_ISSUES.md)
 - 日志规范：[docs/DEV_LOG_GUIDE.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEV_LOG_GUIDE.md)
 - 每日开发日志目录：[dev-logs](/Users/wpc/code/codex/ClipboardHistory/dev-logs)
