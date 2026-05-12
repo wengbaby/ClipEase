@@ -34,10 +34,14 @@ def require_text(path: str, patterns: list[str]) -> None:
     ok(f"{path} contains required markers")
 
 
-def check_info_plist() -> None:
-    info_path = require_file("Resources/Info.plist")
+def load_plist(path: str) -> dict:
+    info_path = require_file(path)
     with info_path.open("rb") as file:
-        info = plistlib.load(file)
+        return plistlib.load(file)
+
+
+def check_info_plist() -> tuple[str, str]:
+    info = load_plist("Resources/Info.plist")
 
     short_version = info.get("CFBundleShortVersionString", "")
     build_version = info.get("CFBundleVersion", "")
@@ -51,15 +55,24 @@ def check_info_plist() -> None:
         fail("CFBundleExecutable must be ClipEase")
 
     ok(f"Version {short_version}({build_version}) is valid")
+    return short_version, build_version
 
 
-def check_app_bundle_if_present() -> None:
+def check_app_bundle_if_present(short_version: str, build_version: str) -> None:
     app_path = ROOT / ".build/ClipEase.app"
     if not app_path.exists():
         print("SKIP: .build/ClipEase.app not found; run scripts/build-app.sh first")
         return
 
-    require_file(".build/ClipEase.app/Contents/Info.plist")
+    app_info = load_plist(".build/ClipEase.app/Contents/Info.plist")
+    app_short_version = app_info.get("CFBundleShortVersionString", "")
+    app_build_version = app_info.get("CFBundleVersion", "")
+    if app_short_version != short_version or app_build_version != build_version:
+        fail(
+            "App bundle version does not match Resources/Info.plist: "
+            f"{app_short_version}({app_build_version}) != {short_version}({build_version})"
+        )
+
     executable = ROOT / ".build/ClipEase.app/Contents/MacOS/ClipEase"
     if not executable.is_file():
         fail("Missing app executable in .build/ClipEase.app")
@@ -68,10 +81,10 @@ def check_app_bundle_if_present() -> None:
     ok("App bundle structure is valid")
 
 
-def check_release_docs() -> None:
+def check_release_docs(short_version: str, build_version: str) -> None:
     require_file("docs/RELEASE_NOTES.md")
     require_file("docs/RELEASE_CANDIDATE_PROCESS.md")
-    require_file("docs/RELEASE_CANDIDATE_REPORT.md")
+    report = require_file("docs/RELEASE_CANDIDATE_REPORT.md")
     require_file("docs/KNOWN_ISSUES.md")
     checklist = require_file("docs/FIRST_VERSION_TEST_CHECKLIST.md")
     text = checklist.read_text(encoding="utf-8")
@@ -90,7 +103,17 @@ def check_release_docs() -> None:
     for section in required_sections:
         if section not in text:
             fail(f"Release checklist missing section: {section}")
+    if "黄色背景高亮" not in text:
+        fail("Release checklist missing yellow search highlight verification")
     ok("Release checklist has required sections")
+
+    report_text = report.read_text(encoding="utf-8")
+    if short_version not in report_text or build_version not in report_text:
+        fail(
+            "Release candidate report is not aligned with current version: "
+            f"expected {short_version}({build_version})"
+        )
+    ok("Release candidate report matches current version")
 
 
 def check_key_sources() -> None:
@@ -129,10 +152,10 @@ def check_key_sources() -> None:
 
 
 def main() -> None:
-    check_info_plist()
-    check_release_docs()
+    short_version, build_version = check_info_plist()
+    check_release_docs(short_version, build_version)
     check_key_sources()
-    check_app_bundle_if_present()
+    check_app_bundle_if_present(short_version, build_version)
     ok("Smoke check passed")
 
 

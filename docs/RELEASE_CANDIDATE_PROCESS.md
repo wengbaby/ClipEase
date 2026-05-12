@@ -22,6 +22,8 @@ scripts/smoke_check.py
 
 - 调试构建通过。
 - smoke check 全部通过。
+- `.build/ClipEase.app` 如已存在，其版本必须与 `Resources/Info.plist` 一致。
+- `docs/RELEASE_CANDIDATE_REPORT.md` 必须包含当前版本号和构建号。
 - 如果检查失败，先修复失败项，不进入 RC 打包。
 
 ## 手动回归

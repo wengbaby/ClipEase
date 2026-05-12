@@ -47,6 +47,8 @@ scripts/build-app.sh --run
 
 进入第一版 RC 后，阻塞修复使用 patch 版本递增，例如 `1.0.1 -> 1.0.2`。任何一次打包都会更新时间戳构建号。
 
+`scripts/smoke_check.py` 会同时检查发布文档和 `.app` 包版本是否与当前 `Resources/Info.plist` 一致，避免发布候选报告或打包产物滞后。
+
 ## 数据安全
 
 - 历史索引使用本地 JSON 文件保存。
