@@ -83,6 +83,7 @@ struct SettingsView: View {
     @State private var storageUsageText = "计算中"
     @State private var isStorageUsageRefreshing = false
     @State private var isCleaningOrphanedAttachments = false
+    @State private var isHistoryTransferInProgress = false
     @State private var selectedCategory: SettingsCategory = .general
 
     var body: some View {
@@ -507,20 +508,22 @@ struct SettingsView: View {
                     historyButton("导出历史", prominent: true) {
                         exportHistory()
                     }
-                    .disabled(store.items.isEmpty)
+                    .disabled(store.items.isEmpty || isHistoryTransferInProgress)
 
                     historyButton("导入历史") {
                         importHistory()
                     }
+                    .disabled(isHistoryTransferInProgress)
 
                     historyButton("导出备份包", minWidth: 104) {
                         exportBackup()
                     }
-                    .disabled(store.items.isEmpty)
+                    .disabled(store.items.isEmpty || isHistoryTransferInProgress)
 
                     historyButton("导入备份包", minWidth: 104) {
                         importBackup()
                     }
+                    .disabled(isHistoryTransferInProgress)
                 }
 
                 Divider()
@@ -692,6 +695,10 @@ struct SettingsView: View {
         }
     }
 
+    private func showProgress(_ text: String) {
+        statusText = text
+    }
+
     private func refreshStorageUsage() {
         isStorageUsageRefreshing = true
         Task {
@@ -755,12 +762,27 @@ struct SettingsView: View {
             return
         }
 
-        do {
-            try HistoryExportService.export(items: store.items, to: url)
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-            showStatus("已导出历史")
-        } catch {
-            showOperationError("导出历史失败", error: error)
+        isHistoryTransferInProgress = true
+        showProgress("正在导出历史...")
+        let items = store.items
+
+        Task {
+            let result = await Task.detached(priority: .utility) {
+                Result {
+                    try HistoryExportService.export(items: items, to: url)
+                }
+            }.value
+
+            await MainActor.run {
+                isHistoryTransferInProgress = false
+                switch result {
+                case .success:
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    showStatus("已导出历史")
+                case .failure(let error):
+                    showOperationError("导出历史失败", error: error)
+                }
+            }
         }
     }
 
@@ -778,13 +800,27 @@ struct SettingsView: View {
             return
         }
 
-        do {
-            let importedItems = try HistoryExportService.importItems(from: url)
-            let importedCount = store.importItems(importedItems)
-            refreshStorageUsage()
-            showStatus(importedCount > 0 ? "已导入 \(importedCount) 条历史" : "没有可导入的新历史")
-        } catch {
-            showOperationError("导入历史失败", error: error)
+        isHistoryTransferInProgress = true
+        showProgress("正在导入历史...")
+
+        Task {
+            let result = await Task.detached(priority: .utility) {
+                Result {
+                    try HistoryExportService.importItems(from: url)
+                }
+            }.value
+
+            await MainActor.run {
+                isHistoryTransferInProgress = false
+                switch result {
+                case .success(let importedItems):
+                    let importedCount = store.importItems(importedItems)
+                    refreshStorageUsage()
+                    showStatus(importedCount > 0 ? "已导入 \(importedCount) 条历史" : "没有可导入的新历史")
+                case .failure(let error):
+                    showOperationError("导入历史失败", error: error)
+                }
+            }
         }
     }
 
@@ -800,12 +836,27 @@ struct SettingsView: View {
             return
         }
 
-        do {
-            try HistoryExportService.exportBackup(items: store.items, to: url)
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-            showStatus("已导出备份包")
-        } catch {
-            showOperationError("备份包导出失败", error: error)
+        isHistoryTransferInProgress = true
+        showProgress("正在导出备份包...")
+        let items = store.items
+
+        Task {
+            let result = await Task.detached(priority: .utility) {
+                Result {
+                    try HistoryExportService.exportBackup(items: items, to: url)
+                }
+            }.value
+
+            await MainActor.run {
+                isHistoryTransferInProgress = false
+                switch result {
+                case .success:
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    showStatus("已导出备份包")
+                case .failure(let error):
+                    showOperationError("备份包导出失败", error: error)
+                }
+            }
         }
     }
 
@@ -822,13 +873,27 @@ struct SettingsView: View {
             return
         }
 
-        do {
-            let importedItems = try HistoryExportService.importBackup(from: url)
-            let importedCount = store.importBackupItems(importedItems)
-            refreshStorageUsage()
-            showStatus(importedCount > 0 ? "已导入 \(importedCount) 条备份历史" : "没有可导入的新历史")
-        } catch {
-            showOperationError("备份包导入失败", error: error)
+        isHistoryTransferInProgress = true
+        showProgress("正在导入备份包...")
+
+        Task {
+            let result = await Task.detached(priority: .utility) {
+                Result {
+                    try HistoryExportService.importBackup(from: url)
+                }
+            }.value
+
+            await MainActor.run {
+                isHistoryTransferInProgress = false
+                switch result {
+                case .success(let importedItems):
+                    let importedCount = store.importBackupItems(importedItems)
+                    refreshStorageUsage()
+                    showStatus(importedCount > 0 ? "已导入 \(importedCount) 条备份历史" : "没有可导入的新历史")
+                case .failure(let error):
+                    showOperationError("备份包导入失败", error: error)
+                }
+            }
         }
     }
 
