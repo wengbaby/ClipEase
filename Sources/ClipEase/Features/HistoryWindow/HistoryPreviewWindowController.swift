@@ -47,12 +47,13 @@ final class HistoryPreviewWindowController {
         let isAlreadyVisible = panel.isVisible
         self.panel = panel
         contentLoadTask?.cancel()
+        let shouldLoadImmediately = item.type == .text || item.type == .color || item.type == .image
         setPreviewContent(
             panel: panel,
             item: item,
             arrowX: arrowX,
             size: size,
-            isContentReady: false,
+            isContentReady: shouldLoadImmediately,
             onCopy: onCopy,
             onOpen: onOpen,
             onReveal: onReveal,
@@ -64,20 +65,22 @@ final class HistoryPreviewWindowController {
 
         if isAlreadyVisible {
             panel.setFrame(frame, display: true)
-            scheduleContentLoad(
-                panel: panel,
-                item: item,
-                arrowX: arrowX,
-                size: size,
-                delay: 30_000_000,
-                onCopy: onCopy,
-                onOpen: onOpen,
-                onReveal: onReveal,
-                onCopyURL: onCopyURL,
-                onCopyMarkdown: onCopyMarkdown,
-                onCopyPath: onCopyPath,
-                onCopyRGB: onCopyRGB
-            )
+            if !shouldLoadImmediately {
+                scheduleContentLoad(
+                    panel: panel,
+                    item: item,
+                    arrowX: arrowX,
+                    size: size,
+                    delay: 1_000_000,
+                    onCopy: onCopy,
+                    onOpen: onOpen,
+                    onReveal: onReveal,
+                    onCopyURL: onCopyURL,
+                    onCopyMarkdown: onCopyMarkdown,
+                    onCopyPath: onCopyPath,
+                    onCopyRGB: onCopyRGB
+                )
+            }
         } else {
             let startFrame = frame.offsetBy(dx: 0, dy: -12)
             panel.alphaValue = 0
@@ -94,20 +97,22 @@ final class HistoryPreviewWindowController {
                     return
                 }
 
-                self.scheduleContentLoad(
-                    panel: panel,
-                    item: item,
-                    arrowX: arrowX,
-                    size: size,
-                    delay: 20_000_000,
-                    onCopy: onCopy,
-                    onOpen: onOpen,
-                    onReveal: onReveal,
-                    onCopyURL: onCopyURL,
-                    onCopyMarkdown: onCopyMarkdown,
-                    onCopyPath: onCopyPath,
-                    onCopyRGB: onCopyRGB
-                )
+                if !shouldLoadImmediately {
+                    self.scheduleContentLoad(
+                        panel: panel,
+                        item: item,
+                        arrowX: arrowX,
+                        size: size,
+                        delay: 1_000_000,
+                        onCopy: onCopy,
+                        onOpen: onOpen,
+                        onReveal: onReveal,
+                        onCopyURL: onCopyURL,
+                        onCopyMarkdown: onCopyMarkdown,
+                        onCopyPath: onCopyPath,
+                        onCopyRGB: onCopyRGB
+                    )
+                }
             }
         }
     }

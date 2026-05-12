@@ -1065,26 +1065,32 @@ struct HistoryWindowView: View {
                     selectedItemID = item.id
                 }
 
-                revealPartiallyVisibleCardIfNeeded(item.id, proxy: proxy)
+                revealPartiallyVisibleCardIfNeeded(item.id)
             }
     }
 
-    private func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID, proxy: ScrollViewProxy) {
+    private func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID) {
         guard let frame = cardFrames[id] else {
             return
         }
 
         let leftVisibleEdge: CGFloat = 28
         let rightVisibleEdge = max(leftVisibleEdge, windowWidth - 28)
+        let peekWidth = frame.width / 6
+        var deltaX: CGFloat?
+
         if frame.minX < leftVisibleEdge {
-            withAnimation(.easeOut(duration: 0.12)) {
-                proxy.scrollTo(id, anchor: .leading)
-            }
+            deltaX = frame.minX - leftVisibleEdge - peekWidth
         } else if frame.maxX > rightVisibleEdge {
-            withAnimation(.easeOut(duration: 0.12)) {
-                proxy.scrollTo(id, anchor: .trailing)
-            }
+            deltaX = frame.maxX - rightVisibleEdge + peekWidth
         }
+
+        guard let deltaX,
+              abs(deltaX) > 1 else {
+            return
+        }
+
+        HistoryScrollCoordinator.shared.scrollBy(deltaX, animated: true)
     }
 
     private func closePreview() {
@@ -1897,6 +1903,11 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
                 return
             }
 
+            if let window,
+               let scrollView = horizontalScrollView(in: window, at: window.mouseLocationOutsideOfEventStream) {
+                HistoryScrollCoordinator.shared.update(scrollView: scrollView)
+            }
+
             localMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 guard let self,
                       self.redirect(event) else {
@@ -1929,6 +1940,7 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
                 return false
             }
 
+            HistoryScrollCoordinator.shared.update(scrollView: scrollView)
             let clipView = scrollView.contentView
             let documentWidth = scrollView.documentView?.bounds.width ?? 0
             let maxX = max(documentWidth - clipView.bounds.width, 0)
@@ -1955,6 +1967,44 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
 
                 return documentView.bounds.width > scrollView.contentView.bounds.width + 2
             }
+        }
+    }
+}
+
+@MainActor
+private final class HistoryScrollCoordinator {
+    static let shared = HistoryScrollCoordinator()
+    private weak var scrollView: NSScrollView?
+
+    func update(scrollView: NSScrollView) {
+        self.scrollView = scrollView
+    }
+
+    func scrollBy(_ deltaX: CGFloat, animated: Bool) {
+        guard let scrollView else {
+            return
+        }
+
+        let clipView = scrollView.contentView
+        let documentWidth = scrollView.documentView?.bounds.width ?? 0
+        let maxX = max(documentWidth - clipView.bounds.width, 0)
+        let nextX = min(max(clipView.bounds.minX + deltaX, 0), maxX)
+
+        guard abs(nextX - clipView.bounds.minX) > 0.5 else {
+            return
+        }
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+                clipView.animator().setBoundsOrigin(NSPoint(x: nextX, y: clipView.bounds.minY))
+            } completionHandler: {
+                scrollView.reflectScrolledClipView(clipView)
+            }
+        } else {
+            clipView.scroll(to: NSPoint(x: nextX, y: clipView.bounds.minY))
+            scrollView.reflectScrolledClipView(clipView)
         }
     }
 }
