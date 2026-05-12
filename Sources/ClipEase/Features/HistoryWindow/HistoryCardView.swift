@@ -238,23 +238,34 @@ struct HistoryCardView: View {
 
     private func highlightedText(_ text: String, baseColor: Color) -> Text {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty,
-              let range = text.range(
-                of: query,
-                options: [.caseInsensitive, .diacriticInsensitive]
-              ) else {
+        guard !query.isEmpty else {
             return Text(text).foregroundColor(baseColor)
         }
 
-        let prefix = String(text[..<range.lowerBound])
-        let match = String(text[range])
-        let suffix = String(text[range.upperBound...])
+        var attributedText = AttributedString(text)
+        attributedText.foregroundColor = baseColor
 
-        return Text(prefix).foregroundColor(baseColor)
-            + Text(match)
-                .foregroundColor(Color(red: 0.02, green: 0.42, blue: 0.95))
-                .fontWeight(.bold)
-            + Text(suffix).foregroundColor(baseColor)
+        var searchStart = text.startIndex
+        var hasMatch = false
+
+        while searchStart < text.endIndex,
+              let matchRange = text.range(
+                of: query,
+                options: [.caseInsensitive, .diacriticInsensitive],
+                range: searchStart..<text.endIndex
+              ) {
+            guard let lowerBound = AttributedString.Index(matchRange.lowerBound, within: attributedText),
+                  let upperBound = AttributedString.Index(matchRange.upperBound, within: attributedText) else {
+                break
+            }
+
+            attributedText[lowerBound..<upperBound].backgroundColor = Color.yellow.opacity(0.55)
+            attributedText[lowerBound..<upperBound].foregroundColor = baseColor
+            hasMatch = true
+            searchStart = matchRange.upperBound
+        }
+
+        return hasMatch ? Text(attributedText) : Text(text).foregroundColor(baseColor)
     }
 
     private func rgbText(from components: ClipEaseColorComponents) -> String {
