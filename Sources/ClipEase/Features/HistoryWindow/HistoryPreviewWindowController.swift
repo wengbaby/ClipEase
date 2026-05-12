@@ -85,8 +85,8 @@ final class HistoryPreviewWindowController {
             panel.orderFrontRegardless()
 
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.13
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
                 panel.animator().alphaValue = 1
                 panel.animator().setFrame(frame, display: true)
             } completionHandler: { [weak self, weak panel] in
@@ -123,8 +123,8 @@ final class HistoryPreviewWindowController {
 
         panel.contentView = NSView()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.08
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
             panel.animator().alphaValue = 0
         } completionHandler: { [weak panel] in
             panel?.orderOut(nil)
@@ -274,7 +274,7 @@ final class HistoryPreviewWindowController {
                 height: max(260, maxWindowSize.height)
             )
         case .text:
-            let measuredTextSize = measuredSize(for: item.text, wrappingWidth: maxWindowSize.width - 32)
+            let measuredTextSize = estimatedTextSize(for: item.text, wrappingWidth: maxWindowSize.width - 32)
             return CGSize(
                 width: min(maxWindowSize.width, max(390, measuredTextSize.width + 32)),
                 height: min(maxWindowSize.height, max(260, measuredTextSize.height + chromeHeight))
@@ -292,26 +292,23 @@ final class HistoryPreviewWindowController {
         return CGSize(width: width, height: width * 9 / 16)
     }
 
-    private func measuredSize(for text: String, wrappingWidth: CGFloat) -> CGSize {
-        let font = NSFont.systemFont(ofSize: 15, weight: .regular)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineBreakMode = .byWordWrapping
-        let attributedText = NSAttributedString(
-            string: text.isEmpty ? " " : text,
-            attributes: [
-                .font: font,
-                .paragraphStyle: paragraphStyle
-            ]
-        )
-        let boundingRect = attributedText.boundingRect(
-            with: CGSize(width: wrappingWidth, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        let singleLineWidth = (text.isEmpty ? " " : text).size(withAttributes: [.font: font]).width
+    private func estimatedTextSize(for text: String, wrappingWidth: CGFloat) -> CGSize {
+        let averageCharacterWidth: CGFloat = 8
+        let lineHeight: CGFloat = 22
+        let charactersPerLine = max(1, Int(wrappingWidth / averageCharacterWidth))
+        let sourceLines = text.isEmpty ? [" "] : text.components(separatedBy: .newlines)
+        var visualLineCount = 0
+        var widestCharacterCount = 0
+
+        for line in sourceLines {
+            let count = max(1, line.count)
+            visualLineCount += max(1, Int(ceil(Double(count) / Double(charactersPerLine))))
+            widestCharacterCount = max(widestCharacterCount, min(count, charactersPerLine))
+        }
 
         return CGSize(
-            width: ceil(min(max(singleLineWidth, 390 - 32), wrappingWidth)),
-            height: ceil(boundingRect.height + 32)
+            width: ceil(min(max(CGFloat(widestCharacterCount) * averageCharacterWidth, 390 - 32), wrappingWidth)),
+            height: ceil(CGFloat(max(1, visualLineCount)) * lineHeight + 32)
         )
     }
 }

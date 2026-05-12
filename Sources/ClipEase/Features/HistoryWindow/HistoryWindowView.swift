@@ -1836,17 +1836,69 @@ private struct NumberShortcutHandler: NSViewRepresentable {
 
 private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
     func makeNSView(context: Context) -> ScrollRedirectView {
-        ScrollRedirectView()
+        let view = ScrollRedirectView()
+        DispatchQueue.main.async {
+            view.installMonitorIfNeeded()
+        }
+        return view
     }
 
-    func updateNSView(_ nsView: ScrollRedirectView, context: Context) {}
+    func updateNSView(_ nsView: ScrollRedirectView, context: Context) {
+        DispatchQueue.main.async {
+            nsView.installMonitorIfNeeded()
+        }
+    }
+
+    static func dismantleNSView(_ nsView: ScrollRedirectView, coordinator: ()) {
+        nsView.removeMonitor()
+    }
 
     final class ScrollRedirectView: NSView {
-        override func scrollWheel(with event: NSEvent) {
-            guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX),
+        private weak var targetScrollView: NSScrollView?
+        private var localMonitor: Any?
+
+        func installMonitorIfNeeded() {
+            guard localMonitor == nil,
                   let scrollView = enclosingScrollView else {
+                return
+            }
+
+            targetScrollView = scrollView
+            localMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self,
+                      self.redirect(event) else {
+                    return event
+                }
+
+                return nil
+            }
+        }
+
+        func removeMonitor() {
+            if let localMonitor {
+                NSEvent.removeMonitor(localMonitor)
+                self.localMonitor = nil
+            }
+        }
+
+        override func scrollWheel(with event: NSEvent) {
+            guard redirect(event) else {
                 super.scrollWheel(with: event)
                 return
+            }
+        }
+
+        private func redirect(_ event: NSEvent) -> Bool {
+            guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX),
+                  let scrollView = targetScrollView ?? enclosingScrollView,
+                  let window = scrollView.window,
+                  event.window === window else {
+                return false
+            }
+
+            let point = scrollView.convert(event.locationInWindow, from: nil)
+            guard scrollView.bounds.contains(point) else {
+                return false
             }
 
             let clipView = scrollView.contentView
@@ -1855,6 +1907,7 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
             let nextX = min(max(clipView.bounds.minX + event.scrollingDeltaY, 0), maxX)
             clipView.scroll(to: NSPoint(x: nextX, y: clipView.bounds.minY))
             scrollView.reflectScrolledClipView(clipView)
+            return true
         }
     }
 }
