@@ -6,6 +6,7 @@ final class HistoryPreviewWindowController {
     private var panel: NSPanel?
     private var outsideClickMonitor: Any?
     private var localOutsideClickMonitor: Any?
+    private var contentLoadTask: Task<Void, Never>?
     private let arrowHeight: CGFloat = 14
     private let horizontalMargin: CGFloat = 12
 
@@ -45,14 +46,30 @@ final class HistoryPreviewWindowController {
         let panel = panel ?? makePanel()
         let isAlreadyVisible = panel.isVisible
         self.panel = panel
-        let hostingView = NSHostingView(
-            rootView: HistoryPreviewPopoverView(
+        contentLoadTask?.cancel()
+        setPreviewContent(
+            panel: panel,
+            item: item,
+            arrowX: arrowX,
+            size: size,
+            isContentReady: false,
+            onCopy: onCopy,
+            onOpen: onOpen,
+            onReveal: onReveal,
+            onCopyURL: onCopyURL,
+            onCopyMarkdown: onCopyMarkdown,
+            onCopyPath: onCopyPath,
+            onCopyRGB: onCopyRGB
+        )
+
+        if isAlreadyVisible {
+            panel.setFrame(frame, display: true)
+            scheduleContentLoad(
+                panel: panel,
                 item: item,
                 arrowX: arrowX,
                 size: size,
-                onClose: { [weak self] in
-                    self?.close()
-                },
+                delay: 30_000_000,
                 onCopy: onCopy,
                 onOpen: onOpen,
                 onReveal: onReveal,
@@ -61,11 +78,6 @@ final class HistoryPreviewWindowController {
                 onCopyPath: onCopyPath,
                 onCopyRGB: onCopyRGB
             )
-        )
-        panel.contentView = hostingView
-
-        if isAlreadyVisible {
-            panel.setFrame(frame, display: true)
         } else {
             let startFrame = frame.offsetBy(dx: 0, dy: -12)
             panel.alphaValue = 0
@@ -77,13 +89,47 @@ final class HistoryPreviewWindowController {
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().alphaValue = 1
                 panel.animator().setFrame(frame, display: true)
+            } completionHandler: { [weak self, weak panel] in
+                guard let self, let panel else {
+                    return
+                }
+
+                self.scheduleContentLoad(
+                    panel: panel,
+                    item: item,
+                    arrowX: arrowX,
+                    size: size,
+                    delay: 20_000_000,
+                    onCopy: onCopy,
+                    onOpen: onOpen,
+                    onReveal: onReveal,
+                    onCopyURL: onCopyURL,
+                    onCopyMarkdown: onCopyMarkdown,
+                    onCopyPath: onCopyPath,
+                    onCopyRGB: onCopyRGB
+                )
             }
         }
     }
 
     func close() {
         removeOutsideClickMonitor()
-        panel?.orderOut(nil)
+        contentLoadTask?.cancel()
+        contentLoadTask = nil
+        guard let panel, panel.isVisible else {
+            panel?.orderOut(nil)
+            return
+        }
+
+        panel.contentView = NSView()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.08
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 0
+        } completionHandler: { [weak panel] in
+            panel?.orderOut(nil)
+            panel?.alphaValue = 1
+        }
     }
 
     func contains(screenPoint: CGPoint) -> Bool {
@@ -128,6 +174,78 @@ final class HistoryPreviewWindowController {
         panel.isOpaque = false
         panel.hasShadow = false
         return panel
+    }
+
+    private func setPreviewContent(
+        panel: NSPanel,
+        item: ClipboardItem,
+        arrowX: CGFloat,
+        size: CGSize,
+        isContentReady: Bool,
+        onCopy: @escaping () -> Void,
+        onOpen: @escaping () -> Void,
+        onReveal: @escaping () -> Void,
+        onCopyURL: @escaping () -> Void,
+        onCopyMarkdown: @escaping () -> Void,
+        onCopyPath: @escaping () -> Void,
+        onCopyRGB: @escaping () -> Void
+    ) {
+        panel.contentView = NSHostingView(
+            rootView: HistoryPreviewPopoverView(
+                item: item,
+                arrowX: arrowX,
+                size: size,
+                isContentReady: isContentReady,
+                onClose: { [weak self] in
+                    self?.close()
+                },
+                onCopy: onCopy,
+                onOpen: onOpen,
+                onReveal: onReveal,
+                onCopyURL: onCopyURL,
+                onCopyMarkdown: onCopyMarkdown,
+                onCopyPath: onCopyPath,
+                onCopyRGB: onCopyRGB
+            )
+        )
+    }
+
+    private func scheduleContentLoad(
+        panel: NSPanel,
+        item: ClipboardItem,
+        arrowX: CGFloat,
+        size: CGSize,
+        delay: UInt64,
+        onCopy: @escaping () -> Void,
+        onOpen: @escaping () -> Void,
+        onReveal: @escaping () -> Void,
+        onCopyURL: @escaping () -> Void,
+        onCopyMarkdown: @escaping () -> Void,
+        onCopyPath: @escaping () -> Void,
+        onCopyRGB: @escaping () -> Void
+    ) {
+        contentLoadTask?.cancel()
+        contentLoadTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, panel.isVisible else {
+                return
+            }
+
+            setPreviewContent(
+                panel: panel,
+                item: item,
+                arrowX: arrowX,
+                size: size,
+                isContentReady: true,
+                onCopy: onCopy,
+                onOpen: onOpen,
+                onReveal: onReveal,
+                onCopyURL: onCopyURL,
+                onCopyMarkdown: onCopyMarkdown,
+                onCopyPath: onCopyPath,
+                onCopyRGB: onCopyRGB
+            )
+        }
     }
 
     private func removeOutsideClickMonitor() {

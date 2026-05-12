@@ -5,6 +5,7 @@ struct HistoryPreviewPopoverView: View {
     let item: ClipboardItem
     let arrowX: CGFloat
     let size: CGSize
+    let isContentReady: Bool
     let onClose: () -> Void
     let onCopy: () -> Void
     let onOpen: () -> Void
@@ -13,6 +14,7 @@ struct HistoryPreviewPopoverView: View {
     let onCopyMarkdown: () -> Void
     let onCopyPath: () -> Void
     let onCopyRGB: () -> Void
+    @State private var previewImage: NSImage?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -109,14 +111,22 @@ struct HistoryPreviewPopoverView: View {
     private var content: some View {
         switch item.type {
         case .text:
-            LazyPreviewTextView(text: item.text)
-                .background(Color.white)
+            if isContentReady {
+                LazyPreviewTextView(text: item.text)
+                    .background(Color.white)
+            } else {
+                previewPlaceholder
+            }
         case .color:
             colorContent
         case .link:
             ZStack(alignment: .bottomTrailing) {
-                LinkPreviewWebView(url: item.url)
-                    .background(Color.white)
+                if isContentReady {
+                    LinkPreviewWebView(url: item.url)
+                        .background(Color.white)
+                } else {
+                    previewPlaceholder
+                }
 
                 Button(action: onOpen) {
                     Image(systemName: "arrow.up.right.square")
@@ -133,7 +143,7 @@ struct HistoryPreviewPopoverView: View {
             ZStack {
                 CheckerboardView()
 
-                if let image = loadImage() {
+                if isContentReady, let image = previewImage {
                     ScrollableImagePreview(image: image)
                 } else {
                     Image(systemName: "photo")
@@ -142,6 +152,23 @@ struct HistoryPreviewPopoverView: View {
                 }
             }
             .background(Color.white)
+            .task(id: isContentReady) {
+                guard isContentReady, item.type == .image else {
+                    previewImage = nil
+                    return
+                }
+
+                previewImage = await loadImage()
+            }
+        }
+    }
+
+    private var previewPlaceholder: some View {
+        ZStack {
+            Color.white
+
+            ProgressView()
+                .controlSize(.small)
         }
     }
 
@@ -182,13 +209,21 @@ struct HistoryPreviewPopoverView: View {
         .padding(.vertical, 10)
     }
 
-    private func loadImage() -> NSImage? {
+    private func loadImage() async -> NSImage? {
         guard let imageFileName = item.imageFileName,
               let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
             return nil
         }
 
-        return NSImage(contentsOf: imageURL)
+        let data = await Task.detached(priority: .utility) {
+            try? Data(contentsOf: imageURL)
+        }.value
+
+        guard let data else {
+            return nil
+        }
+
+        return NSImage(data: data)
     }
 
     private func rgbText(from components: ClipEaseColorComponents) -> String {
