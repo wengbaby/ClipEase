@@ -9,7 +9,7 @@
 - `swift build`：通过
 - `scripts/smoke_check.py`：通过
 - `scripts/build-app.sh --bump major --run`：通过
-- GitHub 推送：提交后执行
+- GitHub 推送：通过
 
 ## 手动回归待确认
 
@@ -32,4 +32,4 @@
 - 版本：`1.0.0`
 - 构建号：`260512.2134`
 - 运行进程：`84175`
-- Git 提交：`353eaf6`
+- Git 提交：以 GitHub `main` 最新提交为准
