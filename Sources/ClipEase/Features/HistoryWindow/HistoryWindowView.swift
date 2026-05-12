@@ -1949,6 +1949,7 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
             let nextX = min(max(clipView.bounds.minX + delta, 0), maxX)
             clipView.scroll(to: NSPoint(x: nextX, y: clipView.bounds.minY))
             scrollView.reflectScrolledClipView(clipView)
+            HistoryScrollCoordinator.shared.saveOffset(nextX)
             return true
         }
 
@@ -1972,12 +1973,35 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
 }
 
 @MainActor
-private final class HistoryScrollCoordinator {
+final class HistoryScrollCoordinator {
     static let shared = HistoryScrollCoordinator()
     private weak var scrollView: NSScrollView?
+    private var savedOffsetX: CGFloat = 0
 
     func update(scrollView: NSScrollView) {
         self.scrollView = scrollView
+        restoreSavedOffset()
+    }
+
+    func restoreSavedOffset() {
+        guard let scrollView else {
+            return
+        }
+
+        let clipView = scrollView.contentView
+        let documentWidth = scrollView.documentView?.bounds.width ?? 0
+        let maxX = max(documentWidth - clipView.bounds.width, 0)
+        let targetX = min(max(savedOffsetX, 0), maxX)
+        guard abs(targetX - clipView.bounds.minX) > 0.5 else {
+            return
+        }
+
+        clipView.scroll(to: NSPoint(x: targetX, y: clipView.bounds.minY))
+        scrollView.reflectScrolledClipView(clipView)
+    }
+
+    func saveOffset(_ offsetX: CGFloat) {
+        savedOffsetX = max(0, offsetX)
     }
 
     func scrollBy(_ deltaX: CGFloat, animated: Bool) {
@@ -2001,10 +2025,12 @@ private final class HistoryScrollCoordinator {
                 clipView.animator().setBoundsOrigin(NSPoint(x: nextX, y: clipView.bounds.minY))
             } completionHandler: {
                 scrollView.reflectScrolledClipView(clipView)
+                self.savedOffsetX = nextX
             }
         } else {
             clipView.scroll(to: NSPoint(x: nextX, y: clipView.bounds.minY))
             scrollView.reflectScrolledClipView(clipView)
+            savedOffsetX = nextX
         }
     }
 }

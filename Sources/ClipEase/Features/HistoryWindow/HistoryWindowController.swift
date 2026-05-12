@@ -66,6 +66,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         panel.makeKey()
         panel.displayIfNeeded()
+        HistoryScrollCoordinator.shared.restoreSavedOffset()
         keyboardEventTap.start()
         installOutsideClickMonitor()
 
@@ -84,6 +85,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                     panel?.displayIfNeeded()
                     panel?.hasShadow = true
                     self.renderState.revealAllItems()
+                    HistoryScrollCoordinator.shared.restoreSavedOffset()
                 }
             }
         }

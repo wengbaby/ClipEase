@@ -8,6 +8,10 @@ final class HistoryWindowRenderState: ObservableObject {
     @Published private(set) var visibleItemLimit: Int?
 
     func prepareForShow() {
+        if visibleItemLimit == nil {
+            return
+        }
+
         visibleItemLimit = Self.initialVisibleItemLimit
     }
 
