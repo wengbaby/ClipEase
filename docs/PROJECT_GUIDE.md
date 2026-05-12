@@ -17,6 +17,7 @@
 - 设计规范：[docs/DESIGN_SPEC.md](/Users/wpc/code/codex/ClipboardHistory/docs/DESIGN_SPEC.md)
 - 开发步骤：[docs/DEVELOPMENT_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEVELOPMENT_PLAN.md)
 - 版本规则：[docs/VERSIONING.md](/Users/wpc/code/codex/ClipboardHistory/docs/VERSIONING.md)
+- 第一版回归测试清单：[docs/FIRST_VERSION_TEST_CHECKLIST.md](/Users/wpc/code/codex/ClipboardHistory/docs/FIRST_VERSION_TEST_CHECKLIST.md)
 - 日志规范：[docs/DEV_LOG_GUIDE.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEV_LOG_GUIDE.md)
 - 每日开发日志目录：[dev-logs](/Users/wpc/code/codex/ClipboardHistory/dev-logs)
 - 每日日志脚本：[scripts/daily_log.py](/Users/wpc/code/codex/ClipboardHistory/scripts/daily_log.py)
