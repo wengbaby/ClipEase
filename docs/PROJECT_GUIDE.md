@@ -23,8 +23,9 @@
 - 发布候选报告：[docs/RELEASE_CANDIDATE_REPORT.md](/Users/wpc/code/codex/ClipboardHistory/docs/RELEASE_CANDIDATE_REPORT.md)
 - 已知限制：[docs/KNOWN_ISSUES.md](/Users/wpc/code/codex/ClipboardHistory/docs/KNOWN_ISSUES.md)
 - 第二版产品方案：[docs/V2_PRODUCT_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_PRODUCT_PLAN.md)
-- 第二版技术方案草案：[docs/V2_TECHNICAL_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_TECHNICAL_PLAN.md)
-- 第二版开发计划草案：[docs/V2_DEVELOPMENT_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_DEVELOPMENT_PLAN.md)
+- 第二版技术方案：[docs/V2_TECHNICAL_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_TECHNICAL_PLAN.md)
+- 第二版开发计划：[docs/V2_DEVELOPMENT_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_DEVELOPMENT_PLAN.md)
+- 第二版测试计划：[docs/V2_TEST_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_TEST_PLAN.md)
 - 日志规范：[docs/DEV_LOG_GUIDE.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEV_LOG_GUIDE.md)
 - 每日开发日志目录：[dev-logs](/Users/wpc/code/codex/ClipboardHistory/dev-logs)
 - 每日日志脚本：[scripts/daily_log.py](/Users/wpc/code/codex/ClipboardHistory/scripts/daily_log.py)
@@ -46,8 +47,9 @@
 ## 当前阶段原则
 
 - 第一版冻结：`1.0.x` 无阻塞问题后，不再给第一版新增功能。
-- 第二版先方案：第二版功能在用户确认前只写方案，不实施功能代码。
+- 第二版实现前确认：第二版核心文档齐备后，等待用户最终确认再开始编写功能代码。
 - 优先性能和管理能力：第二版先做 SQLite、收藏、分组和更强搜索。
+- 第二版第一批顺序：SQLite 基础、Repository 抽象、测试计划补细、搜索 / 筛选重构。
 - 本地优先：第二版仍先保证本地数据稳定，iCloud 同步先预研。
 - 小步推进：每次实现后要能运行、能验证、能回退。
 - 用户友好：默认体验简单，复杂功能放入设置或后续版本。
