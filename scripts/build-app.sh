@@ -9,6 +9,7 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BUMP_TYPE="patch"
 RUN_APP="false"
+SIGN_IDENTITY="${CLIPEASE_CODESIGN_IDENTITY:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,13 +41,24 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$BUILD_DIR/ClipEase" "$MACOS_DIR/ClipEase"
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
+cp "$ROOT_DIR/Resources/ClipEase.icns" "$RESOURCES_DIR/ClipEase.icns"
+
+if [[ -z "$SIGN_IDENTITY" ]]; then
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '\"' '/Apple Development/ { print $2; exit }' || true)"
+fi
+
+if [[ -n "$SIGN_IDENTITY" ]]; then
+  codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" "$APP_DIR"
+else
+  codesign --force --deep --sign - "$APP_DIR"
+fi
 
 echo "Built $APP_DIR"
 
 if [[ "$RUN_APP" == "true" ]]; then
-  pkill -x ClipEase >/dev/null 2>&1 || true
+  pkill -f "$APP_DIR/Contents/MacOS/ClipEase" >/dev/null 2>&1 || true
   sleep 1
   open -n "$APP_DIR"
-  sleep 1
-  pgrep -fl ClipEase || true
+  sleep 2
+  pgrep -fl "$APP_DIR/Contents/MacOS/ClipEase" || true
 fi
