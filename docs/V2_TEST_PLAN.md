@@ -476,67 +476,18 @@ Bugfix 回归要求：
 - 网络盘 / iCloud 占位：首批只做失败反馈和不阻塞主窗口，还是尝试触发系统下载 / 挂载。
 - 不可预览文件 fallback：首批使用文件名 + 类型 + 操作按钮即可，还是需要单独图标 / 状态文案规范。
 
-## 9. 阶段 10：iCloud 同步预研测试计划前置
+## 9. 阶段 10：iCloud 同步预研（已取消）
 
-任务卡：V2-TESTPLAN-S10-ICLOUD-SYNC-PREFLIGHT-001
+Stage 10 不再作为第二版目标推进，也不再保留 preflight、静态门禁或后续 spike 设计。
 
-状态：Stage 9 已收口进入用户人工验收；Stage 10 仅做 iCloud 同步预研测试计划前置，不实现 runtime 同步。Product 前置与 Architecture 前置均 PASS；测试计划结论为 PASS 进入预研文档和后续 spike 设计，HOLD 任何 CloudKit runtime、entitlement、schema 迁移、soft delete / device / sync state table、同步 UI、附件上传下载、端到端加密、冲突合并和跨设备删除实现。
+原因：
 
-### 9.1 preflight 测试目标
+- 免费账号不能支撑可分发、可用的正式 iCloud 同步产品。
+- 当前第二版已进入收口阶段，应继续集中在本机功能稳定、回归和发布准备。
 
-- 验证“没有实现 runtime 同步”的红线：代码、配置和文档不得引入 CloudKit runtime、iCloud entitlement、CloudKit container、同步开关、设备筛选 UI、同步状态 UI、附件上传下载、冲突合并 runtime、端到端加密 runtime 或跨设备删除实现。
-- 验证 Stage 10 文档产物完整性：产品边界、架构结论、风险矩阵、schema gap 清单、同步数据字典、用户确认问题和后续 spike 拆分必须齐备，并明确只属于预研。
-- 验证 schema gap 清单覆盖同步前关键缺口：device id、origin / modified device、sync state、zone change token、record change tag、server version、dirty flag、tombstone、deleted_at、field modified time、asset hash / remote id、settings sync scope 和文件路径跨设备语义。
-- 验证风险矩阵覆盖隐私、CloudKit 配额 / 失败、冲突、删除 tombstone、附件、文件路径跨设备、迁移、用户误解、离线恢复和账号状态。
-- 验证用户确认问题可执行：同步范围、文件路径跨设备语义、附件是否暂缓、删除同步是否暂缓、设置是否同步、端到端加密是否前置必须作为正式实现或 spike 前的人工门禁。
+替代边界：
 
-### 9.2 当前阶段禁止测试 / 实现
-
-- 不得要求或执行真实 iCloud 账号跨设备同步测试。
-- 不得新增、修改或验证生产 CloudKit container、entitlement、record schema、zone 或 subscription。
-- 不得改 SQLite schema，不得新增 schema version，不得新增 soft delete、device table、sync state table、server version、dirty flag 或 tombstone runtime 字段。
-- 不得上传图片、富文本、文件卡片原文件、文件路径指向内容或任何附件到 CloudKit / iCloud Drive。
-- 不得创建 CloudKit runtime、同步 service、同步 scheduler、后台任务、账号监听、推送订阅或重试队列。
-- 不得显示同步开关、设备筛选 UI、同步状态 UI、账号状态 UI、冲突处理 UI 或同步错误 UI。
-- 不得实现端到端加密、密钥管理、冲突合并、跨设备删除、远端清理、附件下载或断点恢复。
-- 不得恢复收藏、管理模式、多选、批量操作或 JSON runtime；不得把 Stage 10 预研作为恢复旧范围的理由。
-
-### 9.3 preflight 静态检查门禁
-
-本阶段脚本必须限定为静态 / 文档检查，不接触真实 iCloud 账号或 CloudKit runtime。
-
-- `verify_stage10_icloud_preflight_docs.py`：检查 `docs/V2_PRODUCT_PLAN.md`、`docs/V2_TECHNICAL_PLAN.md`、`docs/V2_DEVELOPMENT_PLAN.md` 和本文是否均声明 Stage 10 只做预研，且包含禁止项、风险矩阵、schema gap 清单和用户确认问题。
-- `verify_stage10_no_cloudkit_runtime.py`：静态扫描 `Sources/`、`Resources/` 和项目配置，确认没有 `CloudKit` import、CloudKit container identifier、iCloud entitlement、sync UI 文案、同步 service 命名或新增运行时入口。
-- `verify_stage10_no_schema_change.py`：静态比对 schema 相关文件和迁移描述，确认 Stage 10 preflight 未新增 schema version、soft delete / device / sync state table 或 sync 字段。
-- `verify_stage10_no_attachment_upload.py`：静态扫描附件、备份、文件卡片和 pasteboard 相关路径，确认没有新增 CloudKit asset、iCloud Drive 上传、附件下载或文件副本同步逻辑。
-- `verify_stage10_user_questions.py`：检查用户确认问题是否覆盖同步范围、文件路径跨设备语义、附件暂缓、删除同步暂缓、设置同步和端到端加密前置。
-
-### 9.4 后续 spike 获用户确认后的测试维度
-
-若用户明确确认进入独立 Stage 10 spike，测试计划必须在开工前细化以下维度；每个 spike 仍需单独任务卡和红线。
-
-- CloudKit container / entitlement 沙盒隔离：只允许使用测试 bundle、测试 container、开发环境和测试 Apple ID；必须验证生产 container 不被触达，entitlement 不进入正式构建，账号缺失 / 退出 / iCloud 关闭状态可诊断。
-- mock sync：优先使用本地 mock CloudKit adapter 或 fixture，不依赖真实网络；覆盖上传队列、下载队列、重试、幂等、断点恢复、重复记录和本地脏数据标记。
-- 冲突样本：至少覆盖同一历史文本编辑、置顶切换、分组重命名、同一记录移动分组、分组删除、同一设置项修改、删除后旧设备重新上线和 last-write-wins 误覆盖样本。
-- 附件策略样本：图片、富文本、App icon、文件卡片路径、路径失效、部分失效、多文件、超大附件、附件 hash 不一致和附件下载失败；默认仍不得上传原文件。
-- 隐私 / 敏感内容：密码 / 验证码样本、敏感 App 忽略、敏感遮罩、完整文件路径含用户名、内部 URL、图片 / 富文本敏感内容和用户 opt-in 文案；必须确认遮罩不等于加密。
-- 失败恢复：网络断开、CloudKit 配额不足、权限拒绝、账号切换、record zone 不存在、partial failure、change token 失效、重复上传、远端删除、迁移失败和本地数据库损坏。
-- 离线 / 重复 / 时钟偏差：离线多次编辑后恢复、同一设备重复提交、两设备时钟相差数小时、服务端时间和本地时间不一致、重试造成重复 record、旧设备持有过期 tombstone。
-
-### 9.5 手工验收清单
-
-- 用户确认未来同步范围：历史条目、分组、置顶、非敏感设置、图片、富文本、文件卡片路径分别是否进入首批候选。
-- 用户确认文件路径跨设备语义：文件卡片只同步原设备路径记录时，其他设备是否接受显示为不可访问 / 需回原设备打开。
-- 用户确认附件是否暂缓：图片原件、富文本附件、App icon、文件卡片原文件是否全部继续暂缓真实上传 / 下载。
-- 用户确认删除同步是否暂缓：本机删除是否暂不扩展为跨设备删除，未来若允许是否需要撤销、回收站、确认或 tombstone 保留期。
-- 用户确认设置是否同步：哪些设置可跨设备，哪些必须保持本机私有；隐私忽略、敏感遮罩、快捷键和窗口状态默认不建议同步。
-- 用户确认 E2EE 是否前置：正式同步前是否必须先有端到端加密、密钥恢复、多设备密钥同步和忘记密钥策略。
-- 用户确认 Stage 10 当前无可见功能：不要求真实 iCloud 账号、不要求跨设备演示、不要求同步开关或同步状态。
-
-### 9.6 阶段 10 preflight 通过标准
-
-- 测试计划已明确“只预研、不实现、不测试真实 iCloud 同步”的边界。
-- 文档产物完整性、schema gap 清单、风险矩阵、用户确认问题和后续 spike 测试维度已写入计划。
-- 当前阶段禁止项明确覆盖真实 iCloud 账号同步、schema 变更、附件上传、CloudKit runtime、同步 UI、端到端加密、冲突合并和跨设备删除。
-- 推荐后续自动化脚本方向已记录，但未实现脚本。
-- 结论为 PASS 进入 Stage 10 预研文档和后续 spike 设计；HOLD 任何 runtime 同步、CloudKit / iCloud 接入、schema / entitlement / UI / 附件 / 删除 / 加密实现。
+- 不做正式 iCloud 同步。
+- 不做同步开关、设备筛选 UI、同步状态 UI 或 CloudKit / iCloud runtime。
+- 不做附件上传下载、端到端加密、跨设备删除同步或冲突合并 runtime。
+- 文件卡片只保留本机路径历史语义，不扩展为跨设备同步。
