@@ -15,6 +15,7 @@ struct HistoryPreviewPopoverView: View {
     let onCopyPath: () -> Void
     let onCopyRGB: () -> Void
     @State private var previewImage: NSImage?
+    @State private var selectedFileReferenceID: ClipboardFileReference.ID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -44,7 +45,6 @@ struct HistoryPreviewPopoverView: View {
         .frame(width: size.width, height: size.height)
         .background(Color(red: 0.94, green: 0.95, blue: 0.98))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 12)
     }
 
     private var header: some View {
@@ -95,6 +95,9 @@ struct HistoryPreviewPopoverView: View {
             case .color:
                 Button("复制 HEX", action: onCopy)
                 Button("复制 RGB", action: onCopyRGB)
+            case .file:
+                Button("在 Finder 中显示", action: onReveal)
+                Button("复制路径", action: onCopyPath)
             case .text:
                 EmptyView()
             }
@@ -112,11 +115,17 @@ struct HistoryPreviewPopoverView: View {
         switch item.type {
         case .text:
             if isContentReady {
-                LazyPreviewTextView(text: item.text, isReady: isContentReady)
+                LazyPreviewTextView(
+                    text: item.text,
+                    isReady: isContentReady,
+                    richTextFileName: item.richTextFileName
+                )
                     .background(Color.white)
             } else {
                 previewPlaceholder
             }
+        case .file:
+            filePreviewContent
         case .color:
             colorContent
         case .link:
@@ -220,17 +229,273 @@ struct HistoryPreviewPopoverView: View {
         }
     }
 
+    private var filePreviewContent: some View {
+        let references = item.fileReferences
+        let selectedReference = selectedFileReference(from: references)
+
+        return HStack(spacing: 0) {
+            filePreviewPane(for: selectedReference)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            fileReferenceList(references)
+                .frame(width: min(240, max(180, size.width * 0.32)))
+        }
+        .background(Color.white)
+        .onAppear {
+            synchronizeSelectedFileReference(with: references)
+        }
+        .onChange(of: item.id) { _ in
+            selectedFileReferenceID = nil
+            synchronizeSelectedFileReference(with: references)
+        }
+        .onChange(of: references.map(\.id)) { _ in
+            synchronizeSelectedFileReference(with: references)
+        }
+    }
+
+    @ViewBuilder
+    private func filePreviewPane(for reference: ClipboardFileReference?) -> some View {
+        if let reference,
+           fileIsPreviewable(reference),
+           FileManager.default.isReadableFile(atPath: reference.path) {
+            HistoryFileQuickLookPreviewView(url: URL(fileURLWithPath: reference.path))
+        } else {
+            fileFallbackPreview(reference)
+        }
+    }
+
+    private func fileReferenceList(_ references: [ClipboardFileReference]) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                if references.isEmpty {
+                    missingFileReferenceRow
+                } else {
+                    ForEach(references) { reference in
+                        Button {
+                            selectedFileReferenceID = reference.id
+                        } label: {
+                            fileReferenceRow(
+                                reference: reference,
+                                isSelected: selectedFileReferenceID == reference.id
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(12)
+        }
+        .background(Color(red: 0.97, green: 0.98, blue: 1.0))
+    }
+
+    private var missingFileReferenceRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "questionmark.document")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("文件路径不可用")
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text(item.text.isEmpty ? "剪贴板记录没有可预览路径" : item.text)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+
+                Text("缺少路径")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func fileReferenceRow(reference: ClipboardFileReference, isSelected: Bool) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: reference.isDirectory ? "folder.fill" : "doc.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.white : Color(red: 0.18, green: 0.55, blue: 1.0))
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(fileDisplayName(reference))
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+
+                Text(reference.path)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.82) : Color.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+
+                Text(fileStatusText(reference))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.82) : Color.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.clear)
+        )
+    }
+
+    private func fileFallbackPreview(_ reference: ClipboardFileReference?) -> some View {
+        VStack(spacing: 14) {
+            if let reference {
+                Image(nsImage: ClipEaseAppIcon.roundedImage(NSWorkspace.shared.icon(forFile: reference.path), size: NSSize(width: 72, height: 72)))
+                    .resizable()
+                    .frame(width: 72, height: 72)
+
+                VStack(spacing: 6) {
+                    Text(fileDisplayName(reference))
+                        .font(.system(size: 18, weight: .semibold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+
+                    Text(reference.path)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.center)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+
+                    Text(fileStatusText(reference))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 24)
+            } else {
+                Image(systemName: "questionmark.document")
+                    .font(.system(size: 56, weight: .regular))
+                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+
+                Text("文件路径不可用")
+                    .font(.system(size: 18, weight: .semibold))
+
+                Text(item.text.isEmpty ? "剪贴板记录没有可预览路径" : item.text)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.center)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 24)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.white)
+    }
+
+    private func previewableFileReference(from references: [ClipboardFileReference]) -> ClipboardFileReference? {
+        references.first(where: fileIsPreviewable) ?? references.first
+    }
+
+    private func selectedFileReference(from references: [ClipboardFileReference]) -> ClipboardFileReference? {
+        if let selectedFileReferenceID,
+           let selectedReference = references.first(where: { $0.id == selectedFileReferenceID }) {
+            return selectedReference
+        }
+
+        return previewableFileReference(from: references)
+    }
+
+    private func synchronizeSelectedFileReference(with references: [ClipboardFileReference]) {
+        guard !references.isEmpty else {
+            selectedFileReferenceID = nil
+            return
+        }
+
+        if let selectedFileReferenceID,
+           references.contains(where: { $0.id == selectedFileReferenceID }) {
+            return
+        }
+
+        selectedFileReferenceID = previewableFileReference(from: references)?.id
+    }
+
+    private func fileIsPreviewable(_ reference: ClipboardFileReference) -> Bool {
+        guard !reference.path.isEmpty,
+              !reference.isDirectory,
+              reference.pathStatus == .available || reference.pathStatus == .unknown else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: reference.path)
+    }
+
+    private func fileDisplayName(_ reference: ClipboardFileReference) -> String {
+        if !reference.displayName.isEmpty {
+            return reference.displayName
+        }
+
+        let lastPathComponent = URL(fileURLWithPath: reference.path).lastPathComponent
+        return lastPathComponent.isEmpty ? reference.path : lastPathComponent
+    }
+
+    private func fileStatusText(_ reference: ClipboardFileReference) -> String {
+        if reference.path.isEmpty {
+            return "缺少路径"
+        }
+
+        switch reference.pathStatus {
+        case .available:
+            return reference.isDirectory ? "文件夹" : "可预览"
+        case .missing:
+            return "路径缺失"
+        case .permissionDenied:
+            return "权限不足"
+        case .placeholder:
+            return "占位文件"
+        case .unknown:
+            if FileManager.default.fileExists(atPath: reference.path) {
+                return reference.isDirectory ? "文件夹" : "状态未确认"
+            }
+            return "路径未确认"
+        }
+    }
+
     private var footer: some View {
         HStack {
-            Text(item.footer)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+            if item.type != .file {
+                Text(item.footer)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
 
-            Spacer()
+                Spacer()
+            }
 
             Text(item.relativeTime)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
+
+            if item.type == .file {
+                Spacer()
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

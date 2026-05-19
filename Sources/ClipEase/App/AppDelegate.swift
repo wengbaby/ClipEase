@@ -7,18 +7,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardMonitor: ClipboardMonitor?
     private var appMenuController: AppMenuController?
     private var globalHotKeyController: GlobalHotKeyController?
-    private let historyStore = ClipboardHistoryStore()
+    private var historyStore: ClipboardHistoryStore?
     private let recordingController = RecordingController()
     private let loginItemController = LoginItemController()
     private let ignoredAppSettings = IgnoredAppSettings()
     private let globalShortcutSettings = GlobalShortcutSettings()
     private let accessibilityPermissionState = AccessibilityPermissionState()
     private lazy var pasteExecutor = PasteExecutor(
-        store: historyStore,
+        store: requireHistoryStore(),
         permissionState: accessibilityPermissionState
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.applicationIconImage = ClipEaseAppIcon.image(size: NSSize(width: 512, height: 512))
+
+        let historyStore = ClipboardHistoryStore()
+        self.historyStore = historyStore
+
         let appMenuController = AppMenuController(
             historyStore: historyStore,
             recordingController: recordingController,
@@ -37,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appMenuController: appMenuController
         )
         self.historyWindowController = historyWindowController
+        appMenuController.attachHistoryWindowController(historyWindowController)
         pasteExecutor.beforeAutoPaste = { [weak historyWindowController] in
             historyWindowController?.hideImmediatelyForAutoPaste()
         }
@@ -58,6 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         self.clipboardMonitor = clipboardMonitor
         clipboardMonitor.start()
+
+        if CommandLine.arguments.contains("--show-settings") {
+            appMenuController.showSettings()
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -65,12 +75,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        historyStore.flushPendingSave()
+        historyStore?.flushPendingSave()
         globalHotKeyController?.stop()
         clipboardMonitor?.stop()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    private func requireHistoryStore() -> ClipboardHistoryStore {
+        guard let historyStore else {
+            fatalError("ClipboardHistoryStore is not initialized")
+        }
+
+        return historyStore
     }
 }

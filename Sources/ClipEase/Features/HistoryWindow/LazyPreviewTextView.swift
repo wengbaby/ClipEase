@@ -4,9 +4,10 @@ import SwiftUI
 struct LazyPreviewTextView: NSViewRepresentable {
     let text: String
     let isReady: Bool
+    let richTextFileName: String?
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = NSTextView()
+        let textView = InteractivePreviewTextView()
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
@@ -42,7 +43,12 @@ struct LazyPreviewTextView: NSViewRepresentable {
             return
         }
 
-        context.coordinator.update(text: text, isReady: isReady, in: textView)
+        context.coordinator.update(
+            text: text,
+            isReady: isReady,
+            richTextFileName: richTextFileName,
+            in: textView
+        )
     }
 
     func makeCoordinator() -> Coordinator {
@@ -53,27 +59,77 @@ struct LazyPreviewTextView: NSViewRepresentable {
     final class Coordinator {
         weak var textView: NSTextView?
         private var currentText = ""
-        private var representedText = ""
+        private var representedKey = ""
         private var appendTask: Task<Void, Never>?
+        private var richTextTask: Task<Void, Never>?
 
-        func update(text: String, isReady: Bool, in textView: NSTextView) {
+        func update(
+            text: String,
+            isReady: Bool,
+            richTextFileName: String?,
+            in textView: NSTextView
+        ) {
             guard isReady else {
                 appendTask?.cancel()
+                richTextTask?.cancel()
                 currentText = ""
-                representedText = ""
+                representedKey = ""
                 textView.string = ""
                 return
             }
 
-            guard representedText != text else {
+            let key = "\(richTextFileName ?? "")|\(text.hashValue)"
+            guard representedKey != key else {
                 return
             }
 
             appendTask?.cancel()
-            representedText = text
+            richTextTask?.cancel()
+            representedKey = key
             currentText = ""
-            textView.string = ""
+
+            if let richTextFileName {
+                textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
+                richTextTask = Task.detached(priority: .utility) {
+                    let attributedString = Self.attributedString(
+                        fileName: richTextFileName,
+                        fallbackText: text
+                    )
+
+                    await MainActor.run { [weak self, weak textView] in
+                        guard let self,
+                              let textView,
+                              self.representedKey == key,
+                              !Task.isCancelled else {
+                            return
+                        }
+
+                        textView.textStorage?.setAttributedString(attributedString)
+                    }
+                }
+                return
+            }
+
+            textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
             append(text, to: textView)
+        }
+
+        nonisolated private static func attributedString(fileName: String, fallbackText: String) -> NSAttributedString {
+            guard let fileURL = try? ClipEaseStoragePaths.richTextFileURL(fileName: fileName),
+                  let data = try? Data(contentsOf: fileURL),
+                  let attributedText = try? NSAttributedString(
+                    data: data,
+                    options: [.documentType: NSAttributedString.DocumentType.rtf],
+                    documentAttributes: nil
+                  ) else {
+                return NSAttributedString(string: fallbackText)
+            }
+
+            if attributedText.length > 0 {
+                return attributedText
+            }
+
+            return NSAttributedString(string: fallbackText)
         }
 
         private func append(_ text: String, to textView: NSTextView) {
@@ -103,6 +159,14 @@ struct LazyPreviewTextView: NSViewRepresentable {
 
         deinit {
             appendTask?.cancel()
+            richTextTask?.cancel()
         }
+    }
+}
+
+private final class InteractivePreviewTextView: NSTextView {
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
     }
 }

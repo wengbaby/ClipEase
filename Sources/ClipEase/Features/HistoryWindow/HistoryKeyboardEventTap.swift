@@ -66,7 +66,8 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         case .flagsChanged:
             let isCommandPressed = event.flags.contains(.maskCommand)
             DispatchQueue.main.async { [weak inputState] in
-                inputState?.setCommandKeyPressed(isCommandPressed)
+                let shouldShowCommandOverlay = isCommandPressed && inputState?.isPreviewActiveSnapshot != true
+                inputState?.setCommandKeyPressed(shouldShowCommandOverlay)
             }
             return Unmanaged.passUnretained(event)
 
@@ -75,8 +76,23 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
                 return Unmanaged.passUnretained(event)
             }
 
+            if inputState?.isPreviewActiveSnapshot == true,
+               !Self.shouldHandleWhilePreviewContentFocused(action) {
+                return Unmanaged.passUnretained(event)
+            }
+
+            if inputState?.shouldSuppressHistoryCommandShortcutsSnapshot == true,
+               Self.shouldSuppressForPresentedInputLayer(action) {
+                return Unmanaged.passUnretained(event)
+            }
+
             if inputState?.isTextInputFocusedSnapshot == true,
                !Self.shouldHandleWhileSearchFieldFocused(action) {
+                return Unmanaged.passUnretained(event)
+            }
+
+            if inputState?.isWindowPinnedOpenSnapshot == true,
+               Self.shouldPassThroughWhileWindowPinned(action) {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -92,7 +108,9 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
 
     private static func action(for event: CGEvent) -> HistoryKeyboardAction? {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-        let isCommandPressed = event.flags.contains(.maskCommand)
+        let flags = event.flags
+        let isCommandPressed = flags.contains(.maskCommand)
+        let isShiftPressed = flags.contains(.maskShift)
 
         if isCommandPressed {
             if let number = numberShortcut(for: keyCode) {
@@ -103,15 +121,19 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             case KeyCode.f:
                 return .openSearch
             case KeyCode.c:
-                return .copy
+                return isShiftPressed ? .copyPlainText : .copy
             case KeyCode.n:
                 return .createText
             case KeyCode.p:
                 return .togglePinned
+            case KeyCode.e:
+                return .edit
             case KeyCode.t:
                 return .toggleRecording
             case KeyCode.w:
                 return .closeWindow
+            case commaKeyCode:
+                return .showSettings
             default:
                 return nil
             }
@@ -123,7 +145,7 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         case KeyCode.rightArrow:
             return .moveRight
         case KeyCode.returnKey, KeyCode.enter:
-            return .paste
+            return isShiftPressed ? .pastePlainText : .paste
         case KeyCode.space:
             return .togglePreview
         case KeyCode.escape:
@@ -165,12 +187,43 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
 
     private static func shouldHandleWhileSearchFieldFocused(_ action: HistoryKeyboardAction) -> Bool {
         switch action {
-        case .close, .selectVisibleCard:
+        case .selectVisibleCard:
             return true
-        case .moveLeft, .moveRight, .paste, .togglePreview, .openSearch, .copy, .delete, .togglePinned, .closeWindow, .createText, .toggleRecording, .appendSearchText, .enterFirstSearchResult:
+        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText, .enterFirstSearchResult:
             return false
         }
     }
+
+    private static func shouldHandleWhilePreviewContentFocused(_ action: HistoryKeyboardAction) -> Bool {
+        switch action {
+        case .close:
+            return true
+        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .selectVisibleCard, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText, .enterFirstSearchResult:
+            return false
+        }
+    }
+
+    private static func shouldSuppressForPresentedInputLayer(_ action: HistoryKeyboardAction) -> Bool {
+        switch action {
+        case .edit, .toggleRecording, .copy, .copyPlainText, .paste, .pastePlainText, .togglePreview:
+            return true
+        case .moveLeft, .moveRight, .close, .selectVisibleCard, .openSearch, .showSettings, .delete, .togglePinned, .closeWindow, .createText, .enterFirstSearchResult:
+            return false
+        case .appendSearchText:
+            return true
+        }
+    }
+
+    private static func shouldPassThroughWhileWindowPinned(_ action: HistoryKeyboardAction) -> Bool {
+        switch action {
+        case .copy, .copyPlainText, .selectVisibleCard, .openSearch, .showSettings, .edit, .togglePinned, .createText, .toggleRecording, .appendSearchText:
+            return true
+        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .delete, .closeWindow, .enterFirstSearchResult:
+            return false
+        }
+    }
+
+    private static let commaKeyCode: UInt16 = 43
 
     private static func printableCharacters(from event: CGEvent) -> String? {
         var actualLength = 0

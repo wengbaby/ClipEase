@@ -17,48 +17,44 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
     private static let thumbnailMaxPixelSize = CGSize(width: 500, height: 360)
 
     private let fileManager: FileManager
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
+    private let repository: any ClipboardHistoryRepository
 
-    init(fileManager: FileManager = .default) {
+    init(
+        fileManager: FileManager = .default
+    ) {
         self.fileManager = fileManager
-        self.encoder = JSONEncoder()
-        self.decoder = JSONDecoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        decoder.dateDecodingStrategy = .iso8601
+        let sqliteURL = (try? ClipEaseStoragePaths.sqliteStoreURL(fileManager: fileManager))
+            ?? URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ClipEase.sqlite")
+        self.repository = SQLiteClipboardStore(databaseURL: sqliteURL, fileManager: fileManager)
+    }
+
+    func loadSnapshot() -> ClipboardHistorySnapshot {
+        do {
+            return try repository.loadSnapshot()
+        } catch {
+            NSLog("ClipEase failed to load clipboard history: \(error.localizedDescription)")
+            return ClipboardHistorySnapshot(items: [], groups: [])
+        }
     }
 
     func loadItems() -> [ClipboardItem] {
-        guard let fileURL = try? ClipEaseStoragePaths.historyFileURL(fileManager: fileManager),
-              fileManager.fileExists(atPath: fileURL.path) else {
-            return []
-        }
-
-        do {
-            let data = try Data(contentsOf: fileURL)
-            let records = try decoder.decode([PersistentClipboardItem].self, from: data)
-            return records.map(\.clipboardItem)
-        } catch {
-            backupCorruptedHistory(at: fileURL)
-            NSLog("ClipEase failed to load clipboard history, backed up corrupted file: \(error.localizedDescription)")
-            return []
-        }
+        loadSnapshot().items
     }
 
-    func saveItems(_ items: [ClipboardItem]) {
+    func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) {
         do {
-            let fileURL = try ClipEaseStoragePaths.historyFileURL(fileManager: fileManager)
-            try fileManager.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let records = items.map(PersistentClipboardItem.init)
-            let data = try encoder.encode(records)
-            try data.write(to: fileURL, options: [.atomic])
+            try saveSnapshotOrThrow(snapshot)
         } catch {
             NSLog("ClipEase failed to save clipboard history: \(error.localizedDescription)")
         }
+    }
+
+    func saveSnapshotOrThrow(_ snapshot: ClipboardHistorySnapshot) throws {
+        try repository.saveSnapshot(snapshot)
+    }
+
+    func saveItems(_ items: [ClipboardItem]) {
+        saveSnapshot(ClipboardHistorySnapshot(items: items, groups: []))
     }
 
     func saveImage(_ image: NSImage) -> StoredClipboardImage? {
@@ -163,20 +159,43 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
     }
 
     func saveRichText(_ data: Data) -> StoredRichText? {
+        do {
+            return try saveRichTextOrThrow(data)
+        } catch {
+            NSLog("ClipEase failed to save rich text: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    func saveRichTextOrThrow(_ data: Data) throws -> StoredRichText {
         let fileName = "\(UUID().uuidString).rtf"
 
+        let directoryURL = try ClipEaseStoragePaths.richTextsDirectory(fileManager: fileManager)
+        try fileManager.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let fileURL = directoryURL.appendingPathComponent(fileName)
+        try data.write(to: fileURL, options: [.atomic])
+        return StoredRichText(fileName: fileName)
+    }
+
+    func overwriteRichText(fileName: String, data: Data) -> Bool {
         do {
             let directoryURL = try ClipEaseStoragePaths.richTextsDirectory(fileManager: fileManager)
             try fileManager.createDirectory(
                 at: directoryURL,
                 withIntermediateDirectories: true
             )
-            let fileURL = directoryURL.appendingPathComponent(fileName)
+            let fileURL = try ClipEaseStoragePaths.richTextFileURL(
+                fileName: fileName,
+                fileManager: fileManager
+            )
             try data.write(to: fileURL, options: [.atomic])
-            return StoredRichText(fileName: fileName)
+            return true
         } catch {
-            NSLog("ClipEase failed to save rich text: \(error.localizedDescription)")
-            return nil
+            NSLog("ClipEase failed to overwrite rich text: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -202,24 +221,6 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         try? fileManager.removeItem(at: fileURL)
     }
 
-    private func backupCorruptedHistory(at fileURL: URL) {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let backupURL = fileURL
-            .deletingLastPathComponent()
-            .appendingPathComponent("history-corrupt-\(formatter.string(from: Date())).json")
-
-        do {
-            if fileManager.fileExists(atPath: backupURL.path) {
-                try fileManager.removeItem(at: backupURL)
-            }
-
-            try fileManager.moveItem(at: fileURL, to: backupURL)
-        } catch {
-            NSLog("ClipEase failed to back up corrupted history: \(error.localizedDescription)")
-        }
-    }
-
     private func saveThumbnail(for image: NSImage, fileName: String) {
         guard let thumbnail = image.clipeaseThumbnail(maxPixelSize: Self.thumbnailMaxPixelSize),
               let thumbnailData = thumbnail.pngData() else {
@@ -237,74 +238,6 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         } catch {
             NSLog("ClipEase failed to save clipboard thumbnail: \(error.localizedDescription)")
         }
-    }
-}
-
-struct PersistentClipboardItem: Codable {
-    let id: UUID
-    let type: String
-    let text: String
-    let urlString: String?
-    let linkTitle: String?
-    let linkSubtitle: String?
-    let imageFileName: String?
-    let imageWidth: Int?
-    let imageHeight: Int?
-    let imageHash: String?
-    let richTextFileName: String?
-    let createdAt: Date
-    let sourceAppName: String
-    let sourceBundleID: String?
-    let iconName: String
-    let iconFileName: String?
-    let headerColorHex: String
-    let isPinned: Bool
-    let pinnedAt: Date?
-
-    init(_ item: ClipboardItem) {
-        self.id = item.id
-        self.type = item.type.rawValue
-        self.text = item.text
-        self.urlString = item.url?.absoluteString
-        self.linkTitle = item.linkTitle
-        self.linkSubtitle = item.linkSubtitle
-        self.imageFileName = item.imageFileName
-        self.imageWidth = item.imageWidth
-        self.imageHeight = item.imageHeight
-        self.imageHash = item.imageHash
-        self.richTextFileName = item.richTextFileName
-        self.createdAt = item.createdAt
-        self.sourceAppName = item.sourceAppName
-        self.sourceBundleID = item.sourceBundleID
-        self.iconName = item.iconName
-        self.iconFileName = item.iconFileName
-        self.headerColorHex = item.headerColorHex
-        self.isPinned = item.isPinned
-        self.pinnedAt = item.pinnedAt
-    }
-
-    var clipboardItem: ClipboardItem {
-        ClipboardItem(
-            id: id,
-            type: ClipboardItemType(rawValue: type) ?? .text,
-            text: text,
-            url: urlString.flatMap(URL.init(string:)),
-            linkTitle: linkTitle,
-            linkSubtitle: linkSubtitle,
-            imageFileName: imageFileName,
-            imageWidth: imageWidth,
-            imageHeight: imageHeight,
-            imageHash: imageHash,
-            richTextFileName: richTextFileName,
-            createdAt: createdAt,
-            sourceAppName: sourceAppName,
-            sourceBundleID: sourceBundleID,
-            iconName: iconName,
-            iconFileName: iconFileName,
-            headerColorHex: headerColorHex,
-            isPinned: isPinned,
-            pinnedAt: pinnedAt
-        )
     }
 }
 

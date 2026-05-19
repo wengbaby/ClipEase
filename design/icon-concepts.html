@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>轻贴 App 图标概念</title>
+  <style>
+    :root {
+      --brand: #2f8cff;
+      --brand-deep: #1167d8;
+      --brand-soft: #eaf4ff;
+      --ink: #20242a;
+      --muted: #6b7280;
+      --line: #d8e2ef;
+      --paper: #ffffff;
+      --mint: #3ad6b0;
+      --violet: #7867ff;
+      --amber: #ffbd4a;
+      --rose: #ff6b8a;
+      --cyan: #38c8ff;
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(47, 140, 255, 0.13), transparent 32rem),
+        linear-gradient(180deg, #f7fbff 0%, #eef6ff 52%, #f9fbff 100%);
+    }
+
+    main {
+      width: min(1480px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 44px 0 56px;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 10px 0 0;
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .brand-pill {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      height: 36px;
+      padding: 0 14px;
+      border: 1px solid rgba(47, 140, 255, 0.28);
+      border-radius: 999px;
+      color: #145ebd;
+      background: rgba(234, 244, 255, 0.76);
+      font-size: 13px;
+      font-weight: 650;
+      box-shadow: 0 10px 28px rgba(47, 140, 255, 0.08);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .concept {
+      padding: 18px;
+      border: 1px solid rgba(216, 226, 239, 0.9);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.76);
+      box-shadow: 0 18px 45px rgba(39, 81, 130, 0.08);
+      backdrop-filter: blur(14px);
+    }
+
+    .icon {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      overflow: hidden;
+      border-radius: 29%;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.7),
+        inset 0 -16px 32px rgba(17, 103, 216, 0.1),
+        0 22px 36px rgba(28, 80, 145, 0.18);
+      isolation: isolate;
+    }
+
+    .caption {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .name {
+      font-size: 14px;
+      line-height: 1.3;
+      font-weight: 760;
+    }
+
+    .tag {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+      font-weight: 600;
+    }
+
+    .icon::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      border-radius: inherit;
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.42),
+        inset 0 -1px 0 rgba(0, 42, 96, 0.14);
+      pointer-events: none;
+    }
+
+    .shine {
+      position: absolute;
+      inset: 0;
+      z-index: 7;
+      background: linear-gradient(140deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.08) 34%, transparent 58%);
+      mix-blend-mode: screen;
+      pointer-events: none;
+    }
+
+    .clip {
+      position: absolute;
+      left: 34%;
+      top: 12%;
+      width: 32%;
+      height: 17%;
+      z-index: 5;
+      border-radius: 999px 999px 18px 18px;
+      background: linear-gradient(180deg, #ffffff 0%, #dbeeff 100%);
+      box-shadow: 0 8px 18px rgba(14, 82, 166, 0.16), inset 0 -2px 0 rgba(47, 140, 255, 0.16);
+    }
+
+    .clip::before {
+      content: "";
+      position: absolute;
+      left: 25%;
+      top: 22%;
+      width: 50%;
+      height: 42%;
+      border-radius: 999px;
+      background: rgba(47, 140, 255, 0.22);
+      box-shadow: inset 0 1px 2px rgba(17, 103, 216, 0.18);
+    }
+
+    .board {
+      position: absolute;
+      left: 20%;
+      top: 24%;
+      width: 60%;
+      height: 58%;
+      z-index: 3;
+      border-radius: 20%;
+      background: linear-gradient(180deg, #ffffff 0%, #f2f8ff 100%);
+      box-shadow: 0 16px 30px rgba(12, 74, 150, 0.22), inset 0 0 0 1px rgba(23, 117, 225, 0.12);
+    }
+
+    .board-line {
+      position: absolute;
+      left: 30%;
+      width: 40%;
+      height: 4%;
+      border-radius: 999px;
+      background: rgba(47, 140, 255, 0.24);
+    }
+
+    .card {
+      position: absolute;
+      z-index: 4;
+      border-radius: 16%;
+      background: linear-gradient(180deg, #ffffff 0%, #f5faff 100%);
+      box-shadow: 0 13px 26px rgba(20, 84, 160, 0.18), inset 0 0 0 1px rgba(24, 108, 210, 0.1);
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      left: 12%;
+      right: 12%;
+      top: 14%;
+      height: 14%;
+      border-radius: 999px;
+      background: var(--accent, var(--brand));
+      opacity: 0.88;
+    }
+
+    .glyph {
+      position: absolute;
+      z-index: 6;
+      color: white;
+      font-weight: 850;
+      line-height: 1;
+      text-align: center;
+      text-shadow: 0 2px 8px rgba(0, 45, 95, 0.18);
+    }
+
+    .arrow {
+      position: absolute;
+      z-index: 6;
+      width: 28%;
+      height: 28%;
+      border-right: 12px solid currentColor;
+      border-bottom: 12px solid currentColor;
+      color: #fff;
+      transform: rotate(45deg);
+      filter: drop-shadow(0 8px 12px rgba(0, 53, 124, 0.2));
+    }
+
+    .fold {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 26%;
+      height: 26%;
+      border-radius: 100% 0 0 0;
+      background: linear-gradient(135deg, rgba(47, 140, 255, 0.08), rgba(47, 140, 255, 0.26));
+    }
+
+    .i1 { background: linear-gradient(145deg, #dff0ff 0%, #58aaff 55%, #1c73e8 100%); }
+    .i1 .board-line:nth-child(2) { top: 42%; }
+    .i1 .board-line:nth-child(3) { top: 54%; width: 30%; }
+    .i1 .board-line:nth-child(4) { top: 66%; width: 36%; }
+
+    .i2 { background: linear-gradient(145deg, #f7fbff 0%, #a8d7ff 45%, #2f8cff 100%); }
+    .i2 .card:nth-child(1) { left: 21%; top: 34%; width: 42%; height: 44%; transform: rotate(-8deg); --accent: var(--mint); }
+    .i2 .card:nth-child(2) { left: 34%; top: 28%; width: 42%; height: 44%; transform: rotate(5deg); --accent: var(--brand); }
+    .i2 .card:nth-child(3) { left: 43%; top: 39%; width: 36%; height: 38%; transform: rotate(11deg); --accent: var(--amber); }
+
+    .i3 { background: linear-gradient(145deg, #eef8ff 0%, #49b5ff 62%, #1367d9 100%); }
+    .i3 .glyph { left: 25%; top: 28%; width: 50%; font-size: clamp(44px, 7vw, 76px); }
+    .i3 .card { left: 23%; top: 42%; width: 54%; height: 34%; opacity: 0.92; }
+
+    .i4 { background: linear-gradient(160deg, #ffffff 0%, #eaf4ff 36%, #2f8cff 100%); }
+    .i4 .card { left: 25%; top: 25%; width: 50%; height: 54%; transform: rotate(-6deg); --accent: var(--brand); }
+    .i4 .card::after {
+      content: "";
+      position: absolute;
+      left: 18%;
+      top: 42%;
+      width: 64%;
+      height: 30%;
+      border-radius: 999px;
+      background: rgba(47, 140, 255, 0.13);
+    }
+
+    .i5 { background: conic-gradient(from 210deg at 50% 54%, #2f8cff, #37c7ff, #eaf4ff, #2f8cff); }
+    .i5 .ring {
+      position: absolute;
+      left: 21%;
+      top: 21%;
+      width: 58%;
+      height: 58%;
+      border: 16px solid rgba(255, 255, 255, 0.88);
+      border-right-color: rgba(255, 255, 255, 0.34);
+      border-radius: 50%;
+      box-shadow: 0 15px 28px rgba(14, 82, 166, 0.2);
+    }
+    .i5 .card { left: 36%; top: 35%; width: 32%; height: 36%; --accent: var(--brand-deep); }
+
+    .i6 { background: linear-gradient(145deg, #eaf4ff 0%, #c8e6ff 45%, #ffffff 100%); }
+    .i6 .tray {
+      position: absolute;
+      left: 21%;
+      top: 58%;
+      width: 58%;
+      height: 18%;
+      border-radius: 18px 18px 28px 28px;
+      background: linear-gradient(180deg, #2f8cff 0%, #156bdc 100%);
+      box-shadow: 0 16px 28px rgba(14, 82, 166, 0.23);
+    }
+    .i6 .card { left: 29%; top: 23%; width: 42%; height: 44%; transform: rotate(-4deg); --accent: var(--mint); }
+
+    .i7 { background: linear-gradient(145deg, #122a4a 0%, #1a78f0 100%); }
+    .i7 .board { background: linear-gradient(180deg, #eaf4ff, #ffffff); left: 23%; top: 24%; width: 54%; height: 56%; }
+    .i7 .glyph { left: 35%; top: 41%; width: 30%; color: #176fe1; font-size: clamp(36px, 5.4vw, 62px); text-shadow: none; }
+
+    .i8 { background: linear-gradient(145deg, #e9fff8 0%, #72e0c7 45%, #2f8cff 100%); }
+    .i8 .card { left: 23%; top: 27%; width: 54%; height: 50%; --accent: var(--mint); }
+    .i8 .pin {
+      position: absolute;
+      z-index: 7;
+      left: 42%;
+      top: 15%;
+      width: 16%;
+      height: 24%;
+      border-radius: 999px 999px 45% 45%;
+      background: linear-gradient(180deg, #fff, #bff5e7);
+      box-shadow: 0 10px 18px rgba(0, 112, 88, 0.18);
+    }
+
+    .i9 { background: linear-gradient(145deg, #f7fbff 0%, #dfeaff 40%, #7867ff 100%); }
+    .i9 .card:nth-child(1) { left: 19%; top: 30%; width: 50%; height: 48%; transform: rotate(-11deg); --accent: var(--brand); }
+    .i9 .card:nth-child(2) { left: 32%; top: 23%; width: 50%; height: 48%; transform: rotate(8deg); --accent: var(--violet); }
+    .i9 .glyph { left: 39%; top: 42%; width: 22%; font-size: clamp(24px, 3.6vw, 44px); }
+
+    .i10 { background: linear-gradient(145deg, #fbfdff 0%, #9ed2ff 45%, #2f8cff 100%); }
+    .i10 .bubble {
+      position: absolute;
+      left: 22%;
+      top: 25%;
+      width: 56%;
+      height: 46%;
+      border-radius: 28% 28% 28% 12%;
+      background: linear-gradient(180deg, #fff, #f0f8ff);
+      box-shadow: 0 18px 28px rgba(14, 82, 166, 0.18);
+    }
+    .i10 .bubble::after {
+      content: "";
+      position: absolute;
+      left: 18%;
+      top: 34%;
+      width: 64%;
+      height: 18%;
+      border-radius: 999px;
+      background: #2f8cff;
+      box-shadow: 0 18px 0 rgba(47, 140, 255, 0.2);
+    }
+
+    .i11 { background: linear-gradient(150deg, #10294d 0%, #2f8cff 56%, #9fe5ff 100%); }
+    .i11 .glyph { left: 21%; top: 28%; width: 58%; font-size: clamp(40px, 6.4vw, 70px); }
+    .i11 .speed {
+      position: absolute;
+      z-index: 4;
+      left: 16%;
+      top: 63%;
+      width: 68%;
+      height: 7%;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 -15px 0 rgba(255, 255, 255, 0.42), 0 15px 0 rgba(255, 255, 255, 0.28);
+    }
+
+    .i12 { background: linear-gradient(145deg, #fff7e8 0%, #ffbd4a 45%, #2f8cff 100%); }
+    .i12 .card { left: 24%; top: 25%; width: 52%; height: 52%; --accent: var(--amber); }
+    .i12 .fold { z-index: 8; }
+
+    .i13 { background: linear-gradient(145deg, #eaf4ff 0%, #ffffff 42%, #38c8ff 100%); }
+    .i13 .mag {
+      position: absolute;
+      left: 22%;
+      top: 23%;
+      width: 44%;
+      height: 44%;
+      border: 13px solid #2f8cff;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.52);
+      box-shadow: 0 14px 24px rgba(14, 82, 166, 0.16);
+    }
+    .i13 .mag::after {
+      content: "";
+      position: absolute;
+      left: 72%;
+      top: 76%;
+      width: 48%;
+      height: 15%;
+      border-radius: 999px;
+      background: #2f8cff;
+      transform: rotate(45deg);
+      transform-origin: left center;
+    }
+    .i13 .card { left: 48%; top: 41%; width: 28%; height: 32%; --accent: var(--cyan); }
+
+    .i14 { background: linear-gradient(145deg, #f8fbff 0%, #d9ecff 38%, #2f8cff 100%); }
+    .i14 .tiles {
+      position: absolute;
+      inset: 20%;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+      gap: 8%;
+      transform: rotate(-4deg);
+    }
+    .i14 .tile {
+      border-radius: 20%;
+      background: #fff;
+      box-shadow: 0 11px 22px rgba(14, 82, 166, 0.16);
+    }
+    .i14 .tile:nth-child(2) { background: #dff2ff; }
+    .i14 .tile:nth-child(3) { background: #c7f7ea; }
+    .i14 .tile:nth-child(4) { background: #fff1c8; }
+
+    .i15 { background: linear-gradient(145deg, #f5fbff 0%, #95cfff 42%, #1268d9 100%); }
+    .i15 .board { left: 22%; top: 24%; width: 56%; height: 57%; border-radius: 24%; }
+    .i15 .heart {
+      position: absolute;
+      z-index: 6;
+      left: 38%;
+      top: 45%;
+      width: 24%;
+      height: 24%;
+      background: #2f8cff;
+      transform: rotate(45deg);
+      border-radius: 18% 18% 6% 18%;
+    }
+    .i15 .heart::before,
+    .i15 .heart::after {
+      content: "";
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: inherit;
+    }
+    .i15 .heart::before { left: -48%; top: 0; }
+    .i15 .heart::after { left: 0; top: -48%; }
+
+    .i16 { background: linear-gradient(145deg, #162c52 0%, #295fce 44%, #3ad6b0 100%); }
+    .i16 .glyph { left: 22%; top: 27%; width: 56%; font-size: clamp(42px, 6.8vw, 74px); }
+    .i16 .card { left: 35%; top: 55%; width: 30%; height: 24%; --accent: var(--mint); }
+
+    .i17 { background: linear-gradient(145deg, #eaf4ff 0%, #75bcff 56%, #2f8cff 100%); }
+    .i17 .ribbon {
+      position: absolute;
+      left: 19%;
+      top: 27%;
+      width: 62%;
+      height: 42%;
+      border-radius: 22px;
+      background: #fff;
+      box-shadow: 0 16px 28px rgba(14, 82, 166, 0.18);
+      transform: rotate(-7deg);
+    }
+    .i17 .ribbon::before,
+    .i17 .ribbon::after {
+      content: "";
+      position: absolute;
+      top: 19%;
+      width: 28%;
+      height: 62%;
+      border-radius: 16px;
+      background: #2f8cff;
+    }
+    .i17 .ribbon::before { left: 16%; }
+    .i17 .ribbon::after { right: 16%; opacity: 0.38; }
+
+    .i18 { background: linear-gradient(145deg, #f8fbff 0%, #cce9ff 43%, #ff6b8a 100%); }
+    .i18 .card:nth-child(1) { left: 20%; top: 33%; width: 38%; height: 42%; transform: rotate(-10deg); --accent: var(--brand); }
+    .i18 .card:nth-child(2) { left: 42%; top: 26%; width: 38%; height: 42%; transform: rotate(10deg); --accent: var(--rose); }
+    .i18 .spark {
+      position: absolute;
+      z-index: 7;
+      left: 43%;
+      top: 41%;
+      width: 14%;
+      height: 14%;
+      background: #fff;
+      transform: rotate(45deg);
+      clip-path: polygon(50% 0, 65% 35%, 100% 50%, 65% 65%, 50% 100%, 35% 65%, 0 50%, 35% 35%);
+      filter: drop-shadow(0 6px 10px rgba(116, 26, 62, 0.18));
+    }
+
+    .i19 { background: linear-gradient(145deg, #eef8ff 0%, #ffffff 36%, #2f8cff 100%); }
+    .i19 .stack {
+      position: absolute;
+      left: 21%;
+      top: 24%;
+      width: 58%;
+      height: 56%;
+      border-radius: 24%;
+      background:
+        linear-gradient(180deg, transparent 0 26%, rgba(47, 140, 255, 0.22) 26% 29%, transparent 29% 100%),
+        linear-gradient(180deg, #fff, #f5fbff);
+      box-shadow: 0 18px 30px rgba(14, 82, 166, 0.19);
+    }
+    .i19 .stack::before,
+    .i19 .stack::after {
+      content: "";
+      position: absolute;
+      left: 13%;
+      right: 13%;
+      height: 6%;
+      border-radius: 999px;
+      background: rgba(47, 140, 255, 0.24);
+    }
+    .i19 .stack::before { top: 46%; }
+    .i19 .stack::after { top: 61%; width: 45%; }
+
+    .i20 { background: linear-gradient(145deg, #f2fbff 0%, #78d9ff 46%, #2f8cff 100%); }
+    .i20 .symbol {
+      position: absolute;
+      left: 22%;
+      top: 21%;
+      width: 56%;
+      height: 58%;
+      border-radius: 28%;
+      background: #fff;
+      box-shadow: 0 18px 32px rgba(14, 82, 166, 0.2);
+    }
+    .i20 .symbol::before {
+      content: "";
+      position: absolute;
+      left: 18%;
+      top: 18%;
+      width: 64%;
+      height: 22%;
+      border-radius: 999px;
+      background: #2f8cff;
+    }
+    .i20 .symbol::after {
+      content: "";
+      position: absolute;
+      left: 23%;
+      top: 47%;
+      width: 54%;
+      height: 28%;
+      border-radius: 10px 10px 18px 18px;
+      border: 10px solid #2f8cff;
+      border-top: 0;
+    }
+
+    @media (max-width: 1180px) {
+      .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 900px) {
+      main { width: min(100% - 28px, 760px); padding-top: 28px; }
+      header { display: block; }
+      .brand-pill { margin-top: 16px; }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 520px) {
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>轻贴 App 图标概念</h1>
+        <p class="subtitle">20 个方向先看轮廓和品牌气质。关键词：轻、贴、剪贴板历史、卡片流、快速再次粘贴。所有图形都用 HTML/CSS 绘制，后续可继续收敛成高分辨率图标。</p>
+      </div>
+      <div class="brand-pill">ClipEase / #2F8CFF</div>
+    </header>
+
+    <section class="grid" aria-label="轻贴图标概念列表">
+      <article class="concept">
+        <div class="icon i1">
+          <div class="board"><span class="board-line"></span><span class="board-line"></span><span class="board-line"></span></div>
+          <div class="clip"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">01 经典剪贴板</div><div class="tag">稳妥</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i2">
+          <div class="card"></div><div class="card"></div><div class="card"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">02 卡片流</div><div class="tag">推荐</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i3">
+          <div class="card"></div>
+          <div class="glyph">V</div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">03 快捷粘贴</div><div class="tag">效率</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i4">
+          <div class="card"><div class="fold"></div></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">04 轻贴纸片</div><div class="tag">轻盈</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i5">
+          <div class="ring"></div>
+          <div class="card"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">05 循环历史</div><div class="tag">记录</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i6">
+          <div class="card"></div>
+          <div class="tray"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">06 收纳托盘</div><div class="tag">保存</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i7">
+          <div class="board"></div>
+          <div class="clip"></div>
+          <div class="glyph">C</div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">07 Clip 字母</div><div class="tag">品牌</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i8">
+          <div class="card"></div>
+          <div class="pin"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">08 置顶卡片</div><div class="tag">功能</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i9">
+          <div class="card"></div><div class="card"></div>
+          <div class="glyph">⌘</div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">09 快捷键记忆</div><div class="tag">macOS</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i10">
+          <div class="bubble"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">10 轻量气泡</div><div class="tag">亲和</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i11">
+          <div class="speed"></div>
+          <div class="glyph">V</div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">11 闪速粘贴</div><div class="tag">速度</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i12">
+          <div class="card"><div class="fold"></div></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">12 暖色贴角</div><div class="tag">温暖</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i13">
+          <div class="mag"></div>
+          <div class="card"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">13 搜索历史</div><div class="tag">查找</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i14">
+          <div class="tiles"><div class="tile"></div><div class="tile"></div><div class="tile"></div><div class="tile"></div></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">14 多类型卡片</div><div class="tag">内容</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i15">
+          <div class="board"></div>
+          <div class="clip"></div>
+          <div class="heart"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">15 常驻助手</div><div class="tag">友好</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i16">
+          <div class="glyph">轻</div>
+          <div class="card"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">16 中文品牌</div><div class="tag">直接</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i17">
+          <div class="ribbon"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">17 抽象贴形</div><div class="tag">符号</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i18">
+          <div class="card"></div><div class="card"></div>
+          <div class="spark"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">18 智能捕获</div><div class="tag">活泼</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i19">
+          <div class="stack"></div>
+          <div class="clip"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">19 历史清单</div><div class="tag">清晰</div></div>
+      </article>
+
+      <article class="concept">
+        <div class="icon i20">
+          <div class="symbol"></div>
+          <div class="shine"></div>
+        </div>
+        <div class="caption"><div class="name">20 品牌夹纸</div><div class="tag">沉淀</div></div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

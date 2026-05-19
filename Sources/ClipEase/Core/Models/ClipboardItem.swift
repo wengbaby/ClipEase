@@ -6,6 +6,64 @@ enum ClipboardItemType: String, Codable, Sendable {
     case link
     case image
     case color
+    case file
+}
+
+enum ClipboardFilePathStatus: String, Codable, Sendable {
+    case unknown
+    case available
+    case missing
+    case permissionDenied = "permission_denied"
+    case placeholder
+}
+
+struct ClipboardFileReference: Identifiable, Equatable, Codable, Sendable {
+    let id: UUID
+    let itemID: UUID
+    let orderIndex: Int
+    let path: String
+    let displayName: String
+    let fileExtension: String?
+    let contentType: String?
+    let fileSize: Int?
+    let modifiedAt: Date?
+    let isDirectory: Bool
+    let isAlias: Bool
+    let pathStatus: ClipboardFilePathStatus
+    let lastCheckedAt: Date?
+    let createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        itemID: UUID,
+        orderIndex: Int,
+        path: String,
+        displayName: String? = nil,
+        fileExtension: String? = nil,
+        contentType: String? = nil,
+        fileSize: Int? = nil,
+        modifiedAt: Date? = nil,
+        isDirectory: Bool = false,
+        isAlias: Bool = false,
+        pathStatus: ClipboardFilePathStatus = .unknown,
+        lastCheckedAt: Date? = nil,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.itemID = itemID
+        self.orderIndex = orderIndex
+        self.path = path
+        self.displayName = displayName ?? URL(fileURLWithPath: path).lastPathComponent
+        self.fileExtension = fileExtension ?? URL(fileURLWithPath: path).pathExtension.nilIfEmpty
+        self.contentType = contentType
+        self.fileSize = fileSize
+        self.modifiedAt = modifiedAt
+        self.isDirectory = isDirectory
+        self.isAlias = isAlias
+        self.pathStatus = pathStatus
+        self.lastCheckedAt = lastCheckedAt
+        self.createdAt = createdAt
+    }
 }
 
 struct ClipboardItem: Identifiable, Equatable, Sendable {
@@ -20,6 +78,7 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     let imageHeight: Int?
     let imageHash: String?
     let richTextFileName: String?
+    let fileReferences: [ClipboardFileReference]
     var createdAt: Date
     let sourceAppName: String
     let sourceBundleID: String?
@@ -28,9 +87,15 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     let headerColorHex: String
     var isPinned: Bool
     var pinnedAt: Date?
+    var groupID: UUID?
+    var groupedAt: Date?
 
     var headerColor: Color {
         Color.clipeaseHex(headerColorHex)
+    }
+
+    var isFromClipEase: Bool {
+        sourceBundleID == SourceAppInfo.currentAppBundleID || sourceBundleID == SourceAppInfo.clipease.bundleID
     }
 
     var kind: String {
@@ -47,6 +112,14 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
             }
         case .color:
             "颜色"
+        case .file:
+            if fileReferences.count > 1 {
+                "\(fileReferences.count) 个文件"
+            } else if fileReferences.first?.isDirectory == true {
+                "文件夹"
+            } else {
+                "文件"
+            }
         }
     }
 
@@ -64,6 +137,8 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
             "图片"
         case .color:
             text
+        case .file:
+            fileReferences.first?.path ?? text
         }
     }
 
@@ -93,7 +168,7 @@ extension ClipboardItem {
         _ text: String,
         sourceApp: SourceAppInfo
     ) -> ClipboardItem {
-        ClipboardItem(
+        return ClipboardItem(
             id: UUID(),
             type: .text,
             text: text,
@@ -105,6 +180,7 @@ extension ClipboardItem {
             imageHeight: nil,
             imageHash: nil,
             richTextFileName: nil,
+            fileReferences: [],
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
@@ -112,7 +188,9 @@ extension ClipboardItem {
             iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
-            pinnedAt: nil
+            pinnedAt: nil,
+            groupID: nil,
+            groupedAt: nil
         )
     }
 
@@ -132,6 +210,7 @@ extension ClipboardItem {
             imageHeight: nil,
             imageHash: nil,
             richTextFileName: nil,
+            fileReferences: [],
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
@@ -139,7 +218,9 @@ extension ClipboardItem {
             iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
-            pinnedAt: nil
+            pinnedAt: nil,
+            groupID: nil,
+            groupedAt: nil
         )
     }
 
@@ -163,6 +244,7 @@ extension ClipboardItem {
             imageHeight: nil,
             imageHash: nil,
             richTextFileName: nil,
+            fileReferences: [],
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
@@ -170,7 +252,9 @@ extension ClipboardItem {
             iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
-            pinnedAt: nil
+            pinnedAt: nil,
+            groupID: nil,
+            groupedAt: nil
         )
     }
 
@@ -193,6 +277,7 @@ extension ClipboardItem {
             imageHeight: height,
             imageHash: hash,
             richTextFileName: nil,
+            fileReferences: [],
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
@@ -200,7 +285,9 @@ extension ClipboardItem {
             iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
-            pinnedAt: nil
+            pinnedAt: nil,
+            groupID: nil,
+            groupedAt: nil
         )
     }
 
@@ -221,6 +308,7 @@ extension ClipboardItem {
             imageHeight: nil,
             imageHash: nil,
             richTextFileName: fileName,
+            fileReferences: [],
             createdAt: Date(),
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
@@ -228,7 +316,59 @@ extension ClipboardItem {
             iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
-            pinnedAt: nil
+            pinnedAt: nil,
+            groupID: nil,
+            groupedAt: nil
+        )
+    }
+
+    static func file(
+        references: [ClipboardFileReference],
+        sourceApp: SourceAppInfo
+    ) -> ClipboardItem {
+        let itemID = references.first?.itemID ?? UUID()
+        let normalizedReferences = references.enumerated().map { index, reference in
+            ClipboardFileReference(
+                id: reference.id,
+                itemID: itemID,
+                orderIndex: index,
+                path: reference.path,
+                displayName: reference.displayName,
+                fileExtension: reference.fileExtension,
+                contentType: reference.contentType,
+                fileSize: reference.fileSize,
+                modifiedAt: reference.modifiedAt,
+                isDirectory: reference.isDirectory,
+                isAlias: reference.isAlias,
+                pathStatus: reference.pathStatus,
+                lastCheckedAt: reference.lastCheckedAt,
+                createdAt: reference.createdAt
+            )
+        }
+
+        return ClipboardItem(
+            id: itemID,
+            type: .file,
+            text: fileSummary(for: normalizedReferences),
+            url: nil,
+            linkTitle: normalizedReferences.first?.displayName,
+            linkSubtitle: normalizedReferences.first?.path,
+            imageFileName: nil,
+            imageWidth: nil,
+            imageHeight: nil,
+            imageHash: nil,
+            richTextFileName: nil,
+            fileReferences: normalizedReferences,
+            createdAt: Date(),
+            sourceAppName: sourceApp.name,
+            sourceBundleID: sourceApp.bundleID,
+            iconName: sourceApp.iconName,
+            iconFileName: sourceApp.iconFileName,
+            headerColorHex: sourceApp.headerColorHex,
+            isPinned: false,
+            pinnedAt: nil,
+            groupID: nil,
+            groupedAt: nil
         )
     }
 
@@ -249,6 +389,7 @@ extension ClipboardItem {
             imageHeight: nil,
             imageHash: nil,
             richTextFileName: nil,
+            fileReferences: [],
             createdAt: createdAt,
             sourceAppName: sourceApp.name,
             sourceBundleID: sourceApp.bundleID,
@@ -256,7 +397,92 @@ extension ClipboardItem {
             iconFileName: sourceApp.iconFileName,
             headerColorHex: sourceApp.headerColorHex,
             isPinned: false,
-            pinnedAt: nil
+            pinnedAt: nil,
+            groupID: nil,
+            groupedAt: nil
         )
+    }
+
+    func updatingEditableContent(
+        text newText: String,
+        url newURL: URL? = nil,
+        linkTitle newLinkTitle: String? = nil,
+        linkSubtitle newLinkSubtitle: String? = nil,
+        richTextFileName newRichTextFileName: String? = nil
+    ) -> ClipboardItem {
+        ClipboardItem(
+            id: id,
+            type: type,
+            text: newText,
+            url: newURL,
+            linkTitle: newLinkTitle,
+            linkSubtitle: newLinkSubtitle,
+            imageFileName: imageFileName,
+            imageWidth: imageWidth,
+            imageHeight: imageHeight,
+            imageHash: imageHash,
+            richTextFileName: newRichTextFileName ?? richTextFileName,
+            fileReferences: fileReferences,
+            createdAt: createdAt,
+            sourceAppName: sourceAppName,
+            sourceBundleID: sourceBundleID,
+            iconName: iconName,
+            iconFileName: iconFileName,
+            headerColorHex: headerColorHex,
+            isPinned: isPinned,
+            pinnedAt: pinnedAt,
+            groupID: groupID,
+            groupedAt: groupedAt
+        )
+    }
+
+    func refreshingFromClipboard(
+        _ latestItem: ClipboardItem,
+        createdAt refreshedAt: Date,
+        richTextFileName refreshedRichTextFileName: String? = nil
+    ) -> ClipboardItem {
+        ClipboardItem(
+            id: id,
+            type: latestItem.type,
+            text: latestItem.text,
+            url: latestItem.url,
+            linkTitle: latestItem.linkTitle,
+            linkSubtitle: latestItem.linkSubtitle,
+            imageFileName: latestItem.type == .image ? (imageFileName ?? latestItem.imageFileName) : latestItem.imageFileName,
+            imageWidth: latestItem.type == .image ? (imageWidth ?? latestItem.imageWidth) : latestItem.imageWidth,
+            imageHeight: latestItem.type == .image ? (imageHeight ?? latestItem.imageHeight) : latestItem.imageHeight,
+            imageHash: latestItem.type == .image ? (imageHash ?? latestItem.imageHash) : latestItem.imageHash,
+            richTextFileName: refreshedRichTextFileName ?? latestItem.richTextFileName ?? richTextFileName,
+            fileReferences: latestItem.fileReferences.isEmpty ? fileReferences : latestItem.fileReferences,
+            createdAt: refreshedAt,
+            sourceAppName: latestItem.sourceAppName,
+            sourceBundleID: latestItem.sourceBundleID,
+            iconName: latestItem.iconName,
+            iconFileName: latestItem.iconFileName,
+            headerColorHex: latestItem.headerColorHex,
+            isPinned: isPinned,
+            pinnedAt: pinnedAt,
+            groupID: groupID,
+            groupedAt: groupedAt
+        )
+    }
+
+    private static func fileSummary(for references: [ClipboardFileReference]) -> String {
+        guard let first = references.first else {
+            return ""
+        }
+
+        if references.count == 1 {
+            return "\(first.displayName)\n\(first.path)"
+        }
+
+        let paths = references.map(\.path).joined(separator: "\n")
+        return "\(first.displayName) 等 \(references.count) 个文件\n\(paths)"
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

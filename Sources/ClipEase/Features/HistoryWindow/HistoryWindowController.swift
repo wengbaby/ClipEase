@@ -5,6 +5,7 @@ import SwiftUI
 final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let panelHeight: CGFloat = 360
     private let panelAnimationDistance: CGFloat = 360
+    private let panelAnimationDuration: TimeInterval = 0.14
     private let panelBackgroundColor = NSColor(red: 0.78, green: 0.82, blue: 0.92, alpha: 1.0)
     private let store: ClipboardHistoryStore
     private let pasteExecutor: PasteExecutor
@@ -21,6 +22,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private var localOutsideClickMonitor: Any?
     private var isClosing = false
     private weak var previousFrontmostApplication: NSRunningApplication?
+    private var lastKnownPanelFrame: NSRect?
 
     init(
         store: ClipboardHistoryStore,
@@ -52,53 +54,59 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         self.panel = panel
         isClosing = false
         let targetFrame = frameForPanel()
+        lastKnownPanelFrame = targetFrame
+        GlobalStatusToastController.shared.updateHistoryWindowFrame(targetFrame, screen: panel.screen ?? NSScreen.clipeaseScreenContainingMouse ?? NSScreen.main)
+        appMenuController.setStatusToastAnchorWindow(panel)
         let shouldAnimate = !panel.isVisible
 
+        panel.hasShadow = false
+        panel.alphaValue = 1
         if shouldAnimate {
             renderState.prepareForShow()
-            panel.hasShadow = false
-            panel.alphaValue = 1
-            panel.setFrame(hiddenFrame(for: targetFrame), display: false)
+            panel.setFrame(hiddenFrame(for: targetFrame), display: true)
         } else {
+            panel.disableScreenUpdatesUntilFlush()
             panel.setFrame(targetFrame, display: true)
         }
 
         panel.orderFrontRegardless()
         panel.makeKey()
-        panel.displayIfNeeded()
-        HistoryScrollCoordinator.shared.restoreSavedOffset()
-        keyboardEventTap.start()
-        installOutsideClickMonitor()
+        if !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
+            HistoryScrollCoordinator.shared.restoreSavedOffset()
+        }
+        inputState.setWindowVisible(true)
+        inputState.setWindowPresented(true)
 
         guard shouldAnimate else {
+            finishShowingWindow()
             return
         }
 
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 16_000_000)
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.15
-                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
-                panel.animator().setFrame(targetFrame, display: false)
-            } completionHandler: { [weak panel] in
-                Task { @MainActor in
-                    panel?.displayIfNeeded()
-                    panel?.hasShadow = true
-                    self.renderState.revealAllItems()
-                    HistoryScrollCoordinator.shared.restoreSavedOffset()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = panelAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .linear)
+            panel.animator().setFrame(targetFrame, display: false)
+        } completionHandler: { [weak self, weak panel] in
+            Task { @MainActor in
+                guard panel?.isVisible == true else {
+                    return
                 }
+                panel?.hasShadow = false
+                self?.finishShowingWindow()
             }
         }
     }
 
     func close() {
-        keyboardEventTap.stop()
-        removeOutsideClickMonitor()
-        closePreview()
         guard let panel,
               panel.isVisible,
               !isClosing else {
+            inputState.notifyWindowWillHide()
+            keyboardEventTap.stop()
+            removeOutsideClickMonitor()
+            closePreview()
             panel?.orderOut(nil)
+            panel?.hasShadow = false
             return
         }
 
@@ -106,25 +114,36 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.hasShadow = false
         let targetFrame = hiddenFrame(for: panel.frame)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
+            context.duration = panelAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .linear)
             panel.animator().setFrame(targetFrame, display: false)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
+                self?.inputState.notifyWindowWillHide()
+                self?.keyboardEventTap.stop()
+                self?.removeOutsideClickMonitor()
+                self?.closePreview()
                 panel?.orderOut(nil)
-                panel?.hasShadow = true
+                panel?.alphaValue = 1
+                panel?.hasShadow = false
                 self?.isClosing = false
             }
         }
     }
 
     func hideImmediatelyForAutoPaste() {
+        inputState.notifyWindowWillHide()
         keyboardEventTap.stop()
         removeOutsideClickMonitor()
         closePreview()
         panel?.orderOut(nil)
-        panel?.hasShadow = true
+        panel?.hasShadow = false
         isClosing = false
+    }
+
+    private func finishShowingWindow() {
+        keyboardEventTap.start()
+        installOutsideClickMonitor()
     }
 
     private func makePanel() -> HistoryPanel {
@@ -143,14 +162,20 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             onPreview: { [weak self] item, cardFrame in
                 self?.showPreview(item, cardFrame: cardFrame)
             },
+            onMovePreview: { [weak self] cardFrame in
+                self?.movePreview(cardFrame: cardFrame)
+            },
             onClosePreview: { [weak self] in
                 self?.closePreview()
+            },
+            onCreateText: { [weak self] defaultGroupID in
+                self?.createTextFromHistoryWindow(defaultGroupID: defaultGroupID)
             }
         )
 
         let panel = HistoryPanel(
             contentRect: .zero,
-            styleMask: [.nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -159,7 +184,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.onEscape = { [weak self] in
             self?.inputState.dispatch(.close)
         }
-        panel.level = .floating
+        panel.level = .screenSaver
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
@@ -169,18 +194,25 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.animationBehavior = .none
         panel.backgroundColor = panelBackgroundColor
         panel.isOpaque = true
-        panel.hasShadow = true
+        panel.hasShadow = false
+        previewWindowController.onKeyStateChange = { [weak self] isKey in
+            self?.inputState.setPreviewKeyWindowActive(isKey)
+        }
 
         let hostingView = NSHostingView(rootView: contentView)
+        hostingView.focusRingType = .none
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = panelBackgroundColor.cgColor
+        hostingView.layer?.borderWidth = 0
+        hostingView.layer?.shadowOpacity = 0
+        hostingView.layer?.masksToBounds = false
         panel.contentView = hostingView
         return panel
     }
 
     private func frameForPanel() -> NSRect {
         let screen = NSScreen.clipeaseScreenContainingMouse ?? NSScreen.main
-        let frame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+        let frame = screen?.frame ?? NSScreen.main?.frame ?? .zero
         return NSRect(
             x: frame.minX,
             y: frame.minY,
@@ -234,8 +266,16 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         guard let panel, panel.isVisible else {
             return
         }
+        guard !inputState.isWindowPinnedOpenSnapshot else {
+            return
+        }
 
         if event.window === panel {
+            return
+        }
+
+        if let eventWindow = event.window,
+           NSApp.windows.contains(eventWindow) {
             return
         }
 
@@ -249,6 +289,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func showPreview(_ item: ClipboardItem, cardFrame: CGRect) {
         guard let panel else {
+            inputState.setPreviewActive(false)
+            previewState.close()
             return
         }
 
@@ -257,8 +299,9 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             y: panel.frame.maxY - cardFrame.minY
         )
         let screenFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? panel.frame
-        previewWindowController.show(
+        let didShowPreview = previewWindowController.show(
             item: item,
+            parentWindow: panel,
             anchorScreenPoint: anchorScreenPoint,
             screenFrame: screenFrame,
             onCopy: { [pasteExecutor] in
@@ -277,15 +320,42 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 self?.copyPlainPreviewText(self?.markdownLink(for: item))
             },
             onCopyPath: { [weak self] in
-                self?.copyPlainPreviewText(self?.imagePath(for: item))
+                self?.copyPreviewPath(for: item)
             },
             onCopyRGB: { [weak self] in
                 self?.copyPlainPreviewText(self?.rgbString(from: item.text))
+            },
+            onClose: { [weak self] in
+                self?.closePreview()
             }
         )
+        guard didShowPreview else {
+            inputState.setPreviewActive(false)
+            previewState.close()
+            return
+        }
+
+        previewState.open(item.id)
+        inputState.setPreviewActive(true)
         previewWindowController.installOutsideClickMonitor { [weak self] in
             self?.closePreview()
         }
+        previewWindowController.installEscapeKeyMonitor { [weak self] in
+            self?.closePreview()
+        }
+    }
+
+    private func movePreview(cardFrame: CGRect) {
+        guard let panel else {
+            return
+        }
+
+        let anchorScreenPoint = CGPoint(
+            x: panel.frame.minX + cardFrame.midX,
+            y: panel.frame.maxY - cardFrame.minY
+        )
+        let screenFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? panel.frame
+        previewWindowController.move(anchorScreenPoint: anchorScreenPoint, screenFrame: screenFrame)
     }
 
     private func openPreviewItem(_ item: ClipboardItem) {
@@ -298,17 +368,30 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             if let url = imageURL(for: item) {
                 NSWorkspace.shared.open(url)
             }
-        case .text, .color:
+        case .text, .color, .file:
             break
         }
     }
 
     private func revealPreviewItem(_ item: ClipboardItem) {
-        guard let url = imageURL(for: item) else {
-            return
-        }
+        switch item.type {
+        case .image:
+            guard let url = imageURL(for: item) else {
+                return
+            }
 
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        case .file:
+            let urls = existingPreviewFileURLs(for: item)
+            guard !urls.isEmpty else {
+                showStatus("未找到文件")
+                return
+            }
+
+            NSWorkspace.shared.activateFileViewerSelecting(urls)
+        case .text, .link, .color:
+            break
+        }
     }
 
     private func copyPlainPreviewText(_ text: String?) {
@@ -319,7 +402,40 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        store.skipNextClipboardText(text)
+        store.addText(text, sourceApp: .clipease)
+    }
+
+    private func copyPreviewPath(for item: ClipboardItem) {
+        switch item.type {
+        case .image:
+            copyPlainPreviewText(imagePath(for: item))
+        case .file:
+            copyPreviewFilePaths(for: item)
+        case .text, .link, .color:
+            break
+        }
+    }
+
+    private func copyPreviewFilePaths(for item: ClipboardItem) {
+        guard item.type == .file else {
+            showStatus("未找到文件")
+            return
+        }
+
+        let paths = item.fileReferences
+            .map(\.path)
+            .filter { !$0.isEmpty }
+
+        guard !paths.isEmpty else {
+            showStatus("未找到文件")
+            return
+        }
+
+        let pathsText = paths.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(pathsText, forType: .string)
+        store.addText(pathsText, sourceApp: .clipease)
+        showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")
     }
 
     private func markdownLink(for item: ClipboardItem) -> String? {
@@ -346,6 +462,33 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         return try? ClipEaseStoragePaths.imageFileURL(fileName: fileName)
     }
 
+    private func existingPreviewFileURLs(for item: ClipboardItem) -> [URL] {
+        guard item.type == .file else {
+            return []
+        }
+
+        return item.fileReferences.compactMap { reference in
+            guard !reference.path.isEmpty else {
+                return nil
+            }
+
+            let url = URL(fileURLWithPath: reference.path).standardizedFileURL
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                return nil
+            }
+
+            return url
+        }
+    }
+
+    private func showStatus(_ text: String) {
+        if let frame = lastKnownPanelFrame {
+            GlobalStatusToastController.shared.updateHistoryWindowFrame(frame, screen: panel?.screen ?? NSScreen.clipeaseScreenContainingMouse ?? NSScreen.main)
+        }
+        appMenuController.setStatusToastAnchorWindow(panel)
+        GlobalStatusToastController.shared.show(text, relativeTo: panel)
+    }
+
     private func rgbString(from hex: String) -> String? {
         guard let components = ClipEaseColorComponents(hex: hex) else {
             return nil
@@ -358,11 +501,28 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     private func closePreview() {
+        inputState.setPreviewActive(false)
         previewState.close()
         previewWindowController.close()
     }
 
+    private func showAndFocusCreatedItem(_ item: ClipboardItem) {
+        show()
+        inputState.requestItemFocus(item.id, resetToAll: item.groupID == nil)
+    }
+
+    func createTextFromHistoryWindow(defaultGroupID: ClipboardGroup.ID?) {
+        close()
+        appMenuController.createTextItem(defaultGroupID: defaultGroupID) { [weak self] item in
+            self?.showAndFocusCreatedItem(item)
+        }
+    }
+
     func windowDidResignKey(_ notification: Notification) {
+        if previewWindowController.isVisible {
+            return
+        }
+
         closePreview()
     }
 }

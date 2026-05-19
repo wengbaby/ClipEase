@@ -2,20 +2,20 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；随后修复 `scripts/build-app.sh --run` 启动方式，当前候选包为 `2.0.1(260519.2301)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；随后修复 `scripts/build-app.sh --run` 启动方式，当前候选包为 `2.0.1(260519.2309)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：待本次 `2.0.1(260519.2301)` 文档对齐后重跑
+- `scripts/smoke_check.py`：待本次 `2.0.1(260519.2309)` 文档对齐后重跑
 - `python3 scripts/verify_stage9_file_paste_fallback.py`：PASS
 - `python3 scripts/verify_stage9_file_pasteboard_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.1 (260519.2301)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `80247`
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.1 (260519.2309)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `86840`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -40,9 +40,9 @@
 ## RC 包信息
 
 - 当前候选版本：`2.0.1`
-- 当前构建号：`260519.2301`
-- 当前 build/run：`2.0.1 (260519.2301)`
-- 当前运行进程：PID `80247`
+- 当前构建号：`260519.2309`
+- 当前 build/run：`2.0.1 (260519.2309)`
+- 当前运行进程：PID `86840`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
@@ -88,4 +88,4 @@
 - `1.0.22(260515.0414)`：`V2-ACCEPT-S9-FILE-DRAGOUT-FIRST-BATCH-001` Acceptance PASS 后主控执行 `scripts/build-app.sh --run`，构建脚本自动从 `1.0.21 (260515.0351)` 提升到 `1.0.22 (260515.0414)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `67501`。本包包含 Stage 9 文件卡片拖出第一批：`.file` 卡片 AppKit drag source bridge；drag pasteboard 仅写 `NSURL` file URL 引用；拖出前即时校验路径；部分失效只拖有效项；全部失效提示；不吞普通点击 / 右键 / 滚动 / 预览。专项检查 `python3 scripts/verify_stage9_file_dragout_first_batch.py` PASS，`python3 scripts/verify_stage9_file_basic_actions.py` PASS；`python3 scripts/smoke_check.py` 当前仅因本报告未同步 `1.0.22(260515.0414)` HOLD，本次已完成 RC 文档对齐。本包明确不包含临时副本、打开文件、原文件删除 / 移动 / 复制 / 写入、security-scoped bookmark、schema / repository / model / search index、收藏 / 管理 / 多选 / 批量 / JSON runtime。剩余风险为真实 Finder / 外部 App 拖出运行态人工验收待用户测试。本记录不代表最终正式发布完成。
 - `1.0.23(260515.0703)`：`V2-ACCEPT-S9-FILE-PASTE-FALLBACK-FIRST-BATCH-001` Acceptance PASS 后主控执行 `scripts/build-app.sh --run`，构建脚本自动从 `1.0.22 (260515.0414)` 提升到 `1.0.23 (260515.0703)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `41016`。本包包含 Stage 9 文件引用粘贴 fallback 收口：有效文件仍优先写 `NSURL` file URL 引用；全部文件不可用时 fallback 写路径 / 显示名 / `item.text` 文本，多文件换行；fallback 结果有独立状态，toast 显示“文件路径”语义，不误报“文件引用”；fallback 调用 `skipNextClipboardText`。专项检查 `python3 scripts/verify_stage9_file_paste_fallback.py` PASS，`python3 scripts/verify_stage9_file_pasteboard_first_batch.py` PASS；`python3 scripts/smoke_check.py` 当前仅因本报告未同步 `1.0.23(260515.0703)` HOLD，本次已完成 RC 文档对齐。本包明确不包含原文件删除 / 移动 / 复制 / 写入、临时副本、打开文件 / Finder / drag 新增、security-scoped bookmark、schema / repository / model / search index、收藏 / 管理 / 多选 / 批量 / JSON runtime。剩余风险为真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态人工验收待用户测试；预览 header 复制按钮统一 toast / fallback 状态已作为非阻塞 backlog 记录。本记录不代表最终正式发布完成。
 - `2.0.0(260519.2258)`：按项目版本规则将第二版正式切到大版本线，主控执行 `scripts/build-app.sh --bump major --run`，构建脚本从 `1.0.129 (260519.2057)` 提升到 `2.0.0 (260519.2258)`；源码 `Resources/Info.plist` 与 `.build/ClipEase.app/Contents/Info.plist` 均已确认版本一致。直接执行模式未保留常驻进程，后续改用 App bundle 方式启动。本包用于第二版发布前人工验收和版本线收口，不新增功能。
-- `2.0.1(260519.2301)`：修复 `scripts/build-app.sh --run` 启动方式，保留 `.icns` 复制和签名流程，将运行步骤改为 `open -n "$APP_DIR"` 并检查 bundle 内可执行进程；主控执行 `scripts/build-app.sh --bump patch --run` 后，源码与 `.build/ClipEase.app` 均为 `2.0.1 (260519.2301)`，脚本已自行启动 App bundle，PID `80247`。本包只修复构建运行流程，不新增功能。
+- `2.0.1(260519.2309)`：修复 `scripts/build-app.sh --run` 启动方式，保留 `.icns` 复制和签名流程，将运行步骤改为 `open -n "$APP_DIR"` 并检查 bundle 内可执行进程；主控执行 `scripts/build-app.sh --bump patch --run` 后，源码与 `.build/ClipEase.app` 均为 `2.0.1 (260519.2309)`，脚本已自行启动 App bundle，PID `86840`。本包只修复构建运行流程，不新增功能。

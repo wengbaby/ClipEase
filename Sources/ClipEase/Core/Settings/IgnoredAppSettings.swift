@@ -26,6 +26,11 @@ final class IgnoredAppSettings: ObservableObject {
             return false
         }
 
+        guard bundleID != SourceAppInfo.currentAppBundleID,
+              bundleID != SourceAppInfo.clipease.bundleID else {
+            return false
+        }
+
         return apps.contains { $0.bundleID == bundleID }
     }
 
@@ -33,6 +38,8 @@ final class IgnoredAppSettings: ObservableObject {
     func add(bundleID: String?, name: String) -> Bool {
         guard let bundleID,
               !bundleID.isEmpty,
+              bundleID != SourceAppInfo.currentAppBundleID,
+              bundleID != SourceAppInfo.clipease.bundleID,
               !contains(bundleID: bundleID) else {
             return false
         }

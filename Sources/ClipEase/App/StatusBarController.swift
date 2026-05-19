@@ -44,12 +44,8 @@ final class StatusBarController: NSObject {
             return
         }
 
-        let symbolName = recordingController.isPaused ? "pause.circle.fill" : "doc.on.clipboard"
-        button.image = NSImage(
-            systemSymbolName: symbolName,
-            accessibilityDescription: "轻贴"
-        )
-        button.image?.isTemplate = true
+        button.image = ClipEaseAppIcon.statusBarImage(isPaused: recordingController.isPaused)
+        button.image?.accessibilityDescription = "轻贴"
         button.toolTip = recordingController.isPaused ? "轻贴已暂停记录" : "轻贴 ClipEase"
     }
 

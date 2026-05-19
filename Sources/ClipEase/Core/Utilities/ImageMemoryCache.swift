@@ -8,6 +8,14 @@ final class ImageMemoryCache {
 
     private init() {}
 
+    func cachedImage(for key: String) -> NSImage? {
+        cache.object(forKey: key as NSString)
+    }
+
+    func store(_ image: NSImage, for key: String) {
+        cache.setObject(image, forKey: key as NSString)
+    }
+
     func image(for key: String, load: () -> NSImage?) -> NSImage? {
         if let image = cache.object(forKey: key as NSString) {
             return image

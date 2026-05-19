@@ -6,16 +6,29 @@ final class HistoryPreviewWindowController {
     private var panel: NSPanel?
     private var outsideClickMonitor: Any?
     private var localOutsideClickMonitor: Any?
+    private var escapeKeyMonitor: Any?
     private var contentLoadTask: Task<Void, Never>?
+    private weak var parentWindow: NSWindow?
+    var onKeyStateChange: ((Bool) -> Void)?
     private let arrowHeight: CGFloat = 14
+    private let arrowGap: CGFloat = 18
     private let horizontalMargin: CGFloat = 12
+    private let defaultPreviewSize = CGSize(width: 620, height: 370)
+    // Keeps tiny or 1px-edge images operable without returning to the old 220pt fixed image window.
+    private let imagePreviewMinimumContentSize = CGSize(width: 180, height: 140)
 
     var frame: CGRect? {
         panel?.frame
     }
 
+    var isVisible: Bool {
+        panel?.isVisible == true
+    }
+
+    @discardableResult
     func show(
         item: ClipboardItem,
+        parentWindow: NSWindow,
         anchorScreenPoint: CGPoint,
         screenFrame: CGRect,
         onCopy: @escaping () -> Void,
@@ -24,11 +37,12 @@ final class HistoryPreviewWindowController {
         onCopyURL: @escaping () -> Void,
         onCopyMarkdown: @escaping () -> Void,
         onCopyPath: @escaping () -> Void,
-        onCopyRGB: @escaping () -> Void
-    ) {
+        onCopyRGB: @escaping () -> Void,
+        onClose: @escaping () -> Void
+    ) -> Bool {
         let size = previewSize(for: item, screenFrame: screenFrame)
         let originY = min(
-            max(anchorScreenPoint.y, screenFrame.minY + 8),
+            max(anchorScreenPoint.y + arrowGap, screenFrame.minY + 8),
             screenFrame.maxY - size.height - arrowHeight - 8
         )
         let originX = min(
@@ -46,6 +60,9 @@ final class HistoryPreviewWindowController {
         let panel = panel ?? makePanel()
         let isAlreadyVisible = panel.isVisible
         self.panel = panel
+        self.parentWindow = parentWindow
+        (panel as? HistoryPreviewPanel)?.onEscape = onClose
+        detachPanelFromParent(panel)
         contentLoadTask?.cancel()
         let shouldLoadImmediately = item.type == .text || item.type == .color || item.type == .image
         setPreviewContent(
@@ -60,11 +77,14 @@ final class HistoryPreviewWindowController {
             onCopyURL: onCopyURL,
             onCopyMarkdown: onCopyMarkdown,
             onCopyPath: onCopyPath,
-            onCopyRGB: onCopyRGB
+            onCopyRGB: onCopyRGB,
+            onClose: onClose
         )
 
         if isAlreadyVisible {
-            panel.setFrame(frame, display: true)
+            panel.setFrame(frame, display: true, animate: false)
+            panel.orderFrontRegardless()
+            (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
             if !shouldLoadImmediately {
                 scheduleContentLoad(
                     panel: panel,
@@ -78,49 +98,45 @@ final class HistoryPreviewWindowController {
                     onCopyURL: onCopyURL,
                     onCopyMarkdown: onCopyMarkdown,
                     onCopyPath: onCopyPath,
-                    onCopyRGB: onCopyRGB
+                    onCopyRGB: onCopyRGB,
+                    onClose: onClose
                 )
             }
         } else {
-            let startFrame = frame.offsetBy(dx: 0, dy: -12)
-            panel.alphaValue = 0
-            panel.setFrame(startFrame, display: false)
+            panel.alphaValue = 1
+            panel.setFrame(frame, display: true)
             panel.orderFrontRegardless()
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.22
-                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
-                panel.animator().alphaValue = 1
-                panel.animator().setFrame(frame, display: true)
-            } completionHandler: { [weak self, weak panel] in
-                guard let self, let panel else {
-                    return
-                }
-
-                if !shouldLoadImmediately {
-                    self.scheduleContentLoad(
-                        panel: panel,
-                        item: item,
-                        arrowX: arrowX,
-                        size: size,
-                        delay: 1_000_000,
-                        onCopy: onCopy,
-                        onOpen: onOpen,
-                        onReveal: onReveal,
-                        onCopyURL: onCopyURL,
-                        onCopyMarkdown: onCopyMarkdown,
-                        onCopyPath: onCopyPath,
-                        onCopyRGB: onCopyRGB
-                    )
-                }
+            (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
+            if !shouldLoadImmediately {
+                scheduleContentLoad(
+                    panel: panel,
+                    item: item,
+                    arrowX: arrowX,
+                    size: size,
+                    delay: 1_000_000,
+                    onCopy: onCopy,
+                    onOpen: onOpen,
+                    onReveal: onReveal,
+                    onCopyURL: onCopyURL,
+                    onCopyMarkdown: onCopyMarkdown,
+                    onCopyPath: onCopyPath,
+                    onCopyRGB: onCopyRGB,
+                    onClose: onClose
+                )
             }
         }
+
+        return panel.isVisible
     }
 
     func close() {
+        let parentWindow = parentWindow
         removeOutsideClickMonitor()
+        removeEscapeKeyMonitor()
         contentLoadTask?.cancel()
         contentLoadTask = nil
+        parentWindow?.makeKey()
+        (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
         guard let panel, panel.isVisible else {
             panel?.orderOut(nil)
             return
@@ -128,13 +144,42 @@ final class HistoryPreviewWindowController {
 
         panel.contentView = NSView()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+            context.duration = 0.10
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
             panel.animator().alphaValue = 0
         } completionHandler: { [weak panel] in
             panel?.orderOut(nil)
             panel?.alphaValue = 1
         }
+    }
+
+    func move(anchorScreenPoint: CGPoint, screenFrame: CGRect) {
+        guard let panel, panel.isVisible else {
+            return
+        }
+
+        let size = CGSize(width: panel.frame.width, height: max(1, panel.frame.height - arrowHeight))
+        let originY = min(
+            max(anchorScreenPoint.y + arrowGap, screenFrame.minY + 8),
+            screenFrame.maxY - size.height - arrowHeight - 8
+        )
+        let originX = min(
+            max(anchorScreenPoint.x - size.width / 2, screenFrame.minX + horizontalMargin),
+            screenFrame.maxX - horizontalMargin - size.width
+        )
+        let frame = CGRect(
+            x: originX,
+            y: originY,
+            width: panel.frame.width,
+            height: panel.frame.height
+        )
+
+        guard abs(panel.frame.minX - frame.minX) > 0.5 ||
+              abs(panel.frame.minY - frame.minY) > 0.5 else {
+            return
+        }
+
+        panel.setFrame(frame, display: true, animate: false)
     }
 
     func contains(screenPoint: CGPoint) -> Bool {
@@ -156,11 +201,31 @@ final class HistoryPreviewWindowController {
             }
         }
         localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard self?.contains(screenPoint: NSEvent.mouseLocation) == false else {
+            if self?.contains(screenPoint: NSEvent.mouseLocation) == true {
+                if event.type == .leftMouseDown,
+                   let panel = self?.panel {
+                    panel.makeKey()
+                    (panel as? HistoryPreviewPanel)?.onKeyStateChange?(true)
+                }
                 return event
             }
             onOutsideClick()
             return event
+        }
+    }
+
+    func installEscapeKeyMonitor(onEscape: @escaping @MainActor () -> Void) {
+        removeEscapeKeyMonitor()
+        escapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  event.keyCode == KeyCode.escape,
+                  self.panel?.isKeyWindow == true,
+                  self.panel?.isVisible == true else {
+                return event
+            }
+
+            onEscape()
+            return nil
         }
     }
 
@@ -171,14 +236,21 @@ final class HistoryPreviewWindowController {
             backing: .buffered,
             defer: false
         )
-        panel.level = .floating
+        panel.level = .screenSaver
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
+        panel.onKeyStateChange = { [weak self] isKey in
+            self?.onKeyStateChange?(isKey)
+        }
         return panel
+    }
+
+    private func detachPanelFromParent(_ panel: NSPanel) {
+        panel.parent?.removeChildWindow(panel)
     }
 
     private func setPreviewContent(
@@ -193,7 +265,8 @@ final class HistoryPreviewWindowController {
         onCopyURL: @escaping () -> Void,
         onCopyMarkdown: @escaping () -> Void,
         onCopyPath: @escaping () -> Void,
-        onCopyRGB: @escaping () -> Void
+        onCopyRGB: @escaping () -> Void,
+        onClose: @escaping () -> Void
     ) {
         panel.contentView = NSHostingView(
             rootView: HistoryPreviewPopoverView(
@@ -201,9 +274,7 @@ final class HistoryPreviewWindowController {
                 arrowX: arrowX,
                 size: size,
                 isContentReady: isContentReady,
-                onClose: { [weak self] in
-                    self?.close()
-                },
+                onClose: onClose,
                 onCopy: onCopy,
                 onOpen: onOpen,
                 onReveal: onReveal,
@@ -227,7 +298,8 @@ final class HistoryPreviewWindowController {
         onCopyURL: @escaping () -> Void,
         onCopyMarkdown: @escaping () -> Void,
         onCopyPath: @escaping () -> Void,
-        onCopyRGB: @escaping () -> Void
+        onCopyRGB: @escaping () -> Void,
+        onClose: @escaping () -> Void
     ) {
         contentLoadTask?.cancel()
         contentLoadTask = Task { @MainActor in
@@ -248,7 +320,8 @@ final class HistoryPreviewWindowController {
                 onCopyURL: onCopyURL,
                 onCopyMarkdown: onCopyMarkdown,
                 onCopyPath: onCopyPath,
-                onCopyRGB: onCopyRGB
+                onCopyRGB: onCopyRGB,
+                onClose: onClose
             )
         }
     }
@@ -261,6 +334,13 @@ final class HistoryPreviewWindowController {
         if let localOutsideClickMonitor {
             NSEvent.removeMonitor(localOutsideClickMonitor)
             self.localOutsideClickMonitor = nil
+        }
+    }
+
+    private func removeEscapeKeyMonitor() {
+        if let escapeKeyMonitor {
+            NSEvent.removeMonitor(escapeKeyMonitor)
+            self.escapeKeyMonitor = nil
         }
     }
 
@@ -291,12 +371,30 @@ final class HistoryPreviewWindowController {
                 width: min(620, maxWindowSize.width),
                 height: min(330, maxWindowSize.height)
             )
+        case .file:
+            return CGSize(
+                width: max(720, maxWindowSize.width),
+                height: max(520, maxWindowSize.height)
+            )
         }
     }
 
+    private func stablePreviewSize(for screenFrame: CGRect) -> CGSize {
+        let maxWidth = max(390, screenFrame.width - horizontalMargin * 2)
+        let maxHeight = max(260, screenFrame.height - 130)
+        return CGSize(
+            width: min(defaultPreviewSize.width, maxWidth),
+            height: min(defaultPreviewSize.height, maxHeight)
+        )
+    }
+
     private func contentSizeLimit(for screenFrame: CGRect) -> CGSize {
-        let width = screenFrame.width * 0.5
-        return CGSize(width: width, height: width * 9 / 16)
+        let visibleWidthLimit = max(390, screenFrame.width - horizontalMargin * 2)
+        let visibleHeightLimit = max(260, screenFrame.height - 130)
+        return CGSize(
+            width: min(1_920, visibleWidthLimit),
+            height: min(1_080, visibleHeightLimit)
+        )
     }
 
     private func imagePreviewSize(
@@ -308,26 +406,40 @@ final class HistoryPreviewWindowController {
               let imageHeight = item.imageHeight,
               imageWidth > 0,
               imageHeight > 0 else {
-            return CGSize(
-                width: max(390, maxWindowSize.width),
-                height: max(260, maxWindowSize.height)
-            )
+            return stablePreviewSize(forScreenLimitedWindowSize: maxWindowSize)
         }
 
-        let maxContentWidth = maxWindowSize.width
-        let maxContentHeight = maxWindowSize.height - chromeHeight
+        let maxContentWidth = max(1, maxWindowSize.width)
+        let maxContentHeight = max(1, maxWindowSize.height - chromeHeight)
         let ratio = CGFloat(imageWidth) / CGFloat(imageHeight)
-        var contentWidth = maxContentWidth
-        var contentHeight = contentWidth / ratio
+        let scale = min(maxContentWidth / CGFloat(imageWidth), maxContentHeight / CGFloat(imageHeight), 1)
+        var contentWidth = CGFloat(imageWidth) * scale
+        var contentHeight = CGFloat(imageHeight) * scale
 
+        if contentWidth > maxContentWidth {
+            contentWidth = maxContentWidth
+            contentHeight = contentWidth / ratio
+        }
         if contentHeight > maxContentHeight {
             contentHeight = maxContentHeight
             contentWidth = contentHeight * ratio
         }
 
+        let minimumContentWidth = min(imagePreviewMinimumContentSize.width, maxContentWidth)
+        let minimumContentHeight = min(imagePreviewMinimumContentSize.height, maxContentHeight)
+        let usableContentWidth = min(maxContentWidth, max(minimumContentWidth, ceil(contentWidth)))
+        let usableContentHeight = min(maxContentHeight, max(minimumContentHeight, ceil(contentHeight)))
+
         return CGSize(
-            width: min(maxWindowSize.width, max(390, ceil(contentWidth))),
-            height: min(maxWindowSize.height, max(260, ceil(contentHeight) + chromeHeight))
+            width: usableContentWidth,
+            height: min(maxWindowSize.height, usableContentHeight + chromeHeight)
+        )
+    }
+
+    private func stablePreviewSize(forScreenLimitedWindowSize maxWindowSize: CGSize) -> CGSize {
+        CGSize(
+            width: min(defaultPreviewSize.width, maxWindowSize.width),
+            height: min(defaultPreviewSize.height, maxWindowSize.height)
         )
     }
 
@@ -350,10 +462,70 @@ final class HistoryPreviewWindowController {
             height: ceil(CGFloat(max(1, visualLineCount)) * lineHeight + 32)
         )
     }
+
 }
 
 private final class HistoryPreviewPanel: NSPanel {
+    var onKeyStateChange: ((Bool) -> Void)?
+    var onEscape: (() -> Void)?
+
     override var canBecomeKey: Bool {
+        true
+    }
+
+    override var canBecomeMain: Bool {
         false
+    }
+
+    override func becomeKey() {
+        super.becomeKey()
+        onKeyStateChange?(true)
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        onKeyStateChange?(false)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.command),
+              let characters = event.charactersIgnoringModifiers?.lowercased(),
+              characters.count == 1 else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        switch characters {
+        case "a":
+            return sendStandardEditAction(#selector(NSResponder.selectAll(_:)))
+        case "c":
+            return sendStandardEditAction(#selector(NSText.copy(_:)))
+        case "x":
+            return sendStandardEditAction(#selector(NSText.cut(_:)))
+        case "v":
+            return sendStandardEditAction(#selector(NSText.paste(_:)))
+        case "z":
+            return event.modifierFlags.contains(.shift)
+                ? sendStandardEditAction(Selector(("redo:")))
+                : sendStandardEditAction(Selector(("undo:")))
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == KeyCode.escape {
+            onEscape?()
+            return
+        }
+
+        super.keyDown(with: event)
+    }
+
+    private func sendStandardEditAction(_ selector: Selector) -> Bool {
+        guard let target = firstResponder ?? contentView else {
+            return false
+        }
+
+        return NSApp.sendAction(selector, to: target, from: self)
     }
 }

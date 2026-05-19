@@ -12,6 +12,10 @@ struct HistoryDataHealthReport: Sendable {
             || orphanedAttachmentFiles > 0
     }
 
+    var hasRepairableIssues: Bool {
+        orphanedAttachmentFiles > 0
+    }
+
     var formattedOrphanedAttachmentSize: String {
         ByteCountFormatter.string(
             fromByteCount: Int64(orphanedAttachmentBytes),
@@ -43,6 +47,38 @@ struct HistoryDataHealthReport: Sendable {
         缺失富文本：\(missingRichTextFiles)
         孤立附件：\(orphanedAttachmentFiles)
         孤立附件占用：\(formattedOrphanedAttachmentSize)
+        """
+    }
+}
+
+struct HistoryDataRepairReport: Sendable {
+    let before: HistoryDataHealthReport
+    let removedFiles: Int
+    let removedBytes: UInt64
+    let after: HistoryDataHealthReport
+
+    var summary: String {
+        if removedFiles > 0 {
+            return "已修复 \(removedFiles) 个孤立附件"
+        }
+
+        return after.hasIssues ? "没有可自动修复的问题" : "数据正常"
+    }
+
+    var detailText: String {
+        let removedSize = ByteCountFormatter.string(
+            fromByteCount: Int64(removedBytes),
+            countStyle: .file
+        )
+        return """
+        修复前：
+        \(before.detailText)
+
+        本次清理孤立附件：\(removedFiles)
+        释放空间：\(removedSize)
+
+        修复后：
+        \(after.detailText)
         """
     }
 }
@@ -83,6 +119,18 @@ enum HistoryDataHealthChecker {
             missingRichTextFiles: missingRichTextFiles,
             orphanedAttachmentFiles: orphaned.files,
             orphanedAttachmentBytes: orphaned.bytes
+        )
+    }
+
+    static func repair(items: [ClipboardItem], fileManager: FileManager = .default) -> HistoryDataRepairReport {
+        let before = check(items: items, fileManager: fileManager)
+        let cleanup = OrphanedAttachmentCleaner.clean(items: items, fileManager: fileManager)
+        let after = check(items: items, fileManager: fileManager)
+        return HistoryDataRepairReport(
+            before: before,
+            removedFiles: cleanup.removedFiles,
+            removedBytes: cleanup.removedBytes,
+            after: after
         )
     }
 

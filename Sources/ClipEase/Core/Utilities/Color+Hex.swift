@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 extension Color {
     static func clipeaseHex(_ hex: String) -> Color {
@@ -7,6 +10,18 @@ extension Color {
         }
 
         return Color(red: components.red, green: components.green, blue: components.blue)
+    }
+
+    var clipeaseHexString: String {
+        #if canImport(AppKit)
+        let nsColor = NSColor(self).usingColorSpace(.sRGB) ?? NSColor.systemBlue
+        let red = Int(round(nsColor.redComponent * 255))
+        let green = Int(round(nsColor.greenComponent * 255))
+        let blue = Int(round(nsColor.blueComponent * 255))
+        return String(format: "#%02X%02X%02X", red, green, blue)
+        #else
+        return "#0A84FF"
+        #endif
     }
 }
 

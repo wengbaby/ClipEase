@@ -7,7 +7,7 @@ struct LinkPreviewWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = InteractivePreviewWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = false
         webView.setValue(false, forKey: "drawsBackground")
         return webView
@@ -29,5 +29,12 @@ struct LinkPreviewWebView: NSViewRepresentable {
 
     final class Coordinator {
         var loadedURL: URL?
+    }
+}
+
+private final class InteractivePreviewWebView: WKWebView {
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
     }
 }

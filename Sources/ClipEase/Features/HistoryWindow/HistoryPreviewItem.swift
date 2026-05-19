@@ -1,13 +1,22 @@
 import SwiftUI
 
-enum HistoryPreviewType: Sendable {
+enum HistoryPreviewType: Sendable, Equatable {
     case text
     case link
     case image
     case color
+    case file
 }
 
-struct HistoryPreviewItem: Identifiable, Sendable {
+struct HistoryFilePreviewReference: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let displayName: String
+    let path: String
+    let isDirectory: Bool
+    let pathStatus: ClipboardFilePathStatus
+}
+
+struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
     let id: UUID
     let type: HistoryPreviewType
     let kind: String
@@ -18,10 +27,15 @@ struct HistoryPreviewItem: Identifiable, Sendable {
     let preview: String
     let footer: String
     let sourceAppName: String
+    let createdAt: Date
     let linkTitle: String?
     let linkSubtitle: String?
     let imageFileName: String?
+    let richTextFileName: String?
+    let filePreviewReferences: [HistoryFilePreviewReference]
     let isPinned: Bool
+    let groupID: UUID?
+    let groupedAt: Date?
     let normalizedSearchText: String
 
     var searchText: String {
@@ -31,7 +45,9 @@ struct HistoryPreviewItem: Identifiable, Sendable {
             footer,
             sourceAppName,
             linkTitle,
-            linkSubtitle
+            linkSubtitle,
+            filePreviewReferences.map(\.displayName).joined(separator: " "),
+            filePreviewReferences.map(\.path).joined(separator: " ")
         ]
         .compactMap { $0 }
         .joined(separator: " ")
@@ -48,17 +64,31 @@ struct HistoryPreviewItem: Identifiable, Sendable {
         self.preview = item.preview
         self.footer = item.footer
         self.sourceAppName = item.sourceAppName
+        self.createdAt = item.createdAt
         self.linkTitle = item.linkTitle
         self.linkSubtitle = item.linkSubtitle
         self.imageFileName = item.imageFileName
+        self.richTextFileName = item.richTextFileName
+        self.filePreviewReferences = item.fileReferences.map { reference in
+            HistoryFilePreviewReference(
+                id: reference.id,
+                displayName: reference.displayName,
+                path: reference.path,
+                isDirectory: reference.isDirectory,
+                pathStatus: reference.pathStatus
+            )
+        }
         self.isPinned = item.isPinned
+        self.groupID = item.groupID
+        self.groupedAt = item.groupedAt
         self.normalizedSearchText = Self.normalizedSearchText(
             kind: item.kind,
             preview: item.preview,
             footer: item.footer,
             sourceAppName: item.sourceAppName,
             linkTitle: item.linkTitle,
-            linkSubtitle: item.linkSubtitle
+            linkSubtitle: item.linkSubtitle,
+            filePreviewReferences: self.filePreviewReferences
         )
     }
 
@@ -73,10 +103,15 @@ struct HistoryPreviewItem: Identifiable, Sendable {
         preview: String,
         footer: String,
         sourceAppName: String = "",
+        createdAt: Date = Date(),
         linkTitle: String? = nil,
         linkSubtitle: String? = nil,
         imageFileName: String? = nil,
-        isPinned: Bool = false
+        richTextFileName: String? = nil,
+        filePreviewReferences: [HistoryFilePreviewReference] = [],
+        isPinned: Bool = false,
+        groupID: UUID? = nil,
+        groupedAt: Date? = nil
     ) {
         self.id = id
         self.type = type
@@ -88,17 +123,23 @@ struct HistoryPreviewItem: Identifiable, Sendable {
         self.preview = preview
         self.footer = footer
         self.sourceAppName = sourceAppName
+        self.createdAt = createdAt
         self.linkTitle = linkTitle
         self.linkSubtitle = linkSubtitle
         self.imageFileName = imageFileName
+        self.richTextFileName = richTextFileName
+        self.filePreviewReferences = filePreviewReferences
         self.isPinned = isPinned
+        self.groupID = groupID
+        self.groupedAt = groupedAt
         self.normalizedSearchText = Self.normalizedSearchText(
             kind: kind,
             preview: preview,
             footer: footer,
             sourceAppName: sourceAppName,
             linkTitle: linkTitle,
-            linkSubtitle: linkSubtitle
+            linkSubtitle: linkSubtitle,
+            filePreviewReferences: filePreviewReferences
         )
     }
 
@@ -108,7 +149,8 @@ struct HistoryPreviewItem: Identifiable, Sendable {
         footer: String,
         sourceAppName: String,
         linkTitle: String?,
-        linkSubtitle: String?
+        linkSubtitle: String?,
+        filePreviewReferences: [HistoryFilePreviewReference]
     ) -> String {
         [
             kind,
@@ -116,7 +158,9 @@ struct HistoryPreviewItem: Identifiable, Sendable {
             footer,
             sourceAppName,
             linkTitle,
-            linkSubtitle
+            linkSubtitle,
+            filePreviewReferences.map(\.displayName).joined(separator: " "),
+            filePreviewReferences.map(\.path).joined(separator: " ")
         ]
         .compactMap { $0 }
         .joined(separator: " ")
@@ -210,6 +254,8 @@ extension HistoryPreviewType {
             self = .image
         case .color:
             self = .color
+        case .file:
+            self = .file
         }
     }
 }

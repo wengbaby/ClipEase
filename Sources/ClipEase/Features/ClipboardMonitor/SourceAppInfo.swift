@@ -45,6 +45,14 @@ struct SourceAppInfo: Sendable {
         headerColorHex: "#2E8CFF"
     )
 
+    static var currentAppBundleID: String {
+        Bundle.main.bundleIdentifier ?? clipease.bundleID ?? "com.clipease.app"
+    }
+
+    var isClipEase: Bool {
+        bundleID == Self.currentAppBundleID || bundleID == Self.clipease.bundleID
+    }
+
     private static func iconName(for bundleID: String?) -> String {
         guard let bundleID else {
             return "app.fill"

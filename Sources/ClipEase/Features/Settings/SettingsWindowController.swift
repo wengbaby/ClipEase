@@ -61,6 +61,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.center()
         window.delegate = self
         window.onCommandW = { [weak window] in
+            GroupColorPanelController.shared.close()
+            GroupColorPanelController.closeSharedColorPanel()
             window?.orderOut(nil)
         }
         self.window = window
@@ -69,6 +71,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        GroupColorPanelController.shared.close()
+        GroupColorPanelController.closeSharedColorPanel()
         sender.orderOut(nil)
         return false
     }
