@@ -935,6 +935,42 @@ private struct FileCardDragSourceView: NSViewRepresentable {
 
 private typealias CardDragSourceView = FileCardDragSourceView
 
+private final class CardDragPasteboardWriter: NSObject, NSPasteboardWriting {
+    private let fileURL: URL?
+    private let fallbackText: String
+
+    init(fileURL: URL?, fallbackText: String) {
+        self.fileURL = fileURL
+        self.fallbackText = fallbackText
+        super.init()
+    }
+
+    func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+        var types: [NSPasteboard.PasteboardType] = []
+        if let fileURL {
+            types.append(contentsOf: (fileURL as NSURL).writableTypes(for: pasteboard))
+        }
+        types.append(.string)
+        return Array(NSOrderedSet(array: types)) as? [NSPasteboard.PasteboardType] ?? types
+    }
+
+    func pasteboardPropertyList(
+        forType type: NSPasteboard.PasteboardType
+    ) -> Any? {
+        if let fileURL,
+           (fileURL as NSURL).writableTypes(for: NSPasteboard(name: .drag)).contains(type),
+           let propertyList = (fileURL as NSURL).pasteboardPropertyList(forType: type) {
+            return propertyList
+        }
+
+        if type == .string {
+            return fallbackText
+        }
+
+        return nil
+    }
+}
+
 private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     var item: HistoryPreviewItem?
     var onClick: (() -> Void)?
@@ -1005,14 +1041,18 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     private func handleDrag(_ event: NSEvent) {
         guard let mouseDownEvent,
               let item,
-              self.item?.type == .file,
-              item.type == .file,
+              isDraggableCard(item),
+              draggableText(for: item) != nil,
               shouldStartDrag(from: mouseDownEvent, to: event) else {
             return
         }
 
         self.mouseDownEvent = nil
-        startFileDrag(with: event)
+        if item.type == .file {
+            startFileDrag(with: event)
+        } else {
+            startTextDrag(with: event, text: draggableText(for: item) ?? "")
+        }
     }
 
     func draggingSession(
@@ -1034,8 +1074,14 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
     private func startFileDrag(with event: NSEvent) {
         let result = validFileDragURLs(for: item)
+        let fallbackText = fileFallbackText(for: item)
         guard !result.urls.isEmpty else {
             onInvalid?()
+            guard !fallbackText.isEmpty else {
+                return
+            }
+
+            startFileFallbackTextDrag(with: event, text: fallbackText)
             return
         }
 
@@ -1044,9 +1090,39 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         }
 
         let draggingItems = result.urls.map { url in
-            NSDraggingItem(pasteboardWriter: url as NSURL)
+            _ = NSDraggingItem(pasteboardWriter: url as NSURL)
+            return NSDraggingItem(
+                pasteboardWriter: CardDragPasteboardWriter(fileURL: url, fallbackText: fallbackText)
+            )
         }
         let dragImage = fileDragImage(fileCount: result.urls.count)
+        setDragFrames(for: draggingItems, dragImage: dragImage, event: event)
+        beginDraggingSession(with: draggingItems, event: event, source: self)
+    }
+
+    private func startFileFallbackTextDrag(with event: NSEvent, text: String) {
+        let draggingItem = NSDraggingItem(
+            pasteboardWriter: CardDragPasteboardWriter(fileURL: nil, fallbackText: text)
+        )
+        startDrag(with: [draggingItem], dragImage: fileDragImage(fileCount: 1), event: event)
+    }
+
+    private func startTextDrag(with event: NSEvent, text: String) {
+        guard !text.isEmpty else {
+            return
+        }
+
+        let draggingItem = NSDraggingItem(
+            pasteboardWriter: CardDragPasteboardWriter(fileURL: nil, fallbackText: text)
+        )
+        startDrag(with: [draggingItem], dragImage: textDragImage(), event: event)
+    }
+
+    private func startDrag(
+        with draggingItems: [NSDraggingItem],
+        dragImage: NSImage,
+        event: NSEvent
+    ) {
         setDragFrames(for: draggingItems, dragImage: dragImage, event: event)
         beginDraggingSession(with: draggingItems, event: event, source: self)
     }
@@ -1067,6 +1143,15 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
         draggingItems.forEach { draggingItem in
             draggingItem.setDraggingFrame(frame, contents: dragImage)
+        }
+    }
+
+    private func isDraggableCard(_ item: HistoryPreviewItem) -> Bool {
+        switch item.type {
+        case .text, .link, .color, .file:
+            true
+        case .image:
+            false
         }
     }
 
@@ -1093,6 +1178,44 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         }
 
         return (urls, hasInvalidReferences)
+    }
+
+    private func draggableText(for item: HistoryPreviewItem) -> String? {
+        let text: String
+        switch item.type {
+        case .text, .link, .color:
+            text = item.preview
+        case .file:
+            text = fileFallbackText(for: item)
+        case .image:
+            text = ""
+        }
+
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedText.isEmpty ? nil : text
+    }
+
+    private func fileFallbackText(for item: HistoryPreviewItem?) -> String {
+        guard let item else {
+            return ""
+        }
+
+        let referenceText = item.filePreviewReferences
+            .map { reference in
+                let path = reference.path.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty {
+                    return path
+                }
+                return reference.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+
+        if !referenceText.isEmpty {
+            return referenceText
+        }
+
+        return item.preview.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func fileDragImage(fileCount: Int) -> NSImage {
@@ -1135,6 +1258,27 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         return image
     }
 
+    private func textDragImage() -> NSImage {
+        let size = NSSize(width: 72, height: 60)
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+        NSBezierPath(roundedRect: NSRect(x: 8, y: 8, width: 56, height: 44), xRadius: 8, yRadius: 8).fill()
+
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 34, weight: .semibold)
+        let symbol = NSImage(systemSymbolName: "text.alignleft", accessibilityDescription: nil)?
+            .withSymbolConfiguration(symbolConfiguration)
+        symbol?.draw(
+            in: NSRect(x: 19, y: 17, width: 34, height: 34),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 0.9
+        )
+
+        image.unlockFocus()
+        return image
+    }
 }
 
 private extension NSImage {
