@@ -1,16 +1,21 @@
-# 第一版 RC 检查报告
+# 第二版 RC 检查报告
 
 ## 当前结论
 
-轻贴 ClipEase 第一版已进入发布候选阶段。首次 RC 为 `1.0.0(260512.2134)`，用户侧回归后已完成若干阻塞修复，并按 patch 规则推进到 `1.0.4(260512.2222)`。
+轻贴 ClipEase 第二版已正式切到 `2.0.0(260519.2258)` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：营销版本为 `2.0.0`，构建号为 `260519.2258`。
 
-当前结论：自动检查通过，第一版功能范围已冻结；后续只修复阻塞 bug、崩溃、数据风险和明显体验问题，不再新增第一版功能。真实 UI、权限、粘贴目标和动画手感仍需用户侧按回归清单做最终确认。
+当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
-- `swift build`：通过
-- `scripts/smoke_check.py`：通过
-- `scripts/build-app.sh --bump patch --run`：通过
+- `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
+- `scripts/smoke_check.py`：待本次 `2.0.0(260519.2258)` 文档对齐后重跑
+- `python3 scripts/verify_stage9_file_paste_fallback.py`：PASS
+- `python3 scripts/verify_stage9_file_pasteboard_first_batch.py`：PASS
+- `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
+- `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
+- `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
+- `scripts/build-app.sh --bump major --run`：通过；当前运行包为 `2.0.0 (260519.2258)`，直接执行模式未保留进程，已改用 App bundle 方式启动，PID `77408`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -34,11 +39,12 @@
 
 ## RC 包信息
 
-- 当前候选版本：`1.0.4`
-- 当前构建号：`260512.2222`
-- 当前运行进程：`29575`
+- 当前候选版本：`2.0.0`
+- 当前构建号：`260519.2258`
+- 当前 build/run：`2.0.0 (260519.2258)`
+- 当前运行进程：PID `77408`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
-- 后续如继续修复阻塞问题，使用 patch 规则生成新的 RC 包，并在本报告中追加记录。
+- 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
@@ -46,3 +52,39 @@
 - `1.0.2(260512.2205)`：修复文字搜索结果高亮样式，命中内容改为黄色背景。
 - `1.0.3(260512.2215)`：收口第一版 RC 文档，统一发布候选流程、发布说明、测试清单和当前 RC 包信息。
 - `1.0.4(260512.2222)`：增强发布前 smoke check，检查 App bundle 与源码版本一致，并校验 RC 报告同步当前版本。
+- `1.0.5(260513.1607)`：第二版阶段 4 UI 验收打包运行时由构建脚本自动递增版本，保持 RC 报告与当前 bundle 一致。
+- `1.0.5(260513.1624)`：第二版阶段 5 分组基础验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1642)`：第二版阶段 5 后续分组管理验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1703)`：第二版阶段 5 分组 UI 返工验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1710)`：第二版阶段 5 分组栏位置修正验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1809)`：第二版阶段 5 分组后续收口验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1844)`：第二版阶段 5 分组栏系统分组返工验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1850)`：第二版阶段 5 分组栏居中修正验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1906)`：第二版阶段 5 顶部滚动轨道和分组记忆验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1919)`：第二版阶段 6 搜索 / 筛选 UI 第一批验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1926)`：第二版阶段 6 搜索 / 筛选交互收口验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.1955)`：第二版阶段 6 搜索 token 与分组外观编辑修复验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.2056)`：第二版阶段 6 搜索框整体滚动、多选筛选面板和 ESC 顺序修复验收打包运行，构建号随打包时间刷新。
+- `1.0.5(260513.2203)`：第二版阶段 6 搜索 / 授权 / ESC bugfix 返工后阶段性放行测试包，按用户要求执行 `scripts/build-app.sh --bump none --run`，构建号随打包时间刷新。
+- `1.0.5(260513.2234)`：第二版阶段 6 搜索分组与输入性能修复 build/run，按用户授权执行 `scripts/build-app.sh --bump none --run`；本轮修复已通过 Test / Review / Acceptance / 用户人工 UI 验收。阶段 6 preview rebuild stale guard bugfix 已通过 Test / Review / Acceptance 并归档；阶段 6 搜索能力当前为 Acceptance PASS / 可放行，尚不代表最终正式发布完成。
+- `1.0.5(260514.0008)`：第二版阶段 7 第一批编辑闭环 build/run，按用户明确授权“构建运行 App，我测试阶段7编辑功能”执行 `scripts/build-app.sh --bump none --run`；阶段 7 第一批编辑闭环已通过 Test / Review / Acceptance，可进入用户人工 UI 验收，尚不代表最终正式发布完成。
+- `1.0.5(260514.0035)`：第二版阶段 7 编辑输入框复用修复 build/run，按用户明确授权“构建运行 App，我测试编辑输入框修”执行 `scripts/build-app.sh --bump none --run`；阶段 7 编辑输入框复用修复已通过 Test / Review / Acceptance，可进入用户人工 UI 验收，尚不代表最终正式发布完成。
+- `1.0.6(260514.0301)`：第二版阶段 7 下一批无删除 MVP build/run，版本来自用户授权 build-run；本 RC 包含快捷键 / 菜单一致性、管理模式多选、批量收藏 / 取消收藏 / 移动到分组。批量删除仍 HOLD / 未放行；Review HOLD 另有管理模式 Delete 快捷键仍能删除单条记录，已由主控调度 Bugfix。
+- `1.0.7(260514.0340)`：第二版阶段 7 SQLite-only / 无收藏 / 无管理模式 RC 对齐包；本 RC 包含 SQLite-only 数据基线、删除 JSON repository / JSON->SQLite migration、删除收藏字段和 UI、删除管理模式 / 多选 / 批量操作、分组唯一命名、分组命名 / popover 输入焦点修复。Test 功能验证 PASS，但 smoke 曾因本报告版本未同步当前 Info.plist 形成 blocker；Review 仍 HOLD P1：JSON import 存在 orphan groupID 风险，主控已调度 `V2-BUGFIX-SQLITE-ONLY-JSON-IMPORT-GROUPID-SANITIZE-001`，待 bugfix 完成后重跑 Test / Review / Acceptance 门禁；本记录不代表最终放行。
+- `1.0.8(260514.1714)`：第二版阶段 7 SQLite-only 新基线后 RC 对齐包；本 RC 包含 SQLite-only 新基线、无收藏 / 无收藏 UI、无管理模式 / 无多选 / 无批量操作、备份导入旧 SQLite schema 非破坏性修复、备份导入 symlink / 非普通文件隔离、备份导入附件路径安全修复、备份附件目录 symlink 安全修复，以及“加入分组”二级菜单稳定性修复。Test 对“加入分组”二级菜单闪烁修复的功能验证 PASS，Review PASS；smoke 因本报告未同步当前 Info.plist `1.0.8(260514.1714)` HOLD，本次已完成 RC 版本对齐，后续由 Test 重跑 smoke / 门禁；本记录不代表最终放行。
+- `1.0.9(260514.1835)`：第二版阶段 7 SQLite-only 新基线后加入分组 picker RC 对齐包；本 RC 包含 SQLite-only 新基线、无收藏 / 无收藏 UI、无管理模式 / 无多选 / 无批量操作、备份导入安全修复，以及加入分组 picker 替代闪烁二级菜单。Test 对加入分组 picker 方案功能验证 PASS，Review PASS；smoke 因本报告未同步当前 Info.plist `1.0.9(260514.1835)` HOLD，本次已完成 RC 版本对齐，后续由 Test 重跑 smoke / 门禁；本记录不代表最终放行。
+- `1.0.10(260514.1852)`：第二版阶段 7 SQLite-only 新基线后历史卡片 selection/focus/right-click/border 修复 RC 对齐包；本 RC 包含 SQLite-only 新基线、无收藏 / 无收藏 UI、无管理模式 / 无多选 / 无批量操作、备份导入安全修复、加入分组 picker 替代闪烁二级菜单，以及历史卡片新剪切板定位、右键更新选中目标、顶部栏不遮挡选中上边缘外框修复。`V2-BUGFIX-HISTORY-SELECTION-FOCUS-RIGHTCLICK-BORDER-001` 已完成；smoke 因本报告未同步当前 Info.plist `1.0.10(260514.1852)` HOLD，本次已完成 RC 版本对齐，后续由 Test 重跑 smoke / 门禁；本记录不代表最终放行。
+- `1.0.11(260514.1916)`：第二版阶段 8 first batch 窗口体验 RC 对齐包；本 RC 包含 SQLite-only 新基线、无收藏 / 无收藏 UI、无管理模式 / 无多选 / 无批量操作、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复，以及阶段 8 第一批窗口体验修复：新剪切板定位只在真实新增顶部记录时触发，无新历史按视图恢复横向位置，用户分组 / 置顶下捕获普通新剪切板后下次打开切到全部并定位新记录，预览作为 child window 并在主窗口关闭 / 隐藏 / 失焦时清理，新建文本从主窗口更多菜单打开时隐藏主窗口且保存后打开并选中新记录，分组归属使用现有 API。更多按钮为 `...`；未恢复收藏 / 管理 / 多选 / 批量入口。UI Agent `V2-S8-WINDOW-EXPERIENCE-FIRST-BATCH-001` 已完成，UX Agent 已完成，主控已调度 Test / Review；smoke 因本报告未同步当前 Info.plist `1.0.11(260514.1916)` HOLD，本次已完成 RC 版本对齐，后续由 Test 重跑 smoke / 门禁；本记录不代表最终放行。
+- `1.0.12(260514.2015)`：第二版阶段 8 first batch Acceptance PASS 后主控 build/run，并作为阶段 8 第二批 RC 对齐包；本 RC 继续包含 SQLite-only 新基线、无收藏 / 无收藏 UI、无管理模式 / 无多选 / 无批量操作、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、阶段 8 第一批窗口体验修复，并纳入阶段 8 第二批 `V2-S8-TOAST-TOPBAR-SEARCH-SELECTION-001`：HistoryWindow 内 overlay toast、顶部状态简化、未授权轻量入口、新剪切板打开主窗口选中新记录且不误选置顶、搜索框打开后外点关闭、顶部最右侧更多按钮精确显示为 `...`。Test 业务命令除 smoke 版本对齐项外均 PASS；smoke 因本报告未同步当前 Info.plist `1.0.12(260514.2015)` HOLD，本次已完成 RC 版本对齐并重跑通过；Review HOLD 为脏工作树范围无法证明，主控已调度架构范围裁定；本记录不代表最终放行。
+- `1.0.13(260514.2108)`：第二版阶段 8 第二批 Acceptance PASS 后主控 build/run，并作为 Stage 9 文件卡片数据基础与 `.file` 最小编译 fallback 门禁对齐包；当前 Info.plist 为 `1.0.13 (260514.2108)`。Stage 9 已纳入 `.file` 内容类型、`ClipboardFileReference`、SQLite schema v3、`clipboard_item_files` 等数据基础，并补齐 HistoryWindow / Preview / PasteExecutor / RichTextEditor 等 `.file` switch 的最小编译 fallback。该 fallback 仅用于恢复编译和维持保守占位行为，不代表 Quick Look、文件捕获、文件粘贴执行、文件卡片完整 UI 或文件内容编辑已正式实现。Architecture PASS、Review PASS，Test 除 smoke RC 对齐外 PASS；此前 smoke HOLD 的唯一原因是本报告未同步当前 Info.plist `1.0.13(260514.2108)`，本次已完成 RC 版本对齐，后续由 Test Agent 重跑 smoke / Acceptance；本记录不代表最终放行。
+- `1.0.14(260514.2215)`：Stage 9 文件卡片数据基础 Acceptance PASS 后主控执行 `scripts/build-app.sh` build/run，构建脚本自动从 `1.0.13 (260514.2108)` 提升到 `1.0.14 (260514.2215)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `38068`。本包仍只覆盖 Stage 9 数据基础与 `.file` 最小编译 fallback，可用于继续验证数据基础和保守占位行为；不代表正式 Quick Look、ClipboardMonitor 文件捕获、文件 pasteboard 粘贴、完整文件卡片 UI、文件删除 / 移动 / 复制或 security-scoped bookmark 已完成或放行。本记录不代表最终正式发布完成。
+- `1.0.15(260514.2323)`：Stage 9 文件捕获第一批 Acceptance PASS 后主控执行 `scripts/build-app.sh` build/run，构建脚本自动从 `1.0.14 (260514.2215)` 提升到 `1.0.15 (260514.2323)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `7935`。本包包含 Stage 9 文件捕获第一批：ClipboardMonitor 捕获本地 file URL -> Store `.file` -> SQLite metadata，可用于用户人工测试真实 Finder 复制文件到剪贴板的端到端路径；不代表正式 Quick Look、文件 pasteboard 粘贴执行、完整文件卡片 UI、文件操作、security-scoped bookmark、FTS / 拼音 / SQLite 路径索引已完成或放行。本记录不代表最终正式发布完成。
+- `1.0.16(260514.2340)`：Stage 9 文件卡片 UI 第一批 Acceptance PASS 后主控执行 `scripts/build-app.sh` build/run，构建脚本自动从 `1.0.15 (260514.2323)` 提升到 `1.0.16 (260514.2340)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `34910`。本包包含 Stage 9 文件卡片 UI 第一批：主窗口文件卡片展示文件图标、文件名、完整路径、单 / 多文件数量、保守路径状态、File type token，内存搜索按文件名 / 路径，可用于用户人工视觉测试单文件 / 多文件文件卡片 UI；不代表正式 Quick Look、文件 pasteboard 粘贴执行、Finder 操作、原文件复制 / 移动 / 删除、security-scoped bookmark、FTS / 拼音 / SQLite 路径索引已完成或放行。本记录不代表最终正式发布完成。
+- `1.0.17(260515.0106)`：`V2-BUGFIX-HISTORY-CARD-SCROLL-ALIGN-001` Acceptance PASS 后主控执行 `scripts/build-app.sh` build/run，构建脚本自动从 `1.0.16 (260514.2340)` 提升到 `1.0.17 (260515.0106)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `30371`。本包包含 HistoryWindow 卡片滚动 / 选中 bugfix：新剪切板卡片打开主窗口时选中并滚动；无前置 offset 归零并显示左侧 padding；有置顶 / 前置时选中新卡片并露出上一张约 1/6；左右边缘未完整卡片点击后动画 reveal 并露出下一张约 1/6。后续由用户做运行态人工视觉点击验收。本包不包含 Stage 9 Quick Look、文件粘贴执行、Storage / ClipboardMonitor / PasteExecutor 改动、收藏 / 管理 / 多选 / 批量 / JSON migration runtime。本记录不代表最终正式发布完成。
+- `1.0.18(260515.0130)`：Stage 9 Quick Look / 文件预览 spike 第一批 Acceptance PASS 后主控执行 `scripts/build-app.sh` build/run，构建脚本自动从 `1.0.17 (260515.0106)` 提升到 `1.0.18 (260515.0130)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `67250`。本包包含 Stage 9 Quick Look / 文件预览 spike 第一批：`.file` 预览内容区 embedded `QLPreviewView`、单文件优先、多文件轻量列表且只预览一个、fallback、关闭 / 切换 cleanup `previewItem = nil`。后续由用户做真实运行态 Quick Look 视觉验收。本包不包含文件 pasteboard 粘贴执行、Finder 操作、文件写入 / 复制 / 移动 / 删除、security-scoped bookmark、Storage / ClipboardMonitor / PasteExecutor 改动、FTS / 拼音 / SQLite 路径索引、收藏 / 管理 / 多选 / 批量 / JSON migration runtime。本记录不代表最终正式发布完成。
+- `1.0.19(260515.0241)`：`V2-BUGFIX-S9-QUICKLOOK-CARD-WINDOW-BATCH-001` Acceptance PASS 后主控执行 `scripts/build-app.sh` build/run，构建脚本自动从 `1.0.18 (260515.0130)` 提升到 `1.0.19 (260515.0241)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `52168`。本包包含用户 9 项反馈修复：Quick Look 右侧切换 / 选中 / 截断 / 可交互 / 无重复 caption，主窗口单 / 多文件卡片展示，搜索内部点击不关闭且外部点击清空，卡片横向滚轮，latest card selection / peek，全局独立 toast window。后续由用户做运行态人工验收。本包不包含文件 pasteboard 粘贴执行、Finder 操作、原文件写入 / 复制 / 移动 / 删除、security-scoped bookmark、Storage / ClipboardMonitor / PasteExecutor 新改动、收藏 / 管理 / 多选 / 批量 / JSON migration runtime。本记录不代表最终正式发布完成。
+- `1.0.20(260515.0325)`：`V2-ACCEPT-S9-FILE-PASTEBOARD-FIRST-BATCH-001` Acceptance PASS 后主控执行 `scripts/build-app.sh --run`，构建脚本自动从 `1.0.19 (260515.0241)` 提升到 `1.0.20 (260515.0325)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `1508`。本包包含 Stage 9 文件引用 pasteboard 第一批：文件卡片普通复制写入 file URL pasteboard 引用；文件卡片自动粘贴前同样写入 file URL pasteboard 引用；纯文本复制保留路径字符串；self-copy guard 避免 ClipEase 自写文件引用被 ClipboardMonitor 回录；toast / status 文案使用“文件引用”。专项检查 `python3 scripts/verify_stage9_file_pasteboard_first_batch.py` PASS，`python3 scripts/verify_stage9_file_capture_first_batch.py` PASS；`python3 scripts/smoke_check.py` 当前仅因本报告未同步 `1.0.20(260515.0325)` HOLD，本次已完成 RC 文档对齐。本包不包含 Finder 操作、打开文件、拖拽 provider、原文件删除 / 移动 / 复制 / 写入、security-scoped bookmark、schema / repository / model / search index、收藏 / 管理 / 多选 / 批量 / JSON runtime。剩余风险为真实 Finder / 外部 App 文件引用 pasteboard 人工验收待用户测试。本记录不代表最终正式发布完成。
+- `1.0.21(260515.0351)`：`V2-ACCEPT-S9-FILE-BASIC-ACTIONS-FIRST-BATCH-001` Acceptance PASS 后主控执行 `scripts/build-app.sh --run`，构建脚本自动从 `1.0.20 (260515.0325)` 提升到 `1.0.21 (260515.0351)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `36369`。本包包含 Stage 9 文件卡片基础操作第一批：文件卡片右键菜单“复制路径”“在 Finder 中显示”；预览窗口 `.file` action menu “在 Finder 中显示”“复制路径”；controller 回调按 `.image/.file` 正确分派；单 / 多文件路径复制与 `skipNextClipboardText`；Finder reveal 只读定位存在文件 / 目录。专项检查 `python3 scripts/verify_stage9_file_basic_actions.py` PASS，`python3 scripts/verify_stage9_file_pasteboard_first_batch.py` PASS；`python3 scripts/smoke_check.py` 当前仅因本报告未同步 `1.0.21(260515.0351)` HOLD，本次已完成 RC 文档对齐。本包明确不包含打开文件、拖出 / drag provider、原文件删除 / 移动 / 复制 / 写入、security-scoped bookmark、schema / repository / model / search index、收藏 / 管理 / 多选 / 批量 / JSON runtime。剩余风险为真实 Finder 定位、预览窗口菜单、缺失路径等运行态人工验收待用户测试。本记录不代表最终正式发布完成。
+- `1.0.22(260515.0414)`：`V2-ACCEPT-S9-FILE-DRAGOUT-FIRST-BATCH-001` Acceptance PASS 后主控执行 `scripts/build-app.sh --run`，构建脚本自动从 `1.0.21 (260515.0351)` 提升到 `1.0.22 (260515.0414)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `67501`。本包包含 Stage 9 文件卡片拖出第一批：`.file` 卡片 AppKit drag source bridge；drag pasteboard 仅写 `NSURL` file URL 引用；拖出前即时校验路径；部分失效只拖有效项；全部失效提示；不吞普通点击 / 右键 / 滚动 / 预览。专项检查 `python3 scripts/verify_stage9_file_dragout_first_batch.py` PASS，`python3 scripts/verify_stage9_file_basic_actions.py` PASS；`python3 scripts/smoke_check.py` 当前仅因本报告未同步 `1.0.22(260515.0414)` HOLD，本次已完成 RC 文档对齐。本包明确不包含临时副本、打开文件、原文件删除 / 移动 / 复制 / 写入、security-scoped bookmark、schema / repository / model / search index、收藏 / 管理 / 多选 / 批量 / JSON runtime。剩余风险为真实 Finder / 外部 App 拖出运行态人工验收待用户测试。本记录不代表最终正式发布完成。
+- `1.0.23(260515.0703)`：`V2-ACCEPT-S9-FILE-PASTE-FALLBACK-FIRST-BATCH-001` Acceptance PASS 后主控执行 `scripts/build-app.sh --run`，构建脚本自动从 `1.0.22 (260515.0414)` 提升到 `1.0.23 (260515.0703)`；产物 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app` 已启动，PID `41016`。本包包含 Stage 9 文件引用粘贴 fallback 收口：有效文件仍优先写 `NSURL` file URL 引用；全部文件不可用时 fallback 写路径 / 显示名 / `item.text` 文本，多文件换行；fallback 结果有独立状态，toast 显示“文件路径”语义，不误报“文件引用”；fallback 调用 `skipNextClipboardText`。专项检查 `python3 scripts/verify_stage9_file_paste_fallback.py` PASS，`python3 scripts/verify_stage9_file_pasteboard_first_batch.py` PASS；`python3 scripts/smoke_check.py` 当前仅因本报告未同步 `1.0.23(260515.0703)` HOLD，本次已完成 RC 文档对齐。本包明确不包含原文件删除 / 移动 / 复制 / 写入、临时副本、打开文件 / Finder / drag 新增、security-scoped bookmark、schema / repository / model / search index、收藏 / 管理 / 多选 / 批量 / JSON runtime。剩余风险为真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态人工验收待用户测试；预览 header 复制按钮统一 toast / fallback 状态已作为非阻塞 backlog 记录。本记录不代表最终正式发布完成。
+- `2.0.0(260519.2258)`：按项目版本规则将第二版正式切到大版本线，主控执行 `scripts/build-app.sh --bump major --run`，构建脚本从 `1.0.129 (260519.2057)` 提升到 `2.0.0 (260519.2258)`；源码 `Resources/Info.plist` 与 `.build/ClipEase.app/Contents/Info.plist` 均已确认版本一致。直接执行模式未保留常驻进程，已改用 `open -n .build/ClipEase.app` 以 App bundle 方式启动，PID `77408`。本包用于第二版发布前人工验收和版本线收口，不新增功能。

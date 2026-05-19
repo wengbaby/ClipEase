@@ -10,12 +10,14 @@
 	<string>轻贴</string>
 	<key>CFBundleDisplayName</key>
 	<string>轻贴</string>
+	<key>CFBundleIconFile</key>
+	<string>ClipEase</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.4</string>
+	<string>2.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>260512.2222</string>
+	<string>260519.2258</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
