@@ -501,15 +501,15 @@ Bugfix 回归要求：
 - 不得实现端到端加密、密钥管理、冲突合并、跨设备删除、远端清理、附件下载或断点恢复。
 - 不得恢复收藏、管理模式、多选、批量操作或 JSON runtime；不得把 Stage 10 预研作为恢复旧范围的理由。
 
-### 9.3 preflight 静态检查方向
+### 9.3 preflight 静态检查门禁
 
-本阶段只推荐脚本方向，不实现脚本。若后续由用户确认创建自动化脚本，脚本必须限定为静态 / 文档检查，不接触真实 iCloud 账号或 CloudKit runtime。
+本阶段脚本必须限定为静态 / 文档检查，不接触真实 iCloud 账号或 CloudKit runtime。
 
-- 建议 `verify_stage10_icloud_preflight_docs.py`：检查 `docs/V2_PRODUCT_PLAN.md`、`docs/V2_TECHNICAL_PLAN.md`、`docs/V2_DEVELOPMENT_PLAN.md` 和本文是否均声明 Stage 10 只做预研，且包含禁止项、风险矩阵、schema gap 清单和用户确认问题。
-- 建议 `verify_stage10_no_cloudkit_runtime.py`：静态扫描 `Sources/`、`Resources/` 和项目配置，确认没有 `CloudKit` import、CloudKit container identifier、iCloud entitlement、sync UI 文案、同步 service 命名或新增运行时入口。
-- 建议 `verify_stage10_no_schema_change.py`：静态比对 schema 相关文件和迁移描述，确认 Stage 10 preflight 未新增 schema version、soft delete / device / sync state table 或 sync 字段。
-- 建议 `verify_stage10_no_attachment_upload.py`：静态扫描附件、备份、文件卡片和 pasteboard 相关路径，确认没有新增 CloudKit asset、iCloud Drive 上传、附件下载或文件副本同步逻辑。
-- 建议 `verify_stage10_user_questions.py`：检查用户确认问题是否覆盖同步范围、文件路径跨设备语义、附件暂缓、删除同步暂缓、设置同步和端到端加密前置。
+- `verify_stage10_icloud_preflight_docs.py`：检查 `docs/V2_PRODUCT_PLAN.md`、`docs/V2_TECHNICAL_PLAN.md`、`docs/V2_DEVELOPMENT_PLAN.md` 和本文是否均声明 Stage 10 只做预研，且包含禁止项、风险矩阵、schema gap 清单和用户确认问题。
+- `verify_stage10_no_cloudkit_runtime.py`：静态扫描 `Sources/`、`Resources/` 和项目配置，确认没有 `CloudKit` import、CloudKit container identifier、iCloud entitlement、sync UI 文案、同步 service 命名或新增运行时入口。
+- `verify_stage10_no_schema_change.py`：静态比对 schema 相关文件和迁移描述，确认 Stage 10 preflight 未新增 schema version、soft delete / device / sync state table 或 sync 字段。
+- `verify_stage10_no_attachment_upload.py`：静态扫描附件、备份、文件卡片和 pasteboard 相关路径，确认没有新增 CloudKit asset、iCloud Drive 上传、附件下载或文件副本同步逻辑。
+- `verify_stage10_user_questions.py`：检查用户确认问题是否覆盖同步范围、文件路径跨设备语义、附件暂缓、删除同步暂缓、设置同步和端到端加密前置。
 
 ### 9.4 后续 spike 获用户确认后的测试维度
 

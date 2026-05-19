@@ -22,6 +22,39 @@
 后续动作：
 ```
 
+## 248. Stage 10 iCloud 同步预研静态守卫落地
+
+```text
+任务卡：V2-TEST-S10-ICLOUD-PREFLIGHT-GUARDS-001
+时间：2026-05-19
+阶段：Stage 10 iCloud 同步预研 - 静态守卫落地
+当前会话模式：ClipEase V2 Test / Docs Agent
+
+范围边界：
+- 只补 Stage 10 preflight 静态 / 文档门禁。
+- 不接入真实 iCloud 账号。
+- 不新增 CloudKit runtime、entitlement、同步 UI、schema migration、附件上传下载、冲突合并或端到端加密 runtime。
+- 不修改业务代码。
+
+新增门禁脚本：
+- scripts/verify_stage10_icloud_preflight_docs.py
+- scripts/verify_stage10_no_cloudkit_runtime.py
+- scripts/verify_stage10_no_schema_change.py
+- scripts/verify_stage10_no_attachment_upload.py
+- scripts/verify_stage10_user_questions.py
+
+验证结果：
+- python3 scripts/verify_stage10_icloud_preflight_docs.py：PASS。
+- python3 scripts/verify_stage10_no_cloudkit_runtime.py：PASS。
+- python3 scripts/verify_stage10_no_schema_change.py：PASS。
+- python3 scripts/verify_stage10_no_attachment_upload.py：PASS。
+- python3 scripts/verify_stage10_user_questions.py：PASS。
+
+结论：
+- PASS。Stage 10 第一批预研产物已具备可重复执行的静态守卫。
+- 后续若进入任何 Stage 10 spike，仍必须另开任务卡并重新限定文件锁、测试边界和验收标准。
+```
+
 ## 240. 维修阶段第七轮 Test Agent 回归门禁记录
 
 ```text
