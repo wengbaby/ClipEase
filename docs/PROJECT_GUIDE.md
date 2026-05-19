@@ -26,6 +26,12 @@
 - 第二版技术方案：[docs/V2_TECHNICAL_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_TECHNICAL_PLAN.md)
 - 第二版开发计划：[docs/V2_DEVELOPMENT_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_DEVELOPMENT_PLAN.md)
 - 第二版测试计划：[docs/V2_TEST_PLAN.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_TEST_PLAN.md)
+- 第二版 Agent 协作规约：[docs/V2_AGENT_COLLABORATION.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_AGENT_COLLABORATION.md)
+- 第二版 Agent 技能卡：[docs/agents/README.md](/Users/wpc/code/codex/ClipboardHistory/docs/agents/README.md)
+- 第二版测试计划 Agent：[docs/agents/v2-test-plan-agent.md](/Users/wpc/code/codex/ClipboardHistory/docs/agents/v2-test-plan-agent.md)
+- 第二版用户反馈和功能守卫：[docs/V2_FEEDBACK_AND_GUARDS.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_FEEDBACK_AND_GUARDS.md)
+- 第二版 Agent 调度 Runbook：[docs/V2_AGENT_RUNBOOK.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_AGENT_RUNBOOK.md)
+- 第二版优化 Backlog：[docs/V2_OPTIMIZATION_BACKLOG.md](/Users/wpc/code/codex/ClipboardHistory/docs/V2_OPTIMIZATION_BACKLOG.md)
 - 日志规范：[docs/DEV_LOG_GUIDE.md](/Users/wpc/code/codex/ClipboardHistory/docs/DEV_LOG_GUIDE.md)
 - 每日开发日志目录：[dev-logs](/Users/wpc/code/codex/ClipboardHistory/dev-logs)
 - 每日日志脚本：[scripts/daily_log.py](/Users/wpc/code/codex/ClipboardHistory/scripts/daily_log.py)
@@ -47,9 +53,12 @@
 ## 当前阶段原则
 
 - 第一版冻结：`1.0.x` 无阻塞问题后，不再给第一版新增功能。
-- 第二版实现前确认：第二版核心文档齐备后，等待用户最终确认再开始编写功能代码。
-- 优先性能和管理能力：第二版先做 SQLite、收藏、分组和更强搜索。
-- 第二版第一批顺序：SQLite 基础、Repository 抽象、测试计划补细、搜索 / 筛选重构。
+- 第二版当前基线：SQLite-only、无收藏、无管理模式；旧 JSON 迁移运行时路径不再作为后续能力维护。
+- 第二版 Agent 协作：主控 Agent 按 `docs/V2_AGENT_COLLABORATION.md` 调用各类 Agent，后续任务不得恢复收藏、管理模式、多选、批量操作或 JSON 迁移运行时路径。
+- 第二版主控边界：主控 Agent 不写业务代码、不亲自修 bug；阶段开始前先调用 V2 测试计划 Agent 检查门禁，处理 bug / 返工 / 新功能前先读取 `docs/V2_FEEDBACK_AND_GUARDS.md`。
+- Bug 分诊：小范围 bug 交给 Bugfix Agent；原模块核心逻辑缺陷退回原开发 Agent；架构 / schema / Repository / 性能问题交给架构守门 Agent + 原开发 Agent；产品规则冲突交给产品规则 Agent + 用户确认；测试缺口交给测试 Agent。
+- 优先体验和稳定性：第二版当前继续在 SQLite-only、分组、置顶、更强搜索和主窗口体验细节上推进。
+- 第二版后续顺序：阶段 7 新基线收口后，允许进入阶段 8 主窗口体验细节；数据层或删除语义变化必须另开红线任务。
 - 本地优先：第二版仍先保证本地数据稳定，iCloud 同步先预研。
 - 小步推进：每次实现后要能运行、能验证、能回退。
 - 用户友好：默认体验简单，复杂功能放入设置或后续版本。

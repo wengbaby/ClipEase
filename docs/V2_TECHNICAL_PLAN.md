@@ -1,12 +1,26 @@
 # 第二版技术方案草案
 
+## 0. 2026-05-14 新基线覆盖说明
+
+本节覆盖本文后续早期技术方案中与当前基线冲突的内容：
+
+- 当前技术基线为 SQLite-only。
+- 旧 JSON 数据代码、JSON Repository、JSON 到 SQLite 迁移代码不再作为运行时能力维护；旧数据不重要。
+- 收藏字段、收藏 UI、收藏快捷键和收藏筛选已移除，不得恢复。
+- 管理模式、多选和批量操作已移除，不得恢复。
+- 分组、置顶、搜索、备份导入安全和单条操作继续保留。
+- 后续任何 schema、备份包格式、导入策略、附件生命周期、保存期限清理或删除语义变化，都必须单独走红线任务。
+- 本文中关于 `is_favorite`、收藏、JSON 迁移、JSON 回退、迁移失败清空重建的旧描述只作为历史方案背景，不作为后续实现依据。
+- 主控 Agent 不写业务代码、不亲自修 bug；架构、schema、Repository、性能问题必须交给架构守门 Agent + 原开发 Agent。
+- 每个阶段开始前必须先由 V2 测试计划 Agent 检查测试 / 验收门禁；每次 bug、返工或新增功能前必须读取 `docs/V2_FEEDBACK_AND_GUARDS.md`。
+
 ## 1. 技术目标
 
 第二版技术目标是为长期使用做底层升级：
 
 - 从 JSON 历史索引迁移到 SQLite。
 - 支持更大规模历史数据。
-- 支持收藏、分组、批量操作和更强搜索。
+- 支持分组、置顶、单条操作和更强搜索。
 - 为未来 iCloud 同步预留数据结构，但不在第二版第一阶段直接实现同步。
 
 ## 2. 数据库方向
@@ -16,7 +30,7 @@
 原因：
 
 - 历史记录会增长到几千、几万条。
-- 搜索、筛选、排序、分组和收藏更适合由数据库索引支撑。
+- 搜索、筛选、排序和分组更适合由数据库索引支撑。
 - JSON 整文件读写在大数据量下风险更高。
 - SQLite 后续更容易做数据迁移和同步预研。
 
@@ -39,7 +53,6 @@
 - `updated_at`
 - `last_used_at`
 - `is_pinned`
-- `is_favorite`
 - `is_deleted`
 - `retention_exempt`
 - `last_edited_at`
@@ -99,6 +112,8 @@
 
 ## 4. 迁移策略
 
+状态：历史方案，已被 SQLite-only 新基线覆盖。后续不再维护 JSON 到 SQLite 迁移作为运行时路径；旧 JSON 数据不重要。
+
 ### 4.1 当前决策
 
 - SQLite 迁移验证直接切换 App 主存储。
@@ -144,7 +159,7 @@
 第二版搜索建议分层：
 
 - 普通文本字段使用 SQLite 查询。
-- 来源 App、类型、时间、收藏、分组使用索引过滤。
+- 来源 App、类型、时间、分组使用索引过滤。
 - 高亮仍在 UI 层处理。
 - 输入搜索继续防抖，避免每个键都触发过重查询。
 
@@ -170,22 +185,15 @@
 - 附件导入导出更清晰。
 - 后续 iCloud 或备份包处理更灵活。
 
-## 7. 收藏和分组技术规则
+## 7. 分组技术规则
 
-- 收藏内容必须脱离普通保存期限清理。
-- 收藏内容不因收藏状态在“全部”视图自动前置；排序仍由置顶和时间决定。
-- 收藏卡片显示星标；置顶和收藏同时存在时，同时显示图钉和星标。
-- 收藏空心星标显示在卡片顶部标题栏右侧，点击后直接切换收藏状态。
-- 收藏筛选中，置顶内容在前，其余按收藏时间倒序。
-- 普通历史清理时不能删除被收藏引用的附件。
-- 取消收藏后，内容转为普通历史，并按当前保存期限参与清理；如果仍属于分组，则保留分组归属。
-- 取消收藏但内容仍属于分组时，分组内继续显示该内容，并用空心星标标记为非收藏。
+状态：本章旧收藏规则已废弃；只保留分组、置顶和编辑相关规则。
+
 - 分组删除默认一并删除组内内容，必须执行明确确认流程。
 - 有内容分组删除确认弹窗的危险按钮文案为“删除分组和内容”。
-- 置顶、收藏、分组是三个不同维度，不互相替代。
-- 普通历史执行“收藏到分组”时，必须先转为收藏内容，再建立分组关系。
-- 普通历史“收藏到分组”后，原记录变成收藏并进入分组，不复制新记录。
-- 普通历史编辑提交后更新原记录内容，不新增记录；收藏、分组和置顶状态保持不变。
+- 置顶和分组是两个不同维度，不互相替代。
+- 普通历史执行“加入分组 / 移动到分组”时，只建立或更新分组关系，不复制新记录，不引入收藏语义。
+- 普通历史编辑提交后更新原记录内容，不新增记录；分组和置顶状态保持不变。
 - 编辑记录时更新 `updated_at` 和 `last_edited_at`，并重新计算搜索文本、预览摘要和内容 hash。
 - 编辑记录不保留编辑前版本历史。
 - 分组需要保存颜色和图标，用于顶部 Pinboard 样式分组按钮。
@@ -204,7 +212,7 @@
 - 顶部分组栏横向滚动，并在右侧提供更多分组入口。
 - 更多分组入口点击右侧“更多”按钮弹出菜单。
 - 更多分组超过 10 个时显示分组搜索。
-- 分组管理窗口允许批量删除分组。
+- 分组管理窗口的批量删除不进入当前基线；如未来恢复，必须单独走删除安全任务。
 
 ## 8. 富文本卡片技术规则
 
@@ -226,56 +234,148 @@
 
 ## 9. 文件卡片和系统级预览
 
-第二版需要支持复制本地文件时记录文件卡片。
+第二版需要支持复制本地文件时记录文件卡片。本节为 Stage 9 开工前架构 preflight；未完成本节红线确认前，不进入业务代码实现。
+
+### 9.1 Schema 和数据模型
+
+结论：需要新增 schema version。文件卡片不是纯文本或现有附件记录，必须显式建模，不能把多个路径拼进 `plain_text` 作为长期方案。
+
+最小 schema 方向：
+
+- `clipboard_items.type` 增加 `file` 类型。
+- `clipboard_items.plain_text` 保存用于列表和搜索的轻量摘要，例如首个文件名、文件数量和换行路径摘要；不得作为文件元数据唯一来源。
+- 新增 `clipboard_item_files` 表，按 item 保存 1 个或多个本地文件引用。
+- `clipboard_item_files` 最小字段：`id`、`item_id`、`display_order`、`file_path`、`file_name`、`file_extension`、`uti_or_content_type`、`byte_size`、`modified_at`、`is_directory`、`is_alias`、`path_status`、`last_checked_at`、`created_at`。
+- `path_status` 至少区分 `unknown`、`available`、`missing`、`permission_denied`、`placeholder`。
+- 不保存文件内容，不把原文件复制进附件目录，不把文件二进制放入 SQLite。
+- 不记录 security-scoped bookmark，不新增长期文件访问授权模型。
+- 多文件卡片必须保存 `display_order`，捕获顺序作为首批排序规则。
+- 置顶和分组继续使用现有 item 维度能力；文件子表不承载分组或置顶字段。
+
+迁移 / 重建策略：
+
+- Stage 9 schema 变更必须走 schema version 升级任务，先验证新库创建，再验证旧 SQLite 最小迁移。
+- 迁移只新增表 / 索引 / 类型识别，不改写既有文本、图片、富文本记录语义。
+- SQLite-only 基线不恢复 JSON 迁移路径。
+- 如果开发期数据库无法迁移，可以按当前 V2 规则清空重建；发布后必须保留 SQLite schema upgrade 路径。
+- 备份包格式如包含新表，需要单独更新导入导出测试；备份仍只包含路径元数据，不包含原文件副本。
+
+### 9.2 Clipboard 捕获
+
+捕获入口：
+
+- 优先识别 `NSPasteboard.PasteboardType.fileURL` / Finder 写入的文件 URL 数据。
+- 只记录本地 `file://` URL；非本地 URL、网络下载 URL 或无法转换为本地路径的条目首批不记录为文件卡片。
+- 支持 1 个或多个文件 URL；多文件保留 Finder / pasteboard 顺序。
+- 目录也按文件引用记录，`is_directory = true`，展示使用系统目录图标。
+
+边界处理：
+
+- alias / symlink 首批不解析到最终目标，只记录用户复制时的路径，并标记 `is_alias` 或通过文件属性在预览前提示；不得静默改写为目标路径。
+- 网络盘路径可以记录完整路径，但预览 / 粘贴 / 拖出前必须重新校验存在性和权限。
+- iCloud 占位文件可以记录路径；预览前如果发现未下载或读取失败，标记为 `placeholder` 或 `permission_denied`，不主动触发大文件下载作为首批能力。
+- 权限失败时保留历史记录，`path_status = permission_denied`，卡片和预览显示不可访问状态。
+- 捕获时读取元数据失败不应导致整个剪贴板记录失败；至少保留路径、文件名和 `unknown` 状态。
+- 不新增设置开关，文件卡片默认记录。
+
+### 9.3 Repository / API 边界
+
+UI 不直接读取 SQLite，也不直接拼 SQL 查询文件元数据。
+
+建议边界：
+
+- Repository 对外返回统一 `ClipboardItem` / view model 所需的文件摘要，例如文件数量、首个文件名、首个路径、失效数量。
+- 文件详情通过 Repository 方法按 item id 获取，例如 `files(for itemID:) -> [ClipboardFileReference]`。
+- 文件状态刷新通过服务层完成，例如 `FileReferenceResolver` / `FileMetadataProvider`，由 Repository 持久化状态结果。
+- UI 可以请求文件图标、缩略图和 Quick Look item，但不能绕过 Repository 更新数据库字段。
+- Clipboard monitor 捕获到文件 URL 后，通过 Repository 的新增文件项 API 写入 item 和文件子表，不能由 monitor 直接写 SQLite。
+- Paste executor 和 drag provider 从 Repository 或内存 view model 取得文件引用，不从 SQLite 裸读。
+
+### 9.4 Quick Look 技术方案
+
+首批建议复用现有 preview window 的窗口生命周期，并在文件类型预览内容区域接入 Quick Look，而不是直接让全局 `QLPreviewPanel` 替代现有预览窗口。
+
+方案裁定：
+
+- 优先采用现有 `HistoryPreviewWindowController` 作为宿主，文件项内部使用 Quick Look 可预览能力；如 SwiftUI / AppKit 嵌入受限，再评估 `QLPreviewPanel`。
+- `QLPreviewPanel` 是全局共享面板，容易和主窗口焦点、Esc 关闭、窗口层级产生竞争；若使用，必须单独封装 coordinator，明确 `acceptsPreviewPanelControl`、data source、delegate 和失焦关闭规则。
+- 现有预览窗口必须始终在主窗口前方，但不抢走粘贴目标 App 的最终自动粘贴焦点。
+- Space 打开预览、Esc 关闭预览；预览打开时 Esc 不应直接关闭主窗口。
+- 主窗口关闭时同步关闭文件预览和 Quick Look 控制器。
+- 选中项切换时刷新预览数据源；文件路径失效或权限失败时显示文件图标、基础信息和错误状态。
+- Quick Look 加载和缩略图生成不能阻塞主窗口动画；首批可先显示系统图标和加载态。
+- 多文件预览首批以文件列表 + 当前选中文件 Quick Look 预览为主；不要在一个窗口内同时实例化多个重型预览。
+
+### 9.5 粘贴和拖出
+
+粘贴策略：
+
+- 文件卡片执行粘贴时，向 `NSPasteboard` 写入文件 URL 类型，优先使用 `writeObjects(_:)` 写入 `[NSURL]` 或等价 `fileURL` pasteboard representation。
+- 多文件卡片一次写入全部可用文件 URL，顺序使用 `display_order`。
+- 粘贴前重新校验路径；失效或无权限的文件不写入文件 URL。
+- 如果全部文件都不可用，fallback 写入文件名或路径文本，并显示短提示。
+- 如果目标 App 不支持文件引用，系统通常不会给出可靠同步回执；首批 fallback 只能在执行前发现不可用时触发，或提供“复制路径 / 文件名”菜单，不能承诺精确检测目标 App 支持度。
+
+拖出策略：
+
+- 文件卡片支持拖出时，drag pasteboard 写入文件 URL 类型。
+- 拖出前同样校验路径；部分失效时只拖出可用项，并在 UI 标记失效数量。
+- 不支持拖出原文件副本，不创建临时副本，不修改原文件。
+
+### 9.6 搜索策略
+
+首批只做内存搜索文件名和路径。
 
 规则：
 
-- 识别剪贴板中的本地文件 URL。
-- 第二版支持复制 1 个或多个本地文件的卡片记录。
-- 数据库保存文件本地路径、文件名、文件扩展名、文件类型标识、文件大小、文件修改时间、文件图标缓存键和路径有效性状态。
-- 多文件记录需要保存文件顺序，用于预览、复制和拖出。
-- 文件卡片标题按数量显示，例如“1 个文件”或“3 个文件”。
-- 文件卡片主体显示系统文件图标或 Quick Look 可生成的缩略图，多文件时优先展示第一个文件。
-- 文件卡片底部显示本地路径，路径最多显示 2 行，超出 2 行则省略。
-- 预览窗口优先使用 macOS Quick Look 能力，例如 `QLPreviewPanel` 或等价 Quick Look 视图。
-- 图片、文档、PDF 等能被系统预览的文件，预览窗口显示系统可预览内容。
-- 对轻贴不直接支持的文件类型，以 Finder / Quick Look 能预览出的效果为准。
-- 不支持系统预览的文件，显示系统文件图标和基础文件信息。
-- 文件路径失效时，不删除历史记录；卡片底部路径变红，预览窗口显示文件图标和“文件已移动或删除”。
-- 文件卡片支持收藏和加入分组。
-- 文件卡片不支持导出文件副本，第二版只支持打开原文件位置。
-- 文件卡片双击、回车或 `Command + 1-9` 时，优先写入文件引用到剪贴板；如果目标 App 不支持文件引用，则粘贴文件名。
-- 文件卡片右键菜单增加“在 Finder 中显示”和“复制路径”。
-- 文件卡片预览顶部标题显示文件名。
-- 文件卡片缩略图生成失败时显示系统文件图标。
-- 文件卡片支持拖出到 Finder 或其他 App。
-- 文件卡片参与搜索，搜索字段包括文件名和路径。
-- 文件卡片不参与敏感遮罩。
-- Quick Look 预览加载慢时显示加载中状态。
-- 多文件卡片的预览窗口展示文件列表。
-- 多文件卡片双击、回车或 `Command + 1-9` 时粘贴全部文件引用。
-- 文件路径失效后不提供“重新定位文件”。
-- 多文件“复制路径”复制全部路径，每行一个。
+- Repository 列表加载时返回文件摘要，搜索层在现有内存过滤链路中匹配文件名和路径。
+- 不为 Stage 9 首批新增 LIKE / FTS / 拼音索引 / schema 搜索索引。
+- 文件搜索只覆盖文件名和完整路径；拼音搜索延后到搜索性能专项。
+- 如果大量文件卡片导致性能问题，再单独开搜索下沉任务，不能混入 Quick Look 首批实现。
+
+### 9.7 安全与隐私
+
 - 文件卡片必须记录完整路径，不允许只记录文件名。
-- 文件卡片路径不隐藏用户名。
-- 文件卡片显示文件扩展名。
-- 多文件卡片主体缩略图采用堆叠多个文件图标的样式。
-- 文件卡片的 App 来源图标显示来源 App 图标，例如 Finder。
-- 文件卡片顶部颜色取来源 App 图标主色。
-- 文件卡片搜索文件名和路径时支持拼音索引。
-- 文件预览窗口内支持“打开文件”和系统分享。
-- 文件卡片不支持删除原文件；删除历史记录不影响原文件。
-- 多文件卡片中部分文件路径失效时，标记失效数量。
-- Quick Look 预览失败时提供“在 Finder 中显示”。
-- 文件卡片不记录安全作用域权限。
-- 文件卡片不需要单独设置开关，默认记录。
-- 文件卡片纳入第二版第一批内容增强实现。
-- 第二版测试计划文档路径为 `docs/V2_TEST_PLAN.md`，并在开始写 SQLite 前创建。
+- UI 首批不隐藏用户名；完整路径会进入 SQLite 和备份包元数据。
+- 不记录 security-scoped bookmark，不长期持有用户授权，不绕过系统权限。
+- 删除历史记录只删除 ClipEase 里的记录，不删除、不移动、不重命名原文件。
+- 备份包只包含文件路径和元数据，不包含原文件副本。
+- 文件卡片不参与敏感遮罩首批逻辑；如未来纳入，必须单独做隐私方案。
+- “在 Finder 中显示”“打开文件”“系统分享”都基于当前路径即时校验，失败只提示，不清理原历史。
+
+### 9.8 文件锁和禁改范围
+
+文件锁：
+
+- 文件被其他 App 占用、锁定、只读或不可写，不影响 ClipEase 记录路径。
+- Stage 9 首批不写入原文件，不修改扩展属性，不解析或修复 alias，不下载 iCloud 占位文件。
+- 打开、预览、粘贴、拖出都按只读引用处理。
+
+禁改范围：
+
+- 不恢复收藏、收藏字段、收藏 UI 或收藏快捷键。
+- 不恢复管理模式、多选、批量操作或批量导出。
+- 不恢复 JSON 迁移运行时路径。
+- 不改变现有删除 / 撤销 / 附件清理 / 保存期限清理语义。
+- 不把文件原件纳入附件生命周期或备份附件包。
+- 不在 Stage 9 首批引入搜索 LIKE / FTS / 拼音索引。
+
+### 9.9 实施阶段拆分建议
+
+1. Schema preflight：新增 schema version、`clipboard_item_files` 表、Repository DTO 和迁移 / 重建测试。
+2. Capture preflight：Clipboard monitor 识别 Finder 文件 URL、多个文件、目录、alias / symlink、权限失败和 iCloud 占位状态。
+3. Card read model：UI 通过 Repository 获取文件摘要，卡片展示系统图标、标题、路径和失效状态。
+4. Preview spike：在现有 preview window 中验证 Quick Look 嵌入；如不可控，再切 `QLPreviewPanel` coordinator 方案。
+5. Paste / drag spike：验证 `NSPasteboard` 文件 URL 写入、多文件顺序、失效 fallback 和目标 App 不支持时的文案。
+6. Search minimal：文件名 / 路径内存搜索，不做 SQL 搜索下沉。
+7. Backup / privacy verification：确认备份只包含路径元数据，删除历史不影响原文件。
 
 风险：
 
-- 文件路径可能被移动、重命名或删除，需要在预览和再次复制前校验。
+- 文件路径可能被移动、重命名、删除、锁定、未下载或因权限不可读，需要在预览、粘贴和拖出前校验。
 - Quick Look 预览不能阻塞主窗口动画。
+- `QLPreviewPanel` 的全局面板行为可能打破现有窗口层级和 Esc 规则，必须先 spike。
+- 完整路径进入数据库和备份包，属于明确隐私边界。
 
 ## 10. 窗口、快捷键和提示层
 
@@ -305,8 +405,8 @@
 - `Command + ,`：打开设置。
 - `Command + E`：编辑当前文本或链接卡片。
 - `Command + T`：暂停 / 恢复轻贴记录。
-- `Command + D`：收藏 / 取消收藏。
-- `Command + M`：进入或退出管理模式。
+- `Command + D`：删除当前选中记录。
+- `Command + M`：不注册管理模式命令。
 
 链接卡片编辑规则：
 
@@ -417,9 +517,8 @@
 - 删除卡片后显示全局提示“已删除”，并提供撤销入口。
 - 撤销提示持续 8 秒。
 - 撤销后卡片恢复到原位置。
-- 批量删除支持逐条撤销，撤销过程需要有动画。
-- 批量删除逐条撤销时，按删除前位置从左到右恢复。
-- 删除收藏或分组里的内容时，从所有地方彻底删除。
+- 批量删除和逐条撤销动画不进入当前基线；如未来恢复，必须单独走删除 / 撤销安全任务。
+- 删除分组里的内容时，从所有地方彻底删除。
 - 删除图片卡片时立即删除本地图片附件。
 - 撤销图片删除时需要恢复已删除的本地图片附件。
 - 点击清空按钮后不显示全局提示。
@@ -441,19 +540,258 @@
 - 隐私和加密。
 - 多设备删除同步。
 
+### 11.1 Stage 10 iCloud 同步预研架构结论
+
+任务卡：`V2-ARCH-S10-ICLOUD-SYNC-PREFLIGHT-001`
+
+结论：Stage 10 可以继续做同步预研，但不得进入 runtime 实现。当前 SQLite-only 基线具备部分同步友好字段，但还不足以直接承载可靠多设备同步；任何 CloudKit / iCloud 实现前都必须先完成 schema gap 清单、用户确认和独立 spike 拆分。
+
+本轮只允许文档结论：
+
+- 不改 SQLite schema。
+- 不新增 soft delete / device table / sync state table。
+- 不新增 iCloud entitlements、CloudKit container、CloudKit runtime、同步 UI 或设备筛选 UI。
+- 不实现附件上传下载、冲突合并、端到端加密或跨设备删除同步。
+- 不恢复 JSON runtime、收藏或管理模式。
+
+### 11.2 当前 SQLite schema / model 对同步的预留情况
+
+已具备的基础：
+
+- 稳定 UUID：`clipboard_items`、`item_assets`、`clipboard_item_files`、`groups`、`group_items` 均使用 `TEXT` UUID 主键；`ClipboardItem`、`ClipboardFileReference`、`ClipboardGroup` 模型也使用 UUID。
+- 时间字段：`clipboard_items` 有 `created_at`、`updated_at`、`last_used_at`、`pinned_at`、`last_edited_at`；`groups` 有 `created_at`、`updated_at`；`item_assets`、`clipboard_item_files`、`group_items` 有 `created_at`。
+- 软删除预留：`clipboard_items.is_deleted` 存在，列表读取使用 `WHERE is_deleted = 0`。
+- 来源信息：`source_app_name`、`source_bundle_id`、`source_icon_name`、`source_icon_file_name` 已记录来源 App 和图标文件名。
+- 附件表：`item_assets` 独立保存图片 / 富文本等附件索引，SQLite 不直接保存大二进制。
+- 文件卡片表：`clipboard_item_files` 独立保存多个本地文件引用、顺序、路径、文件名、类型、大小、目录 / alias、路径状态和检查时间。
+- 分组关系：`groups` 独立建模，`group_items` 用 `UNIQUE(item_id)` 保持当前单分组规则，同时保留未来多分组 / 标签升级空间。
+- 备份包：`.clipeasebackup` 以 SQLite 为核心，并可复制 `Images` / `RichTexts` 附件；文件卡片只带路径元数据，不复制原文件。
+
+同步前缺口：
+
+- `updated_at` 当前在 insert 时等于 `created_at`，许多后续本地状态变化依赖全量 snapshot 重写；缺少可靠的逐字段修改时间或变更版本。
+- `is_deleted` 目前只是字段预留，不是完整 tombstone 机制；没有 `deleted_at`、`deleted_by_device_id`、删除保留期限或远端清理策略。
+- 没有 device / source-of-change 维度：缺少 `device_id`、`origin_device_id`、`modified_by_device_id`、本机安装实例 ID 和设备显示名。
+- 没有同步游标 / zone change token / per-record sync state；无法增量拉取、断点恢复或区分本地脏数据与已上传数据。
+- 没有 record change tag / server version；CloudKit 冲突无法映射回本地 record 版本。
+- `ClipboardItem` model 未暴露 `updatedAt`、`isDeleted`、`lastEditedAt` 等字段，Repository API 也没有面向增量同步的变更读写接口。
+- `item_assets` 缺少附件内容 hash、mime / uti、加密元数据、远端 asset id、上传状态和本地缓存状态。
+- App icon 只有本地 `source_icon_file_name` 引用，没有纳入备份附件目录，也没有同步策略；可重建时应优先从 bundle id / 系统图标重取，而不是作为首批同步资产。
+- `clipboard_item_files.file_path` 是本机绝对路径，跨设备不可用；当前设计也不保存 security-scoped bookmark 或原文件副本。
+- `group_items` 当前只有加入时间和 sort_order；未来若恢复多分组或跨设备排序，需要明确同一 item 多关系冲突和排序合并规则。
+
+### 11.3 CloudKit / iCloud 方案候选
+
+候选 A：CloudKit private database。
+
+- 优点：每个用户私有数据库天然按 Apple ID 隔离；支持 record zone、增量变更、server change token、CKAsset、订阅推送和系统级账号状态；适合历史条目、分组、置顶和轻量附件元数据。
+- 缺点：需要 CloudKit container / entitlement / record schema / zone migration；冲突、删除 tombstone、离线重试和配额仍需 App 自己设计；不是自动端到端加密承诺，不能把“private DB”表述成“只有用户设备可解密”。
+- 适用判断：未来正式同步首选候选，但 Stage 10 只能做设计和 spike 拆分，不能接入 runtime。
+
+候选 B：iCloud Drive 文件同步。
+
+- 优点：可把备份包或导出文件放入 iCloud Drive，用户可见、可手动管理；对完整 SQLite 包 / 附件目录的迁移理解成本低。
+- 缺点：不适合作为多设备实时数据库；SQLite/WAL 文件并发同步风险高，容易产生冲突副本；无法细粒度合并记录、删除和附件状态；同步时机不可控。
+- 适用判断：可作为手动备份 / 手动迁移方向，不建议作为 ClipEase 历史实时同步主方案。
+
+候选 C：混合方案。
+
+- 优点：CloudKit private DB 同步结构化元数据，较大附件未来用 CKAsset 或用户可选择的 iCloud Drive/本地缓存策略；可以分阶段打开文本 / 分组，再评估图片 / 富文本。
+- 缺点：两套存储的一致性、引用生命周期、失败恢复和隐私文案更复杂；用户容易误解“文件卡片路径已同步”等同于“原文件已同步”。
+- 适用判断：中长期较稳妥，但第一批正式能力仍建议只考虑 CloudKit private DB + 文本 / 元数据，不上传原文件。
+
+### 11.4 冲突策略候选
+
+last-write-wins：
+
+- 优点：实现最简单，适合低价值偏好字段和局部状态，例如非敏感设置、某些置顶布尔值。
+- 缺点：会静默覆盖历史编辑、分组重命名、置顶顺序和删除；必须依赖可靠 `updated_at` / server time / device id，否则不可审计。
+- 判断：可作为 spike 的最小冲突策略，但不应直接用于删除和附件。
+
+field-level merge：
+
+- 优点：可以分别合并 `plain_text`、`is_pinned`、`group_id`、分组名称 / 颜色 / 图标等字段，减少误覆盖。
+- 缺点：需要 per-field modified time 或 operation metadata；文本 / 富文本编辑、分组删除和排序仍会出现难解释冲突。
+- 判断：适合未来正式同步的主要候选，但必须先补数据字典和字段级冲突规则。
+
+append-only event log：
+
+- 优点：可审计、可回放，适合删除、移动分组、置顶排序等操作语义；对多设备离线更可解释。
+- 缺点：实现和存储成本最高，需要 compaction、幂等、事件版本、隐私清理和错误恢复策略。
+- 判断：适合作为后续高级 spike，不建议作为第一批 runtime。
+
+删除 tombstone 风险：
+
+- 只用 `is_deleted` 不足以同步删除；必须补 `deleted_at`、删除来源设备、保留期限、恢复策略和远端清理策略。
+- tombstone 过早清理会导致旧设备重新上传已删除记录；永不清理会增加隐私和存储负担。
+- 分组删除当前可连带删除组内内容，未来跨设备同步前必须拆清“删除分组”与“删除内容”的操作语义。
+- Stage 10 不得把现有本机删除扩展为跨设备删除。
+
+### 11.5 附件同步策略
+
+图片：
+
+- 当前通过 `item_assets` 引用 `Images` 附件，备份包可选择包含。
+- 未来可评估 CKAsset 上传图片原件或缩略图，但首批同步建议只同步图片记录元数据 / 摘要，不默认上传图片二进制。
+
+富文本：
+
+- 当前通过 `item_assets` 引用 `RichTexts` 文件，主表保存纯文本摘要。
+- 未来需区分纯文本摘要同步、RTF 附件同步和富文本编辑冲突；首批不做 RTF 附件上传下载。
+
+App icon：
+
+- 当前 `source_icon_file_name` 指向本地 `AppIcons` 缓存，图标可由 bundle id / 系统信息重建。
+- 首批不同步 App icon 文件；未来若同步，也应作为可丢弃缓存，而不是历史记录关键数据。
+
+文件卡片：
+
+- 当前 `clipboard_item_files` 只保存原文件路径和元数据，不保存 security-scoped bookmark，不复制原文件。
+- 第一批同步不得上传文件卡片指向的原文件，不复制原文件到附件目录，不把原文件二进制放入 SQLite、CloudKit 或 iCloud Drive。
+- 可同步的最多是“原设备路径记录”和文件摘要；在其他设备上必须显示为不可访问 / 原设备路径，不得暗示文件已随历史同步。
+- 未来若考虑原文件副本，必须另开隐私、配额、授权、加密、清理和用户确认任务。
+
+### 11.6 隐私 / 加密和用户信任边界
+
+- 剪贴板历史默认视为高敏感数据；可能包含密码、验证码、个人文件路径、图片、合同、代码、聊天内容和内部链接。
+- CloudKit private database 表示数据存放在用户 iCloud 私有数据库并按 Apple ID 隔离，但不等同于 App 自己实现的端到端加密承诺。
+- 若产品要求“只有用户设备能解密”，需要额外设计客户端加密、密钥生成 / 存储 / 恢复、多设备密钥同步、换机恢复和忘记密钥处理。
+- 敏感内容遮罩是本机展示层能力，不应被误认为上传前加密；未来同步前必须确认敏感遮罩是否影响上传、搜索索引和远端预览。
+- 用户信任边界：任何把剪贴板历史上传到 iCloud 的功能都必须显式 opt-in，说明同步范围、附件范围、删除语义、加密边界和关闭同步后的数据处理。
+
+### 11.7 Stage 10 推荐产物和后续 spike 拆分
+
+Stage 10 推荐只产出：
+
+- 风险矩阵：隐私、CloudKit 配额 / 失败、冲突、删除 tombstone、附件、文件路径跨设备、迁移、用户误解。
+- Schema gap 清单：device、sync state、record version、tombstone、field modified time、asset hash / remote id、settings sync scope。
+- 同步数据字典：哪些字段可同步、不可同步、本机派生、可重建、敏感、需要加密、需要用户确认；当前产物记录在 `docs/V2_S10_SYNC_DATA_DICTIONARY.md`。
+- 用户确认问题：是否接受只同步文本 / 元数据、是否要求端到端加密、是否允许删除同步、附件是否默认排除、文件路径跨设备如何展示、哪些设置可同步。
+- 后续 spike 拆分：CloudKit zone / record mapping spike、schema migration spike、conflict fixture spike、tombstone lifecycle spike、attachment CKAsset spike、privacy copy / consent spike。
+
+架构建议：
+
+- PASS 进入 Stage 10 预研文档和 spike 设计。
+- HOLD 任何 CloudKit runtime、schema 迁移、同步 UI、附件上传下载、端到端加密和跨设备删除实现。
+
+### 11.8 Stage 10 iCloud 同步风险矩阵
+
+任务卡：`V2-S10-ICLOUD-RISK-MATRIX-001`
+
+风险矩阵文档：`docs/V2_S10_ICLOUD_RISK_MATRIX.md`
+
+结论：
+
+- PASS 产出 Stage 10 iCloud 同步风险矩阵。
+- HOLD 任何正式同步、CloudKit runtime、entitlement、record schema、SQLite schema 迁移、同步 UI、附件上传下载、跨设备删除传播、冲突合并 runtime 和端到端加密 runtime。
+
+用户已确认的风险边界：
+
+- Stage 10 只做预研。
+- CloudKit private database 是未来正式同步首选候选。
+- E2EE 是正式同步前置门槛。
+- 附件 / 图片 / 富文本附件同步暂缓。
+- 删除同步暂缓。
+- 文件卡片只同步路径历史，不上传原文件。
+
+阻塞正式同步的核心风险：
+
+- 隐私 / 敏感内容 / 用户信任：剪贴板历史默认高敏感，同步必须默认关闭，正式同步前必须有 E2EE 方案和清晰 opt-in 文案。
+- iCloud 可用性 / 账号 / 配额 / 离线：必须设计账号状态机、离线队列、错误分类、幂等重试和断点恢复。
+- CloudKit schema / record 演进：必须先完成同步数据字典、版本化 record、兼容迁移和回滚策略。
+- 冲突与时钟偏差：last-write-wins 不可直接用于删除、附件、历史编辑和分组语义；需要 server version / change tag / 字段级策略。
+- 删除 tombstone：删除同步继续暂缓；正式前必须设计 deleted_at、删除来源设备、保留期限、远端清理和旧设备复活防护。
+- 附件 / 图片 / 富文本 / 文件路径历史：附件暂缓；文件卡片只同步原设备路径历史，跨设备不得暗示原文件已同步。
+- 备份恢复与同步状态交叉、关闭同步 / 数据残留、法务 / 用户告知 / 默认关闭均为正式同步阻塞项。
+
+条件阻塞风险：
+
+- 多设备重复记录 / 去重：需要 origin id、content hash、device id 和幂等上传策略。
+- 性能 / 大量历史：需要批处理、分页、速率限制、增量游标和性能预算。
+
+### 11.9 Stage 10 iCloud 同步 Schema Gap 清单
+
+任务卡：`V2-S10-ICLOUD-SCHEMA-GAP-001`
+
+Schema gap 文档：`docs/V2_S10_SCHEMA_GAP.md`
+
+结论：
+
+- PASS 产出未来同步 schema gap 清单。
+- HOLD 任何新增表 / 字段 / schema version / migration、CloudKit runtime、entitlement、同步 UI、附件上传下载、跨设备删除传播、冲突合并 runtime 和端到端加密 runtime。
+
+当前已具备的同步基础：
+
+- 稳定 UUID：主记录、附件、文件引用、分组和分组关系均已有 UUID。
+- 时间字段：已有 `created_at` / `updated_at` 预留，以及置顶、分组关系、附件和文件引用相关时间。
+- 分组和置顶：已有 `groupID` / `group_items`、`isPinned` / `pinnedAt`。
+- 来源 App：已有 `source_app_name`、`source_bundle_id`、图标名称和本地图标文件引用。
+- 附件 / 文件引用：已有 `item_assets`、`clipboard_item_files`、图片 / 富文本附件路径和文件卡片路径元数据。
+- 删除预留：SQLite 有 `is_deleted`，但当前不是完整 tombstone。
+
+正式同步前必须补齐或明确暂缓的 schema gap：
+
+- soft delete / tombstone、`deletedAt`、删除来源设备、保留期限和远端清理策略。
+- device identity：`deviceID`、`originDeviceID`、`modifiedByDeviceID`、`deletedByDeviceID` 和设备显示名。
+- sync version / vector clock、record change tag / server version、remote record id / zone id。
+- sync state / dirty flag、zone change token / sync cursor、断点恢复状态。
+- field-level modified metadata 和 conflict status。
+- attachment manifest、attachment checksum、remote asset id、upload / cache state。
+- encryption metadata：加密版本、key id、nonce / salt、算法版本和密文校验。
+- settings sync scope：哪些设置可同步、哪些保持本机私有。
+- file path availability per device：文件卡片原设备路径、当前设备路径状态和最后检查信息。
+
+文件卡片路径历史结论：
+
+- 文件卡片未来最多同步路径历史和摘要，不上传原文件。
+- 其他设备默认应显示“原设备路径 / 本机不可访问”语义，除非本机重新检查后确认路径可访问。
+- 相同绝对路径不等于同一文件；未设计 checksum / file id / 用户确认策略前，不得自动视为可打开。
+- 文件路径可能暴露用户名、项目名、客户名或内部目录结构；同步数据字典必须标为敏感字段，并纳入 E2EE 范围。
+
+### 11.10 Stage 10 iCloud 同步数据字典
+
+任务卡：`V2-S10-ICLOUD-SYNC-DATA-DICTIONARY-001`
+
+数据字典文档：`docs/V2_S10_SYNC_DATA_DICTIONARY.md`
+
+结论：
+
+- PASS 产出未来同步数据字典和用户语义说明。
+- HOLD 任何业务代码、SQLite schema / migration、CloudKit / iCloud runtime、entitlement、同步 UI、附件上传下载、跨设备删除传播、冲突合并 runtime 和端到端加密 runtime。
+
+首轮正式同步候选：
+
+- 历史条目：text / link / color 可作为首轮核心候选；image / richText 第一轮只评估记录元数据 / 摘要，附件暂缓；file 只同步路径历史和摘要。
+- 分组：可作为首轮结构化数据候选，但必须处理重名、重命名、排序和删除语义。
+- 置顶状态：可作为首轮轻量状态候选，但置顶顺序需要独立版本 / 冲突策略。
+- 保存期限 / 少量低风险设置：仅限不会暴露隐私规则、本机状态或敏感内容的设置。
+
+明确不进入首轮正式同步：
+
+- 图片附件和富文本附件暂缓；不得上传图片二进制或 RTF 文件。
+- 原文件副本不上传，不复制到 CloudKit，不复制到 iCloud Drive，不写入 SQLite。
+- 忽略 App / 敏感遮罩配置默认不作为首轮同步，必须用户单独确认。
+- App icon、搜索派生数据、缩略图、运行缓存和备份包状态不作为同步数据；需要时每台设备本地重建或独立处理。
+
+文件卡片用户语义：
+
+- 文件卡片只同步原设备路径历史、文件名、类型、大小、修改时间和捕获顺序等摘要。
+- 跨设备路径不可用时只显示不可用 / 原设备路径状态，不暗示文件已随历史同步。
+- 路径可能暴露用户名、项目名、客户名或内部目录结构，属于敏感字段，正式同步前必须纳入 E2EE 和用户告知。
+
 ## 12. 风险
 
-- JSON 到 SQLite 迁移必须非常谨慎。
+- SQLite-only 数据读写、备份导入和附件索引必须非常谨慎。
 - 大量历史查询不能阻塞主线程。
-- 收藏和分组会影响清理逻辑，必须避免误删附件。
+- 分组、保存期限和删除语义会影响清理逻辑，必须避免误删附件。
 - 数据库结构一旦发布，后续迁移成本变高。
 - 富文本卡片渲染和提示层动画不能影响主窗口弹出关闭流畅度。
-- 当前迁移决策包含高数据风险：迁移前不额外备份、迁移失败清空重建、迁移成功删除 JSON。进入实现前必须再次确认用户是否坚持该策略。
+- 旧迁移决策已被 SQLite-only 新基线覆盖；不得恢复 JSON 迁移运行时路径。
 
 ## 13. 待确认技术问题
 
 - 分组关系是否第一阶段就使用关系表。
-- 收藏是否复制一条新记录，还是在原记录上打标并豁免清理；当前产品规则要求取消收藏可转普通历史，并按保存期限清理。
+- 是否恢复任何批量删除、批量移动或批量导出能力；如恢复，必须先做独立安全方案。
 - 默认浏览器名称获取方式需要兼容 Chrome、Edge、Safari 和其他浏览器。
 - 多文件卡片文件列表的排序规则。
 - 多文件卡片预览列表里是否显示每个文件大小。
