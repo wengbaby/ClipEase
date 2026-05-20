@@ -367,7 +367,7 @@ struct HistoryWindowView: View {
             }
             focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
             schedulePreviewItemsRebuild(from: store.items)
-            accessibilityPermissionState.refresh()
+            refreshAccessibilityStateAfterFirstFrame()
             authorizationPulse = false
         }
         .onDisappear {
@@ -1780,6 +1780,17 @@ struct HistoryWindowView: View {
         let snapshot = store.groups.map { MoveToGroupMenuEntry(group: $0) }
         if moveToGroupMenuSnapshot != snapshot {
             moveToGroupMenuSnapshot = snapshot
+        }
+    }
+
+    private func refreshAccessibilityStateAfterFirstFrame() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard inputState.isWindowVisibleSnapshot else {
+                return
+            }
+
+            accessibilityPermissionState.refresh()
         }
     }
 
