@@ -1048,8 +1048,11 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         }
 
         self.mouseDownEvent = nil
+        onClick?()
         if item.type == .file {
             startFileDrag(with: event)
+        } else if item.type == .image {
+            startImageDrag(with: event)
         } else {
             startTextDrag(with: event, text: draggableText(for: item) ?? "")
         }
@@ -1107,6 +1110,19 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         startDrag(with: [draggingItem], dragImage: cardDragImage(fallbackIconName: "doc.fill"), event: event)
     }
 
+    private func startImageDrag(with event: NSEvent) {
+        guard let item,
+              let imageFileName = item.imageFileName,
+              let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
+            return
+        }
+
+        let draggingItem = NSDraggingItem(
+            pasteboardWriter: CardDragPasteboardWriter(fileURL: imageURL, fallbackText: imageURL.path)
+        )
+        startDrag(with: [draggingItem], dragImage: cardDragImage(fallbackIconName: "photo.fill"), event: event)
+    }
+
     private func startTextDrag(with event: NSEvent, text: String) {
         guard !text.isEmpty else {
             return
@@ -1148,10 +1164,8 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
     private func isDraggableCard(_ item: HistoryPreviewItem) -> Bool {
         switch item.type {
-        case .text, .link, .color, .file:
+        case .text, .link, .color, .file, .image:
             true
-        case .image:
-            false
         }
     }
 
@@ -1188,7 +1202,11 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         case .file:
             text = fileFallbackText(for: item)
         case .image:
-            text = ""
+            guard let imageFileName = item.imageFileName,
+                  let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
+                return nil
+            }
+            text = imageURL.path
         }
 
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1227,12 +1245,19 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     }
 
     private func snapshotDragImage() -> NSImage? {
-        guard bounds.width > 0, bounds.height > 0,
-              let bitmap = bitmapImageRepForCachingDisplay(in: bounds) else {
+        guard bounds.width > 0,
+              bounds.height > 0,
+              let contentView = window?.contentView else {
             return nil
         }
 
-        cacheDisplay(in: bounds, to: bitmap)
+        let windowRect = convert(bounds, to: nil)
+        let contentRect = contentView.convert(windowRect, from: nil)
+        guard let bitmap = contentView.bitmapImageRepForCachingDisplay(in: contentRect) else {
+            return nil
+        }
+
+        contentView.cacheDisplay(in: contentRect, to: bitmap)
 
         let scale: CGFloat = 0.82
         let shadowPadding: CGFloat = 16
