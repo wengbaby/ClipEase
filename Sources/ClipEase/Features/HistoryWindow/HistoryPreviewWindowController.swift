@@ -17,6 +17,7 @@ final class HistoryPreviewWindowController {
     private let defaultPreviewSize = CGSize(width: 620, height: 370)
     // Keeps tiny or 1px-edge images operable without returning to the old 220pt fixed image window.
     private let imagePreviewMinimumContentSize = CGSize(width: 180, height: 140)
+    private let deferredContentLoadDelay: UInt64 = 50_000_000
 
     var frame: CGRect? {
         panel?.frame
@@ -101,7 +102,7 @@ final class HistoryPreviewWindowController {
                     ocrResult: ocrResult,
                     arrowX: arrowX,
                     size: size,
-                    delay: 1_000_000,
+                    delay: deferredContentLoadDelay,
                     onCopy: onCopy,
                     onOpen: onOpen,
                     onReveal: onReveal,
@@ -113,9 +114,10 @@ final class HistoryPreviewWindowController {
                 )
             }
         } else {
-            panel.alphaValue = 1
+            panel.alphaValue = 0
             panel.setFrame(frame, display: true)
             panel.orderFrontRegardless()
+            animatePanelOpen(panel, targetFrame: frame)
             (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
             if !shouldLoadImmediately {
                 scheduleContentLoad(
@@ -124,7 +126,7 @@ final class HistoryPreviewWindowController {
                     ocrResult: ocrResult,
                     arrowX: arrowX,
                     size: size,
-                    delay: 1_000_000,
+                    delay: deferredContentLoadDelay,
                     onCopy: onCopy,
                     onOpen: onOpen,
                     onReveal: onReveal,
@@ -138,6 +140,17 @@ final class HistoryPreviewWindowController {
         }
 
         return panel.isVisible
+    }
+
+    private func animatePanelOpen(_ panel: NSPanel, targetFrame: CGRect) {
+        let startFrame = targetFrame.offsetBy(dx: 0, dy: -6)
+        panel.setFrame(startFrame, display: true)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(targetFrame, display: true)
+        }
     }
 
     func close() {

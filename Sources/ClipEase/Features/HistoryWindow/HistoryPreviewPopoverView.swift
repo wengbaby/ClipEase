@@ -41,6 +41,7 @@ struct HistoryPreviewPopoverView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
+                .animation(.easeOut(duration: 0.16), value: isContentReady)
 
             Divider()
 
@@ -52,6 +53,7 @@ struct HistoryPreviewPopoverView: View {
         .frame(width: size.width, height: size.height)
         .background(Color(red: 0.94, green: 0.95, blue: 0.98))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .transition(.opacity.combined(with: .scale(scale: 0.985)))
     }
 
     private var ocrSection: some View {
@@ -231,10 +233,12 @@ struct HistoryPreviewPopoverView: View {
                     isHighlighted: isOCRHighlightEnabled
                 )
                 .frame(width: imageContentSize.width, height: imageContentSize.height)
+                .transition(.opacity)
             } else {
                 Image(systemName: "photo")
                     .font(.system(size: 52, weight: .regular))
                     .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+                    .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -297,6 +301,7 @@ struct HistoryPreviewPopoverView: View {
             ProgressView()
                 .controlSize(.small)
         }
+        .transition(.opacity)
     }
 
     private var colorContent: some View {
