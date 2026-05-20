@@ -239,12 +239,19 @@ struct HistoryWindowView: View {
 
                                 ForEach(renderedItems) { item in
                                     historyCard(item)
+                                        .transition(.asymmetric(
+                                            insertion: .scale(scale: 0.96)
+                                                .combined(with: .opacity),
+                                            removal: .scale(scale: 0.985)
+                                                .combined(with: .opacity)
+                                        ))
                                 }
                             }
                             .padding(.horizontal, horizontalContentPadding)
                             .padding(.top, selectedCardTopContentInset)
                             .padding(.bottom, 8)
                             .padding(.bottom, 22)
+                            .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.88), value: renderedItems.map(\.id))
                         }
                         .background(
                             GeometryReader { proxy in
@@ -3929,9 +3936,9 @@ struct HistoryWindowView: View {
                 }
 
                 var transaction = Transaction()
-                let shouldAnimateLatestReorder = pendingLatestFocusItemID != nil && inputState.isWindowPresentedSnapshot
-                if shouldAnimateLatestReorder {
-                    transaction.animation = .easeOut(duration: pendingLatestFocusReason == .refreshed ? 0.34 : 0.30)
+                let shouldAnimateRebuild = inputState.isWindowPresentedSnapshot
+                if shouldAnimateRebuild {
+                    transaction.animation = .easeOut(duration: pendingLatestFocusItemID != nil ? 0.30 : 0.18)
                 } else {
                     transaction.disablesAnimations = true
                 }
@@ -4032,9 +4039,9 @@ struct HistoryWindowView: View {
                 }
 
                 var transaction = Transaction()
-                let shouldAnimateLatestReorder = pendingLatestFocusItemID != nil && inputState.isWindowPresentedSnapshot
-                if shouldAnimateLatestReorder {
-                    transaction.animation = .easeOut(duration: pendingLatestFocusReason == .refreshed ? 0.34 : 0.30)
+                let shouldAnimateResults = inputState.isWindowPresentedSnapshot
+                if shouldAnimateResults {
+                    transaction.animation = .easeOut(duration: pendingLatestFocusItemID != nil ? 0.30 : 0.16)
                 } else {
                     transaction.disablesAnimations = true
                 }
