@@ -69,9 +69,28 @@ private final class HistoryInteractiveQuickLookContainerView: NSView {
         true
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        previewView.hitTest(convert(point, to: previewView)) ?? super.hitTest(point)
+    }
+
     override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(previewView)
+        preparePreviewForInteraction()
         super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        preparePreviewForInteraction()
+        super.rightMouseDown(with: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        preparePreviewForInteraction()
+        super.otherMouseDown(with: event)
+    }
+
+    private func preparePreviewForInteraction() {
+        window?.makeKeyAndOrderFront(nil)
+        window?.makeFirstResponder(previewView)
     }
 
     @available(*, unavailable)

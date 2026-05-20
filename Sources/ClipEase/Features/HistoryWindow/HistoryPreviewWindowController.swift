@@ -238,7 +238,7 @@ final class HistoryPreviewWindowController {
         }
         localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
             if self?.contains(screenPoint: NSEvent.mouseLocation) == true {
-                if event.type == .leftMouseDown,
+                if (event.type == .leftMouseDown || event.type == .rightMouseDown),
                    let panel = self?.panel {
                     self?.isInteractingInsidePreview = true
                     panel.makeKeyAndOrderFront(nil)

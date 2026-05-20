@@ -1,4 +1,5 @@
 import AppKit
+import PDFKit
 import SwiftUI
 @preconcurrency import VisionKit
 
@@ -17,6 +18,7 @@ struct HistoryPreviewPopoverView: View {
     let onCopyPath: () -> Void
     let onCopyRGB: () -> Void
     @State private var previewImage: PreviewImage?
+    @State private var filePreviewImage: PreviewImage?
     @State private var selectedFileReferenceID: ClipboardFileReference.ID?
     @State private var isOCRHighlightEnabled = false
 
@@ -363,9 +365,37 @@ struct HistoryPreviewPopoverView: View {
         if let reference,
            fileIsPreviewable(reference),
            FileManager.default.isReadableFile(atPath: reference.path) {
-            HistoryFileQuickLookPreviewView(url: URL(fileURLWithPath: reference.path))
+            switch filePreviewKind(for: reference) {
+            case .text:
+                FileTextPreviewView(url: URL(fileURLWithPath: reference.path))
+            case .pdf:
+                FilePDFPreviewView(url: URL(fileURLWithPath: reference.path))
+            case .image:
+                fileImagePreview(reference)
+            case .quickLook:
+                HistoryFileQuickLookPreviewView(url: URL(fileURLWithPath: reference.path))
+            }
         } else {
             fileFallbackPreview(reference)
+        }
+    }
+
+    private func fileImagePreview(_ reference: ClipboardFileReference) -> some View {
+        ZStack {
+            if let filePreviewImage,
+               filePreviewImage.url.path == reference.path {
+                LiveTextImagePreview(
+                    image: filePreviewImage.image,
+                    url: filePreviewImage.url,
+                    isHighlighted: isOCRHighlightEnabled
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                previewPlaceholder
+            }
+        }
+        .task(id: reference.path) {
+            filePreviewImage = await loadPreviewImage(url: URL(fileURLWithPath: reference.path))
         }
     }
 
@@ -551,6 +581,29 @@ struct HistoryPreviewPopoverView: View {
         return FileManager.default.fileExists(atPath: reference.path)
     }
 
+    private func filePreviewKind(for reference: ClipboardFileReference) -> FilePreviewKind {
+        let ext = (reference.fileExtension ?? URL(fileURLWithPath: reference.path).pathExtension)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let contentType = reference.contentType?.lowercased() ?? ""
+
+        if ext == "pdf" || contentType.contains("pdf") {
+            return .pdf
+        }
+
+        if ["png", "jpg", "jpeg", "heic", "heif", "webp", "gif", "tiff", "bmp"].contains(ext) ||
+            contentType.hasPrefix("image/") {
+            return .image
+        }
+
+        if contentType.hasPrefix("text/") ||
+            ["txt", "md", "markdown", "json", "xml", "csv", "log", "swift", "js", "ts", "tsx", "jsx", "html", "css", "py", "sh", "zsh", "yaml", "yml", "toml", "plist", "rtf"].contains(ext) {
+            return .text
+        }
+
+        return .quickLook
+    }
+
     private func fileDisplayName(_ reference: ClipboardFileReference) -> String {
         if !reference.displayName.isEmpty {
             return reference.displayName
@@ -610,6 +663,18 @@ struct HistoryPreviewPopoverView: View {
             return nil
         }
 
+        return await loadPreviewImage(url: imageURL, preferredSize: {
+            guard let width = item.imageWidth,
+                  let height = item.imageHeight,
+                  width > 0,
+                  height > 0 else {
+                return nil
+            }
+            return NSSize(width: width, height: height)
+        }())
+    }
+
+    private func loadPreviewImage(url imageURL: URL, preferredSize: NSSize? = nil) async -> PreviewImage? {
         let data = await Task.detached(priority: .utility) {
             try? Data(contentsOf: imageURL)
         }.value
@@ -621,11 +686,8 @@ struct HistoryPreviewPopoverView: View {
         guard let image = NSImage(data: data) else {
             return nil
         }
-        if let width = item.imageWidth,
-           let height = item.imageHeight,
-           width > 0,
-           height > 0 {
-            image.size = NSSize(width: width, height: height)
+        if let preferredSize {
+            image.size = preferredSize
         }
 
         return PreviewImage(image: image, url: imageURL)
@@ -653,6 +715,131 @@ private struct Triangle: Shape {
 private struct PreviewImage {
     let image: NSImage
     let url: URL
+}
+
+private enum FilePreviewKind {
+    case text
+    case pdf
+    case image
+    case quickLook
+}
+
+private struct FileTextPreviewView: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let textView = FileInteractiveTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 16, height: 16)
+        textView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.textColor = NSColor.labelColor
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.autoresizingMask = [.width]
+        textView.string = Self.text(from: url)
+
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = .white
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView,
+              context.coordinator.url != url else {
+            return
+        }
+
+        context.coordinator.url = url
+        textView.string = Self.text(from: url)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(url: url)
+    }
+
+    private static func text(from url: URL) -> String {
+        if let attributedString = try? NSAttributedString(
+            url: url,
+            options: [.documentType: NSAttributedString.DocumentType.rtf],
+            documentAttributes: nil
+        ), attributedString.length > 0 {
+            return attributedString.string
+        }
+
+        if let text = try? String(contentsOf: url, encoding: .utf8) {
+            return text
+        }
+
+        if let text = try? String(contentsOf: url, encoding: .unicode) {
+            return text
+        }
+
+        return "无法读取文件内容"
+    }
+
+    final class Coordinator {
+        var url: URL
+
+        init(url: URL) {
+            self.url = url
+        }
+    }
+}
+
+private final class FileInteractiveTextView: NSTextView {
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.rightMouseDown(with: event)
+    }
+}
+
+private struct FilePDFPreviewView: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displayDirection = .vertical
+        view.backgroundColor = .white
+        view.document = PDFDocument(url: url)
+        return view
+    }
+
+    func updateNSView(_ view: PDFView, context: Context) {
+        guard context.coordinator.url != url else {
+            return
+        }
+
+        context.coordinator.url = url
+        view.document = PDFDocument(url: url)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(url: url)
+    }
+
+    final class Coordinator {
+        var url: URL
+
+        init(url: URL) {
+            self.url = url
+        }
+    }
 }
 
 @available(macOS 13.0, *)
