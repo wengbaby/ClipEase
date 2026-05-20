@@ -373,7 +373,7 @@ struct HistoryPreviewPopoverView: View {
             case .image:
                 fileImagePreview(reference)
             case .office:
-                OfficeDocumentPreviewView(url: URL(fileURLWithPath: reference.path))
+                OfficeDocumentTextPreviewView(url: URL(fileURLWithPath: reference.path))
             case .quickLook:
                 HistoryFileQuickLookPreviewView(url: URL(fileURLWithPath: reference.path))
             }
@@ -733,23 +733,6 @@ private enum FilePreviewKind {
     case quickLook
 }
 
-private struct OfficeDocumentPreviewView: View {
-    let url: URL
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HistoryFileQuickLookPreviewView(url: url)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider()
-
-            OfficeDocumentTextPreviewView(url: url)
-                .frame(maxWidth: .infinity, maxHeight: 190)
-        }
-        .background(Color.white)
-    }
-}
-
 private struct OfficeDocumentTextPreviewView: NSViewRepresentable {
     let url: URL
 
@@ -766,7 +749,7 @@ private struct OfficeDocumentTextPreviewView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = [.width]
-        textView.string = "正在读取可复制内容..."
+        textView.string = "正在读取文件内容..."
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = true
@@ -786,7 +769,7 @@ private struct OfficeDocumentTextPreviewView: NSViewRepresentable {
         }
 
         context.coordinator.url = url
-        textView.string = "正在读取可复制内容..."
+        textView.string = "正在读取文件内容..."
         context.coordinator.load(url: url, in: textView)
     }
 
