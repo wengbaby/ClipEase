@@ -457,6 +457,12 @@ private struct ExportedClipboardItem: Codable {
     let pinnedAt: Date?
     let groupID: UUID?
     let groupedAt: Date?
+    let ocrStatus: ClipboardOCRStatus
+    let ocrText: String
+    let ocrEmails: [String]
+    let ocrPhoneNumbers: [String]
+    let ocrURLs: [String]
+    let ocrUpdatedAt: Date?
 
     init(_ item: ClipboardItem) {
         self.id = item.id
@@ -477,6 +483,12 @@ private struct ExportedClipboardItem: Codable {
         self.pinnedAt = item.pinnedAt
         self.groupID = item.groupID
         self.groupedAt = item.groupedAt
+        self.ocrStatus = item.ocrStatus
+        self.ocrText = item.ocrText
+        self.ocrEmails = item.ocrEmails
+        self.ocrPhoneNumbers = item.ocrPhoneNumbers
+        self.ocrURLs = item.ocrURLs
+        self.ocrUpdatedAt = item.ocrUpdatedAt
     }
 
     var clipboardItem: ClipboardItem? {
@@ -506,7 +518,13 @@ private struct ExportedClipboardItem: Codable {
                 isPinned: isPinned,
                 pinnedAt: pinnedAt,
                 groupID: groupID,
-                groupedAt: groupedAt
+                groupedAt: groupedAt,
+                ocrStatus: .none,
+                ocrText: "",
+                ocrEmails: [],
+                ocrPhoneNumbers: [],
+                ocrURLs: [],
+                ocrUpdatedAt: nil
             )
         }
     }
@@ -554,7 +572,13 @@ private struct ExportedClipboardItem: Codable {
                 isPinned: isPinned,
                 pinnedAt: pinnedAt,
                 groupID: groupID,
-                groupedAt: groupedAt
+                groupedAt: groupedAt,
+                ocrStatus: .none,
+                ocrText: "",
+                ocrEmails: [],
+                ocrPhoneNumbers: [],
+                ocrURLs: [],
+                ocrUpdatedAt: nil
             )
         case .text, .link, .color, .file:
             var restoredRichTextFileName: String?
@@ -590,7 +614,13 @@ private struct ExportedClipboardItem: Codable {
                 isPinned: isPinned,
                 pinnedAt: pinnedAt,
                 groupID: groupID,
-                groupedAt: groupedAt
+                groupedAt: groupedAt,
+                ocrStatus: .none,
+                ocrText: "",
+                ocrEmails: [],
+                ocrPhoneNumbers: [],
+                ocrURLs: [],
+                ocrUpdatedAt: nil
             )
         }
     }

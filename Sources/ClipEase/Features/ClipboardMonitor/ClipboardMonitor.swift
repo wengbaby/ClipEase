@@ -13,6 +13,7 @@ final class ClipboardMonitor {
     private let store: ClipboardHistoryStore
     private let recordingController: RecordingController
     private let ignoredAppSettings: IgnoredAppSettings
+    var shouldSuppressRecording: (() -> Bool)?
     private var timer: Timer?
     private var lastChangeCount: Int
 
@@ -55,6 +56,9 @@ final class ClipboardMonitor {
         }
 
         lastChangeCount = pasteboard.changeCount
+        guard shouldSuppressRecording?() != true else {
+            return
+        }
         guard !recordingController.isPaused else {
             return
         }

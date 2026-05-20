@@ -8,6 +8,7 @@ final class HistoryPreviewWindowController {
     private var localOutsideClickMonitor: Any?
     private var escapeKeyMonitor: Any?
     private var contentLoadTask: Task<Void, Never>?
+    private var isInteractingInsidePreview = false
     private weak var parentWindow: NSWindow?
     var onKeyStateChange: ((Bool) -> Void)?
     private let arrowHeight: CGFloat = 14
@@ -59,6 +60,13 @@ final class HistoryPreviewWindowController {
 
         let panel = panel ?? makePanel()
         let isAlreadyVisible = panel.isVisible
+        let ocrResult = ClipboardOCRMatch(
+            text: item.ocrText,
+            emails: item.ocrEmails,
+            phoneNumbers: item.ocrPhoneNumbers,
+            urls: item.ocrURLs,
+            textRegions: item.ocrTextRegions
+        )
         self.panel = panel
         self.parentWindow = parentWindow
         (panel as? HistoryPreviewPanel)?.onEscape = onClose
@@ -68,6 +76,7 @@ final class HistoryPreviewWindowController {
         setPreviewContent(
             panel: panel,
             item: item,
+            ocrResult: ocrResult,
             arrowX: arrowX,
             size: size,
             isContentReady: shouldLoadImmediately,
@@ -89,6 +98,7 @@ final class HistoryPreviewWindowController {
                 scheduleContentLoad(
                     panel: panel,
                     item: item,
+                    ocrResult: ocrResult,
                     arrowX: arrowX,
                     size: size,
                     delay: 1_000_000,
@@ -111,6 +121,7 @@ final class HistoryPreviewWindowController {
                 scheduleContentLoad(
                     panel: panel,
                     item: item,
+                    ocrResult: ocrResult,
                     arrowX: arrowX,
                     size: size,
                     delay: 1_000_000,
@@ -192,20 +203,41 @@ final class HistoryPreviewWindowController {
 
     func installOutsideClickMonitor(onOutsideClick: @escaping @MainActor () -> Void) {
         removeOutsideClickMonitor()
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
             Task { @MainActor in
-                guard self?.contains(screenPoint: NSEvent.mouseLocation) == false else {
+                guard let self else {
+                    return
+                }
+
+                if self.isInteractingInsidePreview {
+                    if event.type == .leftMouseUp || event.type == .rightMouseUp {
+                        self.isInteractingInsidePreview = false
+                    }
+                    return
+                }
+
+                guard self.contains(screenPoint: NSEvent.mouseLocation) == false else {
+                    self.isInteractingInsidePreview = true
                     return
                 }
                 onOutsideClick()
             }
         }
-        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
             if self?.contains(screenPoint: NSEvent.mouseLocation) == true {
                 if event.type == .leftMouseDown,
                    let panel = self?.panel {
-                    panel.makeKey()
+                    self?.isInteractingInsidePreview = true
+                    panel.makeKeyAndOrderFront(nil)
                     (panel as? HistoryPreviewPanel)?.onKeyStateChange?(true)
+                } else if event.type == .leftMouseUp || event.type == .rightMouseUp {
+                    self?.isInteractingInsidePreview = false
+                }
+                return event
+            }
+            if self?.isInteractingInsidePreview == true {
+                if event.type == .leftMouseUp || event.type == .rightMouseUp {
+                    self?.isInteractingInsidePreview = false
                 }
                 return event
             }
@@ -232,7 +264,7 @@ final class HistoryPreviewWindowController {
     private func makePanel() -> NSPanel {
         let panel = HistoryPreviewPanel(
             contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -256,6 +288,7 @@ final class HistoryPreviewWindowController {
     private func setPreviewContent(
         panel: NSPanel,
         item: ClipboardItem,
+        ocrResult: ClipboardOCRMatch?,
         arrowX: CGFloat,
         size: CGSize,
         isContentReady: Bool,
@@ -271,6 +304,7 @@ final class HistoryPreviewWindowController {
         panel.contentView = NSHostingView(
             rootView: HistoryPreviewPopoverView(
                 item: item,
+                ocrResult: ocrResult,
                 arrowX: arrowX,
                 size: size,
                 isContentReady: isContentReady,
@@ -289,6 +323,7 @@ final class HistoryPreviewWindowController {
     private func scheduleContentLoad(
         panel: NSPanel,
         item: ClipboardItem,
+        ocrResult: ClipboardOCRMatch?,
         arrowX: CGFloat,
         size: CGSize,
         delay: UInt64,
@@ -311,6 +346,7 @@ final class HistoryPreviewWindowController {
             setPreviewContent(
                 panel: panel,
                 item: item,
+                ocrResult: ocrResult,
                 arrowX: arrowX,
                 size: size,
                 isContentReady: true,

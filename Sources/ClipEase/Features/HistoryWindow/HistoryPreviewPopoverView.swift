@@ -1,8 +1,10 @@
 import AppKit
 import SwiftUI
+@preconcurrency import VisionKit
 
 struct HistoryPreviewPopoverView: View {
     let item: ClipboardItem
+    let ocrResult: ClipboardOCRMatch?
     let arrowX: CGFloat
     let size: CGSize
     let isContentReady: Bool
@@ -14,8 +16,9 @@ struct HistoryPreviewPopoverView: View {
     let onCopyMarkdown: () -> Void
     let onCopyPath: () -> Void
     let onCopyRGB: () -> Void
-    @State private var previewImage: NSImage?
+    @State private var previewImage: PreviewImage?
     @State private var selectedFileReferenceID: ClipboardFileReference.ID?
+    @State private var isOCRHighlightEnabled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -37,14 +40,57 @@ struct HistoryPreviewPopoverView: View {
 
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
 
             Divider()
 
+            if item.type != .image {
+                ocrSection
+            }
             footer
         }
         .frame(width: size.width, height: size.height)
         .background(Color(red: 0.94, green: 0.95, blue: 0.98))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var ocrSection: some View {
+        let badges = (ocrResult?.emails ?? []) + (ocrResult?.phoneNumbers ?? []) + (ocrResult?.urls ?? [])
+        return Group {
+            if !badges.isEmpty {
+                Divider()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(badges, id: \.self) { badge in
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(badge, forType: .string)
+                            } label: {
+                                Text(badge)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.gray.opacity(0.18))
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("复制") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(badge, forType: .string)
+                                }
+                                Button("分享") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(badge, forType: .string)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                }
+            }
+        }
     }
 
     private var header: some View {
@@ -90,12 +136,19 @@ struct HistoryPreviewPopoverView: View {
                 Button("复制为 Markdown 链接", action: onCopyMarkdown)
             case .image:
                 Button("打开图片", action: onOpen)
+                Button("复制图片") {
+                    onCopy()
+                }
                 Button("在 Finder 中显示", action: onReveal)
                 Button("复制图片路径", action: onCopyPath)
             case .color:
                 Button("复制 HEX", action: onCopy)
                 Button("复制 RGB", action: onCopyRGB)
             case .file:
+                Button("打开文件", action: onOpen)
+                Button("复制文件") {
+                    onCopy()
+                }
                 Button("在 Finder 中显示", action: onReveal)
                 Button("复制路径", action: onCopyPath)
             case .text:
@@ -126,6 +179,10 @@ struct HistoryPreviewPopoverView: View {
             }
         case .file:
             filePreviewContent
+                .overlay(alignment: .bottomTrailing) {
+                    ocrToggleButton
+                        .padding(12)
+                }
         case .color:
             colorContent
         case .link:
@@ -150,38 +207,72 @@ struct HistoryPreviewPopoverView: View {
             }
         case .image:
             imageContent
-            .task(id: isContentReady) {
-                guard isContentReady, item.type == .image else {
-                    previewImage = nil
-                    return
-                }
+                .task(id: isContentReady) {
+                    guard isContentReady, item.type == .image else {
+                        previewImage = nil
+                        return
+                    }
 
-                previewImage = await loadImage()
-            }
+                    previewImage = await loadImage()
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    ocrToggleButton
+                        .padding(12)
+                }
         }
     }
 
     private var imageContent: some View {
         ZStack {
-            CheckerboardView()
-
             if isContentReady, let image = previewImage {
-                GeometryReader { proxy in
-                    let imageSize = fittedImageSize(image.size, in: proxy.size)
-
-                    Image(nsImage: image)
-                        .resizable()
-                        .frame(width: imageSize.width, height: imageSize.height)
-                        .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                }
+                LiveTextImagePreview(
+                    image: image.image,
+                    url: image.url,
+                    isHighlighted: isOCRHighlightEnabled
+                )
+                .frame(width: imageContentSize.width, height: imageContentSize.height)
             } else {
                 Image(systemName: "photo")
                     .font(.system(size: 52, weight: .regular))
                     .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
         .background(Color.white)
+    }
+
+    private var imageContentSize: CGSize {
+        CGSize(
+            width: size.width,
+            height: max(1, size.height - previewChromeHeight)
+        )
+    }
+
+    private var previewChromeHeight: CGFloat {
+        let headerHeight: CGFloat = 41
+        let footerHeight: CGFloat = 41
+        let dividerHeight: CGFloat = 2
+        return headerHeight + footerHeight + dividerHeight
+    }
+
+    private var ocrToggleButton: some View {
+        Group {
+            if item.type == .image || ocrResult != nil {
+                Button {
+                    isOCRHighlightEnabled.toggle()
+                } label: {
+                    Image(systemName: isOCRHighlightEnabled ? "sparkles.rectangle.stack.fill" : "sparkles.rectangle.stack")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(Color.black.opacity(0.62))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("识别文字")
+            }
+        }
     }
 
     private func fittedImageSize(_ imageSize: CGSize, in containerSize: CGSize) -> CGSize {
@@ -233,14 +324,21 @@ struct HistoryPreviewPopoverView: View {
         let references = item.fileReferences
         let selectedReference = selectedFileReference(from: references)
 
-        return HStack(spacing: 0) {
-            filePreviewPane(for: selectedReference)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        return ZStack(alignment: .bottomTrailing) {
+            HStack(spacing: 0) {
+                filePreviewPane(for: selectedReference)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider()
+                Divider()
 
-            fileReferenceList(references)
-                .frame(width: min(240, max(180, size.width * 0.32)))
+                fileReferenceList(references)
+                    .frame(width: min(240, max(180, size.width * 0.32)))
+            }
+
+            if isOCRHighlightEnabled {
+                Color.gray.opacity(0.18)
+                    .allowsHitTesting(false)
+            }
         }
         .background(Color.white)
         .onAppear {
@@ -501,7 +599,7 @@ struct HistoryPreviewPopoverView: View {
         .padding(.vertical, 10)
     }
 
-    private func loadImage() async -> NSImage? {
+    private func loadImage() async -> PreviewImage? {
         guard let imageFileName = item.imageFileName,
               let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
             return nil
@@ -515,7 +613,17 @@ struct HistoryPreviewPopoverView: View {
             return nil
         }
 
-        return NSImage(data: data)
+        guard let image = NSImage(data: data) else {
+            return nil
+        }
+        if let width = item.imageWidth,
+           let height = item.imageHeight,
+           width > 0,
+           height > 0 {
+            image.size = NSSize(width: width, height: height)
+        }
+
+        return PreviewImage(image: image, url: imageURL)
     }
 
     private func rgbText(from components: ClipEaseColorComponents) -> String {
@@ -534,5 +642,183 @@ private struct Triangle: Shape {
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
         path.closeSubpath()
         return path
+    }
+}
+
+private struct PreviewImage {
+    let image: NSImage
+    let url: URL
+}
+
+@available(macOS 13.0, *)
+private struct LiveTextImagePreview: NSViewRepresentable {
+    let image: NSImage
+    let url: URL
+    let isHighlighted: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> LiveTextImagePreviewView {
+        let view = LiveTextImagePreviewView()
+        view.configure(image: image, url: url, isHighlighted: isHighlighted, coordinator: context.coordinator)
+        return view
+    }
+
+    func updateNSView(_ view: LiveTextImagePreviewView, context: Context) {
+        view.configure(image: image, url: url, isHighlighted: isHighlighted, coordinator: context.coordinator)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, ImageAnalysisOverlayViewDelegate {
+        weak var containerView: LiveTextImagePreviewView?
+
+        func contentView(for overlayView: ImageAnalysisOverlayView) -> NSView? {
+            containerView
+        }
+    }
+}
+
+@available(macOS 13.0, *)
+@MainActor
+private final class LiveTextImagePreviewView: NSView {
+    private let imageView = NSImageView()
+    private let overlayView: ImageAnalysisOverlayView
+    private let analyzer = ImageAnalyzer()
+    private var representedURL: URL?
+    private var analysisTask: Task<Void, Never>?
+
+    override init(frame frameRect: NSRect) {
+        let delegate = LiveTextOverlayDelegate()
+        overlayView = ImageAnalysisOverlayView(delegate)
+        super.init(frame: frameRect)
+        delegate.containerView = self
+        overlayView.delegate = delegate
+
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.white.cgColor
+        layer?.masksToBounds = true
+
+        imageView.imageFrameStyle = .none
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.imageAlignment = .alignCenter
+        imageView.allowsCutCopyPaste = true
+        imageView.isEditable = false
+
+        overlayView.preferredInteractionTypes = [.textSelection, .dataDetectors]
+        overlayView.isSupplementaryInterfaceHidden = true
+        overlayView.selectableItemsHighlighted = false
+        overlayView.trackingImageView = imageView
+
+        addSubview(imageView)
+        addSubview(overlayView)
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        imageView.frame = aspectFitRect(for: imageView.image?.size ?? .zero, in: bounds)
+        overlayView.frame = bounds
+        overlayView.setContentsRectNeedsUpdate()
+    }
+
+    func configure(
+        image: NSImage,
+        url: URL,
+        isHighlighted: Bool,
+        coordinator: LiveTextImagePreview.Coordinator
+    ) {
+        coordinator.containerView = self
+        if imageView.image !== image {
+            imageView.image = image
+            needsLayout = true
+        }
+        overlayView.selectableItemsHighlighted = isHighlighted
+        overlayView.setContentsRectNeedsUpdate()
+
+        guard representedURL != url else {
+            return
+        }
+        representedURL = url
+        overlayView.analysis = nil
+        analysisTask?.cancel()
+
+        guard ImageAnalyzer.isSupported else {
+            return
+        }
+
+        let analysisImage = image
+        analysisTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            var configuration = ImageAnalyzer.Configuration([.text])
+            configuration.locales = preferredOCRLocales()
+            do {
+                let analysis = try await analyzer.analyze(
+                    analysisImage,
+                    orientation: .up,
+                    configuration: configuration
+                )
+                await MainActor.run {
+                    guard self.representedURL == url else {
+                        return
+                    }
+                    self.overlayView.analysis = analysis
+                    self.overlayView.selectableItemsHighlighted = isHighlighted
+                    self.overlayView.setContentsRectNeedsUpdate()
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.representedURL == url else {
+                        return
+                    }
+                    self.overlayView.analysis = nil
+                }
+            }
+        }
+    }
+
+    private func preferredOCRLocales() -> [String] {
+        let supported = Set(ImageAnalyzer.supportedTextRecognitionLanguages)
+        return ["zh-Hans", "en-US"].filter { supported.contains($0) }
+    }
+
+    private func aspectFitRect(for imageSize: NSSize, in bounds: NSRect) -> NSRect {
+        guard imageSize.width > 0,
+              imageSize.height > 0,
+              bounds.width > 0,
+              bounds.height > 0 else {
+            return bounds
+        }
+
+        let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height, 1)
+        let width = floor(imageSize.width * scale)
+        let height = floor(imageSize.height * scale)
+        return NSRect(
+            x: floor(bounds.midX - width / 2),
+            y: floor(bounds.midY - height / 2),
+            width: width,
+            height: height
+        )
+    }
+}
+
+@available(macOS 13.0, *)
+@MainActor
+private final class LiveTextOverlayDelegate: NSObject, ImageAnalysisOverlayViewDelegate {
+    weak var containerView: NSView?
+
+    func contentView(for overlayView: ImageAnalysisOverlayView) -> NSView? {
+        containerView
     }
 }

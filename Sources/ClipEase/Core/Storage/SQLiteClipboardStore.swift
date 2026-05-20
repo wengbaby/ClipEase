@@ -4,7 +4,7 @@ import SQLite3
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 struct SQLiteClipboardStore: ClipboardHistoryRepository {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     let databaseURL: URL
     private let fileManager: FileManager
@@ -52,6 +52,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             try recordSchemaVersion(in: database)
             try database.execute("DELETE FROM group_items")
             try database.execute("DELETE FROM groups")
+            try database.execute("DELETE FROM item_ocr_results")
             try database.execute("DELETE FROM item_assets")
             try database.execute("DELETE FROM clipboard_item_files")
             try database.execute("DELETE FROM clipboard_items")
@@ -117,6 +118,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             let richTextAsset = assets.first { $0.type == "rich_text" }
 
             let groupInfo = groupedItems[id]
+            let ocrResult = try loadOCRResult(for: id, in: database)
             items.append(
                 ClipboardItem(
                     id: id,
@@ -140,7 +142,14 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                     isPinned: row.requiredBool("is_pinned"),
                     pinnedAt: row.optionalDouble("pinned_at").map(Date.init(timeIntervalSince1970:)),
                     groupID: groupInfo?.groupID,
-                    groupedAt: groupInfo?.createdAt
+                    groupedAt: groupInfo?.createdAt,
+                    ocrStatus: ocrResult?.status ?? .none,
+                    ocrText: ocrResult?.text ?? "",
+                    ocrEmails: ocrResult?.emails ?? [],
+                    ocrPhoneNumbers: ocrResult?.phoneNumbers ?? [],
+                    ocrURLs: ocrResult?.urls ?? [],
+                    ocrTextRegions: ocrResult?.textRegions ?? [],
+                    ocrUpdatedAt: ocrResult?.updatedAt
                 )
             )
         }
@@ -298,6 +307,21 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             )
             """)
 
+        try database.execute("""
+            CREATE TABLE IF NOT EXISTS item_ocr_results (
+                item_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                recognized_text TEXT NOT NULL DEFAULT '',
+                emails TEXT NOT NULL DEFAULT '',
+                phone_numbers TEXT NOT NULL DEFAULT '',
+                urls TEXT NOT NULL DEFAULT '',
+                text_regions TEXT NOT NULL DEFAULT '',
+                updated_at REAL,
+                FOREIGN KEY(item_id) REFERENCES clipboard_items(id) ON DELETE CASCADE
+            )
+            """)
+        try addColumnIfNeeded("item_ocr_results", column: "text_regions", definition: "TEXT NOT NULL DEFAULT ''", in: database)
+
         try database.execute(
             "CREATE INDEX IF NOT EXISTS idx_clipboard_items_created_at ON clipboard_items(created_at DESC)"
         )
@@ -330,6 +354,35 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         )
         try database.execute(
             "CREATE INDEX IF NOT EXISTS idx_group_items_group_id ON group_items(group_id, sort_order)"
+        )
+        try database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_item_ocr_results_status ON item_ocr_results(status)"
+        )
+    }
+
+    private func loadOCRResult(for itemID: UUID, in database: SQLiteDatabase) throws -> SQLiteOCRResultRow? {
+        let rows = try database.query(
+            """
+            SELECT status, recognized_text, emails, phone_numbers, urls, text_regions, updated_at
+            FROM item_ocr_results
+            WHERE item_id = ?
+            LIMIT 1
+            """,
+            values: [.text(itemID.uuidString)]
+        )
+
+        guard let row = rows.first else {
+            return nil
+        }
+
+        return SQLiteOCRResultRow(
+            status: ClipboardOCRStatus(rawValue: row.requiredText("status")) ?? .none,
+            text: row.requiredText("recognized_text"),
+            emails: Self.decodeList(row.requiredText("emails")),
+            phoneNumbers: Self.decodeList(row.requiredText("phone_numbers")),
+            urls: Self.decodeList(row.requiredText("urls")),
+            textRegions: Self.decodeRegions(row.optionalText("text_regions") ?? ""),
+            updatedAt: row.optionalDouble("updated_at").map(Date.init(timeIntervalSince1970:))
         )
     }
 
@@ -526,6 +579,30 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         for fileReference in item.fileReferences {
             try insertFileReference(fileReference, itemID: item.id, in: database)
         }
+
+        if item.ocrStatus != .none || !item.ocrText.isEmpty {
+            try insertOCRResult(item, in: database)
+        }
+    }
+
+    private func insertOCRResult(_ item: ClipboardItem, in database: SQLiteDatabase) throws {
+        try database.execute(
+            """
+            INSERT INTO item_ocr_results (
+                item_id, status, recognized_text, emails, phone_numbers, urls, text_regions, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            values: [
+                .text(item.id.uuidString),
+                .text(item.ocrStatus.rawValue),
+                .text(item.ocrText),
+                .text(Self.encodeList(item.ocrEmails)),
+                .text(Self.encodeList(item.ocrPhoneNumbers)),
+                .text(Self.encodeList(item.ocrURLs)),
+                .text(Self.encodeRegions(item.ocrTextRegions)),
+                .optionalDouble(item.ocrUpdatedAt?.timeIntervalSince1970)
+            ]
+        )
     }
 
     private func insertFileReference(
@@ -634,6 +711,44 @@ private struct SQLiteAssetRow {
     let fileName: String
     let width: Int?
     let height: Int?
+}
+
+private struct SQLiteOCRResultRow {
+    let status: ClipboardOCRStatus
+    let text: String
+    let emails: [String]
+    let phoneNumbers: [String]
+    let urls: [String]
+    let textRegions: [ClipboardOCRTextRegion]
+    let updatedAt: Date?
+}
+
+private extension SQLiteClipboardStore {
+    static func encodeList(_ values: [String]) -> String {
+        (try? String(data: JSONEncoder().encode(values), encoding: .utf8)) ?? "[]"
+    }
+
+    static func decodeList(_ text: String) -> [String] {
+        guard let data = text.data(using: .utf8),
+              let values = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+
+        return values
+    }
+
+    static func encodeRegions(_ regions: [ClipboardOCRTextRegion]) -> String {
+        (try? String(data: JSONEncoder().encode(regions), encoding: .utf8)) ?? "[]"
+    }
+
+    static func decodeRegions(_ text: String) -> [ClipboardOCRTextRegion] {
+        guard let data = text.data(using: .utf8),
+              let regions = try? JSONDecoder().decode([ClipboardOCRTextRegion].self, from: data) else {
+            return []
+        }
+
+        return regions
+    }
 }
 
 private struct SQLiteGroupItemRow {

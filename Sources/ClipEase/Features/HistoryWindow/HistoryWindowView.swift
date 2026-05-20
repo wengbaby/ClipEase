@@ -384,6 +384,9 @@ struct HistoryWindowView: View {
         .onChange(of: store.items) { newItems in
             syncLatestItemFocusIfNeeded(sourceItems: newItems)
             schedulePreviewItemsRebuild(from: newItems)
+            if previewState.isVisible {
+                showPreview(previewState.itemID)
+            }
         }
         .onChange(of: inputState.isWindowVisible) { isVisible in
             if isVisible {
@@ -1674,10 +1677,13 @@ struct HistoryWindowView: View {
             menu.addItem(.separator())
         case .image:
             addMenuItem("打开图片", to: menu) { openImage(item.id) }
+            addMenuItem("复制图像", to: menu) { copyImage(item.id) }
             addMenuItem("复制图片路径", to: menu) { copyImagePath(item.id) }
             addMenuItem("在 Finder 中显示", to: menu) { revealImageInFinder(item.id) }
             menu.addItem(.separator())
         case .file:
+            addMenuItem("打开文件", to: menu) { openFile(item.id) }
+            addMenuItem("复制文件", to: menu) { copyFile(item.id) }
             addMenuItem("复制路径", to: menu) { copyFilePaths(item.id) }
             addMenuItem("在 Finder 中显示", to: menu) { revealFilesInFinder(item.id) }
             menu.addItem(.separator())
@@ -1727,6 +1733,10 @@ struct HistoryWindowView: View {
                 openImage(item.id)
             }
 
+            Button("复制图像") {
+                copyImage(item.id)
+            }
+
             Button("复制图片路径") {
                 copyImagePath(item.id)
             }
@@ -1737,6 +1747,14 @@ struct HistoryWindowView: View {
 
             Divider()
         case .file:
+            Button("打开文件") {
+                openFile(item.id)
+            }
+
+            Button("复制文件") {
+                copyFile(item.id)
+            }
+
             Button("复制路径") {
                 copyFilePaths(item.id)
             }
@@ -2888,6 +2906,21 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
+    private func copyImage(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              let imageURL = store.imageFileURL(for: item),
+              let image = NSImage(contentsOf: imageURL) else {
+            showStatus("未找到图片文件")
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([image])
+        addClipEaseTextCard(item.preview.isEmpty ? imageURL.lastPathComponent : item.preview)
+        showStatus("已复制图像")
+        closeAfterContextMenuCommand()
+    }
+
     private func copyImagePath(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let imageURL = store.imageFileURL(for: item) else {
@@ -2924,6 +2957,44 @@ struct HistoryWindowView: View {
         NSPasteboard.general.setString(pathsText, forType: .string)
         addClipEaseTextCard(pathsText)
         showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")
+        closeAfterContextMenuCommand()
+    }
+
+    private func copyFile(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              item.type == .file else {
+            showStatus("未找到文件")
+            return
+        }
+
+        let urls = existingFileURLs(for: item)
+        guard let firstURL = urls.first else {
+            showStatus("未找到文件")
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([firstURL as NSURL])
+        addClipEaseTextCard(firstURL.path)
+        showStatus("已复制文件")
+        closeAfterContextMenuCommand()
+    }
+
+    private func openFile(_ id: ClipboardItem.ID?) {
+        guard let item = store.item(with: id),
+              item.type == .file else {
+            showStatus("未找到文件")
+            return
+        }
+
+        let urls = existingFileURLs(for: item)
+        guard let firstURL = urls.first else {
+            showStatus("未找到文件")
+            return
+        }
+
+        NSWorkspace.shared.open(firstURL)
+        showStatus("已打开文件")
         closeAfterContextMenuCommand()
     }
 

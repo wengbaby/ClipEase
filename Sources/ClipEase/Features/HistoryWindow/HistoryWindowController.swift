@@ -229,6 +229,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         previousFrontmostApplication
     }
 
+    var isPreviewInteractionActive: Bool {
+        previewWindowController.isVisible
+    }
+
     private func captureFrontmostApplicationIfNeeded() {
         guard let frontmostApplication = NSWorkspace.shared.frontmostApplication,
               frontmostApplication.bundleIdentifier != Bundle.main.bundleIdentifier else {
@@ -240,12 +244,12 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func installOutsideClickMonitor() {
         removeOutsideClickMonitor()
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
             Task { @MainActor in
                 self?.closeIfClickIsOutsideHistory(event)
             }
         }
-        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
             self?.closeIfClickIsOutsideHistory(event)
             return event
         }
@@ -267,6 +271,9 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             return
         }
         guard !inputState.isWindowPinnedOpenSnapshot else {
+            return
+        }
+        guard !inputState.isPreviewContentActive else {
             return
         }
 

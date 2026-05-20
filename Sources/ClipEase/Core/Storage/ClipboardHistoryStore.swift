@@ -43,6 +43,7 @@ final class ClipboardHistoryStore: ObservableObject {
     private var skippedClipboardTexts: Set<String> = []
     private var skippedImageHashes: Set<String> = []
     private var skippedClipboardFilePathSets: Set<String> = []
+    private var ocrTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
     private var deferredSaveTask: Task<Void, Never>?
     private var debugGenerationTask: Task<Void, Never>?
     private var saveRevision = 0
@@ -142,15 +143,17 @@ final class ClipboardHistoryStore: ObservableObject {
             return
         }
 
-        let item = ClipboardItem.image(
+        var item = ClipboardItem.image(
             fileName: storedImage.fileName,
             width: storedImage.width,
             height: storedImage.height,
             hash: storedImage.hash,
             sourceApp: sourceApp
         )
+        item.ocrStatus = .pending
 
-        upsertClipboardItem(item)
+        let insertedItem = upsertClipboardItem(item)
+        enqueueOCRIfNeeded(for: insertedItem)
     }
 
     func addFiles(_ urls: [URL], sourceApp: SourceAppInfo) {
@@ -164,7 +167,8 @@ final class ClipboardHistoryStore: ObservableObject {
             sourceApp: sourceApp
         )
 
-        upsertClipboardItem(item)
+        let insertedItem = upsertClipboardItem(item)
+        enqueueOCRIfNeeded(for: insertedItem)
     }
 
     func item(with id: ClipboardItem.ID?) -> ClipboardItem? {
@@ -686,6 +690,119 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         return try? ClipEaseStoragePaths.imageFileURL(fileName: fileName)
+    }
+
+    func ocrResult(for item: ClipboardItem) -> ClipboardOCRMatch? {
+        guard !item.ocrText.isEmpty || !item.ocrEmails.isEmpty || !item.ocrPhoneNumbers.isEmpty || !item.ocrURLs.isEmpty else {
+            return nil
+        }
+
+        return ClipboardOCRMatch(
+            text: item.ocrText,
+            emails: item.ocrEmails,
+            phoneNumbers: item.ocrPhoneNumbers,
+            urls: item.ocrURLs,
+            textRegions: item.ocrTextRegions
+        )
+    }
+
+    func ocrBadgeItems(for item: ClipboardItem) -> [String] {
+        var results: [String] = []
+        results.append(contentsOf: item.ocrEmails)
+        results.append(contentsOf: item.ocrPhoneNumbers)
+        results.append(contentsOf: item.ocrURLs)
+        return results
+    }
+
+    private func enqueueOCRIfNeeded(for item: ClipboardItem) {
+        guard item.ocrStatus == .pending else {
+            return
+        }
+
+        ocrTaskByItemID[item.id]?.cancel()
+        ocrTaskByItemID[item.id] = Task(priority: .utility) { [weak self] in
+            guard let self else {
+                return
+            }
+
+            await self.performOCR(for: item)
+        }
+    }
+
+    private func performOCR(for item: ClipboardItem) async {
+        guard item.ocrStatus == .pending else {
+            return
+        }
+
+        let sourceURL: URL?
+        switch item.type {
+        case .image:
+            sourceURL = imageFileURL(for: item)
+        case .file:
+            sourceURL = item.fileReferences.first(where: { $0.isOCRCandidate }).map { URL(fileURLWithPath: $0.path) }
+        default:
+            sourceURL = nil
+        }
+
+        guard let sourceURL else {
+            await MainActor.run {
+                self.applyOCRResult(
+                    .init(text: "", emails: [], phoneNumbers: [], urls: [], textRegions: []),
+                    status: .failed,
+                    to: item.id
+                )
+            }
+            return
+        }
+
+        await MainActor.run {
+            self.setOCRStatus(.processing, for: item.id)
+        }
+
+        let result: ClipboardOCRMatch?
+        switch item.type {
+        case .image:
+            result = await ClipboardOCRService.shared.recognizeImage(at: sourceURL)
+        case .file:
+            result = await ClipboardOCRService.shared.recognizePDF(at: sourceURL)
+        default:
+            result = nil
+        }
+
+        await MainActor.run {
+            if let result {
+                self.applyOCRResult(result, status: .completed, to: item.id)
+            } else {
+                self.applyOCRResult(.init(text: "", emails: [], phoneNumbers: [], urls: [], textRegions: []), status: .failed, to: item.id)
+            }
+        }
+    }
+
+    private func setOCRStatus(_ status: ClipboardOCRStatus, for id: ClipboardItem.ID) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        items[index].ocrStatus = status
+        scheduleSave()
+    }
+
+    private func applyOCRResult(_ result: ClipboardOCRMatch, status: ClipboardOCRStatus, to id: ClipboardItem.ID) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        items[index] = items[index].updatingOCR(
+            status: status,
+            text: result.text,
+            emails: result.emails,
+            phoneNumbers: result.phoneNumbers,
+            urls: result.urls,
+            textRegions: result.textRegions
+        )
+        sortItems()
+        scheduleSave()
+        ocrTaskByItemID[id] = nil
     }
 
     private func sortItems() {

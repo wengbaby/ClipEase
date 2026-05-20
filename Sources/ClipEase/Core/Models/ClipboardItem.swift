@@ -1,6 +1,14 @@
 import Foundation
 import SwiftUI
 
+enum ClipboardOCRStatus: String, Codable, Sendable {
+    case none
+    case pending
+    case processing
+    case completed
+    case failed
+}
+
 enum ClipboardItemType: String, Codable, Sendable {
     case text
     case link
@@ -89,6 +97,13 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     var pinnedAt: Date?
     var groupID: UUID?
     var groupedAt: Date?
+    var ocrStatus: ClipboardOCRStatus = .none
+    var ocrText: String = ""
+    var ocrEmails: [String] = []
+    var ocrPhoneNumbers: [String] = []
+    var ocrURLs: [String] = []
+    var ocrTextRegions: [ClipboardOCRTextRegion] = []
+    var ocrUpdatedAt: Date? = nil
 
     var headerColor: Color {
         Color.clipeaseHex(headerColorHex)
@@ -190,7 +205,14 @@ extension ClipboardItem {
             isPinned: false,
             pinnedAt: nil,
             groupID: nil,
-            groupedAt: nil
+            groupedAt: nil,
+            ocrStatus: .none,
+            ocrText: "",
+            ocrEmails: [],
+            ocrPhoneNumbers: [],
+            ocrURLs: [],
+            ocrTextRegions: [],
+            ocrUpdatedAt: nil
         )
     }
 
@@ -220,7 +242,14 @@ extension ClipboardItem {
             isPinned: false,
             pinnedAt: nil,
             groupID: nil,
-            groupedAt: nil
+            groupedAt: nil,
+            ocrStatus: .none,
+            ocrText: "",
+            ocrEmails: [],
+            ocrPhoneNumbers: [],
+            ocrURLs: [],
+            ocrTextRegions: [],
+            ocrUpdatedAt: nil
         )
     }
 
@@ -254,7 +283,14 @@ extension ClipboardItem {
             isPinned: false,
             pinnedAt: nil,
             groupID: nil,
-            groupedAt: nil
+            groupedAt: nil,
+            ocrStatus: .none,
+            ocrText: "",
+            ocrEmails: [],
+            ocrPhoneNumbers: [],
+            ocrURLs: [],
+            ocrTextRegions: [],
+            ocrUpdatedAt: nil
         )
     }
 
@@ -287,7 +323,14 @@ extension ClipboardItem {
             isPinned: false,
             pinnedAt: nil,
             groupID: nil,
-            groupedAt: nil
+            groupedAt: nil,
+            ocrStatus: .pending,
+            ocrText: "",
+            ocrEmails: [],
+            ocrPhoneNumbers: [],
+            ocrURLs: [],
+            ocrTextRegions: [],
+            ocrUpdatedAt: nil
         )
     }
 
@@ -318,7 +361,14 @@ extension ClipboardItem {
             isPinned: false,
             pinnedAt: nil,
             groupID: nil,
-            groupedAt: nil
+            groupedAt: nil,
+            ocrStatus: .none,
+            ocrText: "",
+            ocrEmails: [],
+            ocrPhoneNumbers: [],
+            ocrURLs: [],
+            ocrTextRegions: [],
+            ocrUpdatedAt: nil
         )
     }
 
@@ -368,7 +418,14 @@ extension ClipboardItem {
             isPinned: false,
             pinnedAt: nil,
             groupID: nil,
-            groupedAt: nil
+            groupedAt: nil,
+            ocrStatus: references.contains(where: \.isOCRCandidate) ? .pending : .none,
+            ocrText: "",
+            ocrEmails: [],
+            ocrPhoneNumbers: [],
+            ocrURLs: [],
+            ocrTextRegions: [],
+            ocrUpdatedAt: nil
         )
     }
 
@@ -399,7 +456,14 @@ extension ClipboardItem {
             isPinned: false,
             pinnedAt: nil,
             groupID: nil,
-            groupedAt: nil
+            groupedAt: nil,
+            ocrStatus: .none,
+            ocrText: "",
+            ocrEmails: [],
+            ocrPhoneNumbers: [],
+            ocrURLs: [],
+            ocrTextRegions: [],
+            ocrUpdatedAt: nil
         )
     }
 
@@ -432,7 +496,14 @@ extension ClipboardItem {
             isPinned: isPinned,
             pinnedAt: pinnedAt,
             groupID: groupID,
-            groupedAt: groupedAt
+            groupedAt: groupedAt,
+            ocrStatus: ocrStatus,
+            ocrText: ocrText,
+            ocrEmails: ocrEmails,
+            ocrPhoneNumbers: ocrPhoneNumbers,
+            ocrURLs: ocrURLs,
+            ocrTextRegions: ocrTextRegions,
+            ocrUpdatedAt: ocrUpdatedAt
         )
     }
 
@@ -463,8 +534,35 @@ extension ClipboardItem {
             isPinned: isPinned,
             pinnedAt: pinnedAt,
             groupID: groupID,
-            groupedAt: groupedAt
+            groupedAt: groupedAt,
+            ocrStatus: latestItem.ocrStatus,
+            ocrText: latestItem.ocrText,
+            ocrEmails: latestItem.ocrEmails,
+            ocrPhoneNumbers: latestItem.ocrPhoneNumbers,
+            ocrURLs: latestItem.ocrURLs,
+            ocrTextRegions: latestItem.ocrTextRegions,
+            ocrUpdatedAt: latestItem.ocrUpdatedAt
         )
+    }
+
+    func updatingOCR(
+        status: ClipboardOCRStatus,
+        text: String,
+        emails: [String],
+        phoneNumbers: [String],
+        urls: [String],
+        textRegions: [ClipboardOCRTextRegion],
+        updatedAt: Date = Date()
+    ) -> ClipboardItem {
+        var item = self
+        item.ocrStatus = status
+        item.ocrText = text
+        item.ocrEmails = emails
+        item.ocrPhoneNumbers = phoneNumbers
+        item.ocrURLs = urls
+        item.ocrTextRegions = textRegions
+        item.ocrUpdatedAt = updatedAt
+        return item
     }
 
     private static func fileSummary(for references: [ClipboardFileReference]) -> String {
@@ -478,6 +576,20 @@ extension ClipboardItem {
 
         let paths = references.map(\.path).joined(separator: "\n")
         return "\(first.displayName) 等 \(references.count) 个文件\n\(paths)"
+    }
+}
+
+extension ClipboardFileReference {
+    var isOCRCandidate: Bool {
+        guard !isDirectory else {
+            return false
+        }
+
+        if fileExtension?.localizedCaseInsensitiveCompare("pdf") == .orderedSame {
+            return true
+        }
+
+        return contentType?.localizedCaseInsensitiveContains("pdf") == true
     }
 }
 

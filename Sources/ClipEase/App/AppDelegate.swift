@@ -63,6 +63,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ignoredAppSettings: ignoredAppSettings
         )
         self.clipboardMonitor = clipboardMonitor
+        clipboardMonitor.shouldSuppressRecording = { [weak historyWindowController] in
+            historyWindowController?.isPreviewInteractionActive == true
+        }
         clipboardMonitor.start()
 
         if CommandLine.arguments.contains("--show-settings") {
