@@ -11,8 +11,14 @@ struct HistoryFileQuickLookPreviewView: NSViewRepresentable {
         }
 
         view.autostarts = true
+        view.shouldCloseWithWindow = true
+        view.performSelectorIfAvailable("setAutomaticallyMakePreviewFirstResponder:", with: true)
         view.previewItem = HistoryQuickLookPreviewItem(url: url)
-        return HistoryInteractiveQuickLookContainerView(previewView: view)
+        let container = HistoryInteractiveQuickLookContainerView(previewView: view)
+        DispatchQueue.main.async {
+            container.preparePreviewForInteraction()
+        }
+        return container
     }
 
     func updateNSView(_ view: NSView, context: Context) {
@@ -22,10 +28,14 @@ struct HistoryFileQuickLookPreviewView: NSViewRepresentable {
 
         let currentURL = (previewView.previewItem as? HistoryQuickLookPreviewItem)?.previewItemURL
         guard currentURL != url else {
+            (view as? HistoryInteractiveQuickLookContainerView)?.preparePreviewForInteraction()
             return
         }
 
         previewView.previewItem = HistoryQuickLookPreviewItem(url: url)
+        DispatchQueue.main.async {
+            (view as? HistoryInteractiveQuickLookContainerView)?.preparePreviewForInteraction()
+        }
     }
 
     static func dismantleNSView(_ view: NSView, coordinator: ()) {
@@ -88,9 +98,11 @@ private final class HistoryInteractiveQuickLookContainerView: NSView {
         super.otherMouseDown(with: event)
     }
 
-    private func preparePreviewForInteraction() {
+    func preparePreviewForInteraction() {
         window?.makeKeyAndOrderFront(nil)
         window?.makeFirstResponder(interactiveResponder(in: previewView) ?? previewView)
+        previewView.performSelectorIfAvailable("activate")
+        previewView.performSelectorIfAvailable("giveInputFocus")
     }
 
     private func interactiveResponder(in view: NSView) -> NSResponder? {
@@ -118,6 +130,26 @@ private final class HistoryQuickLookPreviewItem: NSObject, QLPreviewItem {
 
     init(url: URL) {
         self.previewItemURL = url
+    }
+}
+
+private extension NSObject {
+    func performSelectorIfAvailable(_ selectorName: String) {
+        let selector = Selector(selectorName)
+        guard responds(to: selector) else {
+            return
+        }
+
+        _ = perform(selector)
+    }
+
+    func performSelectorIfAvailable(_ selectorName: String, with booleanValue: Bool) {
+        let selector = Selector(selectorName)
+        guard responds(to: selector) else {
+            return
+        }
+
+        _ = perform(selector, with: NSNumber(value: booleanValue))
     }
 }
 
