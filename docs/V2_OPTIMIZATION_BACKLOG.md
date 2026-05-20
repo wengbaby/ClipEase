@@ -23,6 +23,23 @@
 ## Backlog 条目
 
 ```text
+优化任务 ID：V2-OPT-OFFICE-PREVIEW-FORMAT-SELECTION-001
+来源任务卡：用户反馈 / 2026-05-21 Office 预览收口
+来源 Agent：Codex 主控 Agent
+风险等级：中 / 高
+问题描述：用户期望 Office / 表格类文件在轻贴统一预览窗口内同时保留原始格式，并支持像 Finder 空格预览一样的内容选择、复制和右键操作。当前公开嵌入式 `QLPreviewView` 能保留格式，但无法稳定强制提供 Finder Quick Look 面板级别的内容选择能力；此前尝试私有 Quick Look 激活接口已导致崩溃。
+影响范围：文件预览、Office / 表格 / CSV / RTF / iWork 文件、预览窗口交互、复制体验、崩溃稳定性。
+当前结论：当前版本保留格式优先，Office / 表格类走嵌入式 Quick Look；内容选择 / 复制能力按系统实际支持 best-effort，不再使用私有接口。
+建议处理阶段：第三版后续文档预览专项 / 独立技术 spike
+是否阻塞当前阶段：否
+是否阻塞当前稳定性验收：否；但需用户人工确认当前取舍可接受
+验收建议：
+- 后续若必须同时满足“保留格式 + 统一预览窗口 + 内容稳定可选复制”，需评估 HTML 转换、PDF 转换、WebView 渲染或第三方文档渲染方案。
+- 方案评估必须覆盖 `doc/docx/xls/xlsx/csv/ppt/pptx/rtf`、大文件性能、格式保真度、复制语义、离线可用性、外部依赖和崩溃回退。
+- 不得再调用 Quick Look 私有激活接口。
+```
+
+```text
 优化任务 ID：V2-OPT-UI-GROUP-APPEARANCE-POPOVER-MANUAL-ACCEPTANCE-001
 来源任务卡：V2-BUGFIX-GROUP-APPEARANCE-POPOVER-001
 来源 Agent：验收 Agent Jason / Codex 主控 Agent
