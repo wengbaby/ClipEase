@@ -62,7 +62,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.hasShadow = false
         panel.alphaValue = 1
         if shouldAnimate {
-            renderState.prepareForShow()
+            renderState.prepareForShow(itemCount: store.items.count)
             panel.setFrame(hiddenFrame(for: targetFrame), display: true)
         } else {
             panel.disableScreenUpdatesUntilFlush()
@@ -71,6 +71,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         panel.orderFrontRegardless()
         panel.makeKey()
+        renderState.mark("panel-ordered")
         if let latestFocusRequest = store.latestItemFocusRequest {
             inputState.requestItemFocus(latestFocusRequest.itemID, resetToAll: true)
         } else if !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {

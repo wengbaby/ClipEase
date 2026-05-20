@@ -347,6 +347,7 @@ struct HistoryWindowView: View {
             transaction.animation = nil
         }
         .onAppear {
+            renderState.mark("swiftui-appear")
             HistoryWindowInputState.currentForTextEditing = inputState
             restoreRememberedGroupSelection()
             HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)
@@ -3937,6 +3938,7 @@ struct HistoryWindowView: View {
                     previewItemCache = nextCache
                     allPreviewItems = previewItems
                 }
+                renderState.mark("preview-items-ready count=\(previewItems.count)")
 
                 scheduleSearchUpdate(sourceItems: previewItems, immediate: true)
                 if pendingLatestFocusItemID == nil,
@@ -4031,6 +4033,7 @@ struct HistoryWindowView: View {
                         ensureSelectionInFilteredItems()
                     }
                 }
+                renderState.mark("filtered-items-ready count=\(result.count)")
                 restoreRememberedViewportIfNeeded()
                 fulfillPendingLatestFocusIfPossible()
                 convergeLatestClipboardFocusIfNeeded()
