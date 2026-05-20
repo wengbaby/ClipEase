@@ -534,6 +534,8 @@ struct HistoryWindowView: View {
             x: 0,
             y: isSelected ? 5 : 0
         )
+        .scaleEffect(isSelected ? 1.015 : 1)
+        .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isSelected)
         .id(item.id)
         .contentShape(Rectangle())
         .zIndex(isSelected ? 1 : 0)
