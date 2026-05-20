@@ -1095,7 +1095,7 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
                 pasteboardWriter: CardDragPasteboardWriter(fileURL: url, fallbackText: fallbackText)
             )
         }
-        let dragImage = fileDragImage(fileCount: result.urls.count)
+        let dragImage = cardDragImage(fallbackIconName: result.urls.count > 1 ? "doc.on.doc.fill" : "doc.fill")
         setDragFrames(for: draggingItems, dragImage: dragImage, event: event)
         beginDraggingSession(with: draggingItems, event: event, source: self)
     }
@@ -1104,7 +1104,7 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         let draggingItem = NSDraggingItem(
             pasteboardWriter: CardDragPasteboardWriter(fileURL: nil, fallbackText: text)
         )
-        startDrag(with: [draggingItem], dragImage: fileDragImage(fileCount: 1), event: event)
+        startDrag(with: [draggingItem], dragImage: cardDragImage(fallbackIconName: "doc.fill"), event: event)
     }
 
     private func startTextDrag(with event: NSEvent, text: String) {
@@ -1115,7 +1115,7 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         let draggingItem = NSDraggingItem(
             pasteboardWriter: CardDragPasteboardWriter(fileURL: nil, fallbackText: text)
         )
-        startDrag(with: [draggingItem], dragImage: textDragImage(), event: event)
+        startDrag(with: [draggingItem], dragImage: cardDragImage(fallbackIconName: "text.alignleft"), event: event)
     }
 
     private func startDrag(
@@ -1218,62 +1218,84 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         return item.preview.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func fileDragImage(fileCount: Int) -> NSImage {
-        let size = NSSize(width: 76, height: 72)
-        let image = NSImage(size: size)
+    private func cardDragImage(fallbackIconName: String) -> NSImage {
+        if let snapshot = snapshotDragImage() {
+            return snapshot
+        }
+
+        return fallbackDragImage(iconName: fallbackIconName)
+    }
+
+    private func snapshotDragImage() -> NSImage? {
+        guard bounds.width > 0, bounds.height > 0,
+              let bitmap = bitmapImageRepForCachingDisplay(in: bounds) else {
+            return nil
+        }
+
+        cacheDisplay(in: bounds, to: bitmap)
+
+        let scale: CGFloat = 0.82
+        let shadowPadding: CGFloat = 16
+        let sourceSize = bounds.size
+        let targetSize = NSSize(
+            width: floor(sourceSize.width * scale),
+            height: floor(sourceSize.height * scale)
+        )
+        let canvasSize = NSSize(
+            width: targetSize.width + shadowPadding * 2,
+            height: targetSize.height + shadowPadding * 2
+        )
+        let image = NSImage(size: canvasSize)
         image.lockFocus()
 
-        let iconName = fileCount > 1 ? "doc.on.doc.fill" : "doc.fill"
-        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 48, weight: .semibold)
-        let symbol = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(symbolConfiguration)
-        symbol?.draw(
-            in: NSRect(x: 10, y: 12, width: 56, height: 56),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 0.92
-        )
-
-        if fileCount > 1 {
-            let badgeRect = NSRect(x: 48, y: 8, width: 24, height: 20)
-            NSColor.controlAccentColor.setFill()
-            NSBezierPath(roundedRect: badgeRect, xRadius: 6, yRadius: 6).fill()
-
-            let countText = "\(min(fileCount, 99))"
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 12, weight: .bold),
-                .foregroundColor: NSColor.white
-            ]
-            let textSize = countText.size(withAttributes: attributes)
-            countText.draw(
-                at: NSPoint(
-                    x: badgeRect.midX - textSize.width / 2,
-                    y: badgeRect.midY - textSize.height / 2
-                ),
-                withAttributes: attributes
+        if let context = NSGraphicsContext.current?.cgContext {
+            context.setShadow(
+                offset: CGSize(width: 0, height: -8),
+                blur: 18,
+                color: NSColor.black.withAlphaComponent(0.22).cgColor
             )
         }
 
+        let imageRect = NSRect(
+            x: shadowPadding,
+            y: shadowPadding,
+            width: targetSize.width,
+            height: targetSize.height
+        )
+        let path = NSBezierPath(roundedRect: imageRect, xRadius: 8, yRadius: 8)
+        path.addClip()
+        bitmap.draw(in: imageRect)
+
         image.unlockFocus()
+        image.size = canvasSize
         return image
     }
 
-    private func textDragImage() -> NSImage {
-        let size = NSSize(width: 72, height: 60)
+    private func fallbackDragImage(iconName: String) -> NSImage {
+        let size = NSSize(width: 92, height: 76)
         let image = NSImage(size: size)
         image.lockFocus()
 
-        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
-        NSBezierPath(roundedRect: NSRect(x: 8, y: 8, width: 56, height: 44), xRadius: 8, yRadius: 8).fill()
+        if let context = NSGraphicsContext.current?.cgContext {
+            context.setShadow(
+                offset: CGSize(width: 0, height: -5),
+                blur: 12,
+                color: NSColor.black.withAlphaComponent(0.18).cgColor
+            )
+        }
 
-        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 34, weight: .semibold)
-        let symbol = NSImage(systemSymbolName: "text.alignleft", accessibilityDescription: nil)?
+        let cardRect = NSRect(x: 10, y: 10, width: 72, height: 56)
+        NSColor.windowBackgroundColor.withAlphaComponent(0.86).setFill()
+        NSBezierPath(roundedRect: cardRect, xRadius: 8, yRadius: 8).fill()
+
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 36, weight: .semibold)
+        let symbol = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfiguration)
         symbol?.draw(
-            in: NSRect(x: 19, y: 17, width: 34, height: 34),
+            in: NSRect(x: 28, y: 20, width: 36, height: 36),
             from: .zero,
             operation: .sourceOver,
-            fraction: 0.9
+            fraction: 0.72
         )
 
         image.unlockFocus()
