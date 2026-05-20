@@ -13,7 +13,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let recordingController: RecordingController
     private let appMenuController: AppMenuController
     private let previewWindowController = HistoryPreviewWindowController()
-    private let systemQuickLookController = HistorySystemQuickLookController()
     private let previewState = HistoryPreviewState()
     private let renderState = HistoryWindowRenderState()
     private let inputState = HistoryWindowInputState()
@@ -234,7 +233,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     var isPreviewInteractionActive: Bool {
-        previewWindowController.isVisible || systemQuickLookController.isVisible
+        previewWindowController.isVisible
     }
 
     private func captureFrontmostApplicationIfNeeded() {
@@ -291,9 +290,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         let screenPoint = NSEvent.mouseLocation
-        if panel.frame.contains(screenPoint) ||
-            previewWindowController.contains(screenPoint: screenPoint) ||
-            systemQuickLookController.contains(screenPoint: screenPoint) {
+        if panel.frame.contains(screenPoint) || previewWindowController.contains(screenPoint: screenPoint) {
             return
         }
 
@@ -301,11 +298,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     private func showPreview(_ item: ClipboardItem, cardFrame: CGRect) {
-        if item.type == .file {
-            showSystemFilePreview(item)
-            return
-        }
-
         guard let panel else {
             inputState.setPreviewActive(false)
             previewState.close()
@@ -361,28 +353,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         previewWindowController.installEscapeKeyMonitor { [weak self] in
             self?.closePreview()
         }
-    }
-
-    private func showSystemFilePreview(_ item: ClipboardItem) {
-        let urls = existingPreviewFileURLs(for: item)
-        guard !urls.isEmpty else {
-            showStatus("文件不可预览")
-            inputState.setPreviewActive(false)
-            previewState.close()
-            systemQuickLookController.close()
-            return
-        }
-
-        previewWindowController.close()
-        let didShowPreview = systemQuickLookController.show(urls: urls, selectedURL: urls.first)
-        guard didShowPreview else {
-            inputState.setPreviewActive(false)
-            previewState.close()
-            return
-        }
-
-        previewState.open(item.id)
-        inputState.setPreviewActive(true)
     }
 
     private func movePreview(cardFrame: CGRect) {
@@ -544,7 +514,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         inputState.setPreviewActive(false)
         previewState.close()
         previewWindowController.close()
-        systemQuickLookController.close()
     }
 
     private func showAndFocusCreatedItem(_ item: ClipboardItem) {
@@ -560,7 +529,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        if previewWindowController.isVisible || systemQuickLookController.isVisible {
+        if previewWindowController.isVisible {
             return
         }
 
