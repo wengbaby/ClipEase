@@ -1,6 +1,41 @@
 import AppKit
 import SwiftUI
 
+private final class RichTextPreviewValue: @unchecked Sendable {
+    let attributedString: NSAttributedString
+
+    init(_ attributedString: NSAttributedString) {
+        self.attributedString = attributedString
+    }
+}
+
+private actor RichTextPreviewCache {
+    static let shared = RichTextPreviewCache()
+
+    private var storage: [String: RichTextPreviewValue] = [:]
+    private var order: [String] = []
+    private let limit = 48
+
+    func value(for key: String) -> RichTextPreviewValue? {
+        storage[key]
+    }
+
+    func store(_ value: RichTextPreviewValue, for key: String) {
+        guard storage[key] == nil else {
+            storage[key] = value
+            return
+        }
+
+        storage[key] = value
+        order.append(key)
+
+        if order.count > limit {
+            let removedKey = order.removeFirst()
+            storage.removeValue(forKey: removedKey)
+        }
+    }
+}
+
 struct LazyPreviewTextView: NSViewRepresentable {
     let text: String
     let isReady: Bool
@@ -78,7 +113,7 @@ struct LazyPreviewTextView: NSViewRepresentable {
                 return
             }
 
-            let key = "\(richTextFileName ?? "")|\(text.hashValue)"
+            let key = Self.previewKey(richTextFileName: richTextFileName, text: text)
             guard representedKey != key else {
                 return
             }
@@ -91,7 +126,8 @@ struct LazyPreviewTextView: NSViewRepresentable {
             if let richTextFileName {
                 textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
                 richTextTask = Task.detached(priority: .utility) {
-                    let attributedString = Self.attributedString(
+                    let attributedString = await Self.attributedString(
+                        cacheKey: key,
                         fileName: richTextFileName,
                         fallbackText: text
                     )
@@ -114,7 +150,19 @@ struct LazyPreviewTextView: NSViewRepresentable {
             append(text, to: textView)
         }
 
-        nonisolated private static func attributedString(fileName: String, fallbackText: String) -> NSAttributedString {
+        nonisolated private static func previewKey(richTextFileName: String?, text: String) -> String {
+            "\(richTextFileName ?? "plain")|\(text.count)|\(text.unicodeScalars.reduce(5381) { (($0 << 5) &+ $0) &+ Int($1.value) })"
+        }
+
+        nonisolated private static func attributedString(
+            cacheKey: String,
+            fileName: String,
+            fallbackText: String
+        ) async -> NSAttributedString {
+        if let cached = await RichTextPreviewCache.shared.value(for: cacheKey) {
+                return cached.attributedString
+            }
+
             guard let fileURL = try? ClipEaseStoragePaths.richTextFileURL(fileName: fileName),
                   let data = try? Data(contentsOf: fileURL),
                   let attributedText = try? NSAttributedString(
@@ -126,6 +174,7 @@ struct LazyPreviewTextView: NSViewRepresentable {
             }
 
             if attributedText.length > 0 {
+                await RichTextPreviewCache.shared.store(RichTextPreviewValue(attributedText), for: cacheKey)
                 return attributedText
             }
 
