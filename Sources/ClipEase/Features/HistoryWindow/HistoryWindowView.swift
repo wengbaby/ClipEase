@@ -4526,22 +4526,32 @@ struct HistoryWindowView: View {
 
     private func schedulePreheatVisibleAssets() {
         preheatTask?.cancel()
-        let itemsToPreheat = Array(filteredItems.prefix(HistoryWindowRenderState.preheatItemLimit))
+        let itemsToPreheat = filteredItems
         guard !itemsToPreheat.isEmpty else {
             preheatTask = nil
             return
         }
 
+        let batchSize = HistoryWindowRenderState.preheatItemLimit
         preheatTask = Task.detached(priority: .utility) {
             try? await Task.sleep(nanoseconds: 160_000_000)
             guard !Task.isCancelled else {
                 return
             }
 
-            for item in itemsToPreheat {
-                try? Task.checkCancellation()
-                await Self.preheatImageThumbnailInBackground(for: item)
-                await Self.preheatSourceIconInBackground(for: item)
+            for batchStart in stride(from: 0, to: itemsToPreheat.count, by: batchSize) {
+                guard !Task.isCancelled else {
+                    return
+                }
+                let batchEnd = min(batchStart + batchSize, itemsToPreheat.count)
+                for item in itemsToPreheat[batchStart..<batchEnd] {
+                    guard !Task.isCancelled else {
+                        return
+                    }
+                    await Self.preheatImageThumbnailInBackground(for: item)
+                    await Self.preheatSourceIconInBackground(for: item)
+                }
+                try? await Task.sleep(nanoseconds: 80_000_000)
             }
         }
     }
