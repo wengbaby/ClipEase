@@ -372,8 +372,6 @@ struct HistoryPreviewPopoverView: View {
                 FilePDFPreviewView(url: URL(fileURLWithPath: reference.path))
             case .image:
                 fileImagePreview(reference)
-            case .office:
-                OfficeDocumentTextPreviewView(url: URL(fileURLWithPath: reference.path))
             case .quickLook:
                 HistoryFileQuickLookPreviewView(url: URL(fileURLWithPath: reference.path))
             }
@@ -598,18 +596,41 @@ struct HistoryPreviewPopoverView: View {
             return .image
         }
 
+        if officeLikeFileExtensions.contains(ext) ||
+            contentType.contains("officedocument") ||
+            contentType.contains("openxmlformats") ||
+            contentType.contains("ms-excel") ||
+            contentType.contains("msword") ||
+            contentType.contains("powerpoint") ||
+            contentType.contains("spreadsheet") ||
+            contentType.contains("presentation") ||
+            contentType.contains("comma-separated-values") ||
+            contentType.contains("rtf") {
+            return .quickLook
+        }
+
         if contentType.hasPrefix("text/") ||
-            ["txt", "md", "markdown", "json", "xml", "csv", "log", "swift", "js", "ts", "tsx", "jsx", "html", "css", "py", "sh", "zsh", "yaml", "yml", "toml", "plist", "rtf"].contains(ext) {
+            plainTextFileExtensions.contains(ext) {
             return .text
         }
 
-        if ["docx", "xlsx", "pptx"].contains(ext) ||
-            contentType.contains("officedocument") ||
-            contentType.contains("openxmlformats") {
-            return .office
-        }
-
         return .quickLook
+    }
+
+    private var officeLikeFileExtensions: Set<String> {
+        [
+            "doc", "docx", "docm", "dot", "dotx", "dotm",
+            "xls", "xlsx", "xlsm", "xlsb", "xlt", "xltx", "xltm",
+            "ppt", "pptx", "pptm", "pot", "potx", "potm", "pps", "ppsx", "ppsm",
+            "csv", "rtf", "numbers", "pages", "key"
+        ]
+    }
+
+    private var plainTextFileExtensions: Set<String> {
+        [
+            "txt", "md", "markdown", "json", "xml", "log", "swift", "js", "ts", "tsx", "jsx",
+            "html", "css", "py", "sh", "zsh", "yaml", "yml", "toml", "plist"
+        ]
     }
 
     private func fileDisplayName(_ reference: ClipboardFileReference) -> String {
@@ -729,250 +750,7 @@ private enum FilePreviewKind {
     case text
     case pdf
     case image
-    case office
     case quickLook
-}
-
-private struct OfficeDocumentTextPreviewView: NSViewRepresentable {
-    let url: URL
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let textView = FileInteractiveTextView()
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 16, height: 12)
-        textView.font = NSFont.systemFont(ofSize: 13, weight: .regular)
-        textView.textColor = NSColor.labelColor
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.autoresizingMask = [.width]
-        textView.string = "正在读取文件内容..."
-
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = .white
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.documentView = textView
-        context.coordinator.load(url: url, in: textView)
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView,
-              context.coordinator.url != url else {
-            return
-        }
-
-        context.coordinator.url = url
-        textView.string = "正在读取文件内容..."
-        context.coordinator.load(url: url, in: textView)
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(url: url)
-    }
-
-    @MainActor
-    final class Coordinator {
-        var url: URL
-        private var loadTask: Task<Void, Never>?
-
-        init(url: URL) {
-            self.url = url
-        }
-
-        func load(url: URL, in textView: NSTextView) {
-            loadTask?.cancel()
-            let expectedURL = url
-            loadTask = Task { @MainActor [weak self, weak textView] in
-                let text = await OfficeDocumentTextExtractor.extractText(from: url)
-                guard !Task.isCancelled,
-                      self?.url == expectedURL,
-                      let textView else {
-                    return
-                }
-
-                textView.string = text.isEmpty ? "没有提取到可复制文本" : text
-            }
-        }
-
-        deinit {
-            loadTask?.cancel()
-        }
-    }
-}
-
-private enum OfficeDocumentTextExtractor {
-    static func extractText(from url: URL) async -> String {
-        await Task.detached(priority: .utility) {
-            let ext = url.pathExtension.lowercased()
-            switch ext {
-            case "docx":
-                return extractDocxText(from: url)
-            case "xlsx":
-                return extractXlsxText(from: url)
-            case "pptx":
-                return extractPptxText(from: url)
-            default:
-                return ""
-            }
-        }.value
-    }
-
-    private static func extractDocxText(from url: URL) -> String {
-        guard let documentXML = unzipTextEntry("word/document.xml", from: url) else {
-            return ""
-        }
-
-        let paragraphs = xmlBlocks(named: "w:p", in: documentXML)
-            .map { xmlTexts(in: $0).joined() }
-            .map(normalizeLine)
-            .filter { !$0.isEmpty }
-        return paragraphs.joined(separator: "\n")
-    }
-
-    private static func extractXlsxText(from url: URL) -> String {
-        let sharedStrings = unzipTextEntry("xl/sharedStrings.xml", from: url)
-            .map { xmlTexts(in: $0).map(normalizeLine) }
-            ?? []
-        let workbookEntries = zippedEntryNames(in: url).filter {
-            $0.hasPrefix("xl/worksheets/sheet") && $0.hasSuffix(".xml")
-        }.sorted()
-
-        let rows = workbookEntries.flatMap { entry -> [String] in
-            guard let xml = unzipTextEntry(entry, from: url) else {
-                return []
-            }
-
-            return xmlBlocks(named: "row", in: xml).map { rowXML in
-                xmlBlocks(named: "c", in: rowXML).compactMap { cellXML in
-                    if cellXML.contains(" t=\"s\"") || cellXML.contains(" t='s'"),
-                       let indexText = firstXMLText(named: "v", in: cellXML),
-                       let index = Int(indexText),
-                       sharedStrings.indices.contains(index) {
-                        return sharedStrings[index]
-                    }
-
-                    return firstXMLText(named: "v", in: cellXML).map(normalizeLine)
-                }
-                .filter { !$0.isEmpty }
-                .joined(separator: "\t")
-            }
-            .filter { !$0.isEmpty }
-        }
-
-        return rows.joined(separator: "\n")
-    }
-
-    private static func extractPptxText(from url: URL) -> String {
-        let slideEntries = zippedEntryNames(in: url).filter {
-            $0.hasPrefix("ppt/slides/slide") && $0.hasSuffix(".xml")
-        }.sorted()
-
-        let slides = slideEntries.compactMap { entry -> String? in
-            guard let xml = unzipTextEntry(entry, from: url) else {
-                return nil
-            }
-
-            let text = xmlTexts(in: xml).map(normalizeLine).filter { !$0.isEmpty }.joined(separator: "\n")
-            return text.isEmpty ? nil : text
-        }
-
-        return slides.joined(separator: "\n\n")
-    }
-
-    private static func unzipTextEntry(_ entry: String, from url: URL) -> String? {
-        let output = runZip(arguments: ["-p", url.path, entry])
-        guard !output.isEmpty else {
-            return nil
-        }
-        return String(data: output, encoding: .utf8)
-    }
-
-    private static func zippedEntryNames(in url: URL) -> [String] {
-        guard let text = String(data: runZip(arguments: ["-Z1", url.path]), encoding: .utf8) else {
-            return []
-        }
-        return text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-    }
-
-    private static func runZip(arguments: [String]) -> Data {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = arguments
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                return Data()
-            }
-            return data
-        } catch {
-            return Data()
-        }
-    }
-
-    private static func xmlBlocks(named name: String, in xml: String) -> [String] {
-        let pattern = "<\(name)(?:\\s[^>]*)?>[\\s\\S]*?</\(name)>"
-        return regexMatches(pattern, in: xml)
-    }
-
-    private static func xmlTexts(in xml: String) -> [String] {
-        regexMatches("<[^:>]*:?t(?:\\s[^>]*)?>([\\s\\S]*?)</[^:>]*:?t>", in: xml)
-            .map(stripXMLTags)
-            .map(decodeXMLEntities)
-    }
-
-    private static func firstXMLText(named name: String, in xml: String) -> String? {
-        regexMatches("<[^:>]*:?\(name)(?:\\s[^>]*)?>([\\s\\S]*?)</[^:>]*:?\(name)>", in: xml)
-            .first
-            .map(stripXMLTags)
-            .map(decodeXMLEntities)
-    }
-
-    private static func regexMatches(_ pattern: String, in text: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return []
-        }
-
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        return regex.matches(in: text, options: [], range: range).compactMap { match in
-            guard let matchRange = Range(match.range, in: text) else {
-                return nil
-            }
-            return String(text[matchRange])
-        }
-    }
-
-    private static func stripXMLTags(_ text: String) -> String {
-        text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-    }
-
-    private static func decodeXMLEntities(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&apos;", with: "'")
-    }
-
-    private static func normalizeLine(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
 private struct FileTextPreviewView: NSViewRepresentable {
