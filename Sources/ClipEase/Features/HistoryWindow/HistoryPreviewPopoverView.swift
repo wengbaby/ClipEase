@@ -597,7 +597,7 @@ struct HistoryPreviewPopoverView: View {
         }
 
         if contentType.hasPrefix("text/") ||
-            ["txt", "md", "markdown", "json", "xml", "csv", "log", "swift", "js", "ts", "tsx", "jsx", "html", "css", "py", "sh", "zsh", "yaml", "yml", "toml", "plist", "rtf", "docx", "xlsx", "pptx"].contains(ext) {
+            ["txt", "md", "markdown", "json", "xml", "csv", "log", "swift", "js", "ts", "tsx", "jsx", "html", "css", "py", "sh", "zsh", "yaml", "yml", "toml", "plist", "rtf"].contains(ext) {
             return .text
         }
 
@@ -775,13 +775,6 @@ private struct FileTextPreviewView: NSViewRepresentable {
     }
 
     nonisolated private static func textSynchronously(from url: URL) -> String {
-        let fileExtension = url.pathExtension.lowercased()
-        if ["docx", "xlsx", "pptx"].contains(fileExtension),
-           let officeText = officeText(from: url, fileExtension: fileExtension),
-           !officeText.isEmpty {
-            return officeText
-        }
-
         if let attributedString = try? NSAttributedString(
             url: url,
             options: [.documentType: NSAttributedString.DocumentType.rtf],
@@ -799,71 +792,6 @@ private struct FileTextPreviewView: NSViewRepresentable {
         }
 
         return "无法读取文件内容"
-    }
-
-    nonisolated private static func officeText(from url: URL, fileExtension: String) -> String? {
-        let xmlPaths: [String]
-        switch fileExtension {
-        case "docx":
-            xmlPaths = ["word/document.xml", "word/header*.xml", "word/footer*.xml"]
-        case "xlsx":
-            xmlPaths = ["xl/sharedStrings.xml", "xl/worksheets/sheet*.xml"]
-        case "pptx":
-            xmlPaths = ["ppt/slides/slide*.xml", "ppt/notesSlides/notesSlide*.xml"]
-        default:
-            return nil
-        }
-
-        let parts = xmlPaths.compactMap { path in
-            unzipText(fileURL: url, innerPath: path).map(xmlPlainText)
-        }
-        let text = parts
-            .flatMap { $0.components(separatedBy: .newlines) }
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        return text.isEmpty ? nil : text
-    }
-
-    nonisolated private static func unzipText(fileURL: URL, innerPath: String) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-p", fileURL.path, innerPath]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return nil
-        }
-
-        guard process.terminationStatus == 0 else {
-            return nil
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)
-    }
-
-    nonisolated private static func xmlPlainText(_ xml: String) -> String {
-        var text = xml
-            .replacingOccurrences(of: "</w:p>", with: "\n")
-            .replacingOccurrences(of: "</a:p>", with: "\n")
-            .replacingOccurrences(of: "</row>", with: "\n")
-            .replacingOccurrences(of: "</c>", with: "\t")
-            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&apos;", with: "'")
-        text = text.replacingOccurrences(of: "[ \\t\\r\\f\\v]+", with: " ", options: .regularExpression)
-        text = text.replacingOccurrences(of: " *\\n *", with: "\n", options: .regularExpression)
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @MainActor

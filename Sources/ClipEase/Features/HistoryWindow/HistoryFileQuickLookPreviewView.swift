@@ -69,8 +69,8 @@ private final class HistoryInteractiveQuickLookContainerView: NSView {
         true
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        previewView.hitTest(convert(point, to: previewView)) ?? super.hitTest(point)
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -90,7 +90,21 @@ private final class HistoryInteractiveQuickLookContainerView: NSView {
 
     private func preparePreviewForInteraction() {
         window?.makeKeyAndOrderFront(nil)
-        window?.makeFirstResponder(previewView)
+        window?.makeFirstResponder(interactiveResponder(in: previewView) ?? previewView)
+    }
+
+    private func interactiveResponder(in view: NSView) -> NSResponder? {
+        if view.acceptsFirstResponder {
+            return view
+        }
+
+        for subview in view.subviews {
+            if let responder = interactiveResponder(in: subview) {
+                return responder
+            }
+        }
+
+        return nil
     }
 
     @available(*, unavailable)
