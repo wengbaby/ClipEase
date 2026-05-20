@@ -36,6 +36,39 @@ private actor RichTextPreviewCache {
     }
 }
 
+enum RichTextPreviewLoader {
+    static func key(richTextFileName: String?, text: String) -> String {
+        "\(richTextFileName ?? "plain")|\(text.count)|\(text.unicodeScalars.reduce(5381) { (($0 << 5) &+ $0) &+ Int($1.value) })"
+    }
+
+    static func attributedString(
+        fileName: String,
+        fallbackText: String
+    ) async -> NSAttributedString {
+        let cacheKey = key(richTextFileName: fileName, text: fallbackText)
+        if let cached = await RichTextPreviewCache.shared.value(for: cacheKey) {
+            return cached.attributedString
+        }
+
+        guard let fileURL = try? ClipEaseStoragePaths.richTextFileURL(fileName: fileName),
+              let data = try? Data(contentsOf: fileURL),
+              let attributedText = try? NSAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+              ) else {
+            return NSAttributedString(string: fallbackText)
+        }
+
+        if attributedText.length > 0 {
+            await RichTextPreviewCache.shared.store(RichTextPreviewValue(attributedText), for: cacheKey)
+            return attributedText
+        }
+
+        return NSAttributedString(string: fallbackText)
+    }
+}
+
 struct LazyPreviewTextView: NSViewRepresentable {
     let text: String
     let isReady: Bool
@@ -113,7 +146,7 @@ struct LazyPreviewTextView: NSViewRepresentable {
                 return
             }
 
-            let key = Self.previewKey(richTextFileName: richTextFileName, text: text)
+            let key = RichTextPreviewLoader.key(richTextFileName: richTextFileName, text: text)
             guard representedKey != key else {
                 return
             }
@@ -126,8 +159,7 @@ struct LazyPreviewTextView: NSViewRepresentable {
             if let richTextFileName {
                 textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
                 richTextTask = Task.detached(priority: .utility) {
-                    let attributedString = await Self.attributedString(
-                        cacheKey: key,
+                    let attributedString = await RichTextPreviewLoader.attributedString(
                         fileName: richTextFileName,
                         fallbackText: text
                     )
@@ -148,37 +180,6 @@ struct LazyPreviewTextView: NSViewRepresentable {
 
             textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
             append(text, to: textView)
-        }
-
-        nonisolated private static func previewKey(richTextFileName: String?, text: String) -> String {
-            "\(richTextFileName ?? "plain")|\(text.count)|\(text.unicodeScalars.reduce(5381) { (($0 << 5) &+ $0) &+ Int($1.value) })"
-        }
-
-        nonisolated private static func attributedString(
-            cacheKey: String,
-            fileName: String,
-            fallbackText: String
-        ) async -> NSAttributedString {
-        if let cached = await RichTextPreviewCache.shared.value(for: cacheKey) {
-                return cached.attributedString
-            }
-
-            guard let fileURL = try? ClipEaseStoragePaths.richTextFileURL(fileName: fileName),
-                  let data = try? Data(contentsOf: fileURL),
-                  let attributedText = try? NSAttributedString(
-                    data: data,
-                    options: [.documentType: NSAttributedString.DocumentType.rtf],
-                    documentAttributes: nil
-                  ) else {
-                return NSAttributedString(string: fallbackText)
-            }
-
-            if attributedText.length > 0 {
-                await RichTextPreviewCache.shared.store(RichTextPreviewValue(attributedText), for: cacheKey)
-                return attributedText
-            }
-
-            return NSAttributedString(string: fallbackText)
         }
 
         private func append(_ text: String, to textView: NSTextView) {

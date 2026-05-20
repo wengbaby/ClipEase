@@ -4541,14 +4541,6 @@ struct HistoryWindowView: View {
         HistoryScrollCoordinator.shared.restoreSavedOffset()
     }
 
-    private func preheatVisibleAssets() {
-        let itemsToPreheat = filteredItems.prefix(HistoryWindowRenderState.preheatItemLimit)
-        for item in itemsToPreheat {
-            preheatImageThumbnail(for: item)
-            preheatSourceIcon(for: item)
-        }
-    }
-
     private func schedulePreheatVisibleAssets() {
         preheatTask?.cancel()
         let itemsToPreheat = filteredItems
@@ -4575,37 +4567,9 @@ struct HistoryWindowView: View {
                     }
                     await Self.preheatImageThumbnailInBackground(for: item)
                     await Self.preheatSourceIconInBackground(for: item)
+                    await Self.preheatRichTextInBackground(for: item)
                 }
                 try? await Task.sleep(nanoseconds: 80_000_000)
-            }
-        }
-    }
-
-    private func preheatImageThumbnail(for item: HistoryPreviewItem) {
-        guard let imageFileName = item.imageFileName,
-              let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(fileName: imageFileName),
-              let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
-            return
-        }
-
-        ImageMemoryCache.shared.preheatImage(for: "history-thumbnail:\(imageFileName)") {
-            if let thumbnail = NSImage(contentsOf: thumbnailURL) {
-                return thumbnail
-            }
-
-            return NSImage(contentsOf: imageURL)
-        }
-    }
-
-    private func preheatSourceIcon(for item: HistoryPreviewItem) {
-        guard let iconFileName = item.iconFileName,
-              let iconURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: iconFileName) else {
-            return
-        }
-
-        ImageMemoryCache.shared.preheatImage(for: "app-icon:\(iconFileName)") {
-            NSImage(contentsOf: iconURL).map {
-                ClipEaseAppIcon.roundedImage($0, size: NSSize(width: 24, height: 24))
             }
         }
     }
@@ -4655,6 +4619,17 @@ struct HistoryWindowView: View {
                 ImageMemoryCache.shared.store(image, for: cacheKey)
             }
         }
+    }
+
+    nonisolated private static func preheatRichTextInBackground(for item: HistoryPreviewItem) async {
+        guard let richTextFileName = item.richTextFileName else {
+            return
+        }
+
+        _ = await RichTextPreviewLoader.attributedString(
+            fileName: richTextFileName,
+            fallbackText: item.preview
+        )
     }
 
     private func nextSelectionID(afterDeleting id: ClipboardItem.ID?) -> ClipboardItem.ID? {
