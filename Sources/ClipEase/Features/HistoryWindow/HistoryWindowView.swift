@@ -59,6 +59,7 @@ struct HistoryWindowView: View {
     @State private var previewItemCache: [ClipboardItem.ID: CachedHistoryPreviewItem] = [:]
     @State private var searchTask: Task<Void, Never>?
     @State private var searchGeneration: UInt64 = 0
+    @State private var lastSearchRequestSignature: HistorySearchRequestSignature?
     @State private var preheatTask: Task<Void, Never>?
     @State private var previewFollowTask: Task<Void, Never>?
     @State private var rememberSelectedItemTask: Task<Void, Never>?
@@ -3978,6 +3979,16 @@ struct HistoryWindowView: View {
         let currentGroup: HistoryGroupSelection = isSearchVisible ? .all : selectedGroup
         let currentSearchText = searchText
         let currentSearchCriteria = searchCriteria
+        let requestSignature = HistorySearchRequestSignature(
+            sourceItems: sourceItems.map(HistorySearchSourceSignature.init),
+            selectedGroup: currentGroup.storageValue,
+            searchText: currentSearchText,
+            criteria: currentSearchCriteria
+        )
+        guard requestSignature != lastSearchRequestSignature else {
+            return
+        }
+        lastSearchRequestSignature = requestSignature
 
         searchTask = Task(priority: .userInitiated) {
             if !immediate {
@@ -5070,6 +5081,35 @@ private struct HistoryPreviewSourceSignature: Equatable {
 private struct CachedHistoryPreviewItem: Sendable {
     let signature: HistoryPreviewSourceSignature
     let item: HistoryPreviewItem
+}
+
+private struct HistorySearchSourceSignature: Equatable {
+    let id: HistoryPreviewItem.ID
+    let type: HistoryPreviewType
+    let createdAt: Date
+    let sourceAppName: String
+    let normalizedSearchText: String
+    let isPinned: Bool
+    let groupID: UUID?
+    let groupedAt: Date?
+
+    init(item: HistoryPreviewItem) {
+        id = item.id
+        type = item.type
+        createdAt = item.createdAt
+        sourceAppName = item.sourceAppName
+        normalizedSearchText = item.normalizedSearchText
+        isPinned = item.isPinned
+        groupID = item.groupID
+        groupedAt = item.groupedAt
+    }
+}
+
+private struct HistorySearchRequestSignature: Equatable {
+    let sourceItems: [HistorySearchSourceSignature]
+    let selectedGroup: String
+    let searchText: String
+    let criteria: HistorySearchCriteria
 }
 
 private enum HistorySearchGroup: Hashable, Sendable {
