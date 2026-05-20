@@ -4526,7 +4526,24 @@ struct HistoryWindowView: View {
 
     private func schedulePreheatVisibleAssets() {
         preheatTask?.cancel()
-        preheatTask = nil
+        let itemsToPreheat = Array(filteredItems.prefix(HistoryWindowRenderState.preheatItemLimit))
+        guard !itemsToPreheat.isEmpty else {
+            preheatTask = nil
+            return
+        }
+
+        preheatTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 160_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            for item in itemsToPreheat {
+                try? Task.checkCancellation()
+                await Self.preheatImageThumbnailInBackground(for: item)
+                await Self.preheatSourceIconInBackground(for: item)
+            }
+        }
     }
 
     private func preheatImageThumbnail(for item: HistoryPreviewItem) {
@@ -4554,6 +4571,53 @@ struct HistoryWindowView: View {
         ImageMemoryCache.shared.preheatImage(for: "app-icon:\(iconFileName)") {
             NSImage(contentsOf: iconURL).map {
                 ClipEaseAppIcon.roundedImage($0, size: NSSize(width: 24, height: 24))
+            }
+        }
+    }
+
+    nonisolated private static func preheatImageThumbnailInBackground(for item: HistoryPreviewItem) async {
+        guard let imageFileName = item.imageFileName,
+              let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(fileName: imageFileName),
+              let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
+            return
+        }
+
+        let cacheKey = "history-thumbnail:\(imageFileName)"
+        let isCached = await MainActor.run {
+            ImageMemoryCache.shared.cachedImage(for: cacheKey) != nil
+        }
+        guard !isCached else {
+            return
+        }
+
+        let image = NSImage(contentsOf: thumbnailURL) ?? NSImage(contentsOf: imageURL)
+        if let image {
+            await MainActor.run {
+                ImageMemoryCache.shared.store(image, for: cacheKey)
+            }
+        }
+    }
+
+    nonisolated private static func preheatSourceIconInBackground(for item: HistoryPreviewItem) async {
+        guard let iconFileName = item.iconFileName,
+              let iconURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: iconFileName) else {
+            return
+        }
+
+        let cacheKey = "app-icon:\(iconFileName)"
+        let isCached = await MainActor.run {
+            ImageMemoryCache.shared.cachedImage(for: cacheKey) != nil
+        }
+        guard !isCached else {
+            return
+        }
+
+        let image = NSImage(contentsOf: iconURL).map {
+            ClipEaseAppIcon.roundedImage($0, size: NSSize(width: 64, height: 64))
+        }
+        if let image {
+            await MainActor.run {
+                ImageMemoryCache.shared.store(image, for: cacheKey)
             }
         }
     }
