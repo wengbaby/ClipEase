@@ -1,4 +1,5 @@
-import AppKit
+import AVFoundation
+import Foundation
 
 @MainActor
 final class ClipEaseSoundPlayer {
@@ -9,8 +10,8 @@ final class ClipEaseSoundPlayer {
         case paste = "Paste"
     }
 
-    private var copySound: NSSound?
-    private var pasteSound: NSSound?
+    private var copyPlayer: AVAudioPlayer?
+    private var pastePlayer: AVAudioPlayer?
 
     private init() {}
 
@@ -23,37 +24,37 @@ final class ClipEaseSoundPlayer {
     }
 
     private func play(_ feedbackSound: FeedbackSound) {
-        let cachedSound = soundCache(for: feedbackSound)
-        let sound = cachedSound ?? loadSound(feedbackSound)
-        guard let sound else {
+        let cachedPlayer = playerCache(for: feedbackSound)
+        let player = cachedPlayer ?? loadPlayer(feedbackSound)
+        guard let player else {
             return
         }
 
-        setSoundCache(sound, for: feedbackSound)
-        sound.stop()
-        sound.currentTime = 0
-        sound.play()
+        setPlayerCache(player, for: feedbackSound)
+        player.stop()
+        player.currentTime = 0
+        player.play()
     }
 
-    private func soundCache(for feedbackSound: FeedbackSound) -> NSSound? {
+    private func playerCache(for feedbackSound: FeedbackSound) -> AVAudioPlayer? {
         switch feedbackSound {
         case .copy:
-            copySound
+            copyPlayer
         case .paste:
-            pasteSound
+            pastePlayer
         }
     }
 
-    private func setSoundCache(_ sound: NSSound, for feedbackSound: FeedbackSound) {
+    private func setPlayerCache(_ player: AVAudioPlayer, for feedbackSound: FeedbackSound) {
         switch feedbackSound {
         case .copy:
-            copySound = sound
+            copyPlayer = player
         case .paste:
-            pasteSound = sound
+            pastePlayer = player
         }
     }
 
-    private func loadSound(_ feedbackSound: FeedbackSound) -> NSSound? {
+    private func loadPlayer(_ feedbackSound: FeedbackSound) -> AVAudioPlayer? {
         guard let url = Bundle.main.url(
             forResource: feedbackSound.rawValue,
             withExtension: "aiff",
@@ -62,7 +63,14 @@ final class ClipEaseSoundPlayer {
             return nil
         }
 
-        return NSSound(contentsOf: url, byReference: true)
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.volume = 1
+            player.prepareToPlay()
+            return player
+        } catch {
+            return nil
+        }
     }
 
     private func developmentResourceURL(for feedbackSound: FeedbackSound) -> URL? {

@@ -37,6 +37,10 @@ def main() -> None:
             "sound player must use bundled project resources, not external Paste.app files")
     require('subdirectory: "Sounds"' in sound_player,
             "sound player must load Copy/Paste from the app bundle Sounds directory")
+    require("AVAudioPlayer" in sound_player and "prepareToPlay()" in sound_player,
+            "sound player must use a prepared audio player so short Copy.aiff feedback is reliable")
+    require("NSSound" not in sound_player,
+            "sound player must not regress to NSSound for short feedback sounds")
     require('cp -R "$ROOT_DIR/Resources/Sounds" "$RESOURCES_DIR/Sounds"' in build_app,
             "build script must copy bundled sounds into the app resources")
 
