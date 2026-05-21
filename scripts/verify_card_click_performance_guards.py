@@ -56,7 +56,7 @@ required = [
     "private func historyCard(_ item: HistoryPreviewItem)",
     "let isSelected = selectedItemID == item.id",
     "radius: isSelected ? 12 : 0",
-    "private final class HistoryCardAssetLoadGate",
+    "final class HistoryCardAssetLoadGate",
     "DispatchSemaphore(value: 3)",
     "HistoryCardAssetLoadGate.shared.load",
     "private struct RichTextCardPreview: View",

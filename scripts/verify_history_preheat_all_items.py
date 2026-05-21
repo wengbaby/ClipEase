@@ -17,6 +17,10 @@ required = [
     "Task.detached(priority: .utility)",
     "guard !Task.isCancelled else",
     "try? await Task.sleep(nanoseconds: 80_000_000)",
+    "HistoryCardAssetLoadGate.shared.load",
+    "preheatImageThumbnailInBackground",
+    "preheatSourceIconInBackground",
+    "preheatRichTextInBackground",
 ]
 
 forbidden = [

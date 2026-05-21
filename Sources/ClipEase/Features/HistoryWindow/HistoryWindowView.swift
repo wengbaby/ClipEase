@@ -4636,7 +4636,9 @@ struct HistoryWindowView: View {
             return
         }
 
-        let image = NSImage(contentsOf: thumbnailURL) ?? NSImage(contentsOf: imageURL)
+        let image = HistoryCardAssetLoadGate.shared.load {
+            NSImage(contentsOf: thumbnailURL) ?? NSImage(contentsOf: imageURL)
+        }
         if let image {
             await MainActor.run {
                 ImageMemoryCache.shared.store(image, for: cacheKey)
@@ -4658,8 +4660,10 @@ struct HistoryWindowView: View {
             return
         }
 
-        let image = NSImage(contentsOf: iconURL).map {
-            ClipEaseAppIcon.roundedImage($0, size: NSSize(width: 64, height: 64))
+        let image = HistoryCardAssetLoadGate.shared.load {
+            NSImage(contentsOf: iconURL).map {
+                ClipEaseAppIcon.roundedImage($0, size: NSSize(width: 64, height: 64))
+            }
         }
         if let image {
             await MainActor.run {
@@ -4673,10 +4677,12 @@ struct HistoryWindowView: View {
             return
         }
 
-        _ = await RichTextPreviewLoader.attributedString(
-            fileName: richTextFileName,
-            fallbackText: item.preview
-        )
+        _ = HistoryCardAssetLoadGate.shared.load {
+            RichTextCardPreviewCache.loadAttributedString(
+                fileName: richTextFileName,
+                fallbackText: item.preview
+            )
+        }
     }
 
     private func nextSelectionID(afterDeleting id: ClipboardItem.ID?) -> ClipboardItem.ID? {

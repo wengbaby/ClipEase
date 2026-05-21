@@ -629,7 +629,7 @@ private struct AsyncCardImageView: View {
     }
 }
 
-private final class HistoryCardAssetLoadGate: @unchecked Sendable {
+final class HistoryCardAssetLoadGate: @unchecked Sendable {
     static let shared = HistoryCardAssetLoadGate()
 
     private let semaphore = DispatchSemaphore(value: 3)
@@ -769,7 +769,7 @@ private struct RichTextCardPreview: View {
 }
 
 @MainActor
-private final class RichTextCardPreviewCache {
+final class RichTextCardPreviewCache {
     static let shared = RichTextCardPreviewCache()
 
     nonisolated private static let maxPreviewCharacters = 2_000
