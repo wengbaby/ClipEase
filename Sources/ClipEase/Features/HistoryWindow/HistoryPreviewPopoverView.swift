@@ -82,7 +82,7 @@ struct HistoryPreviewPopoverView: View {
                                     .background(Color.gray.opacity(0.18))
                                     .clipShape(Capsule())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PreviewBadgeButtonStyle())
                             .contextMenu {
                                 Button("复制") {
                                     NSPasteboard.general.clearContents()
@@ -470,7 +470,7 @@ struct HistoryPreviewPopoverView: View {
                                 isSelected: selectedFileReferenceID == reference.id
                             )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PreviewFileReferenceButtonStyle())
                     }
                 }
             }
@@ -548,6 +548,7 @@ struct HistoryPreviewPopoverView: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.clear)
         )
+        .animation(.easeOut(duration: 0.10), value: isSelected)
     }
 
     private func fileFallbackPreview(_ reference: ClipboardFileReference?) -> some View {
@@ -825,6 +826,58 @@ private struct PreviewIconButtonBody: View {
             .overlay {
                 Circle()
                     .fill(Color.white.opacity(configuration.isPressed ? 0.14 : (isHovered ? 0.08 : 0)))
+                    .allowsHitTesting(false)
+            }
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .animation(.easeOut(duration: 0.10), value: isHovered)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+private struct PreviewBadgeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PreviewBadgeButtonBody(configuration: configuration)
+    }
+}
+
+private struct PreviewBadgeButtonBody: View {
+    let configuration: PreviewBadgeButtonStyle.Configuration
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.01 : 1))
+            .overlay {
+                Capsule()
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.16 : (isHovered ? 0.08 : 0)))
+                    .allowsHitTesting(false)
+            }
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .animation(.easeOut(duration: 0.10), value: isHovered)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+private struct PreviewFileReferenceButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PreviewFileReferenceButtonBody(configuration: configuration)
+    }
+}
+
+private struct PreviewFileReferenceButtonBody: View {
+    let configuration: PreviewFileReferenceButtonStyle.Configuration
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.992 : 1, anchor: .center)
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.10 : (isHovered ? 0.06 : 0)))
                     .allowsHitTesting(false)
             }
             .onHover { hovering in

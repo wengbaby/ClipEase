@@ -69,6 +69,14 @@ def main() -> None:
             and ".scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.01 : 1))" in popover
             and ".animation(.easeOut(duration: 0.08), value: configuration.isPressed)" in popover,
             "preview header/floating buttons must use lightweight hover/press feedback")
+    require(".buttonStyle(PreviewBadgeButtonStyle())" in popover
+            and "private struct PreviewBadgeButtonStyle: ButtonStyle" in popover
+            and "Capsule()" in popover,
+            "OCR/contact badges must use lightweight hover/press feedback")
+    require(".buttonStyle(PreviewFileReferenceButtonStyle())" in popover
+            and "private struct PreviewFileReferenceButtonStyle: ButtonStyle" in popover
+            and ".animation(.easeOut(duration: 0.10), value: isSelected)" in popover,
+            "file reference rows must use lightweight feedback and selection transition")
     require("Task.detached(priority: .utility)" in load_preview_image
             and "Data(contentsOf: imageURL)" in load_preview_image,
             "image preview disk IO must happen in a utility background task")

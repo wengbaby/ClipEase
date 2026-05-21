@@ -2,20 +2,20 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.71(260522.0207)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.72(260522.0215)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.0.71(260522.0207)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.0.72(260522.0215)`
 - `python3 scripts/verify_stage9_file_paste_fallback.py`：PASS
 - `python3 scripts/verify_stage9_file_pasteboard_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.71 (260522.0207)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `33505`
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.72 (260522.0215)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `37886`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -39,15 +39,16 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.0.71`
-- 当前构建号：`260522.0207`
-- 当前 build/run：`2.0.71 (260522.0207)`
-- 当前运行进程：PID `33505`
+- 当前候选版本：`2.0.72`
+- 当前构建号：`260522.0215`
+- 当前 build/run：`2.0.72 (260522.0215)`
+- 当前运行进程：PID `37886`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.0.72(260522.0215)`：预览窗口交互反馈优化包；OCR / 关键信息 badge 和文件预览右侧文件列表行接入轻量 hover / press 反馈，badge 使用 capsule 状态层，文件行使用圆角矩形状态层与 `0.992` 按下缩放。文件列表选中态增加 100ms opacity 过渡，切换多文件预览时不再生硬跳变。预览性能守卫已覆盖 badge、文件行按钮反馈和文件行选中态过渡。
 - `2.0.71(260522.0207)`：预览窗口动画优化包；预览内容切换现在按 item / 类型 / 文件选择 / ready 状态建立内容身份，使用 140ms opacity + `0.992` scale 的轻量 crossfade，避免图片、链接、文件等重内容从 shell 切换到 ready 时出现生硬跳变。预览 header 的关闭 / 复制按钮、链接打开悬浮按钮和 OCR 识别按钮统一接入轻量 hover / press 反馈，悬停 `1.01`、按下 `0.985`，不动画宽高、不加重阴影。预览性能守卫已覆盖内容切换动画和按钮反馈，并继续守卫重内容延后加载、PDF 后台加载、关闭时卸载重内容。
 - `2.0.70(260522.0149)`：修复顶部“搜索”按钮展开后再次点击不会关闭的问题。原因是搜索展开后窗口级外点监听会先把搜索关闭，随后搜索按钮自身点击又触发 `toggleSearch()` 重新打开，表现为二次点击无效。本轮将搜索按钮自身注册为搜索交互区域，避免外点监听抢先处理；同时将搜索按钮的已展开点击语义改为 `clearAndCloseSearch()`，确保再次点击明确清空并收起搜索框。搜索交互守卫已覆盖该回归路径。
 - `2.0.69(260522.0131)`：交互动画优化包；顶部轨道按钮统一接入轻量 hover / press 反馈，覆盖全部剪切板、置顶、用户分组、搜索、新建分组、授权提示和更多按钮。反馈统一为 100ms hover、80ms press，只使用 opacity / scale：悬停 `1.01`，按下 `0.985`，并增加极轻白色状态层；不动画宽高、不加重阴影，避免顶部轨道滚动和搜索展开期间产生布局抖动。主窗口动画性能守卫已覆盖统一按钮样式和禁止回退到宽高 / 重阴影动画。
