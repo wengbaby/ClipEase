@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOUND_PLAYER = ROOT / "Sources/ClipEase/Core/Utilities/ClipEaseSoundPlayer.swift"
 PASTE_EXECUTOR = ROOT / "Sources/ClipEase/Features/PasteExecutor/PasteExecutor.swift"
+STORE = ROOT / "Sources/ClipEase/Core/Storage/ClipboardHistoryStore.swift"
 WINDOW_VIEW = ROOT / "Sources/ClipEase/Features/HistoryWindow/HistoryWindowView.swift"
 WINDOW_CONTROLLER = ROOT / "Sources/ClipEase/Features/HistoryWindow/HistoryWindowController.swift"
 POPOVER = ROOT / "Sources/ClipEase/Features/HistoryWindow/HistoryPreviewPopoverView.swift"
@@ -26,6 +27,7 @@ def require(condition: bool, message: str) -> None:
 def main() -> None:
     sound_player = SOUND_PLAYER.read_text(encoding="utf-8")
     paste_executor = PASTE_EXECUTOR.read_text(encoding="utf-8")
+    store = STORE.read_text(encoding="utf-8")
     window_view = WINDOW_VIEW.read_text(encoding="utf-8")
     window_controller = WINDOW_CONTROLLER.read_text(encoding="utf-8")
     popover = POPOVER.read_text(encoding="utf-8")
@@ -54,6 +56,12 @@ def main() -> None:
             "preview window copy actions must play copy feedback")
     require("ClipEaseSoundPlayer.shared.playCopyFeedback()" in popover,
             "OCR badge copy actions must play copy feedback")
+    require("playExternalCopyFeedbackIfNeeded(for: insertedItem)" in store
+            and "playExternalCopyFeedbackIfNeeded(for: upsertedItem)" in store,
+            "external clipboard captures must play copy feedback after successful upsert")
+    require("guard !item.isFromClipEase else" in store
+            and "ClipEaseSoundPlayer.shared.playCopyFeedback()" in store,
+            "external copy feedback must ignore ClipEase self-copies to avoid duplicate sounds")
 
     print("OK sound feedback guards passed")
 

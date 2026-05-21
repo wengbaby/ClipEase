@@ -99,6 +99,8 @@ final class ClipboardHistoryStore: ObservableObject {
            let url = upsertedItem.url {
             fetchLinkTitle(for: upsertedItem.id, url: url)
         }
+
+        playExternalCopyFeedbackIfNeeded(for: upsertedItem)
     }
 
     func addRichText(
@@ -129,10 +131,11 @@ final class ClipboardHistoryStore: ObservableObject {
             item.groupedAt = now
         }
 
-        upsertClipboardItem(
+        let insertedItem = upsertClipboardItem(
             item,
             replacingRichTextFileName: storedRichText.fileName
         )
+        playExternalCopyFeedbackIfNeeded(for: insertedItem)
     }
 
     func addImage(_ image: NSImage, sourceApp: SourceAppInfo) {
@@ -156,6 +159,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
         let insertedItem = upsertClipboardItem(item)
         enqueueOCRIfNeeded(for: insertedItem)
+        playExternalCopyFeedbackIfNeeded(for: insertedItem)
     }
 
     func addFiles(_ urls: [URL], sourceApp: SourceAppInfo) {
@@ -171,6 +175,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
         let insertedItem = upsertClipboardItem(item)
         enqueueOCRIfNeeded(for: insertedItem)
+        playExternalCopyFeedbackIfNeeded(for: insertedItem)
     }
 
     func item(with id: ClipboardItem.ID?) -> ClipboardItem? {
@@ -1105,6 +1110,14 @@ final class ClipboardHistoryStore: ObservableObject {
         scheduleSave()
         latestItemFocusRequest = ClipboardItemFocusRequest(itemID: insertedItem.id, reason: .inserted)
         return insertedItem
+    }
+
+    private func playExternalCopyFeedbackIfNeeded(for item: ClipboardItem) {
+        guard !item.isFromClipEase else {
+            return
+        }
+
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
     }
 
     private func textHash(for item: ClipboardItem) -> String {
