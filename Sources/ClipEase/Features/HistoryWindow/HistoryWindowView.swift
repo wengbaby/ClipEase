@@ -55,6 +55,7 @@ struct HistoryWindowView: View {
     @State private var filteredPreviewItems: [HistoryPreviewItem] = []
     @State private var previewBuildTask: Task<Void, Never>?
     @State private var previewBuildGeneration: UInt64 = 0
+    @State private var deferredStartupTask: Task<Void, Never>?
     @State private var previewItemsSourceSignature: [HistoryPreviewSourceSignature] = []
     @State private var previewItemCache: [ClipboardItem.ID: CachedHistoryPreviewItem] = [:]
     @State private var searchTask: Task<Void, Never>?
@@ -375,13 +376,13 @@ struct HistoryWindowView: View {
                 focusRequestedLatestItem(request)
             }
             focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
-            schedulePreviewItemsRebuild(from: store.items)
-            refreshAccessibilityStateAfterFirstFrame()
+            scheduleDeferredStartupWork()
             authorizationPulse = false
         }
         .onDisappear {
             cancelPendingGroupRename()
             closeInactiveSearchBeforeHiding()
+            deferredStartupTask?.cancel()
             previewBuildTask?.cancel()
             previewBuildGeneration &+= 1
             searchTask?.cancel()
@@ -1794,12 +1795,28 @@ struct HistoryWindowView: View {
 
     private func refreshAccessibilityStateAfterFirstFrame() {
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 120_000_000)
+            try? await Task.sleep(nanoseconds: 180_000_000)
             guard inputState.isWindowVisibleSnapshot else {
                 return
             }
 
             accessibilityPermissionState.refresh()
+        }
+    }
+
+    private func scheduleDeferredStartupWork() {
+        deferredStartupTask?.cancel()
+        let sourceItems = store.items
+        deferredStartupTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 32_000_000)
+            guard !Task.isCancelled,
+                  inputState.isWindowVisibleSnapshot else {
+                return
+            }
+
+            schedulePreviewItemsRebuild(from: sourceItems)
+            refreshAccessibilityStateAfterFirstFrame()
+            deferredStartupTask = nil
         }
     }
 
@@ -4570,7 +4587,7 @@ struct HistoryWindowView: View {
 
         let batchSize = HistoryWindowRenderState.preheatBatchSize
         preheatTask = Task.detached(priority: .utility) {
-            try? await Task.sleep(nanoseconds: 160_000_000)
+            try? await Task.sleep(nanoseconds: 260_000_000)
             guard !Task.isCancelled else {
                 return
             }

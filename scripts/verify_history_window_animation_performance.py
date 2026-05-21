@@ -43,7 +43,11 @@ required_view = [
     "preheatTask?.cancel()",
     "previewFollowTask?.cancel()",
     "rememberSelectedItemTask?.cancel()",
-    "schedulePreviewItemsRebuild(from: store.items)",
+    "deferredStartupTask?.cancel()",
+    "private func scheduleDeferredStartupWork()",
+    "try? await Task.sleep(nanoseconds: 32_000_000)",
+    "schedulePreviewItemsRebuild(from: sourceItems)",
+    "try? await Task.sleep(nanoseconds: 260_000_000)",
     "scheduleSearchUpdate(debounceNanoseconds:",
     "isTextInputActiveForEditShortcut || inputState.isPreviewContentActive",
     "if !inputState.isPreviewContentActive {\n                shortcutButtons\n            }",
@@ -74,6 +78,7 @@ forbidden_view = [
     ".scaleEffect(isShortcutOverlayVisible",
     "NumberShortcutHandler(isEnabled:",
     "isTextInputActiveForEditShortcut || previewState.isVisible",
+    ".onAppear {\n            renderState.mark(\"swiftui-appear\")\n            HistoryWindowInputState.currentForTextEditing = inputState\n            restoreRememberedGroupSelection()\n            HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)\n            HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)\n            HistoryScrollCoordinator.shared.onOffsetChange = { [weak inputState] _ in\n                guard inputState?.isWindowPresentedSnapshot == true else {\n                    return\n                }\n\n                Task { @MainActor in\n                    followPreviewForCurrentScroll()\n                }\n            }\n            refreshMoveToGroupMenuSnapshot()\n            primeLatestItemPresentationGuard(sourceItems: store.items)\n            if let request = store.latestItemFocusRequest {\n                focusRequestedLatestItem(request)\n            }\n            focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)\n            schedulePreviewItemsRebuild(from: store.items)",
 ]
 
 checks = [
