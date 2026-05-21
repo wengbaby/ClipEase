@@ -229,7 +229,10 @@ struct HistoryCardView: View, Equatable {
             )
 
             if item.imageFileName != nil {
-                AsyncCardImageView(imageFileName: item.imageFileName, mode: .fitWithoutUpscaling(maxSize: 96))
+                AsyncCardImageView(
+                    imageFileName: item.imageFileName,
+                    mode: .fitLinkPreview(minSize: 52, maxSize: 96)
+                )
             } else {
                 linkFallbackIcon
             }
@@ -543,7 +546,7 @@ private struct AsyncSourceIconView: View {
 private struct AsyncCardImageView: View {
     enum Mode: Equatable {
         case fillAvailable
-        case fitWithoutUpscaling(maxSize: CGFloat)
+        case fitLinkPreview(minSize: CGFloat, maxSize: CGFloat)
     }
 
     let imageFileName: String?
@@ -580,13 +583,13 @@ private struct AsyncCardImageView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .fitWithoutUpscaling(let maxSize):
+        case .fitLinkPreview(let minSize, let maxSize):
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
                 .frame(
-                    width: min(max(image.size.width, 1), maxSize),
-                    height: min(max(image.size.height, 1), maxSize)
+                    width: min(max(image.size.width, minSize), maxSize),
+                    height: min(max(image.size.height, minSize), maxSize)
                 )
         }
     }
