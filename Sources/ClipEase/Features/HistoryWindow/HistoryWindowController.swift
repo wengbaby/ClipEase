@@ -236,7 +236,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     var isPreviewInteractionActive: Bool {
-        previewWindowController.isVisible
+        previewWindowController.isRecordingSuppressionActive
     }
 
     private func captureFrontmostApplicationIfNeeded() {
@@ -345,9 +345,19 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             },
             onClose: { [weak self] in
                 self?.closePreview()
+            },
+            onDetach: { [weak self] in
+                self?.inputState.setPreviewActive(false)
+                self?.previewState.close()
             }
         )
         guard didShowPreview else {
+            inputState.setPreviewActive(false)
+            previewState.close()
+            return
+        }
+
+        guard previewWindowController.isAttachedVisible else {
             inputState.setPreviewActive(false)
             previewState.close()
             return
@@ -539,7 +549,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        if previewWindowController.isVisible {
+        if previewWindowController.isAttachedVisible {
             return
         }
 

@@ -8,6 +8,7 @@ struct HistoryPreviewPopoverView: View {
     let ocrResult: ClipboardOCRMatch?
     let arrowX: CGFloat
     let size: CGSize
+    let showsArrow: Bool
     let isContentReady: Bool
     let onClose: () -> Void
     let onCopy: () -> Void
@@ -17,6 +18,7 @@ struct HistoryPreviewPopoverView: View {
     let onCopyMarkdown: () -> Void
     let onCopyPath: () -> Void
     let onCopyRGB: () -> Void
+    let onDetachDrag: () -> Void
     @State private var previewImage: PreviewImage?
     @State private var filePreviewImage: PreviewImage?
     @State private var selectedFileReferenceID: ClipboardFileReference.ID?
@@ -28,12 +30,14 @@ struct HistoryPreviewPopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             popoverBody
 
-            Triangle()
-                .fill(Color(red: 0.94, green: 0.95, blue: 0.98))
-                .frame(width: 26, height: 14)
-                .padding(.leading, arrowX - 13)
+            if showsArrow {
+                Triangle()
+                    .fill(Color(red: 0.94, green: 0.95, blue: 0.98))
+                    .frame(width: 26, height: 14)
+                    .padding(.leading, arrowX - 13)
+            }
         }
-        .frame(width: size.width, height: size.height + 14, alignment: .topLeading)
+        .frame(width: size.width, height: size.height + (showsArrow ? 14 : 0), alignment: .topLeading)
     }
 
     private var popoverBody: some View {
@@ -113,15 +117,24 @@ struct HistoryPreviewPopoverView: View {
             }
             .buttonStyle(PreviewIconButtonStyle())
 
-            Text(item.kind)
-                .font(.system(size: 15, weight: .semibold))
+            ZStack(alignment: .leading) {
+                PreviewHeaderDragRegion(onDragStarted: onDetachDrag)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Text("来自 \(item.sourceAppName)")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+                HStack(spacing: 10) {
+                    Text(item.kind)
+                        .font(.system(size: 15, weight: .semibold))
 
-            Spacer()
+                    Text("来自 \(item.sourceAppName)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Button(action: onCopy) {
                 Image(systemName: "doc.on.doc")
@@ -801,6 +814,72 @@ private struct Triangle: Shape {
 private struct PreviewImage {
     let image: NSImage
     let url: URL
+}
+
+private struct PreviewHeaderDragRegion: NSViewRepresentable {
+    let onDragStarted: () -> Void
+
+    func makeNSView(context: Context) -> HeaderDragView {
+        let view = HeaderDragView()
+        view.onDragStarted = onDragStarted
+        return view
+    }
+
+    func updateNSView(_ nsView: HeaderDragView, context: Context) {
+        nsView.onDragStarted = onDragStarted
+    }
+}
+
+private final class HeaderDragView: NSView {
+    var onDragStarted: (() -> Void)?
+    private let dragActivationDistance: CGFloat = 4
+    private var initialMouseDownEvent: NSEvent?
+    private var initialMouseDownLocation: CGPoint?
+    private var didStartWindowDrag = false
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .arrow)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.clickCount == 1 else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        initialMouseDownEvent = event
+        initialMouseDownLocation = event.locationInWindow
+        didStartWindowDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !didStartWindowDrag,
+              let initialMouseDownEvent,
+              let initialMouseDownLocation else {
+            return
+        }
+
+        let location = event.locationInWindow
+        let distance = hypot(location.x - initialMouseDownLocation.x, location.y - initialMouseDownLocation.y)
+        guard distance >= dragActivationDistance else {
+            return
+        }
+
+        didStartWindowDrag = true
+        let dragWindow = window
+        onDragStarted?()
+        dragWindow?.performDrag(with: initialMouseDownEvent)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        initialMouseDownEvent = nil
+        initialMouseDownLocation = nil
+        didStartWindowDrag = false
+    }
 }
 
 private enum FilePreviewKind {

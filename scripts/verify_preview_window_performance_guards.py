@@ -36,15 +36,33 @@ def body_of_function(source: str, name: str) -> str:
     return source[match.end():index - 1]
 
 
+def body_of_function_matching(source: str, pattern: str, description: str) -> str:
+    match = re.search(pattern, source)
+    if not match:
+        fail(f"missing function {description}")
+
+    depth = 1
+    index = match.end()
+    while index < len(source) and depth > 0:
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+        index += 1
+    return source[match.end():index - 1]
+
+
 def main() -> None:
     controller = CONTROLLER.read_text(encoding="utf-8")
     popover = POPOVER.read_text(encoding="utf-8")
     link_web = LINK_WEB.read_text(encoding="utf-8")
 
     show = body_of_function(controller, "show")
-    close = body_of_function(controller, "close")
+    close = body_of_function_matching(controller, r"\bfunc\s+close\s*\(\s*allowDetached:\s*Bool\s*\)\s*\{", "close(allowDetached:)")
     schedule_content = body_of_function(controller, "scheduleContentLoad")
     load_preview_image = body_of_function(popover, "loadPreviewImage")
+    detach_current = body_of_function(controller, "detachCurrentPreview")
+    close_preview = close
 
     require("private let deferredContentLoadDelay: UInt64 = 50_000_000" in controller,
             "preview content should keep a small deferred heavy-content delay")
@@ -57,6 +75,37 @@ def main() -> None:
     require("try? await Task.sleep(nanoseconds: delay)" in schedule_content
             and "guard !Task.isCancelled, panel.isVisible else" in schedule_content,
             "deferred preview content load must be cancellable")
+    require("guard allowDetached || !isDetached else" in close_preview,
+            "main-window close must not close a detached preview window")
+    require("func close(allowDetached: Bool)" in controller
+            and "closeDetachedPreview()" in controller
+            and "close(allowDetached: true)" in controller,
+            "detached preview must close only through its own close path")
+    require("var isAttachedVisible: Bool" in controller
+            and "panel?.isVisible == true && !isDetached" in controller
+            and "var isRecordingSuppressionActive: Bool" in controller,
+            "controller must distinguish attached previews from detached windows")
+    require("configureDetachedPanel(panel)" in detach_current
+            and "panel.level = .normal" in controller
+            and "panel.hasShadow = true" in controller
+            and "panel.makeKeyAndOrderFront(nil)" in detach_current,
+            "detached preview must become a normal switchable App window")
+    require("removeOutsideClickMonitor()" in detach_current
+            and "removeEscapeKeyMonitor()" in detach_current
+            and "configuration.onDetach()" in detach_current,
+            "detaching must stop attached-popover monitors and clear history preview state")
+    require("showsArrow: !isDetached" in controller
+            and "let showsArrow: Bool" in popover
+            and "if showsArrow" in popover
+            and "height: size.height + (showsArrow ? 14 : 0)" in popover,
+            "detached preview must hide the attached-popover arrow and shrink its window frame")
+    require("PreviewHeaderDragRegion(onDragStarted: onDetachDrag)" in popover
+            and "private struct PreviewHeaderDragRegion: NSViewRepresentable" in popover
+            and "private let dragActivationDistance: CGFloat = 4" in popover
+            and "override func mouseDragged(with event: NSEvent)" in popover
+            and "dragWindow?.performDrag(with: initialMouseDownEvent)" in popover
+            and ".allowsHitTesting(false)" in popover,
+            "only the preview header title area should start window detach drag")
 
     require("previewImage = nil" in popover and "previewImage = await loadImage()" in popover,
             "image preview must clear stale image state and load image asynchronously")
