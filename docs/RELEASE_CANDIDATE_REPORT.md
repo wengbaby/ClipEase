@@ -2,20 +2,20 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.58(260521.1911)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.59(260521.2009)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.0.58(260521.1911)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.0.59(260521.2009)`
 - `python3 scripts/verify_stage9_file_paste_fallback.py`：PASS
 - `python3 scripts/verify_stage9_file_pasteboard_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.58 (260521.1911)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `54552`
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.59 (260521.2009)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `81568`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -39,15 +39,16 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.0.58`
-- 当前构建号：`260521.1911`
-- 当前 build/run：`2.0.58 (260521.1911)`
-- 当前运行进程：PID `54552`
+- 当前候选版本：`2.0.59`
+- 当前构建号：`260521.2009`
+- 当前 build/run：`2.0.59 (260521.2009)`
+- 当前运行进程：PID `81568`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.0.59(260521.2009)`：性能 / 动画优化收口包；OCR 后台识别新增动态并发控制，空闲最多 5 个识别任务，主窗口 / 预览交互期间降到 2 个；删除卡片、清空历史、删除分组、重复项替换和过期清理都会取消对应 OCR 任务。已新增 OCR 生命周期守卫，确认已完成 OCR 结果继续持久化在 `ClipboardItem`，不会因打开主窗口而重复识别。
 - `2.0.58(260521.1911)`：性能 / 动画优化收口包；链接元数据后台任务现在按 item 持有可取消任务和 generation，同一链接新抓取会取消旧任务；删除卡片、清空历史、删除分组、重复项替换和过期清理都会取消对应抓取任务，避免无用网络 / 图片解码 / 图片保存继续占用资源。链接元数据守卫已覆盖任务表、generation 清理、取消路径和限流槽释放。
 - `2.0.57(260521.1848)`：性能 / 动画优化收口包；链接元数据后台抓取增加并发限流，同时最多 3 个网络 / 图片解码 / 图片保存任务，标题回写和图片下载之间显式 `Task.yield()`，主线程只做短状态合并。
 - `2.0.56(260521.1840)`：链接元数据抓取速度优化；HTML 抓取完成后先回写标题，预览图复用同一次 HTML 结果继续后台下载并单独回写；链接详情预览增加加载中和失败状态，避免内嵌预览失败时空白。

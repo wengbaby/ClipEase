@@ -188,6 +188,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
         let deletedItems = items.filter { $0.id == id }
         items.removeAll { $0.id == id }
+        cancelOCRTasks(for: deletedItems)
         cancelLinkMetadataTasks(for: deletedItems)
         deleteExternalFiles(for: deletedItems)
         rebuildRecentHashes()
@@ -197,6 +198,7 @@ final class ClipboardHistoryStore: ObservableObject {
     func clearAllItems() {
         let removedItems = items
         items.removeAll()
+        cancelAllOCRTasks()
         cancelAllLinkMetadataTasks()
         deleteExternalFiles(for: removedItems)
         recentHashes.removeAll()
@@ -326,6 +328,7 @@ final class ClipboardHistoryStore: ObservableObject {
         groups.removeAll { $0.id == id }
         items.removeAll { $0.groupID == id }
         sortGroups()
+        cancelOCRTasks(for: removedItems)
         cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
@@ -346,6 +349,7 @@ final class ClipboardHistoryStore: ObservableObject {
             item.groupID.map(ids.contains) ?? false
         }
         sortGroups()
+        cancelOCRTasks(for: removedItems)
         cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
@@ -847,6 +851,12 @@ final class ClipboardHistoryStore: ObservableObject {
         return results
     }
 
+    func setOCRInteractiveThrottleActive(_ isActive: Bool) {
+        Task {
+            await ClipboardOCRConcurrencyLimiter.shared.setInteractionActive(isActive)
+        }
+    }
+
     private func enqueueOCRIfNeeded(for item: ClipboardItem) {
         guard item.ocrStatus == .pending else {
             return
@@ -888,6 +898,18 @@ final class ClipboardHistoryStore: ObservableObject {
             return
         }
 
+        await ClipboardOCRConcurrencyLimiter.shared.waitForTurn()
+        defer {
+            Task {
+                await ClipboardOCRConcurrencyLimiter.shared.finishTurn()
+            }
+        }
+
+        guard !Task.isCancelled else {
+            finishOCRTask(for: item.id)
+            return
+        }
+
         await MainActor.run {
             self.setOCRStatus(.processing, for: item.id)
         }
@@ -903,6 +925,10 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         await MainActor.run {
+            guard !Task.isCancelled else {
+                self.finishOCRTask(for: item.id)
+                return
+            }
             if let result {
                 self.applyOCRResult(result, status: .completed, to: item.id)
             } else {
@@ -935,7 +961,29 @@ final class ClipboardHistoryStore: ObservableObject {
         )
         sortItems()
         scheduleSave()
+        finishOCRTask(for: id)
+    }
+
+    private func finishOCRTask(for id: ClipboardItem.ID) {
         ocrTaskByItemID[id] = nil
+    }
+
+    private func cancelOCRTasks(for removedItems: [ClipboardItem]) {
+        cancelOCRTasks(for: Set(removedItems.map(\.id)))
+    }
+
+    private func cancelOCRTasks(for ids: Set<ClipboardItem.ID>) {
+        for id in ids {
+            ocrTaskByItemID[id]?.cancel()
+            ocrTaskByItemID[id] = nil
+        }
+    }
+
+    private func cancelAllOCRTasks() {
+        for task in ocrTaskByItemID.values {
+            task.cancel()
+        }
+        ocrTaskByItemID.removeAll()
     }
 
     private func sortItems() {
@@ -1046,6 +1094,7 @@ final class ClipboardHistoryStore: ObservableObject {
                 }
             }
             items.removeAll { duplicateIDs.contains($0.id) }
+            cancelOCRTasks(for: duplicateIDs)
             cancelLinkMetadataTasks(for: duplicateIDs)
         }
 
@@ -1342,6 +1391,7 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         items.removeAll(where: shouldPrune)
+        cancelOCRTasks(for: removedItems)
         cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
@@ -1414,6 +1464,49 @@ private actor LinkMetadataFetchLimiter {
 
         let next = waiters.removeFirst()
         next.resume()
+    }
+}
+
+private actor ClipboardOCRConcurrencyLimiter {
+    static let shared = ClipboardOCRConcurrencyLimiter()
+
+    private let idleLimit = 5
+    private let interactiveLimit = 2
+    private var isInteractionActive = false
+    private var activeCount = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func setInteractionActive(_ isActive: Bool) {
+        isInteractionActive = isActive
+        resumeAvailableWaiters()
+    }
+
+    func waitForTurn() async {
+        if activeCount < currentLimit {
+            activeCount += 1
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func finishTurn() {
+        activeCount = max(0, activeCount - 1)
+        resumeAvailableWaiters()
+    }
+
+    private var currentLimit: Int {
+        isInteractionActive ? interactiveLimit : idleLimit
+    }
+
+    private func resumeAvailableWaiters() {
+        while activeCount < currentLimit, !waiters.isEmpty {
+            activeCount += 1
+            let next = waiters.removeFirst()
+            next.resume()
+        }
     }
 }
 

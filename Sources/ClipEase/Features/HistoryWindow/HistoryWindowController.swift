@@ -79,6 +79,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(true)
+        store.setOCRInteractiveThrottleActive(true)
 
         guard shouldAnimate else {
             finishShowingWindow()
@@ -129,6 +130,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 panel?.orderOut(nil)
                 panel?.alphaValue = 1
                 panel?.hasShadow = false
+                self?.store.setOCRInteractiveThrottleActive(false)
                 self?.isClosing = false
             }
         }
@@ -141,6 +143,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         closePreview()
         panel?.orderOut(nil)
         panel?.hasShadow = false
+        store.setOCRInteractiveThrottleActive(false)
         isClosing = false
     }
 
