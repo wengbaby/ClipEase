@@ -2,20 +2,20 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.49(260521.1555)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.50(260521.1620)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：待本次 `2.0.49(260521.1555)` 文档对齐后重跑
+- `scripts/smoke_check.py`：通过，已对齐 `2.0.50(260521.1620)`
 - `python3 scripts/verify_stage9_file_paste_fallback.py`：PASS
 - `python3 scripts/verify_stage9_file_pasteboard_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.49 (260521.1555)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `56423`
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.50 (260521.1620)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `66406`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -39,15 +39,16 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.0.49`
-- 当前构建号：`260521.1555`
-- 当前 build/run：`2.0.49 (260521.1555)`
-- 当前运行进程：PID `56423`
+- 当前候选版本：`2.0.50`
+- 当前构建号：`260521.1620`
+- 当前 build/run：`2.0.50 (260521.1620)`
+- 当前运行进程：PID `66406`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.0.50(260521.1620)`：性能 / 动画优化收口包；新增主窗口打开 / 关闭动画性能守卫，确认窗口只做轻量 frame 位移动画，不回归 alpha 动画、内容层 transform 或重阴影；同时守卫预览内容交互时不被主窗口外点逻辑误关、显示完成后再安装外部点击监听、隐藏时取消后台任务。
 - `2.0.49(260521.1555)`：Office / 表格类文件预览稳定性收口包；当前结论为保留格式优先，`doc/docx/xls/xlsx/csv/ppt/pptx/rtf/numbers/pages/key` 等走嵌入式 Quick Look，普通文本文件继续走可选择文本预览；移除 Office 纯文本预览和底部可复制文本区方案；确认公开 `QLPreviewView` 无法稳定强制等同 Finder 空格预览的 Office 内容选择 / 复制能力，私有 Quick Look 激活接口禁止使用。新增当前稳定性验收清单和已知限制记录，后续由用户人工验收。
 - `1.0.1(260512.2154)`：修复主窗口横向滚动位置关闭后丢失，并优化主窗口显示动画的内容重绘压力。
 - `1.0.2(260512.2205)`：修复文字搜索结果高亮样式，命中内容改为黄色背景。
