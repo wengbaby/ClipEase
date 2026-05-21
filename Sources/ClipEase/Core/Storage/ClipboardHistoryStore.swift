@@ -44,6 +44,8 @@ final class ClipboardHistoryStore: ObservableObject {
     private var skippedImageHashes: Set<String> = []
     private var skippedClipboardFilePathSets: Set<String> = []
     private var ocrTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
+    private var linkMetadataTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
+    private var linkMetadataGenerationByItemID: [ClipboardItem.ID: Int] = [:]
     private var deferredSaveTask: Task<Void, Never>?
     private var debugGenerationTask: Task<Void, Never>?
     private var saveRevision = 0
@@ -186,6 +188,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
         let deletedItems = items.filter { $0.id == id }
         items.removeAll { $0.id == id }
+        cancelLinkMetadataTasks(for: deletedItems)
         deleteExternalFiles(for: deletedItems)
         rebuildRecentHashes()
         saveImmediately()
@@ -194,6 +197,7 @@ final class ClipboardHistoryStore: ObservableObject {
     func clearAllItems() {
         let removedItems = items
         items.removeAll()
+        cancelAllLinkMetadataTasks()
         deleteExternalFiles(for: removedItems)
         recentHashes.removeAll()
         skippedClipboardTexts.removeAll()
@@ -322,6 +326,7 @@ final class ClipboardHistoryStore: ObservableObject {
         groups.removeAll { $0.id == id }
         items.removeAll { $0.groupID == id }
         sortGroups()
+        cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
         saveImmediately()
@@ -341,6 +346,7 @@ final class ClipboardHistoryStore: ObservableObject {
             item.groupID.map(ids.contains) ?? false
         }
         sortGroups()
+        cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
         saveImmediately()
@@ -500,48 +506,113 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func fetchLinkMetadata(for id: ClipboardItem.ID, url: URL) {
+        linkMetadataTaskByItemID[id]?.cancel()
+        let generation = nextLinkMetadataGeneration(for: id)
         let persistence = persistence
-        Task.detached(priority: .utility) {
-            await LinkMetadataFetchLimiter.shared.waitForTurn()
+        linkMetadataTaskByItemID[id] = Task.detached(priority: .utility) { [weak self] in
+            var didEnterLimiter = false
             defer {
-                Task {
-                    await LinkMetadataFetchLimiter.shared.finishTurn()
+                if didEnterLimiter {
+                    Task {
+                        await LinkMetadataFetchLimiter.shared.finishTurn()
+                    }
                 }
             }
 
+            await LinkMetadataFetchLimiter.shared.waitForTurn()
+            didEnterLimiter = true
+            do {
+                try Task.checkCancellation()
+            } catch is CancellationError {
+                await self?.finishLinkMetadataTask(for: id, generation: generation)
+                return
+            } catch {
+                await self?.finishLinkMetadataTask(for: id, generation: generation)
+                return
+            }
+
             guard let pageMetadata = await LinkTitleFetcher.pageMetadata(for: url) else {
+                await self?.finishLinkMetadataTask(for: id, generation: generation)
+                return
+            }
+
+            guard !Task.isCancelled else {
+                await self?.finishLinkMetadataTask(for: id, generation: generation)
                 return
             }
 
             if let title = pageMetadata.title {
-                await MainActor.run {
-                    self.updateLinkMetadata(
-                        title: title,
-                        storedImage: nil,
-                        for: id,
-                        url: url
-                    )
-                }
+                await self?.updateLinkMetadata(
+                    title: title,
+                    storedImage: nil,
+                    for: id,
+                    url: url
+                )
             }
 
             await Task.yield()
+            guard !Task.isCancelled else {
+                await self?.finishLinkMetadataTask(for: id, generation: generation)
+                return
+            }
+
             let storedImage = await LinkTitleFetcher.previewImageData(from: pageMetadata, baseURL: url)
                 .flatMap(NSImage.init(data:))
                 .flatMap(persistence.saveImage)
 
             guard let storedImage else {
+                await self?.finishLinkMetadataTask(for: id, generation: generation)
                 return
             }
 
-            await MainActor.run {
-                self.updateLinkMetadata(
-                    title: nil,
-                    storedImage: storedImage,
-                    for: id,
-                    url: url
-                )
+            guard !Task.isCancelled else {
+                await self?.finishLinkMetadataTask(for: id, generation: generation)
+                return
             }
+
+            await self?.updateLinkMetadata(
+                title: nil,
+                storedImage: storedImage,
+                for: id,
+                url: url
+            )
+            await self?.finishLinkMetadataTask(for: id, generation: generation)
         }
+    }
+
+    private func nextLinkMetadataGeneration(for id: ClipboardItem.ID) -> Int {
+        let generation = (linkMetadataGenerationByItemID[id] ?? 0) + 1
+        linkMetadataGenerationByItemID[id] = generation
+        return generation
+    }
+
+    private func finishLinkMetadataTask(for id: ClipboardItem.ID, generation: Int) {
+        guard linkMetadataGenerationByItemID[id] == generation else {
+            return
+        }
+
+        linkMetadataTaskByItemID[id] = nil
+        linkMetadataGenerationByItemID[id] = nil
+    }
+
+    private func cancelLinkMetadataTasks(for removedItems: [ClipboardItem]) {
+        cancelLinkMetadataTasks(for: Set(removedItems.map(\.id)))
+    }
+
+    private func cancelLinkMetadataTasks(for ids: Set<ClipboardItem.ID>) {
+        for id in ids {
+            linkMetadataTaskByItemID[id]?.cancel()
+            linkMetadataTaskByItemID[id] = nil
+            linkMetadataGenerationByItemID[id] = nil
+        }
+    }
+
+    private func cancelAllLinkMetadataTasks() {
+        for task in linkMetadataTaskByItemID.values {
+            task.cancel()
+        }
+        linkMetadataTaskByItemID.removeAll()
+        linkMetadataGenerationByItemID.removeAll()
     }
 
     private func updateLinkTitle(_ title: String, for id: ClipboardItem.ID, url: URL) {
@@ -975,6 +1046,7 @@ final class ClipboardHistoryStore: ObservableObject {
                 }
             }
             items.removeAll { duplicateIDs.contains($0.id) }
+            cancelLinkMetadataTasks(for: duplicateIDs)
         }
 
         items.insert(insertedItem, at: 0)
@@ -1270,6 +1342,7 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         items.removeAll(where: shouldPrune)
+        cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
     }

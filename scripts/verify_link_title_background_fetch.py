@@ -55,14 +55,28 @@ def verify_store() -> None:
     fetch_link_metadata = body_of_function(store, "fetchLinkMetadata")
     require("Task.detached(priority: .utility)" in fetch_link_metadata,
             "link metadata fetch must run off the main capture path")
+    require("linkMetadataTaskByItemID[id]?.cancel()" in fetch_link_metadata
+            and "linkMetadataTaskByItemID[id] = Task.detached(priority: .utility)" in fetch_link_metadata,
+            "new link metadata fetches must cancel and replace older fetches for the same item")
+    require("let generation = nextLinkMetadataGeneration(for: id)" in fetch_link_metadata
+            and "finishLinkMetadataTask(for: id, generation: generation)" in fetch_link_metadata,
+            "link metadata fetches must use generation cleanup so stale tasks cannot clear newer state")
+    require("try Task.checkCancellation()" in fetch_link_metadata
+            and "guard !Task.isCancelled else" in fetch_link_metadata,
+            "link metadata fetch must honor cancellation before and between expensive phases")
     require("LinkMetadataFetchLimiter.shared.waitForTurn()" in fetch_link_metadata
             and "LinkMetadataFetchLimiter.shared.finishTurn()" in fetch_link_metadata,
             "link metadata fetches must use a bounded background concurrency limiter")
+    require("var didEnterLimiter = false" in fetch_link_metadata
+            and "if didEnterLimiter" in fetch_link_metadata,
+            "cancelled link metadata tasks must only release limiter slots they actually acquired")
     require("await Task.yield()" in fetch_link_metadata,
             "link metadata fetch must yield between title and image phases")
     require("LinkTitleFetcher.pageMetadata(for: url)" in fetch_link_metadata,
             "store must fetch page metadata once before image download")
-    require("updateLinkMetadata(\n                        title: title,\n                        storedImage: nil" in fetch_link_metadata,
+    title_update_index = fetch_link_metadata.find("storedImage: nil")
+    image_fetch_index = fetch_link_metadata.find("LinkTitleFetcher.previewImageData(from: pageMetadata, baseURL: url)")
+    require(title_update_index != -1 and image_fetch_index != -1 and title_update_index < image_fetch_index,
             "store must update fetched link titles before waiting on preview image downloads")
     require("LinkTitleFetcher.previewImageData(from: pageMetadata, baseURL: url)" in fetch_link_metadata,
             "store must reuse fetched page HTML for preview image lookup")
@@ -70,8 +84,9 @@ def verify_store() -> None:
             "store must not refetch page metadata while downloading preview images")
     require("NSImage.init(data:)" in fetch_link_metadata and ".flatMap(persistence.saveImage)" in fetch_link_metadata,
             "link preview image data must be persisted through the existing image attachment path")
-    require("MainActor.run" in fetch_link_metadata and "updateLinkMetadata(" in fetch_link_metadata,
-            "background metadata fetch must update the captured item on the main actor")
+    require("await self?.updateLinkMetadata(" in fetch_link_metadata
+            and "await self?.finishLinkMetadataTask(for: id, generation: generation)" in fetch_link_metadata,
+            "background metadata fetch must update and clean up through main-actor store methods")
 
     update_metadata = body_of_function(store, "updateLinkMetadata")
     require("items[index].url == url" in update_metadata,
@@ -87,6 +102,29 @@ def verify_store() -> None:
             and "private let limit = 3" in store
             and "CheckedContinuation<Void, Never>" in store,
             "link metadata concurrency limiter must bound simultaneous background fetches")
+    require("private var linkMetadataTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]" in store
+            and "private var linkMetadataGenerationByItemID: [ClipboardItem.ID: Int] = [:]" in store,
+            "store must retain cancellable link metadata tasks and generations")
+    require("private func cancelLinkMetadataTasks(for removedItems: [ClipboardItem])" in store
+            and "private func cancelAllLinkMetadataTasks()" in store,
+            "store must expose internal link metadata cancellation helpers")
+
+    delete_item = body_of_function(store, "deleteItem")
+    clear_all = body_of_function(store, "clearAllItems")
+    delete_group = body_of_function(store, "deleteGroup")
+    delete_groups = body_of_function(store, "deleteGroups")
+    prune_expired = body_of_function(store, "pruneExpiredItems")
+    upsert = body_of_function(store, "upsertClipboardItem")
+    require("cancelLinkMetadataTasks(for: deletedItems)" in delete_item,
+            "deleting one item must cancel its link metadata task")
+    require("cancelAllLinkMetadataTasks()" in clear_all,
+            "clearing history must cancel every link metadata task")
+    require("cancelLinkMetadataTasks(for: removedItems)" in delete_group
+            and "cancelLinkMetadataTasks(for: removedItems)" in delete_groups
+            and "cancelLinkMetadataTasks(for: removedItems)" in prune_expired,
+            "bulk removals and retention pruning must cancel removed link metadata tasks")
+    require("cancelLinkMetadataTasks(for: duplicateIDs)" in upsert,
+            "deduplicating items must cancel metadata tasks for replaced duplicates")
 
 
 def verify_fetcher_and_model() -> None:
