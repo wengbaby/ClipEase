@@ -4556,7 +4556,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        let batchSize = HistoryWindowRenderState.preheatItemLimit
+        let batchSize = HistoryWindowRenderState.preheatBatchSize
         preheatTask = Task.detached(priority: .utility) {
             try? await Task.sleep(nanoseconds: 160_000_000)
             guard !Task.isCancelled else {

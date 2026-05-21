@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class HistoryWindowRenderState: ObservableObject {
-    static let preheatItemLimit = 18
+    static let preheatBatchSize = 18
 
     @Published private(set) var renderGeneration = UUID()
     private(set) var performanceTrace: HistoryPerformanceTrace?
