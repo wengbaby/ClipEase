@@ -43,6 +43,7 @@ required_view = [
     "preheatTask?.cancel()",
     "previewFollowTask?.cancel()",
     "rememberSelectedItemTask?.cancel()",
+    "searchVisibilityTask?.cancel()",
     "deferredStartupTask?.cancel()",
     "private func scheduleDeferredStartupWork()",
     "try? await Task.sleep(nanoseconds: 32_000_000)",
@@ -51,6 +52,16 @@ required_view = [
     "scheduleSearchUpdate(debounceNanoseconds:",
     "isTextInputActiveForEditShortcut || inputState.isPreviewContentActive",
     "if !inputState.isPreviewContentActive {\n                shortcutButtons\n            }",
+    "@State private var isSearchFieldLayoutVisible = false",
+    "@State private var isSearchFieldVisualVisible = false",
+    "@State private var searchVisibilityTask: Task<Void, Never>?",
+    "private var isSearchControlExpanded: Bool",
+    ".frame(width: isSearchFieldLayoutVisible ? 520 : 0, height: 30)",
+    ".opacity(isSearchFieldVisualVisible ? 1 : 0)",
+    ".scaleEffect(isSearchFieldVisualVisible ? 1 : 0.985, anchor: .leading)",
+    ".animation(.easeOut(duration: 0.12), value: isSearchFieldVisualVisible)",
+    "private func updateSearchFieldPresentation(isVisible: Bool)",
+    "try? await Task.sleep(nanoseconds: 120_000_000)",
 ]
 
 required_input_state = [
@@ -78,6 +89,10 @@ forbidden_view = [
     ".scaleEffect(isShortcutOverlayVisible",
     "NumberShortcutHandler(isEnabled:",
     "isTextInputActiveForEditShortcut || previewState.isVisible",
+    ".frame(width: isSearchVisible ? 520 : 0, height: 30)",
+    ".animation(.easeOut(duration: 0.14), value: isSearchVisible)",
+    "withAnimation(.easeOut(duration: 0.12)) {\n                isSearchVisible = true",
+    "withAnimation(.easeOut(duration: 0.12)) {\n            isSearchVisible = false",
     ".onAppear {\n            renderState.mark(\"swiftui-appear\")\n            HistoryWindowInputState.currentForTextEditing = inputState\n            restoreRememberedGroupSelection()\n            HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)\n            HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)\n            HistoryScrollCoordinator.shared.onOffsetChange = { [weak inputState] _ in\n                guard inputState?.isWindowPresentedSnapshot == true else {\n                    return\n                }\n\n                Task { @MainActor in\n                    followPreviewForCurrentScroll()\n                }\n            }\n            refreshMoveToGroupMenuSnapshot()\n            primeLatestItemPresentationGuard(sourceItems: store.items)\n            if let request = store.latestItemFocusRequest {\n                focusRequestedLatestItem(request)\n            }\n            focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)\n            schedulePreviewItemsRebuild(from: store.items)",
 ]
 

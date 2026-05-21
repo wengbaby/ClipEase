@@ -25,6 +25,8 @@ struct HistoryWindowView: View {
     @State private var searchCriteria = HistorySearchCriteria()
     @State private var selectedSearchTokenKind: HistorySearchTokenKind?
     @State private var isSearchVisible = false
+    @State private var isSearchFieldLayoutVisible = false
+    @State private var isSearchFieldVisualVisible = false
     @State private var isSearchFilterPanelPresented = false
     @State private var selectedGroup: HistoryGroupSelection = .all
     @State private var isClearConfirmationPresented = false
@@ -60,6 +62,7 @@ struct HistoryWindowView: View {
     @State private var previewItemCache: [ClipboardItem.ID: CachedHistoryPreviewItem] = [:]
     @State private var searchTask: Task<Void, Never>?
     @State private var searchGeneration: UInt64 = 0
+    @State private var searchVisibilityTask: Task<Void, Never>?
     @State private var lastSearchRequestSignature: HistorySearchRequestSignature?
     @State private var preheatTask: Task<Void, Never>?
     @State private var previewFollowTask: Task<Void, Never>?
@@ -146,6 +149,10 @@ struct HistoryWindowView: View {
 
     private var isSearchActive: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchCriteria.hasActiveFilters
+    }
+
+    private var isSearchControlExpanded: Bool {
+        isSearchVisible || isSearchFieldLayoutVisible
     }
 
     private var hasSearchContent: Bool {
@@ -387,6 +394,7 @@ struct HistoryWindowView: View {
             previewBuildTask?.cancel()
             previewBuildGeneration &+= 1
             searchTask?.cancel()
+            searchVisibilityTask?.cancel()
             preheatTask?.cancel()
             previewFollowTask?.cancel()
             rememberSelectedItemTask?.cancel()
@@ -490,6 +498,7 @@ struct HistoryWindowView: View {
                 isSearchFilterPanelPresented = false
             }
             inputState.setSearchVisible(isVisible)
+            updateSearchFieldPresentation(isVisible: isVisible)
             refreshSearchInteractionScreenFrames()
         }
         .onChange(of: shouldSuppressHistoryCommandShortcuts) { isActive in
@@ -737,29 +746,32 @@ struct HistoryWindowView: View {
                         searchField
                             .id("search-field")
 
-                        searchToggleButton
-                            .id("search-toggle")
+                        Group {
+                            searchToggleButton
+                                .id("search-toggle")
 
-                        allHistoryGroupButton
-                            .id(HistoryGroupSelection.all.scrollID)
+                            allHistoryGroupButton
+                                .id(HistoryGroupSelection.all.scrollID)
 
-                        systemGroupButton(.pinned)
-                            .id(HistoryGroupSelection.pinned.scrollID)
+                            systemGroupButton(.pinned)
+                                .id(HistoryGroupSelection.pinned.scrollID)
 
-                        ForEach(store.groups) { group in
-                            groupButton(group, compact: isSearchVisible)
-                                .id(HistoryGroupSelection.group(group.id).scrollID)
+                            ForEach(store.groups) { group in
+                                groupButton(group, compact: isSearchControlExpanded)
+                                    .id(HistoryGroupSelection.group(group.id).scrollID)
+                            }
+
+                            if !isSearchControlExpanded {
+                                newGroupButton
+                                    .id("new-group")
+                            }
+
+                            if isSearchControlExpanded || isSearchActive {
+                                resultCountBadge
+                                    .id("result-count")
+                            }
                         }
-
-                        if !isSearchVisible {
-                            newGroupButton
-                                .id("new-group")
-                        }
-
-                        if isSearchVisible || isSearchActive {
-                            resultCountBadge
-                                .id("result-count")
-                        }
+                        .animation(.easeOut(duration: 0.10), value: isSearchControlExpanded)
                     }
                     .frame(minWidth: proxy.size.width, alignment: .center)
                     .padding(.vertical, 1)
@@ -808,14 +820,14 @@ struct HistoryWindowView: View {
             HStack(spacing: 6) {
                 Image(systemName: "tray.full")
                     .font(.system(size: 12, weight: .semibold))
-                if !isSearchVisible {
+                if !isSearchControlExpanded {
                     Text("全部剪切板")
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                 }
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, isSearchVisible ? 8 : 10)
+            .padding(.horizontal, isSearchControlExpanded ? 8 : 10)
             .frame(height: 28)
             .background(allHistoryGroupColor.opacity(isSelected ? 1 : 0.78))
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -874,14 +886,14 @@ struct HistoryWindowView: View {
             HStack(spacing: 6) {
                 Image(systemName: systemGroupIconName(group))
                     .font(.system(size: 12, weight: .semibold))
-                if !isSearchVisible {
+                if !isSearchControlExpanded {
                     Text(group.title)
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                 }
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, isSearchVisible ? 8 : 10)
+            .padding(.horizontal, isSearchControlExpanded ? 8 : 10)
             .frame(height: 28)
             .background(color.opacity(isSelected ? 1 : 0.78))
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -1342,8 +1354,8 @@ struct HistoryWindowView: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(width: isSearchVisible ? 520 : 0, height: 30)
-        .background(Color.white.opacity(isSearchVisible ? 0.72 : 0))
+        .frame(width: isSearchFieldLayoutVisible ? 520 : 0, height: 30)
+        .background(Color.white.opacity(isSearchFieldVisualVisible ? 0.72 : 0))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1375,9 +1387,10 @@ struct HistoryWindowView: View {
                 )
             }
         )
-        .opacity(isSearchVisible ? 1 : 0)
+        .opacity(isSearchFieldVisualVisible ? 1 : 0)
+        .scaleEffect(isSearchFieldVisualVisible ? 1 : 0.985, anchor: .leading)
         .allowsHitTesting(isSearchVisible)
-        .animation(.easeOut(duration: 0.14), value: isSearchVisible)
+        .animation(.easeOut(duration: 0.12), value: isSearchFieldVisualVisible)
     }
 
     private func searchTokenView(_ token: HistorySearchToken) -> some View {
@@ -3693,9 +3706,7 @@ struct HistoryWindowView: View {
 
     private func toggleSearch() {
         if isSearchVisible {
-            withAnimation(.easeOut(duration: 0.12)) {
-                clearSearch()
-            }
+            clearSearch()
         } else {
             openSearch()
         }
@@ -3729,12 +3740,34 @@ struct HistoryWindowView: View {
     }
 
     private func closeSearch() {
-        withAnimation(.easeOut(duration: 0.12)) {
-            isSearchVisible = false
-            isSearchFocused = false
-        }
+        isSearchVisible = false
+        isSearchFocused = false
         inputState.setTextInputFocused(false)
         inputState.setSearchVisible(false)
+    }
+
+    private func updateSearchFieldPresentation(isVisible: Bool) {
+        searchVisibilityTask?.cancel()
+
+        if isVisible {
+            isSearchFieldLayoutVisible = true
+            searchVisibilityTask = Task { @MainActor in
+                await Task.yield()
+                guard !Task.isCancelled, isSearchVisible else {
+                    return
+                }
+                isSearchFieldVisualVisible = true
+            }
+        } else {
+            isSearchFieldVisualVisible = false
+            searchVisibilityTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 120_000_000)
+                guard !Task.isCancelled, !isSearchVisible else {
+                    return
+                }
+                isSearchFieldLayoutVisible = false
+            }
+        }
     }
 
     private func closeSearchFromOutsideClick() {
@@ -3799,9 +3832,7 @@ struct HistoryWindowView: View {
 
     private func openSearch() {
         selectedGroup = .all
-        withAnimation(.easeOut(duration: 0.12)) {
-            isSearchVisible = true
-        }
+        isSearchVisible = true
         inputState.setSearchVisible(true)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 20_000_000)
@@ -4827,9 +4858,7 @@ struct HistoryWindowView: View {
 
         if !isSearchVisible {
             selectedGroup = .all
-            withAnimation(.easeOut(duration: 0.12)) {
-                isSearchVisible = true
-            }
+            isSearchVisible = true
             inputState.setSearchVisible(true)
         }
 
