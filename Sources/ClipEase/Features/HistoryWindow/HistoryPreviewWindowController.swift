@@ -73,7 +73,7 @@ final class HistoryPreviewWindowController {
         (panel as? HistoryPreviewPanel)?.onEscape = onClose
         detachPanelFromParent(panel)
         contentLoadTask?.cancel()
-        let shouldLoadImmediately = item.type == .text || item.type == .color || item.type == .image
+        let shouldLoadImmediately = item.type == .text || item.type == .color
         setPreviewContent(
             panel: panel,
             item: item,

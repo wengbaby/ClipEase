@@ -1,5 +1,5 @@
 import AppKit
-import PDFKit
+@preconcurrency import PDFKit
 import SwiftUI
 @preconcurrency import VisionKit
 
@@ -916,7 +916,7 @@ private struct FilePDFPreviewView: NSViewRepresentable {
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
         view.backgroundColor = .white
-        view.document = PDFDocument(url: url)
+        context.coordinator.loadDocument(from: url, into: view)
         return view
     }
 
@@ -926,18 +926,43 @@ private struct FilePDFPreviewView: NSViewRepresentable {
         }
 
         context.coordinator.url = url
-        view.document = PDFDocument(url: url)
+        view.document = nil
+        context.coordinator.loadDocument(from: url, into: view)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(url: url)
     }
 
-    final class Coordinator {
+    final class Coordinator: @unchecked Sendable {
         var url: URL
+        private var loadTask: Task<Void, Never>?
 
         init(url: URL) {
             self.url = url
+        }
+
+        deinit {
+            loadTask?.cancel()
+        }
+
+        @MainActor
+        func loadDocument(from url: URL, into view: PDFView) {
+            loadTask?.cancel()
+            loadTask = Task { @MainActor [weak self, weak view] in
+                let document = await Task.detached(priority: .utility) {
+                    PDFDocument(url: url)
+                }.value
+
+                guard let self,
+                      let view,
+                      !Task.isCancelled,
+                      self.url == url else {
+                    return
+                }
+
+                view.document = document
+            }
         }
     }
 }
