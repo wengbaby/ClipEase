@@ -55,6 +55,11 @@ def verify_store() -> None:
     fetch_link_metadata = body_of_function(store, "fetchLinkMetadata")
     require("Task.detached(priority: .utility)" in fetch_link_metadata,
             "link metadata fetch must run off the main capture path")
+    require("LinkMetadataFetchLimiter.shared.waitForTurn()" in fetch_link_metadata
+            and "LinkMetadataFetchLimiter.shared.finishTurn()" in fetch_link_metadata,
+            "link metadata fetches must use a bounded background concurrency limiter")
+    require("await Task.yield()" in fetch_link_metadata,
+            "link metadata fetch must yield between title and image phases")
     require("LinkTitleFetcher.pageMetadata(for: url)" in fetch_link_metadata,
             "store must fetch page metadata once before image download")
     require("updateLinkMetadata(\n                        title: title,\n                        storedImage: nil" in fetch_link_metadata,
@@ -77,6 +82,11 @@ def verify_store() -> None:
             "link metadata update must clean up replaced preview images")
     require("scheduleSave()" in update_metadata,
             "link metadata updates must persist after background fetch completes")
+
+    require("private actor LinkMetadataFetchLimiter" in store
+            and "private let limit = 3" in store
+            and "CheckedContinuation<Void, Never>" in store,
+            "link metadata concurrency limiter must bound simultaneous background fetches")
 
 
 def verify_fetcher_and_model() -> None:

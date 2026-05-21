@@ -502,6 +502,13 @@ final class ClipboardHistoryStore: ObservableObject {
     private func fetchLinkMetadata(for id: ClipboardItem.ID, url: URL) {
         let persistence = persistence
         Task.detached(priority: .utility) {
+            await LinkMetadataFetchLimiter.shared.waitForTurn()
+            defer {
+                Task {
+                    await LinkMetadataFetchLimiter.shared.finishTurn()
+                }
+            }
+
             guard let pageMetadata = await LinkTitleFetcher.pageMetadata(for: url) else {
                 return
             }
@@ -517,6 +524,7 @@ final class ClipboardHistoryStore: ObservableObject {
                 }
             }
 
+            await Task.yield()
             let storedImage = await LinkTitleFetcher.previewImageData(from: pageMetadata, baseURL: url)
                 .flatMap(NSImage.init(data:))
                 .flatMap(persistence.saveImage)
@@ -1304,6 +1312,35 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         return items
+    }
+}
+
+private actor LinkMetadataFetchLimiter {
+    static let shared = LinkMetadataFetchLimiter()
+
+    private let limit = 3
+    private var activeCount = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitForTurn() async {
+        if activeCount < limit {
+            activeCount += 1
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func finishTurn() {
+        if waiters.isEmpty {
+            activeCount = max(0, activeCount - 1)
+            return
+        }
+
+        let next = waiters.removeFirst()
+        next.resume()
     }
 }
 
