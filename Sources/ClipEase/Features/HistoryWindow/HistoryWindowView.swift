@@ -64,6 +64,7 @@ struct HistoryWindowView: View {
     @State private var preheatTask: Task<Void, Never>?
     @State private var previewFollowTask: Task<Void, Never>?
     @State private var rememberSelectedItemTask: Task<Void, Never>?
+    @State private var latestFocusRetryTask: Task<Void, Never>?
     @State private var pendingPreviewFollowItemID: ClipboardItem.ID?
     @State private var windowWidth: CGFloat = 0
     @State private var latestPresentedItemID: ClipboardItem.ID?
@@ -389,6 +390,7 @@ struct HistoryWindowView: View {
             preheatTask?.cancel()
             previewFollowTask?.cancel()
             rememberSelectedItemTask?.cancel()
+            latestFocusRetryTask?.cancel()
             HistoryScrollCoordinator.shared.onOffsetChange = nil
         }
         .onChange(of: store.items) { newItems in
@@ -4348,18 +4350,25 @@ struct HistoryWindowView: View {
             return
         }
 
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 16_000_000)
-            guard pendingLatestFocusItemID == id,
-                  selectedItemID == id,
-                  filteredItems.contains(where: { $0.id == id }) else {
-                return
+        latestFocusRetryTask?.cancel()
+        latestFocusRetryTask = Task { @MainActor in
+            var attemptsRemaining = remainingAttempts
+            while attemptsRemaining > 0 {
+                try? await Task.sleep(nanoseconds: 16_000_000)
+                guard !Task.isCancelled,
+                      pendingLatestFocusItemID == id,
+                      selectedItemID == id,
+                      filteredItems.contains(where: { $0.id == id }) else {
+                    return
+                }
+
+                HistoryScrollCoordinator.shared.forceLayout()
+                pendingProgrammaticJumpItemID = id
+                scrollToItemWhenRendered(id, animated: false)
+                attemptsRemaining -= 1
             }
 
-            HistoryScrollCoordinator.shared.forceLayout()
-            pendingProgrammaticJumpItemID = id
-            scrollToItemWhenRendered(id, animated: false)
-            retryPendingLatestFocusJumpIfNeeded(id, remainingAttempts: remainingAttempts - 1)
+            latestFocusRetryTask = nil
         }
     }
 
@@ -4373,6 +4382,8 @@ struct HistoryWindowView: View {
         pendingLatestFocusReason = nil
         pendingLatestFocusLockID = nil
         shouldResetHorizontalOffsetForPendingItemScroll = false
+        latestFocusRetryTask?.cancel()
+        latestFocusRetryTask = nil
     }
 
     private func finishLatestFocusIfSettled(_ id: HistoryPreviewItem.ID, targetOffset: CGFloat) {

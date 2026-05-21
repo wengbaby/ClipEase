@@ -2,20 +2,20 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.64(260521.2338)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.65(260522.0002)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.0.64(260521.2338)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.0.65(260522.0002)`
 - `python3 scripts/verify_stage9_file_paste_fallback.py`：PASS
 - `python3 scripts/verify_stage9_file_pasteboard_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.64 (260521.2338)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `67098`
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.65 (260522.0002)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `77496`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -39,15 +39,16 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.0.64`
-- 当前构建号：`260521.2338`
-- 当前 build/run：`2.0.64 (260521.2338)`
-- 当前运行进程：PID `67098`
+- 当前候选版本：`2.0.65`
+- 当前构建号：`260522.0002`
+- 当前 build/run：`2.0.65 (260522.0002)`
+- 当前运行进程：PID `77496`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.0.65(260522.0002)`：性能 / 动画优化收口包；新增卡片定位 / 最新卡片滚动重试从递归创建多条 16ms MainActor 任务，改为单个可取消的 `latestFocusRetryTask` 循环。窗口隐藏或最新卡片定位完成时会取消该任务，避免连续复制、频繁开关窗口或布局未稳定时叠加多条无效滚动重试，降低抖动和主线程小任务压力。卡片点击性能守卫已扩展到该可取消重试路径。
 - `2.0.64(260521.2338)`：性能 / 动画优化收口包；主窗口 `onAppear` 只保留必要的状态恢复和最新卡片焦点准备，预览列表重建与权限刷新延后到首帧后执行，减少窗口刚弹出时与 frame 动画抢主线程。后台资源预热延迟从 160ms 调整到 260ms，继续按全量分批、低优先级、可取消方式执行，避免与打开动画和新增卡片定位竞争。主窗口动画守卫已扩展到 deferred startup 和更保守预热延迟。
 - `2.0.63(260521.2249)`：修复用户在其他 App 复制内容后轻贴捕获成功但没有 Copy 音效的问题。外部剪贴板捕获成功写入新卡片后会播放 Copy 音效，覆盖文本、富文本、图片和文件卡片；轻贴自身写入剪贴板产生的卡片会被 `item.isFromClipEase` 排除，避免内部复制按钮和外部捕获路径重复播放。音效守卫已扩展到 `ClipboardHistoryStore` 的外部捕获路径。
 - `2.0.62(260521.2144)`：修复复制音效不响的问题，复制反馈从 `NSSound` 改为 `AVAudioPlayer` 并提前 `prepareToPlay()`，避免短音效首次播放被系统延迟或资源状态影响。复制路径仍覆盖主窗口复制、右键复制、预览复制和 OCR badge 复制；粘贴路径继续在真正执行 `Command+V` 后播放 Paste 音效。已有复制 / 粘贴音效资源继续保留在 `Resources/Sounds/`，并通过 `scripts/verify_sound_feedback_guards.py` 守卫。
