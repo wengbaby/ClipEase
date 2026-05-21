@@ -45,7 +45,9 @@ struct HistoryPreviewPopoverView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                .animation(.easeOut(duration: 0.16), value: isContentReady)
+                .id(previewContentTransitionID)
+                .transition(.opacity.combined(with: .scale(scale: 0.992)))
+                .animation(.easeOut(duration: 0.14), value: previewContentTransitionID)
 
             Divider()
 
@@ -109,7 +111,7 @@ struct HistoryPreviewPopoverView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PreviewIconButtonStyle())
 
             Text(item.kind)
                 .font(.system(size: 15, weight: .semibold))
@@ -125,7 +127,7 @@ struct HistoryPreviewPopoverView: View {
                 Image(systemName: "doc.on.doc")
                     .font(.system(size: 15, weight: .medium))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PreviewIconButtonStyle())
             .help("复制")
 
             if item.type != .text {
@@ -217,7 +219,7 @@ struct HistoryPreviewPopoverView: View {
                         .background(Color.black.opacity(0.62))
                         .clipShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PreviewIconButtonStyle())
                 .padding(12)
             }
         case .image:
@@ -286,10 +288,19 @@ struct HistoryPreviewPopoverView: View {
                         .background(Color.black.opacity(0.62))
                         .clipShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PreviewIconButtonStyle())
                 .help("识别文字")
             }
         }
+    }
+
+    private var previewContentTransitionID: String {
+        [
+            item.id.uuidString,
+            item.type.rawValue,
+            selectedFileReferenceID?.uuidString ?? "none",
+            isContentReady ? "ready" : "shell"
+        ].joined(separator: ":")
     }
 
     @ViewBuilder
@@ -796,6 +807,32 @@ private enum FilePreviewKind {
     case pdf
     case image
     case quickLook
+}
+
+private struct PreviewIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PreviewIconButtonBody(configuration: configuration)
+    }
+}
+
+private struct PreviewIconButtonBody: View {
+    let configuration: PreviewIconButtonStyle.Configuration
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.01 : 1))
+            .overlay {
+                Circle()
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.14 : (isHovered ? 0.08 : 0)))
+                    .allowsHitTesting(false)
+            }
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .animation(.easeOut(duration: 0.10), value: isHovered)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
 }
 
 private struct FileTextPreviewView: NSViewRepresentable {

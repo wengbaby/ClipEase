@@ -60,6 +60,15 @@ def main() -> None:
 
     require("previewImage = nil" in popover and "previewImage = await loadImage()" in popover,
             "image preview must clear stale image state and load image asynchronously")
+    require("private var previewContentTransitionID: String" in popover
+            and ".id(previewContentTransitionID)" in popover
+            and ".transition(.opacity.combined(with: .scale(scale: 0.992)))" in popover
+            and ".animation(.easeOut(duration: 0.14), value: previewContentTransitionID)" in popover,
+            "preview content switches must use a light opacity/scale transition keyed by content identity")
+    require("private struct PreviewIconButtonStyle: ButtonStyle" in popover
+            and ".scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.01 : 1))" in popover
+            and ".animation(.easeOut(duration: 0.08), value: configuration.isPressed)" in popover,
+            "preview header/floating buttons must use lightweight hover/press feedback")
     require("Task.detached(priority: .utility)" in load_preview_image
             and "Data(contentsOf: imageURL)" in load_preview_image,
             "image preview disk IO must happen in a utility background task")
@@ -82,6 +91,10 @@ def main() -> None:
     ]
     forbidden_popover = [
         "view.document = PDFDocument(url: url)",
+        ".animation(.easeOut(duration: 0.16), value: isContentReady)",
+        ".frame(width: isHovered",
+        ".frame(height: isHovered",
+        ".shadow(\n            color: .black.opacity(isHovered",
     ]
     for snippet in forbidden_controller:
         require(snippet not in controller, f"forbidden preview controller regression: {snippet}")
