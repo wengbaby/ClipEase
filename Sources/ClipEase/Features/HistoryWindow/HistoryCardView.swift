@@ -13,6 +13,9 @@ struct HistoryCardView: View, Equatable {
     let onMenu: () -> NSMenu
     let onFileDragStatus: (String) -> Void
 
+    @State private var isHovered = false
+    @State private var isPressed = false
+
     nonisolated static func == (lhs: HistoryCardView, rhs: HistoryCardView) -> Bool {
         lhs.item == rhs.item &&
             lhs.searchQuery == rhs.searchQuery &&
@@ -74,7 +77,15 @@ struct HistoryCardView: View, Equatable {
                     .opacity(isShortcutOverlayVisible ? 1 : 0)
             }
         }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(isPressed ? 0.16 : (isHovered ? 0.08 : 0)))
+                .allowsHitTesting(false)
+        }
         .offset(y: entranceOffset)
+        .scaleEffect(isPressed ? 0.996 : (isHovered ? 1.004 : 1))
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .animation(.easeOut(duration: 0.08), value: isPressed)
         .overlay(
             CardDragSourceView(
                 item: item,
@@ -87,6 +98,12 @@ struct HistoryCardView: View, Equatable {
                 },
                 onPartial: {
                     onFileDragStatus("已拖出可用文件")
+                },
+                onHoverChanged: { isHovered in
+                    self.isHovered = isHovered
+                },
+                onPressChanged: { isPressed in
+                    self.isPressed = isPressed
                 }
             )
         )
@@ -938,6 +955,8 @@ private struct FileCardDragSourceView: NSViewRepresentable {
     let onMenu: () -> NSMenu
     let onInvalid: () -> Void
     let onPartial: () -> Void
+    let onHoverChanged: (Bool) -> Void
+    let onPressChanged: (Bool) -> Void
 
     func makeNSView(context: Context) -> FileCardDragSourceNSView {
         let view = FileCardDragSourceNSView()
@@ -948,6 +967,8 @@ private struct FileCardDragSourceView: NSViewRepresentable {
         view.onMenu = onMenu
         view.onInvalid = onInvalid
         view.onPartial = onPartial
+        view.onHoverChanged = onHoverChanged
+        view.onPressChanged = onPressChanged
         return view
     }
 
@@ -959,6 +980,8 @@ private struct FileCardDragSourceView: NSViewRepresentable {
         nsView.onMenu = onMenu
         nsView.onInvalid = onInvalid
         nsView.onPartial = onPartial
+        nsView.onHoverChanged = onHoverChanged
+        nsView.onPressChanged = onPressChanged
     }
 
     static func dismantleNSView(_ nsView: FileCardDragSourceNSView, coordinator: ()) {
@@ -1012,8 +1035,11 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     var onMenu: (() -> NSMenu)?
     var onInvalid: (() -> Void)?
     var onPartial: (() -> Void)?
+    var onHoverChanged: ((Bool) -> Void)?
+    var onPressChanged: ((Bool) -> Void)?
 
     private var mouseDownEvent: NSEvent?
+    private var trackingArea: NSTrackingArea?
     private let clickMoveTolerance: CGFloat = 5
     private let dragStartDistance: CGFloat = 4
 
@@ -1033,10 +1059,37 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
     func removeMonitor() {
         mouseDownEvent = nil
+        onPressChanged?(false)
+        onHoverChanged?(false)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        )
+        trackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChanged?(false)
+        onPressChanged?(false)
     }
 
     override func mouseDown(with event: NSEvent) {
         mouseDownEvent = event
+        onPressChanged?(true)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -1045,10 +1098,12 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
     override func mouseUp(with event: NSEvent) {
         guard let startingEvent = mouseDownEvent else {
+            onPressChanged?(false)
             return
         }
 
         mouseDownEvent = nil
+        onPressChanged?(false)
         let deltaX = event.locationInWindow.x - startingEvent.locationInWindow.x
         let deltaY = event.locationInWindow.y - startingEvent.locationInWindow.y
         guard hypot(deltaX, deltaY) <= clickMoveTolerance else {
@@ -1063,6 +1118,7 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        onPressChanged?(false)
         onRightMouseDown?()
         guard let menu = onMenu?() else {
             return
@@ -1081,6 +1137,7 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         }
 
         self.mouseDownEvent = nil
+        onPressChanged?(false)
         onClick?()
         if item.type == .file {
             startFileDrag(with: event)
