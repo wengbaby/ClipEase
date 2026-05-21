@@ -85,6 +85,17 @@ require("focusSearchField()" in search_field, "clicking search field content mus
 require("searchFilterPanel" in search_field, "search field must keep the filter popover attached")
 require("SearchOutsideWindowMouseDownObserver" not in search_field, "search field internals must not attach a competing outside observer")
 
+toggle_search_body = function_body(view, "private func toggleSearch()")
+require("if isSearchVisible" in toggle_search_body, "search toggle must branch on visible state")
+require("clearAndCloseSearch()" in toggle_search_body, "clicking the visible search button must collapse search instead of only clearing filters")
+require("openSearch()" in toggle_search_body, "clicking the hidden search button must still open search")
+
+search_toggle_button = view.split("private var searchToggleButton: some View", 1)[1].split("private var newGroupButton", 1)[0]
+require("SearchInteractionLiveRegion(" in search_toggle_button, "visible search toggle button must be part of the search interaction region")
+require("isActive: isSearchVisible" in search_toggle_button, "search toggle live region should only be active while search is visible")
+require("SearchInteractionRegionRegistry.shared.register(view)" in search_toggle_button, "search toggle live region must register with the exclusion registry")
+require("SearchInteractionRegionRegistry.shared.unregister(view)" in search_toggle_button, "search toggle live region must unregister from the exclusion registry")
+
 filter_panel = view.split("private var searchFilterPanel: some View", 1)[1].split("private func searchFilterSection", 1)[0]
 require("toggleSearchType" in filter_panel and "toggleSearchGroup" in filter_panel, "filter panel content must remain interactive")
 require("clearAndCloseSearch()" not in filter_panel, "filter panel clicks must not close search")

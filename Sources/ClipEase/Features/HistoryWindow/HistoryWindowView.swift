@@ -864,6 +864,17 @@ struct HistoryWindowView: View {
         .foregroundStyle(.primary)
         .fixedSize()
         .historyRailControlStyle()
+        .background(
+            SearchInteractionLiveRegion(
+                isActive: isSearchVisible,
+                onRegister: { view in
+                    SearchInteractionRegionRegistry.shared.register(view)
+                },
+                onUnregister: { view in
+                    SearchInteractionRegionRegistry.shared.unregister(view)
+                }
+            )
+        )
     }
 
     private var newGroupButton: some View {
@@ -3713,7 +3724,7 @@ struct HistoryWindowView: View {
 
     private func toggleSearch() {
         if isSearchVisible {
-            clearSearch()
+            clearAndCloseSearch()
         } else {
             openSearch()
         }
