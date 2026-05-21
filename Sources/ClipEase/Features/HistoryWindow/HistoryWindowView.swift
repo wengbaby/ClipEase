@@ -838,6 +838,7 @@ struct HistoryWindowView: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
+        .historyRailControlStyle()
         .background(
             GroupMouseDownObserver(onMouseDown: closeSearchForGroupNavigation)
                 .onRightMouseDown(selectAllGroupsForContextMenu)
@@ -862,6 +863,7 @@ struct HistoryWindowView: View {
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
         .fixedSize()
+        .historyRailControlStyle()
     }
 
     private var newGroupButton: some View {
@@ -875,6 +877,7 @@ struct HistoryWindowView: View {
         .buttonStyle(.plain)
         .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
         .fixedSize()
+        .historyRailControlStyle()
         .help("新建分组")
     }
 
@@ -904,6 +907,7 @@ struct HistoryWindowView: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
+        .historyRailControlStyle()
         .background(GroupMouseDownObserver(
             onMouseDown: closeSearchForGroupNavigation,
             onRightMouseDown: { selectSystemGroupForContextMenu(group) }
@@ -1200,6 +1204,7 @@ struct HistoryWindowView: View {
                 }
                 .buttonStyle(.plain)
                 .fixedSize()
+                .historyRailControlStyle()
                 .background(GroupMouseDownObserver(
                     onMouseDown: handleGroupRowOutsideClick,
                     onRightMouseDown: { selectGroup(group.id) },
@@ -1276,6 +1281,7 @@ struct HistoryWindowView: View {
             }
         }
         .buttonStyle(.plain)
+        .historyRailControlStyle()
         .help("点击打开辅助功能权限设置")
         .animation(
             accessibilityPermissionState.isTrusted ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
@@ -1944,6 +1950,7 @@ struct HistoryWindowView: View {
         MoreMenuButton(menuProvider: makeMoreMenu)
             .frame(width: 28, height: 24)
             .fixedSize()
+            .historyRailControlStyle()
         .confirmationDialog(
             "清空全部历史？",
             isPresented: $isClearConfirmationPresented,
@@ -6485,6 +6492,38 @@ private struct MoveToGroupPickerTarget: Identifiable, Equatable {
 
     var id: ClipboardItem.ID {
         itemID
+    }
+}
+
+private struct HistoryRailControlButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HistoryRailControlButtonBody(configuration: configuration)
+    }
+}
+
+private struct HistoryRailControlButtonBody: View {
+    let configuration: HistoryRailControlButtonStyle.Configuration
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.01 : 1))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.14 : (isHovered ? 0.08 : 0)))
+                    .allowsHitTesting(false)
+            }
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .animation(.easeOut(duration: 0.10), value: isHovered)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+private extension View {
+    func historyRailControlStyle() -> some View {
+        buttonStyle(HistoryRailControlButtonStyle())
     }
 }
 

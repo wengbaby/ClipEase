@@ -62,6 +62,14 @@ required_view = [
     ".animation(.easeOut(duration: 0.12), value: isSearchFieldVisualVisible)",
     "private func updateSearchFieldPresentation(isVisible: Bool)",
     "try? await Task.sleep(nanoseconds: 120_000_000)",
+    "private struct HistoryRailControlButtonStyle: ButtonStyle",
+    "private struct HistoryRailControlButtonBody: View",
+    ".scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.01 : 1))",
+    ".fill(Color.white.opacity(configuration.isPressed ? 0.14 : (isHovered ? 0.08 : 0)))",
+    ".animation(.easeOut(duration: 0.10), value: isHovered)",
+    ".animation(.easeOut(duration: 0.08), value: configuration.isPressed)",
+    "func historyRailControlStyle() -> some View",
+    ".historyRailControlStyle()",
 ]
 
 required_input_state = [
@@ -93,6 +101,9 @@ forbidden_view = [
     ".animation(.easeOut(duration: 0.14), value: isSearchVisible)",
     "withAnimation(.easeOut(duration: 0.12)) {\n                isSearchVisible = true",
     "withAnimation(.easeOut(duration: 0.12)) {\n            isSearchVisible = false",
+    ".shadow(\n            color: .black.opacity(isHovered",
+    ".frame(width: isHovered",
+    ".frame(height: isHovered",
     ".onAppear {\n            renderState.mark(\"swiftui-appear\")\n            HistoryWindowInputState.currentForTextEditing = inputState\n            restoreRememberedGroupSelection()\n            HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)\n            HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)\n            HistoryScrollCoordinator.shared.onOffsetChange = { [weak inputState] _ in\n                guard inputState?.isWindowPresentedSnapshot == true else {\n                    return\n                }\n\n                Task { @MainActor in\n                    followPreviewForCurrentScroll()\n                }\n            }\n            refreshMoveToGroupMenuSnapshot()\n            primeLatestItemPresentationGuard(sourceItems: store.items)\n            if let request = store.latestItemFocusRequest {\n                focusRequestedLatestItem(request)\n            }\n            focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)\n            schedulePreviewItemsRebuild(from: store.items)",
 ]
 
