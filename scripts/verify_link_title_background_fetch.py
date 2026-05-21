@@ -99,8 +99,15 @@ def verify_fetcher_and_model() -> None:
 
 def verify_card_view() -> None:
     card_view = (ROOT / "Sources/ClipEase/Features/HistoryWindow/HistoryCardView.swift").read_text(encoding="utf-8")
-    require("if item.imageFileName != nil" in card_view and "AsyncCardImageView(imageFileName: item.imageFileName)" in card_view,
+    require("if item.imageFileName != nil" in card_view
+            and "AsyncCardImageView(imageFileName: item.imageFileName, mode: .fitWithoutUpscaling(maxSize: 96))" in card_view,
             "link cards must render stored preview images when metadata provides one")
+    require("case fitWithoutUpscaling(maxSize: CGFloat)" in card_view
+            and "min(max(image.size.width, 1), maxSize)" in card_view
+            and "min(max(image.size.height, 1), maxSize)" in card_view,
+            "link preview images must not upscale small favicon-style assets")
+    require("AsyncCardImageView(imageFileName: item.imageFileName, mode: .fillAvailable)" in card_view,
+            "image cards must keep using full available image preview sizing")
     require("linkFallbackIcon" in card_view,
             "link cards must keep the existing icon fallback when metadata has no image")
 

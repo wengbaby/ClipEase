@@ -174,7 +174,7 @@ struct HistoryCardView: View, Equatable {
         ZStack {
             CheckerboardView()
 
-            AsyncCardImageView(imageFileName: item.imageFileName)
+            AsyncCardImageView(imageFileName: item.imageFileName, mode: .fillAvailable)
         }
     }
 
@@ -229,9 +229,7 @@ struct HistoryCardView: View, Equatable {
             )
 
             if item.imageFileName != nil {
-                AsyncCardImageView(imageFileName: item.imageFileName)
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 12)
+                AsyncCardImageView(imageFileName: item.imageFileName, mode: .fitWithoutUpscaling(maxSize: 96))
             } else {
                 linkFallbackIcon
             }
@@ -543,7 +541,13 @@ private struct AsyncSourceIconView: View {
 }
 
 private struct AsyncCardImageView: View {
+    enum Mode: Equatable {
+        case fillAvailable
+        case fitWithoutUpscaling(maxSize: CGFloat)
+    }
+
     let imageFileName: String?
+    let mode: Mode
 
     @State private var image: NSImage?
     @State private var representedFileName: String?
@@ -552,10 +556,7 @@ private struct AsyncCardImageView: View {
     var body: some View {
         ZStack {
             if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                imageView(image)
             } else {
                 Image(systemName: "photo")
                     .font(.system(size: 58, weight: .regular))
@@ -568,6 +569,25 @@ private struct AsyncCardImageView: View {
         .onDisappear {
             loadTask?.cancel()
             loadTask = nil
+        }
+    }
+
+    @ViewBuilder
+    private func imageView(_ image: NSImage) -> some View {
+        switch mode {
+        case .fillAvailable:
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .fitWithoutUpscaling(let maxSize):
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(
+                    width: min(max(image.size.width, 1), maxSize),
+                    height: min(max(image.size.height, 1), maxSize)
+                )
         }
     }
 
