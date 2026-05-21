@@ -79,7 +79,7 @@ final class ClipboardMonitor {
         }
 
         if let richText = rtfRichTextFromPasteboard() {
-            if ColorParser.hexColor(from: richText.plainText) != nil {
+            if shouldCaptureRichTextAsPlainText(richText.plainText) {
                 store.addText(richText.plainText, sourceApp: sourceApp)
                 return
             }
@@ -101,7 +101,7 @@ final class ClipboardMonitor {
         }
 
         if let richText = htmlRichTextFromPasteboard() {
-            if ColorParser.hexColor(from: richText.plainText) != nil {
+            if shouldCaptureRichTextAsPlainText(richText.plainText) {
                 store.addText(richText.plainText, sourceApp: sourceApp)
                 return
             }
@@ -117,6 +117,10 @@ final class ClipboardMonitor {
         if let text = pasteboard.string(forType: .string) {
             store.addText(text, sourceApp: sourceApp)
         }
+    }
+
+    private func shouldCaptureRichTextAsPlainText(_ text: String) -> Bool {
+        ColorParser.hexColor(from: text) != nil || URLParser.url(from: text) != nil
     }
 
     private func rtfRichTextFromPasteboard() -> (data: Data, plainText: String)? {
