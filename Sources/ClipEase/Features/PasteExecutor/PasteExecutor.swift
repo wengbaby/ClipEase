@@ -6,16 +6,19 @@ final class PasteExecutor {
     private let pasteboard: NSPasteboard
     private let store: ClipboardHistoryStore
     private let permissionState: AccessibilityPermissionState
+    private let soundPlayer: ClipEaseSoundPlayer
     var beforeAutoPaste: (() -> Void)?
 
     init(
         store: ClipboardHistoryStore,
         permissionState: AccessibilityPermissionState,
-        pasteboard: NSPasteboard = .general
+        pasteboard: NSPasteboard = .general,
+        soundPlayer: ClipEaseSoundPlayer = .shared
     ) {
         self.store = store
         self.permissionState = permissionState
         self.pasteboard = pasteboard
+        self.soundPlayer = soundPlayer
     }
 
     var canAutoPaste: Bool {
@@ -155,6 +158,7 @@ final class PasteExecutor {
         }
 
         guard refreshAccessibilityPermission() else {
+            soundPlayer.playCopyFeedback()
             return .copiedOnly
         }
 
@@ -162,6 +166,7 @@ final class PasteExecutor {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 120_000_000)
             sendCommandV()
+            soundPlayer.playPasteFeedback()
         }
         return .pasted
     }
@@ -178,6 +183,7 @@ final class PasteExecutor {
         }
 
         guard refreshAccessibilityPermission() else {
+            soundPlayer.playCopyFeedback()
             return copiedFallbackText ? .copiedFallbackTextOnly : .copiedOnly
         }
 
@@ -185,6 +191,7 @@ final class PasteExecutor {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 120_000_000)
             sendCommandV()
+            soundPlayer.playPasteFeedback()
         }
         return copiedFallbackText ? .pastedFallbackText : .pasted
     }

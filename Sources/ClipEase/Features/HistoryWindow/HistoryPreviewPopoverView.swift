@@ -71,6 +71,7 @@ struct HistoryPreviewPopoverView: View {
                             Button {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(badge, forType: .string)
+                                ClipEaseSoundPlayer.shared.playCopyFeedback()
                             } label: {
                                 Text(badge)
                                     .font(.system(size: 11, weight: .semibold))
@@ -84,10 +85,12 @@ struct HistoryPreviewPopoverView: View {
                                 Button("复制") {
                                     NSPasteboard.general.clearContents()
                                     NSPasteboard.general.setString(badge, forType: .string)
+                                    ClipEaseSoundPlayer.shared.playCopyFeedback()
                                 }
                                 Button("分享") {
                                     NSPasteboard.general.clearContents()
                                     NSPasteboard.general.setString(badge, forType: .string)
+                                    ClipEaseSoundPlayer.shared.playCopyFeedback()
                                 }
                             }
                         }

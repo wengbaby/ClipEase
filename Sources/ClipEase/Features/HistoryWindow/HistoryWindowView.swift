@@ -2196,9 +2196,11 @@ struct HistoryWindowView: View {
         switch pasteExecutor.copyToPasteboard(item) {
         case .copied:
             store.markUsed(item.id)
+            ClipEaseSoundPlayer.shared.playCopyFeedback()
             showStatus(copyStatus(for: item))
         case .copiedFallbackText:
             store.markUsed(item.id)
+            ClipEaseSoundPlayer.shared.playCopyFeedback()
             showStatus(copyFallbackTextStatus(for: item))
         case .failed(let reason):
             showStatus(reason)
@@ -2213,6 +2215,7 @@ struct HistoryWindowView: View {
         switch pasteExecutor.copyPlainTextToPasteboard(item) {
         case .copied, .copiedFallbackText:
             store.markUsed(item.id)
+            ClipEaseSoundPlayer.shared.playCopyFeedback()
             showStatus("已复制纯文本")
         case .failed(let reason):
             showStatus(reason)
@@ -2251,6 +2254,7 @@ struct HistoryWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(markdown, forType: .string)
         addClipEaseTextCard(markdown)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制 Markdown 链接")
         closeAfterContextMenuCommand()
     }
@@ -2264,6 +2268,7 @@ struct HistoryWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(item.text, forType: .string)
         addClipEaseTextCard(item.text)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制链接地址")
         closeAfterContextMenuCommand()
     }
@@ -2290,6 +2295,7 @@ struct HistoryWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(item.text, forType: .string)
         addClipEaseTextCard(item.text)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制 HEX")
         closeAfterContextMenuCommand()
     }
@@ -2305,6 +2311,7 @@ struct HistoryWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(rgb, forType: .string)
         addClipEaseTextCard(rgb)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制 RGB")
         closeAfterContextMenuCommand()
     }
@@ -2442,6 +2449,7 @@ struct HistoryWindowView: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(updatedItem.text, forType: .string)
                 addClipEaseTextCard(updatedItem.text)
+                ClipEaseSoundPlayer.shared.playCopyFeedback()
                 showStatus("已保存并复制新链接")
             } else {
                 showStatus("已保存")
@@ -2939,6 +2947,7 @@ struct HistoryWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([image])
         addClipEaseTextCard(item.preview.isEmpty ? imageURL.lastPathComponent : item.preview)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制图像")
         closeAfterContextMenuCommand()
     }
@@ -2954,6 +2963,7 @@ struct HistoryWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(path, forType: .string)
         addClipEaseTextCard(path)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制图片路径")
         closeAfterContextMenuCommand()
     }
@@ -2978,6 +2988,7 @@ struct HistoryWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(pathsText, forType: .string)
         addClipEaseTextCard(pathsText)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")
         closeAfterContextMenuCommand()
     }
@@ -2998,6 +3009,7 @@ struct HistoryWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([firstURL as NSURL])
         addClipEaseTextCard(firstURL.path)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制文件")
         closeAfterContextMenuCommand()
     }

@@ -318,7 +318,12 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             anchorScreenPoint: anchorScreenPoint,
             screenFrame: screenFrame,
             onCopy: { [pasteExecutor] in
-                _ = pasteExecutor.copyToPasteboard(item)
+                switch pasteExecutor.copyToPasteboard(item) {
+                case .copied, .copiedFallbackText:
+                    ClipEaseSoundPlayer.shared.playCopyFeedback()
+                case .failed:
+                    break
+                }
             },
             onOpen: { [weak self] in
                 self?.openPreviewItem(item)
@@ -416,6 +421,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         store.addText(text, sourceApp: .clipease)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
     }
 
     private func copyPreviewPath(for item: ClipboardItem) {
@@ -448,6 +454,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(pathsText, forType: .string)
         store.addText(pathsText, sourceApp: .clipease)
+        ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")
     }
 

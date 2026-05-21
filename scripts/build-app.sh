@@ -42,6 +42,9 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$BUILD_DIR/ClipEase" "$MACOS_DIR/ClipEase"
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$ROOT_DIR/Resources/ClipEase.icns" "$RESOURCES_DIR/ClipEase.icns"
+if [[ -d "$ROOT_DIR/Resources/Sounds" ]]; then
+  cp -R "$ROOT_DIR/Resources/Sounds" "$RESOURCES_DIR/Sounds"
+fi
 
 if [[ -z "$SIGN_IDENTITY" ]]; then
   SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '\"' '/Apple Development/ { print $2; exit }' || true)"
