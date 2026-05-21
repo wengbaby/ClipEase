@@ -507,6 +507,46 @@ extension ClipboardItem {
         )
     }
 
+    func updatingLinkMetadata(
+        title newLinkTitle: String? = nil,
+        imageFileName newImageFileName: String? = nil,
+        imageWidth newImageWidth: Int? = nil,
+        imageHeight newImageHeight: Int? = nil,
+        imageHash newImageHash: String? = nil
+    ) -> ClipboardItem {
+        ClipboardItem(
+            id: id,
+            type: type,
+            text: text,
+            url: url,
+            linkTitle: newLinkTitle ?? linkTitle,
+            linkSubtitle: linkSubtitle,
+            imageFileName: newImageFileName ?? imageFileName,
+            imageWidth: newImageWidth ?? imageWidth,
+            imageHeight: newImageHeight ?? imageHeight,
+            imageHash: newImageHash ?? imageHash,
+            richTextFileName: richTextFileName,
+            fileReferences: fileReferences,
+            createdAt: createdAt,
+            sourceAppName: sourceAppName,
+            sourceBundleID: sourceBundleID,
+            iconName: iconName,
+            iconFileName: iconFileName,
+            headerColorHex: headerColorHex,
+            isPinned: isPinned,
+            pinnedAt: pinnedAt,
+            groupID: groupID,
+            groupedAt: groupedAt,
+            ocrStatus: ocrStatus,
+            ocrText: ocrText,
+            ocrEmails: ocrEmails,
+            ocrPhoneNumbers: ocrPhoneNumbers,
+            ocrURLs: ocrURLs,
+            ocrTextRegions: ocrTextRegions,
+            ocrUpdatedAt: ocrUpdatedAt
+        )
+    }
+
     func refreshingFromClipboard(
         _ latestItem: ClipboardItem,
         createdAt refreshedAt: Date,

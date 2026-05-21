@@ -496,26 +496,66 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func fetchLinkTitle(for id: ClipboardItem.ID, url: URL) {
+        fetchLinkMetadata(for: id, url: url)
+    }
+
+    private func fetchLinkMetadata(for id: ClipboardItem.ID, url: URL) {
+        let persistence = persistence
         Task.detached(priority: .utility) {
-            guard let title = await LinkTitleFetcher.title(for: url) else {
+            let metadata = await LinkTitleFetcher.metadata(for: url)
+            guard metadata.title != nil || metadata.imageData != nil else {
                 return
             }
 
+            let storedImage = metadata.imageData
+                .flatMap(NSImage.init(data:))
+                .flatMap(persistence.saveImage)
+
             await MainActor.run {
-                self.updateLinkTitle(title, for: id, url: url)
+                self.updateLinkMetadata(
+                    title: metadata.title,
+                    storedImage: storedImage,
+                    for: id,
+                    url: url
+                )
             }
         }
     }
 
     private func updateLinkTitle(_ title: String, for id: ClipboardItem.ID, url: URL) {
+        updateLinkMetadata(title: title, storedImage: nil, for: id, url: url)
+    }
+
+    private func updateLinkMetadata(
+        title: String?,
+        storedImage: StoredClipboardImage?,
+        for id: ClipboardItem.ID,
+        url: URL
+    ) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].type == .link,
-              items[index].url == url,
-              items[index].linkTitle != title else {
+              items[index].url == url else {
             return
         }
 
-        items[index].linkTitle = title
+        let existingItem = items[index]
+        guard existingItem.linkTitle != title || storedImage != nil else {
+            return
+        }
+
+        if let oldImageFileName = existingItem.imageFileName,
+           let newImageFileName = storedImage?.fileName,
+           oldImageFileName != newImageFileName {
+            persistence.deleteImage(fileName: oldImageFileName)
+        }
+
+        items[index] = existingItem.updatingLinkMetadata(
+            title: title,
+            imageFileName: storedImage?.fileName,
+            imageWidth: storedImage?.width,
+            imageHeight: storedImage?.height,
+            imageHash: storedImage?.hash
+        )
         scheduleSave()
     }
 

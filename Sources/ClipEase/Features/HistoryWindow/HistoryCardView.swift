@@ -228,24 +228,34 @@ struct HistoryCardView: View, Equatable {
                 endPoint: .bottom
             )
 
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.09, green: 0.28, blue: 0.62),
-                            Color(red: 0.05, green: 0.72, blue: 0.78)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 52, height: 52)
-                .overlay {
-                    Image(systemName: "link")
-                        .font(.system(size: 23, weight: .bold))
-                        .foregroundStyle(.white)
-                }
+            if item.imageFileName != nil {
+                AsyncCardImageView(imageFileName: item.imageFileName)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12)
+            } else {
+                linkFallbackIcon
+            }
         }
+    }
+
+    private var linkFallbackIcon: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.09, green: 0.28, blue: 0.62),
+                        Color(red: 0.05, green: 0.72, blue: 0.78)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 52, height: 52)
+            .overlay {
+                Image(systemName: "link")
+                    .font(.system(size: 23, weight: .bold))
+                    .foregroundStyle(.white)
+            }
     }
 
     private var linkFooterTitle: String {

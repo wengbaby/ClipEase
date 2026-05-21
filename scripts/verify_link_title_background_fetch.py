@@ -41,25 +41,36 @@ def verify_store() -> None:
 
     add_text = body_of_function(store, "addText")
     require(".link(" in add_text, "addText must still create link items from URLs")
-    require("items.insert(item, at: 0)" in add_text, "addText must insert captured items immediately")
-    require("fetchLinkTitle(for: item.id, url: url)" in add_text,
-            "captured link items must start background title fetch from addText")
+    require("let upsertedItem = upsertClipboardItem(item)" in add_text,
+            "addText must insert captured items through the unified upsert path")
+    require("fetchLinkTitle(for: upsertedItem.id, url: url)" in add_text,
+            "captured link items must start background metadata fetch from addText")
     require('item.linkTitle == "/"' not in add_text,
             "background title fetch must not be limited to root-path fallback titles")
 
     fetch_link_title = body_of_function(store, "fetchLinkTitle")
-    require("Task.detached(priority: .utility)" in fetch_link_title,
-            "link title fetch must run off the main capture path")
-    require("LinkTitleFetcher.title(for: url)" in fetch_link_title,
-            "store must use LinkTitleFetcher for title metadata")
-    require("MainActor.run" in fetch_link_title and "updateLinkTitle(title, for: id, url: url)" in fetch_link_title,
-            "background title fetch must update the captured item on the main actor")
+    require("fetchLinkMetadata(for: id, url: url)" in fetch_link_title,
+            "compatibility title fetch path must delegate to metadata fetch")
 
-    update_title = body_of_function(store, "updateLinkTitle")
-    require("items[index].url == url" in update_title,
-            "link title update must guard against stale fetches after URL edits")
-    require("scheduleSave()" in update_title,
-            "link title updates must persist after background fetch completes")
+    fetch_link_metadata = body_of_function(store, "fetchLinkMetadata")
+    require("Task.detached(priority: .utility)" in fetch_link_metadata,
+            "link metadata fetch must run off the main capture path")
+    require("LinkTitleFetcher.metadata(for: url)" in fetch_link_metadata,
+            "store must use LinkTitleFetcher for title and image metadata")
+    require("NSImage.init(data:)" in fetch_link_metadata and ".flatMap(persistence.saveImage)" in fetch_link_metadata,
+            "link preview image data must be persisted through the existing image attachment path")
+    require("MainActor.run" in fetch_link_metadata and "updateLinkMetadata(" in fetch_link_metadata,
+            "background metadata fetch must update the captured item on the main actor")
+
+    update_metadata = body_of_function(store, "updateLinkMetadata")
+    require("items[index].url == url" in update_metadata,
+            "link metadata update must guard against stale fetches after URL edits")
+    require("updatingLinkMetadata(" in update_metadata,
+            "link metadata update must preserve unrelated item fields through ClipboardItem helper")
+    require("persistence.deleteImage(fileName: oldImageFileName)" in update_metadata,
+            "link metadata update must clean up replaced preview images")
+    require("scheduleSave()" in update_metadata,
+            "link metadata updates must persist after background fetch completes")
 
 
 def verify_fetcher_and_model() -> None:
@@ -68,18 +79,37 @@ def verify_fetcher_and_model() -> None:
 
     require("enum LinkTitleFetcher" in fetcher and "static func title(for url: URL) async -> String?" in fetcher,
             "LinkTitleFetcher async title API missing")
+    require("struct LinkMetadata" in fetcher and "static func metadata(for url: URL) async -> LinkMetadata" in fetcher,
+            "LinkTitleFetcher must expose combined title and preview image metadata")
     require("URLSession.shared.data(for: request)" in fetcher,
             "LinkTitleFetcher must fetch metadata through URLSession")
     require("<title" in fetcher and "decodeHTMLEntities" in fetcher,
             "LinkTitleFetcher must extract and decode HTML titles")
+    require("og:image" in fetcher and "twitter:image" in fetcher,
+            "LinkTitleFetcher must look for standard social preview image metadata")
+    require("fluid-icon" in fetcher and "apple-touch-icon" in fetcher,
+            "LinkTitleFetcher must fall back to site icon metadata for GitHub-style previews")
+    require("fetchPreviewImage" in fetcher and "data.count <= 5_000_000" in fetcher,
+            "LinkTitleFetcher must download bounded preview image data")
     require("var linkTitle: String?" in model,
             "ClipboardItem must keep using the existing linkTitle field without schema changes")
+    require("func updatingLinkMetadata(" in model,
+            "ClipboardItem must provide a surgical helper for link metadata updates")
+
+
+def verify_card_view() -> None:
+    card_view = (ROOT / "Sources/ClipEase/Features/HistoryWindow/HistoryCardView.swift").read_text(encoding="utf-8")
+    require("if item.imageFileName != nil" in card_view and "AsyncCardImageView(imageFileName: item.imageFileName)" in card_view,
+            "link cards must render stored preview images when metadata provides one")
+    require("linkFallbackIcon" in card_view,
+            "link cards must keep the existing icon fallback when metadata has no image")
 
 
 def main() -> None:
     verify_store()
     verify_fetcher_and_model()
-    print("OK link title background fetch checks passed")
+    verify_card_view()
+    print("OK link metadata background fetch checks passed")
 
 
 if __name__ == "__main__":
