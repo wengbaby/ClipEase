@@ -58,8 +58,10 @@ def verify_file_drag_source(card_view: str, window_view: str) -> None:
     representable = body_of_type(card_view, "private struct FileCardDragSourceView")
     combined = "\n".join([bridge, representable])
 
-    require("item?.type == .file" in bridge and "item.type == .file" in bridge,
-            "drag source must only activate for .file cards")
+    require("case .text, .link, .color, .file, .image:" in bridge,
+            "drag source must support all card types while preserving file drag behavior")
+    require("if item.type == .file" in bridge,
+            "file cards must keep the dedicated file URL drag path")
     require("FileManager.default.fileExists(atPath: url.path)" in bridge,
             "drag source must check file existence immediately before dragging")
     require("URL(fileURLWithPath: reference.path).standardizedFileURL" in bridge,

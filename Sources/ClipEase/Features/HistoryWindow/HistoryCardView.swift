@@ -1289,7 +1289,14 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         )
         let path = NSBezierPath(roundedRect: imageRect, xRadius: 8, yRadius: 8)
         path.addClip()
-        bitmap.draw(in: imageRect)
+        bitmap.draw(
+            in: imageRect,
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 0.82,
+            respectFlipped: true,
+            hints: nil
+        )
 
         image.unlockFocus()
         image.size = canvasSize
@@ -1310,7 +1317,7 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         }
 
         let cardRect = NSRect(x: 10, y: 10, width: 72, height: 56)
-        NSColor.windowBackgroundColor.withAlphaComponent(0.86).setFill()
+        NSColor.windowBackgroundColor.withAlphaComponent(0.82).setFill()
         NSBezierPath(roundedRect: cardRect, xRadius: 8, yRadius: 8).fill()
 
         let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 36, weight: .semibold)
@@ -1320,7 +1327,7 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
             in: NSRect(x: 28, y: 20, width: 36, height: 36),
             from: .zero,
             operation: .sourceOver,
-            fraction: 0.72
+            fraction: 0.82
         )
 
         image.unlockFocus()
