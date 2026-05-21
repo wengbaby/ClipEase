@@ -502,18 +502,32 @@ final class ClipboardHistoryStore: ObservableObject {
     private func fetchLinkMetadata(for id: ClipboardItem.ID, url: URL) {
         let persistence = persistence
         Task.detached(priority: .utility) {
-            let metadata = await LinkTitleFetcher.metadata(for: url)
-            guard metadata.title != nil || metadata.imageData != nil else {
+            guard let pageMetadata = await LinkTitleFetcher.pageMetadata(for: url) else {
                 return
             }
 
-            let storedImage = metadata.imageData
+            if let title = pageMetadata.title {
+                await MainActor.run {
+                    self.updateLinkMetadata(
+                        title: title,
+                        storedImage: nil,
+                        for: id,
+                        url: url
+                    )
+                }
+            }
+
+            let storedImage = await LinkTitleFetcher.previewImageData(from: pageMetadata, baseURL: url)
                 .flatMap(NSImage.init(data:))
                 .flatMap(persistence.saveImage)
 
+            guard let storedImage else {
+                return
+            }
+
             await MainActor.run {
                 self.updateLinkMetadata(
-                    title: metadata.title,
+                    title: nil,
                     storedImage: storedImage,
                     for: id,
                     url: url

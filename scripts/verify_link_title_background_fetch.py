@@ -55,8 +55,14 @@ def verify_store() -> None:
     fetch_link_metadata = body_of_function(store, "fetchLinkMetadata")
     require("Task.detached(priority: .utility)" in fetch_link_metadata,
             "link metadata fetch must run off the main capture path")
-    require("LinkTitleFetcher.metadata(for: url)" in fetch_link_metadata,
-            "store must use LinkTitleFetcher for title and image metadata")
+    require("LinkTitleFetcher.pageMetadata(for: url)" in fetch_link_metadata,
+            "store must fetch page metadata once before image download")
+    require("updateLinkMetadata(\n                        title: title,\n                        storedImage: nil" in fetch_link_metadata,
+            "store must update fetched link titles before waiting on preview image downloads")
+    require("LinkTitleFetcher.previewImageData(from: pageMetadata, baseURL: url)" in fetch_link_metadata,
+            "store must reuse fetched page HTML for preview image lookup")
+    require("LinkTitleFetcher.metadata(for: url)" not in fetch_link_metadata,
+            "store must not refetch page metadata while downloading preview images")
     require("NSImage.init(data:)" in fetch_link_metadata and ".flatMap(persistence.saveImage)" in fetch_link_metadata,
             "link preview image data must be persisted through the existing image attachment path")
     require("MainActor.run" in fetch_link_metadata and "updateLinkMetadata(" in fetch_link_metadata,
@@ -81,6 +87,10 @@ def verify_fetcher_and_model() -> None:
             "LinkTitleFetcher async title API missing")
     require("struct LinkMetadata" in fetcher and "static func metadata(for url: URL) async -> LinkMetadata" in fetcher,
             "LinkTitleFetcher must expose combined title and preview image metadata")
+    require("struct LinkPageMetadata" in fetcher
+            and "static func pageMetadata(for url: URL) async -> LinkPageMetadata?" in fetcher
+            and "static func previewImageData(from pageMetadata: LinkPageMetadata, baseURL: URL) async -> Data?" in fetcher,
+            "LinkTitleFetcher must support fast title-first metadata updates")
     require("URLSession.shared.data(for: request)" in fetcher,
             "LinkTitleFetcher must fetch metadata through URLSession")
     require("<title" in fetcher and "decodeHTMLEntities" in fetcher,
@@ -112,10 +122,29 @@ def verify_card_view() -> None:
             "link cards must keep the existing icon fallback when metadata has no image")
 
 
+def verify_link_preview_webview() -> None:
+    webview = (ROOT / "Sources/ClipEase/Features/HistoryWindow/LinkPreviewWebView.swift").read_text(encoding="utf-8")
+    popover = (ROOT / "Sources/ClipEase/Features/HistoryWindow/HistoryPreviewPopoverView.swift").read_text(encoding="utf-8")
+
+    require("WKNavigationDelegate" in webview and "webView.navigationDelegate = context.coordinator" in webview,
+            "link preview web view must observe load success and failure")
+    require("didFinish navigation" in webview
+            and "didFail navigation" in webview
+            and "didFailProvisionalNavigation" in webview,
+            "link preview web view must report both committed and provisional failures")
+    require("isLinkPreviewLoading" in popover
+            and "linkPreviewError" in popover
+            and "linkPreviewOverlay" in popover,
+            "link preview popover must show loading and failure states instead of blank content")
+    require("无法加载链接预览" in popover and "正在加载链接预览" in popover,
+            "link preview overlay must provide clear user-visible state text")
+
+
 def main() -> None:
     verify_store()
     verify_fetcher_and_model()
     verify_card_view()
+    verify_link_preview_webview()
     print("OK link metadata background fetch checks passed")
 
 

@@ -5,12 +5,32 @@ struct LinkMetadata: Sendable {
     let imageData: Data?
 }
 
+struct LinkPageMetadata: Sendable {
+    let title: String?
+    let html: String
+}
+
 enum LinkTitleFetcher {
     static func title(for url: URL) async -> String? {
-        await metadata(for: url).title
+        await pageMetadata(for: url)?.title
     }
 
     static func metadata(for url: URL) async -> LinkMetadata {
+        guard let pageMetadata = await pageMetadata(for: url) else {
+            return LinkMetadata(title: nil, imageData: nil)
+        }
+
+        return LinkMetadata(
+            title: pageMetadata.title,
+            imageData: await fetchPreviewImage(from: pageMetadata.html, baseURL: url)
+        )
+    }
+
+    static func previewImageData(from pageMetadata: LinkPageMetadata, baseURL: URL) async -> Data? {
+        await fetchPreviewImage(from: pageMetadata.html, baseURL: baseURL)
+    }
+
+    static func pageMetadata(for url: URL) async -> LinkPageMetadata? {
         var request = URLRequest(url: url, timeoutInterval: 4)
         request.setValue(
             "Mozilla/5.0 (Macintosh; Intel Mac OS X) ClipEase/1.0",
@@ -23,15 +43,15 @@ enum LinkTitleFetcher {
                   (200..<400).contains(httpResponse.statusCode),
                   let html = String(data: data.prefix(256_000), encoding: .utf8)
                     ?? String(data: data.prefix(256_000), encoding: .ascii) else {
-                return LinkMetadata(title: nil, imageData: nil)
+                return nil
             }
 
-            return LinkMetadata(
+            return LinkPageMetadata(
                 title: extractTitle(from: html),
-                imageData: await fetchPreviewImage(from: html, baseURL: url)
+                html: html
             )
         } catch {
-            return LinkMetadata(title: nil, imageData: nil)
+            return nil
         }
     }
 

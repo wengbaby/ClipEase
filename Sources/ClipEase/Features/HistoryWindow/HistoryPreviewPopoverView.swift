@@ -21,6 +21,8 @@ struct HistoryPreviewPopoverView: View {
     @State private var filePreviewImage: PreviewImage?
     @State private var selectedFileReferenceID: ClipboardFileReference.ID?
     @State private var isOCRHighlightEnabled = false
+    @State private var isLinkPreviewLoading = false
+    @State private var linkPreviewError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -192,8 +194,14 @@ struct HistoryPreviewPopoverView: View {
         case .link:
             ZStack(alignment: .bottomTrailing) {
                 if isContentReady {
-                    LinkPreviewWebView(url: item.url)
+                    LinkPreviewWebView(
+                        url: item.url,
+                        onLoadingStateChange: { isLinkPreviewLoading = $0 },
+                        onLoadFailure: { linkPreviewError = $0 }
+                    )
                         .background(Color.white)
+
+                    linkPreviewOverlay
                 } else {
                     previewPlaceholder
                 }
@@ -278,6 +286,40 @@ struct HistoryPreviewPopoverView: View {
                 .buttonStyle(.plain)
                 .help("识别文字")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var linkPreviewOverlay: some View {
+        if let linkPreviewError {
+            VStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Color.orange)
+
+                Text("无法加载链接预览")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.22))
+
+                Text(linkPreviewError)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.white)
+        } else if isLinkPreviewLoading {
+            VStack(spacing: 8) {
+                ProgressView()
+
+                Text("正在加载链接预览")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.white.opacity(0.86))
         }
     }
 
