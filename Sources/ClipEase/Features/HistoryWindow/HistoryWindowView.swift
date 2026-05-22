@@ -2013,12 +2013,6 @@ struct HistoryWindowView: View {
 
         menu.addItem(.separator())
 
-        let debugItem = NSMenuItem(title: "开发测试", action: nil, keyEquivalent: "")
-        debugItem.submenu = makeDebugNSMenu()
-        menu.addItem(debugItem)
-
-        menu.addItem(.separator())
-
         addMenuItem(HistoryCommand.quit.title, to: menu) {
             appMenuController.quit()
         }
@@ -2055,23 +2049,6 @@ struct HistoryWindowView: View {
             appMenuController.pauseUntilEndOfToday()
         }
 
-        return menu
-    }
-
-    private func makeDebugNSMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "测试文本：\(appMenuController.debugTextItemCount) 条", action: nil, keyEquivalent: ""))
-        menu.addItem(.separator())
-        addMenuItem("添加 1,000 条文本", to: menu) {
-            addDebugTextItems(count: 1_000)
-        }
-        addMenuItem("添加 10,000 条文本", to: menu) {
-            addDebugTextItems(count: 10_000)
-        }
-        menu.addItem(.separator())
-        addMenuItem("清除测试文本", to: menu) {
-            clearDebugTextItems()
-        }
         return menu
     }
 
@@ -2888,16 +2865,6 @@ struct HistoryWindowView: View {
     private func removeItemFromGroup(_ id: ClipboardItem.ID?) {
         store.removeItemFromGroup(id)
         showStatus("已移出分组")
-    }
-
-    private func addDebugTextItems(count: Int) {
-        appMenuController.addDebugTextItems(count: count)
-        showStatus("正在生成 \(count) 条测试文本")
-    }
-
-    private func clearDebugTextItems() {
-        let removedCount = appMenuController.clearDebugTextItems()
-        showStatus(removedCount > 0 ? "已清除 \(removedCount) 条测试文本" : "没有测试文本")
     }
 
     private func togglePinned(_ id: ClipboardItem.ID?) {

@@ -2,7 +2,7 @@
 
 本文用于归档审查和验收中发现的非阻塞优化项。未来可以同步到 GitHub Issues，但本文是统一归档来源。
 
-当前状态：发布前必做人工 UI 验收项已由用户确认通过；剩余条目均为后续专项或非阻塞优化。
+当前状态：发布前必做人工 UI 验收项已由用户确认通过；旧阻塞状态已收口，剩余条目均为后续专项或非阻塞优化。
 
 主控规则：任何阶段推进、bug 修复、返工、测试计划检查、审查或验收中发现的非阻塞项，必须写入本文；不得只保留在会话上下文或 Agent 口头结论中。
 
@@ -89,7 +89,7 @@
 是否阻塞当前阶段：否
 是否阻塞阶段 6：否
 是否阻塞阶段 7 主线：否
-是否阻塞最终发布：待产品 / 架构评估
+是否阻塞最终发布：否；当前 1,000 / 10,000 条自动基准未触发 SQLite LIKE / FTS / schema 改造门槛，后续仅作为独立搜索性能专项保留。
 实施门禁：独立门禁和红线确认通过前，不修改 schema / Repository / migration，不将搜索性能专项并入阶段 7 主线验收。
 可接受阈值：
 - 1,000 条历史记录搜索无明显卡顿。
@@ -127,17 +127,17 @@
 来源 Agent：用户确认 / Codex 主控 Agent
 风险等级：中
 用户规则纠正：用户已明确要求富文本应允许再次编辑，尤其“新建文本”产生的内容也应允许再次编辑；本任务不应再作为普通后续增强处理。
-升级状态：实现完成，进入 Test / Review 门禁；Product Rules Agent `V2-PRODUCT-S7-RICH-TEXT-EDIT-MUST-001` 已确认富文本编辑应提升为阶段 7 编辑闭环必需项，Architecture Gatekeeper `V2-ARCH-S7-RICH-TEXT-EDIT-ROUNDTRIP-001` 已确认最小安全方案。
+升级状态：实现完成；Product Rules Agent `V2-PRODUCT-S7-RICH-TEXT-EDIT-MUST-001` 已确认富文本编辑应提升为阶段 7 编辑闭环必需项，Architecture Gatekeeper `V2-ARCH-S7-RICH-TEXT-EDIT-ROUNDTRIP-001` 已确认最小安全方案。后续 Test / Review / 架构范围裁定已 PASS，旧阻塞状态已收口。
 开发 / Bugfix 调度：`V2-S7-RICH-TEXT-EDIT-ROUNDTRIP-001`
-实现状态：开发 Agent `V2-S7-RICH-TEXT-EDIT-ROUNDTRIP-001` 已完成；主控已调度 Test Agent `V2-TEST-S7-RICH-TEXT-EDIT-ROUNDTRIP-001` 和 Review Agent `V2-REVIEW-S7-RICH-TEXT-EDIT-ROUNDTRIP-001`。
+实现状态：已完成；后续 JSON Save HOLD 修复、Test / Review 重跑和架构范围裁定已 PASS。
 问题描述：阶段 7 必须补齐富文本再次编辑闭环；富文本编辑不再作为后续普通增强。最小安全方案已落地：读取原 RTF 到 `RichTextEditorController`，保存时原子覆盖原 RTF，保持 `richTextFileName` 不变，更新纯文本摘要和 recentHashes，不改 schema / migration。
 影响范围：富文本剪切板记录、编辑入口显示策略、富文本附件 / attributed content 回写、保存后的预览一致性。
-建议处理阶段：当前第二版阶段 7 必修缺口；实现完成，进入 Test / Review 门禁
-是否阻塞当前阶段：是；阶段 7 编辑闭环必修缺口
-是否阻塞阶段 7 第一批：已从后续普通增强提升为阶段 7 必修缺口，不再按普通后续增强口径处理
+建议处理阶段：已按第二版阶段 7 必修缺口完成并收口
+是否阻塞当前阶段：否；实现、修复和范围裁定已完成
+是否阻塞阶段 7 第一批：否；历史上曾从后续普通增强提升为阶段 7 必修缺口，当前已完成收口
 修改文件：`RichTextEditorController.swift`、`HistoryWindowView.swift`、`ClipboardHistoryStore.swift`、`ClipboardHistoryPersistence.swift`、`AppMenuController.swift`
 禁止范围：SQLite schema / migration / Repository 查询下沉 / LIKE / FTS；backup / import-export 语义；批量删除 / 撤销 / 导出；版本 / 发布 / 打包脚本。
-后续门禁：Test / Review / Acceptance 通过后，再 build-run 供用户人工测试。
+后续门禁：已完成；后续只做回归守卫，不再作为当前阶段阻塞项。
 验收建议：
 - 明确富文本编辑是否保留样式、链接、附件引用和纯文本 fallback。
 - 覆盖富文本编辑保存后预览、复制回剪切板、搜索命中和历史记录状态保留。
