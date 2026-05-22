@@ -4,7 +4,7 @@
 
 轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前性能收口包为 `2.3.0(260523.0333)`。
 
-当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
+当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
@@ -22,6 +22,12 @@
 - GitHub 推送：通过
 
 ## 手动回归待确认
+
+已确认：
+
+- 用户已确认最终发布前人工 UI 验收无问题。
+- `V2-OPT-UI-GROUP-APPEARANCE-POPOVER-MANUAL-ACCEPTANCE-001`：已通过，不再阻塞最终发布。
+- `V2-OPT-UI-SEARCH-AUTH-ESC-MANUAL-ACCEPTANCE-001`：已通过，不再阻塞最终发布。
 
 请按 [第一版回归测试清单](./FIRST_VERSION_TEST_CHECKLIST.md) 重点确认：
 
