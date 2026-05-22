@@ -434,7 +434,6 @@ final class HistoryPreviewWindowController {
                 guard let panel else {
                     return
                 }
-                configuration.onDetach()
                 self?.closeDetachedPreview(panel)
             },
             onDetachDrag: {}
@@ -443,7 +442,6 @@ final class HistoryPreviewWindowController {
             guard let panel else {
                 return
             }
-            configuration.onDetach()
             self?.closeDetachedPreview(panel)
         }
         panel.makeKeyAndOrderFront(nil)

@@ -347,8 +347,12 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 self?.closePreview()
             },
             onDetach: { [weak self] in
-                self?.inputState.setPreviewActive(false)
-                self?.previewState.close()
+                guard let self else {
+                    return
+                }
+                self.inputState.setPreviewActive(false)
+                self.previewState.close()
+                self.close()
             }
         )
         guard didShowPreview else {

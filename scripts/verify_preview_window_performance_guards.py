@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROLLER = ROOT / "Sources/ClipEase/Features/HistoryWindow/HistoryPreviewWindowController.swift"
+HISTORY_CONTROLLER = ROOT / "Sources/ClipEase/Features/HistoryWindow/HistoryWindowController.swift"
 POPOVER = ROOT / "Sources/ClipEase/Features/HistoryWindow/HistoryPreviewPopoverView.swift"
 LINK_WEB = ROOT / "Sources/ClipEase/Features/HistoryWindow/LinkPreviewWebView.swift"
 
@@ -54,6 +55,7 @@ def body_of_function_matching(source: str, pattern: str, description: str) -> st
 
 def main() -> None:
     controller = CONTROLLER.read_text(encoding="utf-8")
+    history_controller = HISTORY_CONTROLLER.read_text(encoding="utf-8")
     popover = POPOVER.read_text(encoding="utf-8")
     link_web = LINK_WEB.read_text(encoding="utf-8")
 
@@ -62,6 +64,7 @@ def main() -> None:
     schedule_content = body_of_function(controller, "scheduleContentLoad")
     load_preview_image = body_of_function(popover, "loadPreviewImage")
     detach_current = body_of_function(controller, "detachCurrentPreview")
+    show_preview = body_of_function(history_controller, "showPreview")
     header = re.search(r"private var header: some View \{(?P<body>.*?)\n    private var actionMenu", popover, re.S)
     require(header is not None, "preview header block missing")
     header_body = header.group("body")
@@ -99,6 +102,13 @@ def main() -> None:
             and "removeEscapeKeyMonitor()" in detach_current
             and "configuration.onDetach()" in detach_current,
             "detaching must stop attached-popover monitors and clear history preview state")
+    require(detach_current.count("configuration.onDetach()") == 1,
+            "detached preview close/escape must not re-run the main-window detach callback")
+    require("onDetach:" in show_preview
+            and "self.inputState.setPreviewActive(false)" in show_preview
+            and "self.previewState.close()" in show_preview
+            and "self.close()" in show_preview,
+            "detaching a preview must immediately close the main history window")
     require("showsArrow: true" in controller
             and "showsArrow: false" in detach_current
             and "let showsArrow: Bool" in popover
