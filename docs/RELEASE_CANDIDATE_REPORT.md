@@ -2,15 +2,16 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前收口包为 `2.3.1(260523.0419)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前收口包为 `2.3.2(260523.0437)`。
 
-当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序；当前也已移除主窗口更多菜单中的“开发测试”入口。当前 RC 状态不代表最终正式发布完成。
+当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序；当前也已移除主窗口更多菜单中的“开发测试”入口，并完成帮助文案与设置页保存期限选中态 polish。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.3.1(260523.0419)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.3.2(260523.0437)`
 - `python3 scripts/benchmark_history_search_performance.py`：PASS，1k / 10k 混合历史样本、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造均在阈值内
+- `python3 scripts/verify_help_and_retention_polish.py`：PASS，帮助文案保持简洁，设置页保存期限选中态为统一蓝色背景
 - `python3 scripts/verify_no_visible_debug_menu.py`：PASS，主窗口更多菜单不再暴露“开发测试”，设置页隐藏性能测试数据入口保留
 - `python3 scripts/verify_history_search_performance_guards.py`：PASS
 - `python3 scripts/verify_preview_copy_feedback.py`：PASS
@@ -19,7 +20,7 @@
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.3.1 (260523.0419)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `76383`
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.3.2 (260523.0437)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `87202`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -49,15 +50,16 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.3.1`
-- 当前构建号：`260523.0419`
-- 当前 build/run：`2.3.1 (260523.0419)`
-- 当前运行进程：PID `76383`
+- 当前候选版本：`2.3.2`
+- 当前构建号：`260523.0437`
+- 当前 build/run：`2.3.2 (260523.0437)`
+- 当前运行进程：PID `87202`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.3.2(260523.0437)`：发布前帮助与设置页 polish。帮助窗口文案压缩为用户常用操作，去除冗长实现说明；设置页保存期限改为自定义按钮组，当前选中项统一蓝色背景和白色文字；新增 `scripts/verify_help_and_retention_polish.py` 防止帮助文案和保存期限选中态回归。已执行 build/run，当前运行进程为 PID `87202`。
 - `2.3.1(260523.0419)`：最终发布前收口清理。移除主窗口更多菜单中的“开发测试”可见入口，保留设置页隐藏性能测试数据入口；新增 `scripts/verify_no_visible_debug_menu.py` 防止可见调试菜单回归。同时收口 V2 backlog 旧阻塞状态：富文本再次编辑标记为已完成 / 不阻塞，搜索 SQLite LIKE / FTS 专项标记为不阻塞最终发布、仅作为后续独立性能专项保留。已执行 build/run，当前运行进程为 PID `76383`。
 - `2.3.0(260523.0333)`：搜索性能专项第二阶段。新增 `scripts/benchmark_history_search_performance.py`，用固定 1,000 / 10,000 条混合历史样本量化当前内存过滤路径，覆盖常见查询、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造；当前结果均低于守卫阈值，未触发 SQLite LIKE / FTS / schema 改造门槛。已执行 build/run，当前运行进程为 PID `54262`。
 - `2.2.0(260523.0302)`：搜索性能专项第一阶段。暂不修改 SQLite schema / Repository / 备份格式，先将搜索请求签名从整段 `normalizedSearchText` 改为每条卡片预生成的轻量 `searchFingerprint`，减少快速输入时对全部卡片长搜索文本的签名构造和比较成本；实际搜索匹配仍沿用 `normalizedSearchText.contains`，搜索结果语义不变。搜索性能守卫已覆盖 fingerprint 签名并禁止回退到签名携带整段 normalized search text。已执行 build/run，当前运行进程为 PID `40267`。

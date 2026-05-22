@@ -332,23 +332,38 @@ struct SettingsView: View {
 
     private var retentionSection: some View {
         settingsSection(title: "保存期限", subtitle: "置顶内容不会被自动清理") {
-            Picker("", selection: Binding(
-                get: { store.retentionPolicy },
-                set: { policy in
-                    guard store.retentionPolicy != policy else {
-                        return
-                    }
-
-                    store.retentionPolicy = policy
-                    showStatus("保存期限已改为：\(policy.title)")
-                }
-            )) {
+            HStack(spacing: 8) {
                 ForEach(HistoryRetentionPolicy.allCases) { policy in
-                    Text(policy.shortTitle).tag(policy)
+                    retentionPolicyButton(policy)
                 }
             }
-            .pickerStyle(.segmented)
         }
+    }
+
+    private func retentionPolicyButton(_ policy: HistoryRetentionPolicy) -> some View {
+        let isSelected = store.retentionPolicy == policy
+
+        return Button {
+            guard store.retentionPolicy != policy else {
+                return
+            }
+
+            store.retentionPolicy = policy
+            showStatus("保存期限已改为：\(policy.title)")
+        } label: {
+            Text(policy.shortTitle)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(minWidth: 52, minHeight: 28)
+                .padding(.horizontal, 4)
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .background(isSelected ? Color.accentColor : Color.white.opacity(0.72))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(isSelected ? Color.accentColor : Color.black.opacity(0.08), lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private var recordingSection: some View {
