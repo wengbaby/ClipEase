@@ -4,7 +4,7 @@
 
 轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前收口包为 `2.3.2(260523.0437)`。
 
-当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序；当前也已移除主窗口更多菜单中的“开发测试”入口，并完成帮助文案与设置页保存期限选中态 polish。当前 RC 状态不代表最终正式发布完成。
+当前结论：第二版大部分核心功能已完成并进入发布候选冻结。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序；当前也已移除主窗口更多菜单中的“开发测试”入口，并完成帮助文案与设置页保存期限选中态 polish。冻结后不再新增 V2 功能，只接受阻塞 bug、崩溃和发布包风险修复。
 
 ## 自动检查
 
@@ -24,26 +24,18 @@
 - `./scripts/build-dmg.sh`：PASS，已生成 `dist/ClipEase-2.3.2-260523.0437.dmg`，SHA-256 `e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - DMG 挂载结构验收：PASS，根目录包含 `ClipEase.app` 和 `Applications` 快捷入口，`ClipEase.app` 版本为 `2.3.2 (260523.0437)`，可执行文件存在且有执行权限
 - DMG 内 App 启动验收：PASS，从只读挂载卷启动 `ClipEase.app --show-settings`，进程正常存活，System Events 可见进程 `ClipEase` 和 1 个设置窗口；验收后已关闭 release App、卸载 DMG，并恢复开发包运行
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.3.2 (260523.0437)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `87202`
-- GitHub 推送：通过
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.3.2 (260523.0437)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前恢复运行 PID `27313`
+- GitHub 推送：待最终确认后执行
 
-## 手动回归待确认
+## 手动回归
 
 已确认：
 
 - 用户已确认最终发布前人工 UI 验收无问题。
 - `V2-OPT-UI-GROUP-APPEARANCE-POPOVER-MANUAL-ACCEPTANCE-001`：已通过，不再阻塞最终发布。
 - `V2-OPT-UI-SEARCH-AUTH-ESC-MANUAL-ACCEPTANCE-001`：已通过，不再阻塞最终发布。
-
-请按 [第一版回归测试清单](./FIRST_VERSION_TEST_CHECKLIST.md) 重点确认：
-
-- 底部主窗口弹出和关闭动画是否稳定流畅。
-- 主窗口横向滚轮和边缘卡片点击滚动是否符合预期。
-- 文本、图片、链接预览的打开、关闭、Esc 行为是否符合预期。
-- 双击、回车、`Command + 1-9` 是否能粘贴到原 App 光标位置。
-- 新建文本窗口的中文输入、样式按钮、快捷键和取消/创建是否稳定。
-- 设置页关闭、保存期限、暂停、权限状态和数据维护入口是否稳定。
-- 导入导出、备份包、数据健康检查和孤立附件清理是否符合预期。
+- DMG 结构、版本、启动和设置窗口可见性已完成自动 / 半自动验收。
+- 后续只在发现阻塞 bug 时重新进入 patch 修复轮。
 
 ## 阻塞问题
 
@@ -57,14 +49,15 @@
 - 当前候选版本：`2.3.2`
 - 当前构建号：`260523.0437`
 - 当前 build/run：`2.3.2 (260523.0437)`
-- 当前运行进程：PID `87202`
+- 当前运行进程：PID `27313`
 - 当前 DMG：`dist/ClipEase-2.3.2-260523.0437.dmg`
 - 当前 DMG SHA-256：`e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
-- 当前 Git 提交：`fbb3b9e chore: prepare v2 release packaging`
-- 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
+- 当前 Git 提交：`55592e2 docs: record v2 dmg validation`
+- 当前状态：V2 发布候选冻结；不再新增功能，只接受阻塞 bug、崩溃和发布包风险修复。后续如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.3.2(260523.0437)`：V2 发布候选冻结记录对齐。RC 报告已更新到最新提交 `55592e2` 和当前恢复运行 PID `27313`；发布状态改为冻结，不再新增 V2 功能，只接受阻塞 bug、崩溃和发布包风险修复。
 - `2.3.2(260523.0437)`：DMG 发布包验收。`hdiutil verify` 通过，DMG 内包含 `ClipEase.app` 和 `Applications` 快捷入口；从 DMG 只读挂载卷启动 App，版本 / 构建号正确，进程正常存活，设置窗口可见。曾尝试用临时 `HOME` 做剪贴板捕获写入验收，但 macOS App 的 Application Support 路径未被该方式隔离，测试文本进入真实历史；已备份真实 SQLite，仅删除精确匹配测试记录 `131202DC-E5F3-4EA1-9F34-F3E7AC5B6CCD`，删除后匹配数为 0，并恢复开发包运行。因此本轮正式验收证据只采用 DMG 结构、版本、启动和窗口可见性。
 - `2.3.2(260523.0437)`：第二版发布准备收尾。发布说明和发布候选流程已从第一版口径更新为 V2 口径，明确当前 RC、无 iCloud 同步、文件预览限制、版本规则、最终 gate 和 DMG 打包流程；新增 `scripts/final_release_gate.py`，基于当前已构建 `.app` 执行非编译型最终发布门禁；新增 `scripts/build-dmg.sh`，从当前 `.build/ClipEase.app` 打包 `dist/ClipEase-2.3.2-260523.0437.dmg` 并输出 SHA-256。本轮只改发布文档 / 发布脚本 / 守卫脚本，未改 App 运行代码，未触发新的 build/run。
 - `2.3.2(260523.0437)`：发布前帮助与设置页 polish。帮助窗口文案压缩为用户常用操作，去除冗长实现说明；设置页保存期限改为自定义按钮组，当前选中项统一蓝色背景和白色文字；新增 `scripts/verify_help_and_retention_polish.py` 防止帮助文案和保存期限选中态回归。已执行 build/run，当前运行进程为 PID `87202`。
