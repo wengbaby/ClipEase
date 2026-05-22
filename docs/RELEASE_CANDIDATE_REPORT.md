@@ -20,6 +20,8 @@
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
+- `python3 scripts/final_release_gate.py`：PASS，基于当前 `.build/ClipEase.app` 执行最终发布门禁，不重新编译、不递增版本；已覆盖 smoke、发布文档、帮助 / 设置、调试菜单、搜索性能、卡片点击 / 拖拽、预览、音效、Stage 9 文件卡片和 `git diff --check`
+- `./scripts/build-dmg.sh`：PASS，已生成 `dist/ClipEase-2.3.2-260523.0437.dmg`，SHA-256 `e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.3.2 (260523.0437)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `87202`
 - GitHub 推送：通过
 
@@ -54,11 +56,14 @@
 - 当前构建号：`260523.0437`
 - 当前 build/run：`2.3.2 (260523.0437)`
 - 当前运行进程：PID `87202`
+- 当前 DMG：`dist/ClipEase-2.3.2-260523.0437.dmg`
+- 当前 DMG SHA-256：`e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.3.2(260523.0437)`：第二版发布准备收尾。发布说明和发布候选流程已从第一版口径更新为 V2 口径，明确当前 RC、无 iCloud 同步、文件预览限制、版本规则、最终 gate 和 DMG 打包流程；新增 `scripts/final_release_gate.py`，基于当前已构建 `.app` 执行非编译型最终发布门禁；新增 `scripts/build-dmg.sh`，从当前 `.build/ClipEase.app` 打包 `dist/ClipEase-2.3.2-260523.0437.dmg` 并输出 SHA-256。本轮只改发布文档 / 发布脚本 / 守卫脚本，未改 App 运行代码，未触发新的 build/run。
 - `2.3.2(260523.0437)`：发布前帮助与设置页 polish。帮助窗口文案压缩为用户常用操作，去除冗长实现说明；设置页保存期限改为自定义按钮组，当前选中项统一蓝色背景和白色文字；新增 `scripts/verify_help_and_retention_polish.py` 防止帮助文案和保存期限选中态回归。已执行 build/run，当前运行进程为 PID `87202`。
 - `2.3.1(260523.0419)`：最终发布前收口清理。移除主窗口更多菜单中的“开发测试”可见入口，保留设置页隐藏性能测试数据入口；新增 `scripts/verify_no_visible_debug_menu.py` 防止可见调试菜单回归。同时收口 V2 backlog 旧阻塞状态：富文本再次编辑标记为已完成 / 不阻塞，搜索 SQLite LIKE / FTS 专项标记为不阻塞最终发布、仅作为后续独立性能专项保留。已执行 build/run，当前运行进程为 PID `76383`。
 - `2.3.0(260523.0333)`：搜索性能专项第二阶段。新增 `scripts/benchmark_history_search_performance.py`，用固定 1,000 / 10,000 条混合历史样本量化当前内存过滤路径，覆盖常见查询、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造；当前结果均低于守卫阈值，未触发 SQLite LIKE / FTS / schema 改造门槛。已执行 build/run，当前运行进程为 PID `54262`。

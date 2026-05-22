@@ -152,7 +152,7 @@ required = [
     "performScrollToOffset(",
     "func forceLayout()",
     "HistoryScrollCoordinator.shared.forceLayout()",
-    "if previewWindowController.isVisible",
+    "if previewWindowController.isAttachedVisible",
     "fulfillPendingLatestFocusIfPossible()",
 ]
 

@@ -78,10 +78,14 @@ def verify_store() -> None:
     require("func addFiles(_ urls: [URL], sourceApp: SourceAppInfo)" in store,
             "ClipboardHistoryStore must expose addFiles(_ urls:sourceApp:)")
     require("ClipboardItem.file(" in add_files, "addFiles must construct ClipboardItem.file")
-    require("sortItems()" in add_files and "pruneExpiredItems()" in add_files and "scheduleSave()" in add_files,
-            "addFiles must sort, apply retention, and save")
-    require("recentHashes" in add_files and "fileHash(" in add_files,
-            "addFiles must dedupe repeated same-app file groups")
+    require("let insertedItem = upsertClipboardItem(item)" in add_files,
+            "addFiles must use shared upsert path")
+
+    upsert = body_of_function(store, "upsertClipboardItem")
+    require("sortItems()" in upsert and "pruneExpiredItems()" in upsert and "scheduleSave()" in upsert,
+            "shared upsert path must sort, apply retention, and save")
+    require("itemIDsByHash" in upsert and "duplicateIDs" in upsert and "rebuildRecentHashes()" in upsert,
+            "shared upsert path must dedupe repeated same-app file groups")
 
     reference_builder = body_of_function(store, "fileReference")
     for token in [
@@ -105,10 +109,9 @@ def verify_store() -> None:
     require(".missing" in path_status and ".permissionDenied" in path_status and ".available" in path_status,
             "pathStatus must cover missing, permission denied, and available")
 
-    text_hash = body_of_function(store, "textHash")
-    require("case .file:" in text_hash and "fileHash(for: item.fileReferences" in text_hash,
+    require("case .file:\n            Self.fileHash(for: item.fileReferences, sourceBundleID: item.sourceBundleID)" in store,
             "file dedupe must use file references")
-    require("case .text, .link, .color:" in text_hash,
+    require("case .text, .link, .color:" in store,
             "text/link/color dedupe must remain separate from file dedupe")
 
 
