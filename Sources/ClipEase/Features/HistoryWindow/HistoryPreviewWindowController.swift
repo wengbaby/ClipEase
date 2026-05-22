@@ -348,7 +348,10 @@ final class HistoryPreviewWindowController {
             showsArrow: true,
             onClose: { configuration.onClose() },
             onDetachDrag: { [weak self] in
-                self?.detachCurrentPreview()
+                guard let self else {
+                    return nil
+                }
+                return self.detachCurrentPreview()
             }
         )
     }
@@ -359,7 +362,7 @@ final class HistoryPreviewWindowController {
         isContentReady: Bool,
         showsArrow: Bool,
         onClose: @escaping () -> Void,
-        onDetachDrag: @escaping () -> Void
+        onDetachDrag: @escaping () -> (() -> Void)?
     ) {
         panel.contentView = NSHostingView(
             rootView: HistoryPreviewPopoverView(
@@ -409,11 +412,11 @@ final class HistoryPreviewWindowController {
         }
     }
 
-    private func detachCurrentPreview() {
+    private func detachCurrentPreview() -> (() -> Void)? {
         guard let panel,
               panel.isVisible,
               let configuration = contentConfiguration else {
-            return
+            return nil
         }
 
         removeOutsideClickMonitor()
@@ -430,6 +433,31 @@ final class HistoryPreviewWindowController {
         let panelID = ObjectIdentifier(panel)
         detachedPanels[panelID] = panel
         installDetachedEscapeKeyMonitorIfNeeded()
+        (panel as? HistoryPreviewPanel)?.onEscape = { [weak self, weak panel] in
+            guard let panel else {
+                return
+            }
+            self?.closeDetachedPreview(panel)
+        }
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        configuration.onDetach()
+        return { [weak self, weak panel] in
+            guard let panel else {
+                return
+            }
+            self?.finishDetachedPreviewDrag(panel: panel, configuration: configuration)
+        }
+    }
+
+    private func finishDetachedPreviewDrag(panel: NSPanel, configuration: PreviewContentConfiguration) {
+        let panelID = ObjectIdentifier(panel)
+        guard let retainedPanel = detachedPanels[panelID],
+              retainedPanel === panel,
+              panel.isVisible else {
+            return
+        }
+
         renderPreviewContent(
             panel: panel,
             configuration: configuration,
@@ -441,17 +469,8 @@ final class HistoryPreviewWindowController {
                 }
                 self?.closeDetachedPreview(panel)
             },
-            onDetachDrag: {}
+            onDetachDrag: { nil }
         )
-        (panel as? HistoryPreviewPanel)?.onEscape = { [weak self, weak panel] in
-            guard let panel else {
-                return
-            }
-            self?.closeDetachedPreview(panel)
-        }
-        panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        configuration.onDetach()
     }
 
     private func closeDetachedPreview(_ detachedPanel: NSPanel) {

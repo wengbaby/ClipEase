@@ -64,6 +64,7 @@ def main() -> None:
     schedule_content = body_of_function(controller, "scheduleContentLoad")
     load_preview_image = body_of_function(popover, "loadPreviewImage")
     detach_current = body_of_function(controller, "detachCurrentPreview")
+    finish_detached_drag = body_of_function(controller, "finishDetachedPreviewDrag")
     close_detached = body_of_function(controller, "closeDetachedPreview")
     configure_attached = body_of_function(controller, "configureAttachedPanel")
     configure_detached = body_of_function(controller, "configureDetachedPanel")
@@ -136,6 +137,14 @@ def main() -> None:
             and "removeEscapeKeyMonitor()" in detach_current
             and "configuration.onDetach()" in detach_current,
             "detaching must stop attached-popover monitors and clear history preview state")
+    require("private func detachCurrentPreview() -> (() -> Void)?" in controller
+            and "return { [weak self, weak panel] in" in detach_current
+            and "self?.finishDetachedPreviewDrag(panel: panel, configuration: configuration)" in detach_current,
+            "detaching must return a post-system-drag completion instead of rebuilding content during the first drag")
+    require("renderPreviewContent(" not in detach_current
+            and "renderPreviewContent(" in finish_detached_drag
+            and "showsArrow: false" in finish_detached_drag,
+            "detached preview content must hide the arrow only after the first system window drag completes")
     require(detach_current.count("configuration.onDetach()") == 1,
             "detached preview close/escape must not re-run the main-window detach callback")
     require("onDetach:" in show_preview
@@ -144,7 +153,7 @@ def main() -> None:
             and "self.close()" in show_preview,
             "detaching a preview must immediately close the main history window")
     require("showsArrow: true" in controller
-            and "showsArrow: false" in detach_current
+            and "showsArrow: false" in finish_detached_drag
             and "let showsArrow: Bool" in popover
             and "if showsArrow" in popover
             and "height: size.height + (showsArrow ? 14 : 0)" in popover,
@@ -153,7 +162,9 @@ def main() -> None:
             and "private struct PreviewHeaderDragRegion: NSViewRepresentable" in popover
             and "private let dragActivationDistance: CGFloat = 4" in popover
             and "override func mouseDragged(with event: NSEvent)" in popover
+            and "let dragCompletion = onDragStarted()" in popover
             and "dragWindow?.performDrag(with: initialMouseDownEvent)" in popover
+            and "dragCompletion?()" in popover
             and "minHeight: 22, maxHeight: 22" in header_body
             and header_body.count(".padding(.vertical, 10)") == 1
             and ".allowsHitTesting(false)" in popover,

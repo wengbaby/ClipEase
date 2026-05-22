@@ -18,7 +18,7 @@ struct HistoryPreviewPopoverView: View {
     let onCopyMarkdown: () -> Void
     let onCopyPath: () -> Void
     let onCopyRGB: () -> Void
-    let onDetachDrag: () -> Void
+    let onDetachDrag: () -> (() -> Void)?
     @State private var previewImage: PreviewImage?
     @State private var filePreviewImage: PreviewImage?
     @State private var selectedFileReferenceID: ClipboardFileReference.ID?
@@ -817,7 +817,7 @@ private struct PreviewImage {
 }
 
 private struct PreviewHeaderDragRegion: NSViewRepresentable {
-    let onDragStarted: () -> Void
+    let onDragStarted: () -> (() -> Void)?
 
     func makeNSView(context: Context) -> HeaderDragView {
         let view = HeaderDragView()
@@ -831,7 +831,7 @@ private struct PreviewHeaderDragRegion: NSViewRepresentable {
 }
 
 private final class HeaderDragView: NSView {
-    var onDragStarted: (() -> Void)?
+    var onDragStarted: () -> (() -> Void)? = { nil }
     private let dragActivationDistance: CGFloat = 4
     private var initialMouseDownEvent: NSEvent?
     private var initialMouseDownLocation: CGPoint?
@@ -871,8 +871,9 @@ private final class HeaderDragView: NSView {
 
         didStartWindowDrag = true
         let dragWindow = window
-        onDragStarted?()
+        let dragCompletion = onDragStarted()
         dragWindow?.performDrag(with: initialMouseDownEvent)
+        dragCompletion?()
     }
 
     override func mouseUp(with event: NSEvent) {
