@@ -2,14 +2,15 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前性能收口包为 `2.2.0(260523.0302)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前性能收口包为 `2.3.0(260523.0333)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.2.0(260523.0302)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.3.0(260523.0333)`
+- `python3 scripts/benchmark_history_search_performance.py`：PASS，1k / 10k 混合历史样本、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造均在阈值内
 - `python3 scripts/verify_history_search_performance_guards.py`：PASS
 - `python3 scripts/verify_preview_copy_feedback.py`：PASS
 - `python3 scripts/verify_stage9_file_paste_fallback.py`：PASS
@@ -17,7 +18,7 @@
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
-- `scripts/build-app.sh --bump minor --run`：通过；当前运行包为 `2.2.0 (260523.0302)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `40267`
+- `scripts/build-app.sh --bump minor --run`：通过；当前运行包为 `2.3.0 (260523.0333)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `54262`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -41,15 +42,16 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.2.0`
-- 当前构建号：`260523.0302`
-- 当前 build/run：`2.2.0 (260523.0302)`
-- 当前运行进程：PID `40267`
+- 当前候选版本：`2.3.0`
+- 当前构建号：`260523.0333`
+- 当前 build/run：`2.3.0 (260523.0333)`
+- 当前运行进程：PID `54262`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.3.0(260523.0333)`：搜索性能专项第二阶段。新增 `scripts/benchmark_history_search_performance.py`，用固定 1,000 / 10,000 条混合历史样本量化当前内存过滤路径，覆盖常见查询、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造；当前结果均低于守卫阈值，未触发 SQLite LIKE / FTS / schema 改造门槛。已执行 build/run，当前运行进程为 PID `54262`。
 - `2.2.0(260523.0302)`：搜索性能专项第一阶段。暂不修改 SQLite schema / Repository / 备份格式，先将搜索请求签名从整段 `normalizedSearchText` 改为每条卡片预生成的轻量 `searchFingerprint`，减少快速输入时对全部卡片长搜索文本的签名构造和比较成本；实际搜索匹配仍沿用 `normalizedSearchText.contains`，搜索结果语义不变。搜索性能守卫已覆盖 fingerprint 签名并禁止回退到签名携带整段 normalized search text。已执行 build/run，当前运行进程为 PID `40267`。
 - `2.1.0(260523.0213)`：完成预览窗口复制按钮统一反馈体验。预览顶部复制按钮现在与主窗口复制一致，普通复制、文件引用复制、文件路径 fallback 和失败结果都会显示全局 toast；成功和 fallback 保留 Copy 音效，不改变 pasteboard 写入语义。新增 `scripts/verify_preview_copy_feedback.py` 守卫 `.copied`、`.copiedFallbackText`、`.failed` 三种结果。已执行 build/run，当前运行进程为 PID `13396`。
 - `2.0.80(260523.0154)`：修复从微信等其他 App 激活场景下，快捷键唤起轻贴、按空格打开预览后，第一次按住预览标题栏只激活轻贴而不能拖动的问题。预览标题栏拖拽热区现在显式接收 inactive window 的 first mouse 事件并返回 `true`，确保第一次按下就能进入拖拽流程。预览守卫已覆盖标题栏 first mouse 接收要求。已执行 build/run，当前运行进程为 PID `98745`。

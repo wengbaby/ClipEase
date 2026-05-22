@@ -83,7 +83,7 @@
 路由澄清：本任务不是正式阶段 7 主线。正式阶段 7 主线仍按 `docs/V2_DEVELOPMENT_PLAN.md` 定义推进编辑、快捷键和批量管理；本任务仅作为可与阶段 7 并行预研的搜索性能专项。
 架构结论：V2-ARCH-STAGE6-SEARCH-INDEXED-PERF-001 结论为阶段 6 不阻塞；SQLite LIKE / FTS / 索引化搜索不建议作为阶段 6 或阶段 7 主线必须实施。实施前需独立评审 schema version、FTS 表、迁移、备份恢复、发布流程、Repository 查询 API 和回滚策略等数据红线。
 建议处理阶段：第二版阶段 7 并行预研 / 后续搜索性能专项
-当前状态：第一阶段已落地；`2.2.0(260523.0302)` 先采用无 schema 风险的搜索签名轻量化，SQLite LIKE / FTS 仍保留为后续独立 schema 方案。
+当前状态：第二阶段已落地；`2.2.0(260523.0302)` 先采用无 schema 风险的搜索签名轻量化，`2.3.0(260523.0333)` 补充 1,000 / 10,000 条混合历史搜索基准。当前基准未触发 SQLite LIKE / FTS / schema 改造门槛，SQLite LIKE / FTS 仍保留为后续独立 schema 方案。
 是否阻塞当前阶段：否
 是否阻塞阶段 6：否
 是否阻塞阶段 7 主线：否
@@ -97,7 +97,8 @@
 - 由产品和架构确认搜索语义是否允许 LIKE / FTS / token 化差异。
 - 评估 Repository 查询 API、SQLite 索引或 FTS schema、迁移和回滚风险。
 - 第一阶段验收：搜索结果语义不变；快速输入时请求签名不再比较全部卡片的长 `normalizedSearchText`，改用每条卡片预生成的 `searchFingerprint`。
-- 使用大历史量样本验证中文输入法连续输入时的延迟、取消传播和 CPU 占用。
+- 第二阶段验收：新增 `scripts/benchmark_history_search_performance.py`，固定验证 1,000 / 10,000 条混合历史样本、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造；当前结果均低于阈值。
+- 后续如真实用户数据或自动基准持续超过 150-250ms，再进入 SQLite LIKE / FTS / token 化语义评审。
 - 明确搜索性能专项的性能指标、迁移门禁和回滚策略，并与阶段 7 主线测试报告分开归档。
 ```
 
