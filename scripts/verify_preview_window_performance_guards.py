@@ -62,7 +62,9 @@ def main() -> None:
     schedule_content = body_of_function(controller, "scheduleContentLoad")
     load_preview_image = body_of_function(popover, "loadPreviewImage")
     detach_current = body_of_function(controller, "detachCurrentPreview")
-    close_preview = close
+    header = re.search(r"private var header: some View \{(?P<body>.*?)\n    private var actionMenu", popover, re.S)
+    require(header is not None, "preview header block missing")
+    header_body = header.group("body")
 
     require("private let deferredContentLoadDelay: UInt64 = 50_000_000" in controller,
             "preview content should keep a small deferred heavy-content delay")
@@ -75,14 +77,17 @@ def main() -> None:
     require("try? await Task.sleep(nanoseconds: delay)" in schedule_content
             and "guard !Task.isCancelled, panel.isVisible else" in schedule_content,
             "deferred preview content load must be cancellable")
-    require("guard allowDetached || !isDetached else" in close_preview,
-            "main-window close must not close a detached preview window")
-    require("func close(allowDetached: Bool)" in controller
-            and "closeDetachedPreview()" in controller
-            and "close(allowDetached: true)" in controller,
-            "detached preview must close only through its own close path")
+    require("private var detachedPanels: [ObjectIdentifier: NSPanel] = [:]" in controller,
+            "detached previews must be retained independently from the attached preview slot")
+    require("self.panel = nil" in detach_current
+            and "detachedPanels[panelID] = panel" in detach_current,
+            "detaching must release the attached preview slot so the next preview opens at the card position")
+    require("private func closeDetachedPreview(_ detachedPanel: NSPanel)" in controller
+            and "detachedPanels.removeValue(forKey: panelID)" in controller
+            and "detachedPanel.contentView = NSView()" in controller,
+            "each detached preview must close independently and clean up its own content")
     require("var isAttachedVisible: Bool" in controller
-            and "panel?.isVisible == true && !isDetached" in controller
+            and "panel?.isVisible == true" in controller
             and "var isRecordingSuppressionActive: Bool" in controller,
             "controller must distinguish attached previews from detached windows")
     require("configureDetachedPanel(panel)" in detach_current
@@ -94,7 +99,8 @@ def main() -> None:
             and "removeEscapeKeyMonitor()" in detach_current
             and "configuration.onDetach()" in detach_current,
             "detaching must stop attached-popover monitors and clear history preview state")
-    require("showsArrow: !isDetached" in controller
+    require("showsArrow: true" in controller
+            and "showsArrow: false" in detach_current
             and "let showsArrow: Bool" in popover
             and "if showsArrow" in popover
             and "height: size.height + (showsArrow ? 14 : 0)" in popover,
@@ -104,6 +110,8 @@ def main() -> None:
             and "private let dragActivationDistance: CGFloat = 4" in popover
             and "override func mouseDragged(with event: NSEvent)" in popover
             and "dragWindow?.performDrag(with: initialMouseDownEvent)" in popover
+            and "minHeight: 22, maxHeight: 22" in header_body
+            and header_body.count(".padding(.vertical, 10)") == 1
             and ".allowsHitTesting(false)" in popover,
             "only the preview header title area should start window detach drag")
 

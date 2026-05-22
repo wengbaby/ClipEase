@@ -10,7 +10,7 @@ final class HistoryPreviewWindowController {
     private var contentLoadTask: Task<Void, Never>?
     private var contentConfiguration: PreviewContentConfiguration?
     private var isContentReady = false
-    private var isDetached = false
+    private var detachedPanels: [ObjectIdentifier: NSPanel] = [:]
     private var isInteractingInsidePreview = false
     private weak var parentWindow: NSWindow?
     var onKeyStateChange: ((Bool) -> Void)?
@@ -27,19 +27,19 @@ final class HistoryPreviewWindowController {
     }
 
     var isVisible: Bool {
-        panel?.isVisible == true
+        isAttachedVisible || detachedPanels.values.contains { $0.isVisible }
     }
 
     var isAttachedVisible: Bool {
-        panel?.isVisible == true && !isDetached
+        panel?.isVisible == true
     }
 
     var isRecordingSuppressionActive: Bool {
-        guard let panel, panel.isVisible else {
-            return false
+        if panel?.isVisible == true {
+            return true
         }
 
-        return !isDetached || panel.isKeyWindow
+        return detachedPanels.values.contains { $0.isVisible && $0.isKeyWindow }
     }
 
     @discardableResult
@@ -77,10 +77,7 @@ final class HistoryPreviewWindowController {
 
         let panel = panel ?? makePanel()
         let isAlreadyVisible = panel.isVisible
-        let shouldUpdateDetachedPanel = isDetached && isAlreadyVisible
-        let frame = shouldUpdateDetachedPanel
-            ? detachedFrame(for: size, keepingTopEdgeFrom: panel.frame)
-            : attachedFrame
+        let frame = attachedFrame
         let ocrResult = ClipboardOCRMatch(
             text: item.ocrText,
             emails: item.ocrEmails,
@@ -89,7 +86,7 @@ final class HistoryPreviewWindowController {
             textRegions: item.ocrTextRegions
         )
         self.panel = panel
-        self.parentWindow = shouldUpdateDetachedPanel ? nil : parentWindow
+        self.parentWindow = parentWindow
         contentLoadTask?.cancel()
         let shouldLoadImmediately = item.type == .text || item.type == .color
         isContentReady = shouldLoadImmediately
@@ -108,35 +105,21 @@ final class HistoryPreviewWindowController {
             onClose: onClose,
             onDetach: onDetach
         )
-        if shouldUpdateDetachedPanel {
-            configureDetachedPanel(panel)
-        } else {
-            isDetached = false
-            configureAttachedPanel(panel)
-            detachPanelFromParent(panel)
-        }
+        configureAttachedPanel(panel)
+        detachPanelFromParent(panel)
         renderPreviewContent(panel: panel)
         (panel as? HistoryPreviewPanel)?.onEscape = { [weak self] in
-            guard let self else {
+            guard self?.panel === panel else {
                 return
             }
-            if self.isDetached {
-                onClose()
-                self.closeDetachedPreview()
-            } else {
-                onClose()
-            }
+
+            onClose()
         }
 
         if isAlreadyVisible {
             panel.setFrame(frame, display: true, animate: false)
-            if shouldUpdateDetachedPanel {
-                panel.makeKeyAndOrderFront(nil)
-                (panel as? HistoryPreviewPanel)?.onKeyStateChange?(true)
-            } else {
-                panel.orderFrontRegardless()
-                (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
-            }
+            panel.orderFrontRegardless()
+            (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
             if !shouldLoadImmediately {
                 scheduleContentLoad(
                     panel: panel,
@@ -184,10 +167,6 @@ final class HistoryPreviewWindowController {
     }
 
     func close(allowDetached: Bool) {
-        guard allowDetached || !isDetached else {
-            return
-        }
-
         let parentWindow = parentWindow
         removeOutsideClickMonitor()
         removeEscapeKeyMonitor()
@@ -195,7 +174,6 @@ final class HistoryPreviewWindowController {
         contentLoadTask = nil
         contentConfiguration = nil
         isContentReady = false
-        isDetached = false
         parentWindow?.makeKey()
         (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
         (panel as? HistoryPreviewPanel)?.onEscape = nil
@@ -216,7 +194,7 @@ final class HistoryPreviewWindowController {
     }
 
     func move(anchorScreenPoint: CGPoint, screenFrame: CGRect) {
-        guard let panel, panel.isVisible, !isDetached else {
+        guard let panel, panel.isVisible else {
             return
         }
 
@@ -245,7 +223,7 @@ final class HistoryPreviewWindowController {
     }
 
     func contains(screenPoint: CGPoint) -> Bool {
-        guard let panel, panel.isVisible, !isDetached else {
+        guard let panel, panel.isVisible else {
             return false
         }
 
@@ -253,10 +231,6 @@ final class HistoryPreviewWindowController {
     }
 
     func installOutsideClickMonitor(onOutsideClick: @escaping @MainActor () -> Void) {
-        guard !isDetached else {
-            return
-        }
-
         removeOutsideClickMonitor()
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
             Task { @MainActor in
@@ -302,10 +276,6 @@ final class HistoryPreviewWindowController {
     }
 
     func installEscapeKeyMonitor(onEscape: @escaping @MainActor () -> Void) {
-        guard !isDetached else {
-            return
-        }
-
         removeEscapeKeyMonitor()
         escapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self,
@@ -367,25 +337,35 @@ final class HistoryPreviewWindowController {
             return
         }
 
+        renderPreviewContent(
+            panel: panel,
+            configuration: configuration,
+            isContentReady: isContentReady,
+            showsArrow: true,
+            onClose: { configuration.onClose() },
+            onDetachDrag: { [weak self] in
+                self?.detachCurrentPreview()
+            }
+        )
+    }
+
+    private func renderPreviewContent(
+        panel: NSPanel,
+        configuration: PreviewContentConfiguration,
+        isContentReady: Bool,
+        showsArrow: Bool,
+        onClose: @escaping () -> Void,
+        onDetachDrag: @escaping () -> Void
+    ) {
         panel.contentView = NSHostingView(
             rootView: HistoryPreviewPopoverView(
                 item: configuration.item,
                 ocrResult: configuration.ocrResult,
                 arrowX: configuration.arrowX,
                 size: configuration.size,
-                showsArrow: !isDetached,
+                showsArrow: showsArrow,
                 isContentReady: isContentReady,
-                onClose: { [weak self] in
-                    guard let self else {
-                        return
-                    }
-                    if self.isDetached {
-                        configuration.onClose()
-                        self.closeDetachedPreview()
-                    } else {
-                        configuration.onClose()
-                    }
-                },
+                onClose: onClose,
                 onCopy: configuration.onCopy,
                 onOpen: configuration.onOpen,
                 onReveal: configuration.onReveal,
@@ -393,9 +373,7 @@ final class HistoryPreviewWindowController {
                 onCopyMarkdown: configuration.onCopyMarkdown,
                 onCopyPath: configuration.onCopyPath,
                 onCopyRGB: configuration.onCopyRGB,
-                onDetachDrag: { [weak self] in
-                    self?.detachCurrentPreview()
-                }
+                onDetachDrag: onDetachDrag
             )
         )
     }
@@ -430,25 +408,63 @@ final class HistoryPreviewWindowController {
     private func detachCurrentPreview() {
         guard let panel,
               panel.isVisible,
-              !isDetached,
               let configuration = contentConfiguration else {
             return
         }
 
-        isDetached = true
         removeOutsideClickMonitor()
         removeEscapeKeyMonitor()
+        contentLoadTask?.cancel()
+        contentLoadTask = nil
+        contentConfiguration = nil
+        isContentReady = false
+        self.panel = nil
+        parentWindow = nil
         configureDetachedPanel(panel)
         let detachedFrame = detachedFrame(for: configuration.size, keepingTopEdgeFrom: panel.frame)
         panel.setFrame(detachedFrame, display: true, animate: false)
-        renderPreviewContent(panel: panel)
+        let panelID = ObjectIdentifier(panel)
+        detachedPanels[panelID] = panel
+        renderPreviewContent(
+            panel: panel,
+            configuration: configuration,
+            isContentReady: true,
+            showsArrow: false,
+            onClose: { [weak self, weak panel] in
+                guard let panel else {
+                    return
+                }
+                configuration.onDetach()
+                self?.closeDetachedPreview(panel)
+            },
+            onDetachDrag: {}
+        )
+        (panel as? HistoryPreviewPanel)?.onEscape = { [weak self, weak panel] in
+            guard let panel else {
+                return
+            }
+            configuration.onDetach()
+            self?.closeDetachedPreview(panel)
+        }
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         configuration.onDetach()
     }
 
-    private func closeDetachedPreview() {
-        close(allowDetached: true)
+    private func closeDetachedPreview(_ detachedPanel: NSPanel) {
+        let panelID = ObjectIdentifier(detachedPanel)
+        detachedPanels.removeValue(forKey: panelID)
+        (detachedPanel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
+        (detachedPanel as? HistoryPreviewPanel)?.onEscape = nil
+        detachedPanel.contentView = NSView()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.10
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
+            detachedPanel.animator().alphaValue = 0
+        } completionHandler: { [weak detachedPanel] in
+            detachedPanel?.orderOut(nil)
+            detachedPanel?.alphaValue = 1
+        }
     }
 
     private func detachedFrame(for size: CGSize, keepingTopEdgeFrom frame: CGRect) -> CGRect {

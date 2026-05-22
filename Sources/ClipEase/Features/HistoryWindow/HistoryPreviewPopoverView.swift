@@ -119,7 +119,7 @@ struct HistoryPreviewPopoverView: View {
 
             ZStack(alignment: .leading) {
                 PreviewHeaderDragRegion(onDragStarted: onDetachDrag)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22)
 
                 HStack(spacing: 10) {
                     Text(item.kind)
@@ -134,7 +134,7 @@ struct HistoryPreviewPopoverView: View {
                 }
                 .allowsHitTesting(false)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22)
 
             Button(action: onCopy) {
                 Image(systemName: "doc.on.doc")
