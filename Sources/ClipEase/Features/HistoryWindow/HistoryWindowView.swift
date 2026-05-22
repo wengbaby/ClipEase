@@ -5163,7 +5163,7 @@ private struct HistorySearchSourceSignature: Equatable {
     let type: HistoryPreviewType
     let createdAt: Date
     let sourceAppName: String
-    let normalizedSearchText: String
+    let searchFingerprint: Int
     let isPinned: Bool
     let groupID: UUID?
     let groupedAt: Date?
@@ -5173,7 +5173,7 @@ private struct HistorySearchSourceSignature: Equatable {
         type = item.type
         createdAt = item.createdAt
         sourceAppName = item.sourceAppName
-        normalizedSearchText = item.normalizedSearchText
+        searchFingerprint = item.searchFingerprint
         isPinned = item.isPinned
         groupID = item.groupID
         groupedAt = item.groupedAt

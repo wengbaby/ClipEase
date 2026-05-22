@@ -94,8 +94,16 @@ required_preview_rebuild = [
 
 required_preview_item = [
     "let normalizedSearchText: String",
+    "let searchFingerprint: Int",
     "private static func normalizedSearchText(",
+    "private static func searchFingerprint(for normalizedSearchText: String) -> Int",
     ".folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)",
+    "hasher.combine(normalizedSearchText)",
+]
+
+required_search_signature = [
+    "let searchFingerprint: Int",
+    "searchFingerprint = item.searchFingerprint",
 ]
 
 forbidden_view = [
@@ -105,6 +113,8 @@ forbidden_view = [
     "try? Self.filterItems(",
     "await MainActor.run {\n                filteredPreviewItems = result",
     "searchGeneration == generation else {\n                    filteredPreviewItems = result",
+    "let normalizedSearchText: String\n    let isPinned",
+    "normalizedSearchText = item.normalizedSearchText",
 ]
 
 checks = [
@@ -112,6 +122,7 @@ checks = [
     ("filterItems required", required_filter_items, filter_items, True),
     ("preview rebuild required", required_preview_rebuild, schedule_preview, True),
     ("preview item normalized search required", required_preview_item, preview_item_text, True),
+    ("search signature fingerprint required", required_search_signature, view_text, True),
     ("view forbidden", forbidden_view, view_text, False),
 ]
 

@@ -37,6 +37,7 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
     let groupID: UUID?
     let groupedAt: Date?
     let normalizedSearchText: String
+    let searchFingerprint: Int
 
     var searchText: String {
         [
@@ -81,7 +82,7 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
         self.isPinned = item.isPinned
         self.groupID = item.groupID
         self.groupedAt = item.groupedAt
-        self.normalizedSearchText = Self.normalizedSearchText(
+        let normalizedSearchText = Self.normalizedSearchText(
             kind: item.kind,
             preview: item.preview,
             footer: item.footer,
@@ -90,6 +91,8 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
             linkSubtitle: item.linkSubtitle,
             filePreviewReferences: self.filePreviewReferences
         )
+        self.normalizedSearchText = normalizedSearchText
+        self.searchFingerprint = Self.searchFingerprint(for: normalizedSearchText)
     }
 
     init(
@@ -132,7 +135,7 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
         self.isPinned = isPinned
         self.groupID = groupID
         self.groupedAt = groupedAt
-        self.normalizedSearchText = Self.normalizedSearchText(
+        let normalizedSearchText = Self.normalizedSearchText(
             kind: kind,
             preview: preview,
             footer: footer,
@@ -141,6 +144,8 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
             linkSubtitle: linkSubtitle,
             filePreviewReferences: filePreviewReferences
         )
+        self.normalizedSearchText = normalizedSearchText
+        self.searchFingerprint = Self.searchFingerprint(for: normalizedSearchText)
     }
 
     private static func normalizedSearchText(
@@ -165,6 +170,12 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
         .compactMap { $0 }
         .joined(separator: " ")
         .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private static func searchFingerprint(for normalizedSearchText: String) -> Int {
+        var hasher = Hasher()
+        hasher.combine(normalizedSearchText)
+        return hasher.finalize()
     }
 
     static let samples: [HistoryPreviewItem] = [
