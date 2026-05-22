@@ -19,6 +19,7 @@ final class HistoryPreviewWindowController {
     private let arrowGap: CGFloat = 18
     private let horizontalMargin: CGFloat = 12
     private let defaultPreviewSize = CGSize(width: 620, height: 370)
+    private let detachedPreviewMinimumSize = CGSize(width: 390, height: 260)
     // Keeps tiny or 1px-edge images operable without returning to the old 220pt fixed image window.
     private let imagePreviewMinimumContentSize = CGSize(width: 180, height: 140)
     private let deferredContentLoadDelay: UInt64 = 50_000_000
@@ -314,6 +315,7 @@ final class HistoryPreviewWindowController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.hasShadow = false
         panel.isMovable = false
+        panel.minSize = .zero
         panel.animationBehavior = .none
         (panel as? HistoryPreviewPanel)?.isDetachedPreview = false
     }
@@ -325,6 +327,7 @@ final class HistoryPreviewWindowController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hasShadow = true
         panel.isMovable = true
+        panel.minSize = detachedPreviewMinimumSize
         panel.animationBehavior = .default
         (panel as? HistoryPreviewPanel)?.isDetachedPreview = true
     }
@@ -469,12 +472,28 @@ final class HistoryPreviewWindowController {
     }
 
     private func detachedFrame(for size: CGSize, keepingTopEdgeFrom frame: CGRect) -> CGRect {
-        CGRect(
+        let proposedFrame = CGRect(
             x: frame.minX,
             y: frame.maxY - size.height,
             width: size.width,
             height: size.height
         )
+        let visibleFrame = bestScreen(for: proposedFrame)?.visibleFrame ?? NSScreen.main?.visibleFrame ?? proposedFrame
+        return clampedWindowFrame(proposedFrame, to: visibleFrame)
+    }
+
+    private func clampedWindowFrame(_ frame: CGRect, to visibleFrame: CGRect) -> CGRect {
+        let width = min(frame.width, visibleFrame.width)
+        let height = min(frame.height, visibleFrame.height)
+        let x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - width)
+        let y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func bestScreen(for frame: CGRect) -> NSScreen? {
+        NSScreen.screens.max { lhs, rhs in
+            lhs.visibleFrame.intersection(frame).area < rhs.visibleFrame.intersection(frame).area
+        }
     }
 
     private func removeOutsideClickMonitor() {
@@ -736,5 +755,15 @@ private final class HistoryPreviewPanel: NSPanel {
         }
 
         return NSApp.sendAction(selector, to: target, from: self)
+    }
+}
+
+private extension CGRect {
+    var area: CGFloat {
+        guard !isNull, !isEmpty else {
+            return 0
+        }
+
+        return width * height
     }
 }

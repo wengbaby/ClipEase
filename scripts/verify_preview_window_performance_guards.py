@@ -65,6 +65,10 @@ def main() -> None:
     load_preview_image = body_of_function(popover, "loadPreviewImage")
     detach_current = body_of_function(controller, "detachCurrentPreview")
     close_detached = body_of_function(controller, "closeDetachedPreview")
+    configure_attached = body_of_function(controller, "configureAttachedPanel")
+    configure_detached = body_of_function(controller, "configureDetachedPanel")
+    detached_frame = body_of_function(controller, "detachedFrame")
+    clamped_window_frame = body_of_function(controller, "clampedWindowFrame")
     install_detached_escape = body_of_function(controller, "installDetachedEscapeKeyMonitorIfNeeded")
     detached_panel_for_event = body_of_function(controller, "detachedPanel")
     show_preview = body_of_function(history_controller, "showPreview")
@@ -114,6 +118,20 @@ def main() -> None:
             and "panel.hasShadow = true" in controller
             and "panel.makeKeyAndOrderFront(nil)" in detach_current,
             "detached preview must become a normal switchable App window")
+    require("private let detachedPreviewMinimumSize = CGSize(width: 390, height: 260)" in controller
+            and "panel.minSize = .zero" in configure_attached
+            and "panel.minSize = detachedPreviewMinimumSize" in configure_detached,
+            "detached previews must have a usable minimum size while attached popovers keep flexible sizing")
+    require("bestScreen(for: proposedFrame)?.visibleFrame" in detached_frame
+            and "clampedWindowFrame(proposedFrame, to: visibleFrame)" in detached_frame
+            and "min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - width)" in clamped_window_frame
+            and "min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - height)" in clamped_window_frame,
+            "detached preview initial frame must stay within the current visible screen area")
+    require("private func bestScreen(for frame: CGRect) -> NSScreen?" in controller
+            and "visibleFrame.intersection(frame).area" in controller
+            and "private extension CGRect" in controller
+            and "var area: CGFloat" in controller,
+            "detached preview screen selection must use visible-frame intersection area")
     require("removeOutsideClickMonitor()" in detach_current
             and "removeEscapeKeyMonitor()" in detach_current
             and "configuration.onDetach()" in detach_current,
