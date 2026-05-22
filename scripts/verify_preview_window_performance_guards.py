@@ -64,6 +64,9 @@ def main() -> None:
     schedule_content = body_of_function(controller, "scheduleContentLoad")
     load_preview_image = body_of_function(popover, "loadPreviewImage")
     detach_current = body_of_function(controller, "detachCurrentPreview")
+    close_detached = body_of_function(controller, "closeDetachedPreview")
+    install_detached_escape = body_of_function(controller, "installDetachedEscapeKeyMonitorIfNeeded")
+    detached_panel_for_event = body_of_function(controller, "detachedPanel")
     show_preview = body_of_function(history_controller, "showPreview")
     header = re.search(r"private var header: some View \{(?P<body>.*?)\n    private var actionMenu", popover, re.S)
     require(header is not None, "preview header block missing")
@@ -89,6 +92,19 @@ def main() -> None:
             and "detachedPanels.removeValue(forKey: panelID)" in controller
             and "detachedPanel.contentView = NSView()" in controller,
             "each detached preview must close independently and clean up its own content")
+    require("private var detachedEscapeKeyMonitor: Any?" in controller
+            and "installDetachedEscapeKeyMonitorIfNeeded()" in detach_current
+            and "removeDetachedEscapeKeyMonitorIfNeeded()" in close_detached,
+            "detached previews need their own Esc monitor lifecycle")
+    require("NSEvent.addLocalMonitorForEvents(matching: .keyDown)" in install_detached_escape
+            and "event.keyCode == KeyCode.escape" in install_detached_escape
+            and "self.closeDetachedPreview(detachedPanel)" in install_detached_escape
+            and "return nil" in install_detached_escape,
+            "Esc in a focused detached preview must close that detached window")
+    require("event.window as? NSPanel" in detached_panel_for_event
+            and "NSApp.keyWindow as? NSPanel" in detached_panel_for_event
+            and "detachedPanels[ObjectIdentifier" in detached_panel_for_event,
+            "detached Esc handling must be scoped to the event or key detached preview")
     require("var isAttachedVisible: Bool" in controller
             and "panel?.isVisible == true" in controller
             and "var isRecordingSuppressionActive: Bool" in controller,

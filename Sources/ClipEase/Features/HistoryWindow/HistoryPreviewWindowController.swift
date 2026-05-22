@@ -7,6 +7,7 @@ final class HistoryPreviewWindowController {
     private var outsideClickMonitor: Any?
     private var localOutsideClickMonitor: Any?
     private var escapeKeyMonitor: Any?
+    private var detachedEscapeKeyMonitor: Any?
     private var contentLoadTask: Task<Void, Never>?
     private var contentConfiguration: PreviewContentConfiguration?
     private var isContentReady = false
@@ -425,6 +426,7 @@ final class HistoryPreviewWindowController {
         panel.setFrame(detachedFrame, display: true, animate: false)
         let panelID = ObjectIdentifier(panel)
         detachedPanels[panelID] = panel
+        installDetachedEscapeKeyMonitorIfNeeded()
         renderPreviewContent(
             panel: panel,
             configuration: configuration,
@@ -452,6 +454,7 @@ final class HistoryPreviewWindowController {
     private func closeDetachedPreview(_ detachedPanel: NSPanel) {
         let panelID = ObjectIdentifier(detachedPanel)
         detachedPanels.removeValue(forKey: panelID)
+        removeDetachedEscapeKeyMonitorIfNeeded()
         (detachedPanel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
         (detachedPanel as? HistoryPreviewPanel)?.onEscape = nil
         detachedPanel.contentView = NSView()
@@ -490,6 +493,47 @@ final class HistoryPreviewWindowController {
             NSEvent.removeMonitor(escapeKeyMonitor)
             self.escapeKeyMonitor = nil
         }
+    }
+
+    private func installDetachedEscapeKeyMonitorIfNeeded() {
+        guard detachedEscapeKeyMonitor == nil else {
+            return
+        }
+
+        detachedEscapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  event.keyCode == KeyCode.escape,
+                  let detachedPanel = self.detachedPanel(for: event) else {
+                return event
+            }
+
+            self.closeDetachedPreview(detachedPanel)
+            return nil
+        }
+    }
+
+    private func removeDetachedEscapeKeyMonitorIfNeeded() {
+        guard detachedPanels.isEmpty,
+              let detachedEscapeKeyMonitor else {
+            return
+        }
+
+        NSEvent.removeMonitor(detachedEscapeKeyMonitor)
+        self.detachedEscapeKeyMonitor = nil
+    }
+
+    private func detachedPanel(for event: NSEvent) -> NSPanel? {
+        if let eventPanel = event.window as? NSPanel,
+           detachedPanels[ObjectIdentifier(eventPanel)] != nil {
+            return eventPanel
+        }
+
+        if let keyPanel = NSApp.keyWindow as? NSPanel,
+           detachedPanels[ObjectIdentifier(keyPanel)] != nil {
+            return keyPanel
+        }
+
+        return nil
     }
 
     private func previewSize(for item: ClipboardItem, screenFrame: CGRect) -> CGSize {

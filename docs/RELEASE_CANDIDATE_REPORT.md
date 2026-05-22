@@ -2,20 +2,20 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.76(260522.2155)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.77(260522.2306)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.0.76(260522.2155)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.0.77(260522.2306)`
 - `python3 scripts/verify_stage9_file_paste_fallback.py`：PASS
 - `python3 scripts/verify_stage9_file_pasteboard_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.76 (260522.2155)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `38888`
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.77 (260522.2306)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `63474`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -39,15 +39,16 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.0.76`
-- 当前构建号：`260522.2155`
-- 当前 build/run：`2.0.76 (260522.2155)`
-- 当前运行进程：PID `38888`
+- 当前候选版本：`2.0.77`
+- 当前构建号：`260522.2306`
+- 当前 build/run：`2.0.77 (260522.2306)`
+- 当前运行进程：PID `63474`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.0.77(260522.2306)`：修复脱离预览窗口的 `Esc` 关闭路径。已脱离预览现在有专用本地 Esc 监听，焦点落在 Quick Look、PDF、WebView 或文本内容里时，按 `Esc` 也会关闭当前脱离预览窗口；监听作用域限定到事件窗口或当前 key window 属于已脱离预览窗口，不影响主窗口、附着预览或其他 App 窗口。预览守卫已覆盖脱离预览 Esc monitor 生命周期、关闭行为和作用域。已执行 build/run，当前运行进程为 PID `63474`。
 - `2.0.76(260522.2155)`：修复预览窗口脱离后的主窗口生命周期。用户从预览标题栏拖出独立窗口后，主窗口会立刻关闭；已脱离预览继续作为普通 App 窗口保留，不被主窗口关闭流程误关。独立预览自身关闭按钮和该窗口聚焦时 `Esc` 只关闭该独立预览，不再重复触发主窗口关闭回调。预览守卫已覆盖脱离瞬间关闭主窗口，以及独立预览关闭 / `Esc` 不重复执行主窗口脱离回调。已执行 build/run，当前运行进程为 PID `38888`。
 - `2.0.75(260522.1727)`：修复预览窗口标题栏过高问题，拖拽热区固定为 22pt 高度并移除重复垂直 padding，恢复原来的紧凑 header。调整预览脱离模型：已脱离预览独立保留，原附着预览槽位立即释放；用户再次预览任意卡片时仍按该卡片原位置弹出新的附着预览，每个卡片都可以继续拖出为独立预览窗口。预览守卫已覆盖 header 高度、多独立预览窗口、脱离后释放附着槽位和下一次预览回到卡片位置。已执行 build/run，当前运行进程为 PID `73546`。
 - `2.0.74(260522.0311)`：预览窗口拖拽脱离最终运行包；在 `2.0.73` 基础上补齐标题栏真实拖动阈值，单击标题栏不会触发脱离，开始拖拽前保留原始窗口引用，避免 SwiftUI 重建内容后丢失系统拖动；已脱离预览被复用或按 `Esc` 关闭时会同步清理主窗口预览状态。已重新执行 build/run，当前运行进程为 PID `56099`。
