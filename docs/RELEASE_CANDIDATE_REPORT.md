@@ -2,20 +2,20 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.79(260523.0137)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前稳定性收口包为 `2.0.80(260523.0154)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布前收口。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。真实外部 App 粘贴文件引用 / 路径 fallback、路径失效文件运行态、颜色与图标两个入口、Finder / Dock 图标缓存刷新仍待用户人工验收。当前 RC 状态不代表最终正式发布完成。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.0.79(260523.0137)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.0.80(260523.0154)`
 - `python3 scripts/verify_stage9_file_paste_fallback.py`：PASS
 - `python3 scripts/verify_stage9_file_pasteboard_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_capture_first_batch.py`：PASS
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.79 (260523.0137)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `85362`
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.0.80 (260523.0154)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化，PID `98745`
 - GitHub 推送：通过
 
 ## 手动回归待确认
@@ -39,15 +39,16 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.0.79`
-- 当前构建号：`260523.0137`
-- 当前 build/run：`2.0.79 (260523.0137)`
-- 当前运行进程：PID `85362`
+- 当前候选版本：`2.0.80`
+- 当前构建号：`260523.0154`
+- 当前 build/run：`2.0.80 (260523.0154)`
+- 当前运行进程：PID `98745`
 - 当前 Git 提交：以 GitHub `main` 最新提交为准
 - 后续如继续新增功能，使用 minor 规则；如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.0.80(260523.0154)`：修复从微信等其他 App 激活场景下，快捷键唤起轻贴、按空格打开预览后，第一次按住预览标题栏只激活轻贴而不能拖动的问题。预览标题栏拖拽热区现在显式接收 inactive window 的 first mouse 事件并返回 `true`，确保第一次按下就能进入拖拽流程。预览守卫已覆盖标题栏 first mouse 接收要求。已执行 build/run，当前运行进程为 PID `98745`。
 - `2.0.79(260523.0137)`：修复预览窗口顶部第一次按住拖动只脱离、不移动的问题。拖拽开始时只切换为独立窗口层级、释放附着槽位并立刻关闭主窗口；预览内容重建和倒三角隐藏延后到系统窗口拖动结束后执行，避免 SwiftUI 重建标题栏热区打断第一次系统拖动。预览守卫已覆盖脱离时返回拖动完成回调、拖动期间不重建内容，以及完成后再隐藏倒三角。已执行 build/run，当前运行进程为 PID `85362`。
 - `2.0.78(260523.0027)`：独立预览窗口稳定性收口。脱离后的预览窗口初始位置会约束在当前屏幕可见区域内，避免大图、PDF 或文件预览拖出后跑出屏幕边界；独立预览设置 `390x260` 最小尺寸，防止缩到不可操作。附着弹层仍保持原有弹层尺寸策略，不继承独立窗口最小尺寸。预览守卫已覆盖独立预览最小尺寸、附着弹层尺寸复位、脱离初始 frame 可见区域约束和按可见区域交集选择屏幕。已执行 build/run，当前运行进程为 PID `43462`。
 - `2.0.77(260522.2306)`：修复脱离预览窗口的 `Esc` 关闭路径。已脱离预览现在有专用本地 Esc 监听，焦点落在 Quick Look、PDF、WebView 或文本内容里时，按 `Esc` 也会关闭当前脱离预览窗口；监听作用域限定到事件窗口或当前 key window 属于已脱离预览窗口，不影响主窗口、附着预览或其他 App 窗口。预览守卫已覆盖脱离预览 Esc monitor 生命周期、关闭行为和作用域。已执行 build/run，当前运行进程为 PID `63474`。

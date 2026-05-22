@@ -161,6 +161,7 @@ def main() -> None:
     require("PreviewHeaderDragRegion(onDragStarted: onDetachDrag)" in popover
             and "private struct PreviewHeaderDragRegion: NSViewRepresentable" in popover
             and "private let dragActivationDistance: CGFloat = 4" in popover
+            and "override func acceptsFirstMouse(for event: NSEvent?) -> Bool {\n        true\n    }" in popover
             and "override func mouseDragged(with event: NSEvent)" in popover
             and "let dragCompletion = onDragStarted()" in popover
             and "dragWindow?.performDrag(with: initialMouseDownEvent)" in popover
