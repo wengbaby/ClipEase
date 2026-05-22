@@ -317,12 +317,19 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             parentWindow: panel,
             anchorScreenPoint: anchorScreenPoint,
             screenFrame: screenFrame,
-            onCopy: { [pasteExecutor] in
+            onCopy: { [weak self, pasteExecutor] in
+                guard let self else {
+                    return
+                }
                 switch pasteExecutor.copyToPasteboard(item) {
-                case .copied, .copiedFallbackText:
+                case .copied:
                     ClipEaseSoundPlayer.shared.playCopyFeedback()
-                case .failed:
-                    break
+                    self.showStatus(self.copyStatus(for: item))
+                case .copiedFallbackText:
+                    ClipEaseSoundPlayer.shared.playCopyFeedback()
+                    self.showStatus(self.copyFallbackTextStatus(for: item))
+                case .failed(let reason):
+                    self.showStatus(reason)
                 }
             },
             onOpen: { [weak self] in
@@ -521,6 +528,30 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
         appMenuController.setStatusToastAnchorWindow(panel)
         GlobalStatusToastController.shared.show(text, relativeTo: panel)
+    }
+
+    private func copyStatus(for item: ClipboardItem) -> String {
+        switch item.type {
+        case .text:
+            item.richTextFileName == nil ? "已复制文本" : "已复制富文本"
+        case .link:
+            "已复制链接"
+        case .image:
+            "已复制图片"
+        case .color:
+            "已复制颜色"
+        case .file:
+            "已复制文件引用"
+        }
+    }
+
+    private func copyFallbackTextStatus(for item: ClipboardItem) -> String {
+        switch item.type {
+        case .file:
+            "文件不可用，已复制文件路径"
+        default:
+            copyStatus(for: item)
+        }
     }
 
     private func rgbString(from hex: String) -> String? {

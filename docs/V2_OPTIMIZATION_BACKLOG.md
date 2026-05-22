@@ -250,7 +250,7 @@
 来源任务卡：V2-REVIEW-S9-FILE-PASTE-FALLBACK-FIRST-BATCH-001
 来源 Agent：Review Agent / Docs Backlog Agent
 风险等级：低 / 非阻塞体验一致性
-当前状态：非阻塞；不影响 `V2-S9-FILE-PASTE-FALLBACK-FIRST-BATCH-001` 放行。
+当前状态：已完成；`2.1.0(260523.0213)` 已纳入预览复制统一 toast / fallback 状态。
 问题描述：Review `V2-REVIEW-S9-FILE-PASTE-FALLBACK-FIRST-BATCH-001` PASS，但记录非阻塞观察：预览窗口 header 的复制按钮仍直接丢弃 `copyToPasteboard` 结果，未展示 fallback 或失败状态；不影响本批 HistoryWindowView 状态分派和 pasteboard fallback 行为。
 影响范围：HistoryPreviewPopoverView / HistoryWindowController 复制按钮状态反馈，特别是文件引用 fallback 文本、失败原因展示。
 建议处理阶段：Stage 9 收口 polish 或后续统一 toast 体验专项。
@@ -258,4 +258,7 @@
 是否阻塞 `V2-S9-FILE-PASTE-FALLBACK-FIRST-BATCH-001` 放行：否
 验收建议：
 - 预览 header 复制按钮对普通复制、文件引用复制、文件路径 fallback、失败结果均给出一致短提示。
+完成记录：
+- `HistoryWindowController.showPreview` 的预览复制回调现在根据 `PasteboardCopyResult` 分别显示 `copyStatus`、`copyFallbackTextStatus` 或失败原因。
+- 新增 `scripts/verify_preview_copy_feedback.py` 守卫普通复制、文件 fallback 和失败提示，不改变 pasteboard 写入语义。
 ```
