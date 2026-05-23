@@ -99,14 +99,16 @@ private struct SupportQRCodeSheet: View {
                 supportQRCode(
                     name: "Alipay",
                     extensionName: "jpg",
-                    title: "支付宝赞赏",
-                    cropRect: CGRect(x: 75, y: 405, width: 860, height: 860)
+                    missingTitle: "支付宝二维码",
+                    cropRect: CGRect(x: 190, y: 460, width: 635, height: 635),
+                    borderColor: Color(red: 0.09, green: 0.52, blue: 0.96)
                 )
                 supportQRCode(
                     name: "WeChat",
                     extensionName: "png",
-                    title: "微信赞赏",
-                    cropRect: CGRect(x: 135, y: 115, width: 900, height: 900)
+                    missingTitle: "微信二维码",
+                    cropRect: CGRect(x: 198, y: 115, width: 900, height: 900),
+                    borderColor: Color(red: 0.12, green: 0.74, blue: 0.34)
                 )
             }
         }
@@ -118,34 +120,30 @@ private struct SupportQRCodeSheet: View {
     private func supportQRCode(
         name: String,
         extensionName: String,
-        title: String,
-        cropRect: CGRect
+        missingTitle: String,
+        cropRect: CGRect,
+        borderColor: Color
     ) -> some View {
-        VStack(spacing: 10) {
+        ZStack {
             if let image = supportImage(name: name, extensionName: extensionName, cropRect: cropRect) {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
                     .frame(width: 260, height: 260)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                    }
             } else {
-                Text("未找到二维码")
+                Text("未找到\(missingTitle)")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 260, height: 260)
-                    .background(Color.white.opacity(0.72))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
-
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
         }
-        .frame(width: 276)
+        .frame(width: 260, height: 260)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(borderColor, lineWidth: 4)
+        }
     }
 
     private func supportImage(name: String, extensionName: String, cropRect: CGRect) -> NSImage? {
