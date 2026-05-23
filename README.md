@@ -4,6 +4,31 @@
 
 它会在本地保存近期剪贴板内容，支持快速搜索、预览和粘贴，适合在日常工作中快速找回复制过的文字、图片、链接、颜色、富文本和文件。
 
+## 支持与交流
+
+欢迎扫码加入 轻贴ClipEase 交流群，反馈问题、交流使用体验或提出新功能建议：
+
+<p>
+  <img src="docs/images/WechatQun.png" alt="轻贴ClipEase 交流群" width="260">
+</p>
+
+可以请我喝杯咖啡，或者随手赞赏支持一下，谢谢！
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/images/Alipay.jpg" alt="支付宝赞赏" width="260">
+    </td>
+    <td align="center">
+      <img src="docs/images/WeChat.png" alt="微信赞赏" width="260">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">支付宝赞赏</td>
+    <td align="center">微信赞赏</td>
+  </tr>
+</table>
+
 ## 功能
 
 - 菜单栏常驻，提供紧凑的历史记录窗口
@@ -64,32 +89,3 @@ scripts/build-app.sh --bump none --run
 ## 文档
 
 目录结构说明见 [docs/README_zh.md](docs/README_zh.md)，也可切换到 [English](docs/README.md)。
-
-## 交流与支持
-
-欢迎扫码加入 轻贴ClipEase 交流群，反馈问题、交流使用体验或提出新功能建议：
-
-<p>
-  <img src="docs/images/WechatQun.png" alt="轻贴ClipEase 交流群" width="260">
-</p>
-
-可以请我喝杯咖啡，或者随手赞赏支持一下，谢谢！
-
-<table>
-  <tr>
-    <td align="center">
-      <img src="docs/images/Alipay.jpg" alt="支付宝赞赏" width="260">
-    </td>
-    <td align="center">
-      <img src="docs/images/WeChat.png" alt="微信赞赏" width="260">
-    </td>
-  </tr>
-  <tr>
-    <td align="center">支付宝赞赏</td>
-    <td align="center">微信赞赏</td>
-  </tr>
-</table>
-
-## License
-
-本仓库暂未发布开源许可证。
