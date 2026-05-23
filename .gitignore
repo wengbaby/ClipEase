@@ -12,6 +12,11 @@ DerivedData/
 /docs/*
 !/docs/
 !/docs/README.md
+!/docs/README_zh.md
+!/docs/images/
+!/docs/images/WechatQun.png
+!/docs/images/Alipay.jpg
+!/docs/images/WeChat.png
 /scripts/*
 !/scripts/
 !/scripts/build-app.sh

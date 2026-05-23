@@ -1,5 +1,7 @@
 # Documentation
 
+English | [简体中文](README_zh.md)
+
 This directory contains public, non-sensitive repository notes for ClipEase.
 
 ## Repository Layout

@@ -1,47 +1,46 @@
-# ClipEase
+# 轻贴 ClipEase
 
-ClipEase is a lightweight macOS menu bar clipboard history app.
+轻贴 ClipEase 是一款轻量的 macOS 菜单栏剪贴板历史工具。
 
-It keeps recent clipboard content close at hand, supports quick search and paste,
-and stays out of the way while you work.
+它会在本地保存近期剪贴板内容，支持快速搜索、预览和粘贴，适合在日常工作中快速找回复制过的文字、图片、链接、颜色、富文本和文件。
 
-## Features
+## 功能
 
-- Menu bar app with a compact history window
-- Clipboard history for text, images, links, colors, rich text, and files
-- Search, filter, favorite, group, preview, edit, and delete entries
-- Quick paste with double click, Return, and keyboard shortcuts
-- Pause recording and ignore selected apps
-- Local storage, export, import, and backup utilities
+- 菜单栏常驻，提供紧凑的历史记录窗口
+- 支持文字、图片、链接、颜色、富文本和文件记录
+- 支持搜索、筛选、收藏、分组、预览、编辑和删除
+- 支持双击、回车和快捷键快速粘贴
+- 支持暂停记录和忽略指定 App
+- 数据本地存储，支持导出、导入和备份
 
-## Requirements
+## 系统要求
 
-- macOS 13.0 or later
-- Swift 6.1 or later for source builds
+- macOS 13.0 或更高版本
+- 从源码构建需要 Swift 6.1 或更高版本
 
-## Build
+## 构建
 
-Build the Swift package:
+构建 Swift Package：
 
 ```bash
 swift build -c release --product ClipEase
 ```
 
-Build a macOS app bundle:
+构建 macOS App bundle：
 
 ```bash
 scripts/build-app.sh --bump none
 ```
 
-Build and launch the app:
+构建并启动 App：
 
 ```bash
 scripts/build-app.sh --bump none --run
 ```
 
-The app bundle is written to `.build/ClipEase.app`.
+构建产物位于 `.build/ClipEase.app`。
 
-## Repository Structure
+## 仓库结构
 
 ```text
 .
@@ -54,17 +53,30 @@ The app bundle is written to `.build/ClipEase.app`.
 ├── Sources/
 │   └── ClipEase/
 ├── docs/
-│   └── README.md
+│   ├── README.md
+│   ├── README_zh.md
+│   └── images/
 └── scripts/
     ├── build-app.sh
     └── bump_version.py
 ```
 
-## Documentation
+## 文档
 
-See [docs/README.md](docs/README.md) for a brief description of the public
-repository layout.
+目录结构说明见 [docs/README_zh.md](docs/README_zh.md)，也可切换到 [English](docs/README.md)。
+
+## 交流与支持
+
+欢迎扫码加入 轻贴ClipEase 交流群，反馈问题、交流使用体验或提出新功能建议：
+
+![轻贴ClipEase 交流群](docs/images/WechatQun.png)
+
+可以请我喝杯咖啡，或者随手赞赏支持一下，谢谢！
+
+![支付宝赞赏](docs/images/Alipay.jpg)
+
+![微信赞赏](docs/images/WeChat.png)
 
 ## License
 
-No license has been published for this repository yet.
+本仓库暂未发布开源许可证。
