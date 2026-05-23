@@ -56,7 +56,7 @@ required_unfiltered_branch = [
     "applyUnfilteredPreviewResult()",
     "ensureSelectionInFilteredItems()",
     "\"mode\": \"unfilteredSource\"",
-    "renderState.mark(\"filtered-items-ready count=\\(allPreviewItems.count)\")",
+    "renderState.markAndFinish(\"filtered-items-ready count=\\(allPreviewItems.count)\")",
     "restoreRememberedViewportIfNeeded()",
     "schedulePreheatVisibleAssets()",
     "return",

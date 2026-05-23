@@ -1,12 +1,27 @@
 import AppKit
 import Foundation
 
-struct CachedAppIcon {
+struct CachedAppIcon: Sendable {
     let fileName: String
     let dominantColorHex: String
 }
 
 enum AppIconCache {
+    static func cachedIconMetadata(forBundleID bundleID: String) -> CachedAppIcon? {
+        let fileName = fileName(forBundleID: bundleID)
+        guard let fileURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: fileName),
+              FileManager.default.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+
+        let dominantColor = NSImage(contentsOf: fileURL).map(dominantColorHex(from:)) ?? "#2E8CFF"
+        return CachedAppIcon(fileName: fileName, dominantColorHex: dominantColor)
+    }
+
+    static func expectedFileName(forBundleID bundleID: String) -> String {
+        fileName(forBundleID: bundleID)
+    }
+
     static func cacheIcon(for app: NSRunningApplication) -> CachedAppIcon? {
         guard let bundleID = app.bundleIdentifier,
               let icon = app.icon,
@@ -14,7 +29,7 @@ enum AppIconCache {
             return nil
         }
 
-        let fileName = "\(sanitized(bundleID)).png"
+        let fileName = fileName(forBundleID: bundleID)
         do {
             let directoryURL = try ClipEaseStoragePaths.appIconsDirectory()
             try FileManager.default.createDirectory(
@@ -51,6 +66,10 @@ enum AppIconCache {
         }
         .map(String.init)
         .joined()
+    }
+
+    private static func fileName(forBundleID bundleID: String) -> String {
+        "\(sanitized(bundleID)).png"
     }
 
     private static func dominantColorHex(from image: NSImage) -> String {

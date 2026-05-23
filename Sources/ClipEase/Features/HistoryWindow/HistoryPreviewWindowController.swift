@@ -458,19 +458,29 @@ final class HistoryPreviewWindowController {
             return
         }
 
-        renderPreviewContent(
-            panel: panel,
-            configuration: configuration,
-            isContentReady: true,
-            showsArrow: false,
-            onClose: { [weak self, weak panel] in
-                guard let panel else {
-                    return
-                }
-                self?.closeDetachedPreview(panel)
-            },
-            onDetachDrag: { nil }
-        )
+        Task { @MainActor [weak self, weak panel] in
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            guard let self,
+                  let panel,
+                  self.detachedPanels[panelID] === panel,
+                  panel.isVisible else {
+                return
+            }
+
+            self.renderPreviewContent(
+                panel: panel,
+                configuration: configuration,
+                isContentReady: true,
+                showsArrow: false,
+                onClose: { [weak self, weak panel] in
+                    guard let panel else {
+                        return
+                    }
+                    self?.closeDetachedPreview(panel)
+                },
+                onDetachDrag: { nil }
+            )
+        }
     }
 
     private func closeDetachedPreview(_ detachedPanel: NSPanel) {

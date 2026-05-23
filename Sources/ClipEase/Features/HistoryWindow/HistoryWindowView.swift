@@ -93,6 +93,8 @@ struct HistoryWindowView: View {
     @State private var shouldResetHorizontalOffsetForPendingItemScroll = false
     @State private var shouldAnimatePendingItemScroll = false
     @State private var isPreparingPendingItemScrollMeasurement = false
+    @State private var enteringItemIDs: Set<ClipboardItem.ID> = []
+    @State private var enteringItemClearTask: Task<Void, Never>?
     @State private var didRestoreRememberedViewport = false
     @State private var itemScrollRequestID = UUID()
     @State private var searchInteractionFrames: [CGRect] = []
@@ -508,16 +510,17 @@ struct HistoryWindowView: View {
             cancelPendingGroupRename()
             closeInactiveSearchBeforeHiding()
             deferredStartupTask?.cancel()
-        previewBuildTask?.cancel()
-        previewBuildGeneration &+= 1
-        searchTask?.cancel()
-        searchVisibilityTask?.cancel()
-        preheatTask?.cancel()
-        previewFollowTask?.cancel()
-        rememberSelectedItemTask?.cancel()
-        latestFocusRetryTask?.cancel()
-        hiddenResourceCheckpointTask?.cancel()
-        HistoryScrollCoordinator.shared.onOffsetChange = nil
+            previewBuildTask?.cancel()
+            previewBuildGeneration &+= 1
+            searchTask?.cancel()
+            searchVisibilityTask?.cancel()
+            preheatTask?.cancel()
+            previewFollowTask?.cancel()
+            rememberSelectedItemTask?.cancel()
+            latestFocusRetryTask?.cancel()
+            hiddenResourceCheckpointTask?.cancel()
+            enteringItemClearTask?.cancel()
+            HistoryScrollCoordinator.shared.onOffsetChange = nil
         }
         .onChange(of: store.items) { newItems in
             syncLatestItemFocusIfNeeded(sourceItems: newItems)
@@ -672,7 +675,7 @@ struct HistoryWindowView: View {
             searchQuery: searchText,
             shortcutNumber: shortcutNumber(for: item.id),
             isShortcutOverlayVisible: isCommandKeyPressed || inputState.isCommandKeyPressed,
-            entranceOffset: 0,
+            entranceOffset: enteringItemIDs.contains(item.id) ? -10 : 0,
             onClick: {
                 selectCardForPrimaryClick(item)
             },
@@ -708,6 +711,26 @@ struct HistoryWindowView: View {
         .id(item.id)
         .contentShape(Rectangle())
         .zIndex(isSelected ? 1 : 0)
+    }
+
+    private func playEntranceAnimation(for ids: Set<ClipboardItem.ID>) {
+        guard !ids.isEmpty else {
+            return
+        }
+
+        enteringItemClearTask?.cancel()
+        enteringItemIDs.formUnion(ids)
+        enteringItemClearTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            withAnimation(.easeOut(duration: 0.16)) {
+                enteringItemIDs.subtract(ids)
+            }
+            enteringItemClearTask = nil
+        }
     }
 
     @ViewBuilder
@@ -4489,6 +4512,15 @@ struct HistoryWindowView: View {
                 }
                 let previewItemsForSearch: [HistoryPreviewItem]
                 let sourceAppSnapshot = rebuildResult.sourceAppSnapshot
+                let insertedEntranceIDs: Set<ClipboardItem.ID>
+                switch rebuildResult {
+                case .prepend(let insertedItems, _, _, _, _)
+                    where inputState.isWindowPresentedSnapshot && shouldAnimateRebuild:
+                    insertedEntranceIDs = Set(insertedItems.map(\.id))
+                default:
+                    insertedEntranceIDs = []
+                }
+
                 withTransaction(transaction) {
                     switch rebuildResult {
                     case .full(let previewItems, let nextCache, _, _, _):
@@ -4498,6 +4530,9 @@ struct HistoryWindowView: View {
                         previewItemCache = nextCache
                         allPreviewItems.insert(contentsOf: insertedItems, at: 0)
                     }
+                }
+                if !insertedEntranceIDs.isEmpty {
+                    playEntranceAnimation(for: insertedEntranceIDs)
                 }
                 previewItemsForSearch = allPreviewItems
                 if sourceAppFilterOptions != sourceAppSnapshot.options {
@@ -4630,7 +4665,7 @@ struct HistoryWindowView: View {
                     "trigger": currentSearchTrigger
                 ]
             )
-            renderState.mark("filtered-items-ready count=\(allPreviewItems.count)")
+            renderState.markAndFinish("filtered-items-ready count=\(allPreviewItems.count)")
             let followupStartedAt = CFAbsoluteTimeGetCurrent()
             restoreRememberedViewportIfNeeded()
             fulfillPendingLatestFocusIfPossible()
@@ -4742,7 +4777,7 @@ struct HistoryWindowView: View {
                         "trigger": currentSearchTrigger
                     ]
                 )
-                renderState.mark("filtered-items-ready count=\(result.items.count)")
+                renderState.markAndFinish("filtered-items-ready count=\(result.items.count)")
                 let followupStartedAt = CFAbsoluteTimeGetCurrent()
                 restoreRememberedViewportIfNeeded()
                 fulfillPendingLatestFocusIfPossible()

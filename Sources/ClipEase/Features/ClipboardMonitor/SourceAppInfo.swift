@@ -36,7 +36,7 @@ struct SourceAppInfo: Sendable {
             name: app.localizedName ?? "未知应用",
             bundleID: app.bundleIdentifier,
             iconName: iconName(for: app.bundleIdentifier),
-            iconFileName: nil,
+            iconFileName: app.bundleIdentifier.map(AppIconCache.expectedFileName(forBundleID:)),
             headerColorHex: headerColorHex(for: app.bundleIdentifier)
         )
     }
