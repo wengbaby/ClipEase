@@ -59,6 +59,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func toggle() {
+        guard accessibilityPermissionState.refresh() else {
+            appMenuController.showPermissionGuide()
+            return
+        }
+
         if let panel, panel.isVisible {
             close()
             return
@@ -68,6 +73,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        guard accessibilityPermissionState.refresh() else {
+            appMenuController.showPermissionGuide()
+            return
+        }
+
         captureFrontmostApplicationIfNeeded()
         let panel = panel ?? makePanel()
         self.panel = panel

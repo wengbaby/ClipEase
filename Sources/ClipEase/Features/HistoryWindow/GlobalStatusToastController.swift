@@ -9,7 +9,7 @@ final class GlobalStatusToastController {
     private let fadeInDuration: TimeInterval = 0.12
     private let fadeOutDuration: TimeInterval = 0.28
     private let toastSize = NSSize(width: 200, height: 200)
-    private let topMargin: CGFloat = 56
+    private let fallbackHistoryPanelHeight: CGFloat = 360
     private var panel: NSPanel?
     private var generation: UInt64 = 0
     private var lastHistoryWindowFrame: NSRect?
@@ -94,20 +94,30 @@ final class GlobalStatusToastController {
         }
 
         if let parentFrame = lastHistoryWindowFrame {
-            let visibleFrame = screenVisibleFrame(for: lastHistoryWindowScreen ?? parentWindow?.screen)
-            let origin = NSPoint(
-                x: parentFrame.midX - toastSize.width / 2,
-                y: min(parentFrame.maxY + 14, visibleFrame.maxY - toastSize.height - 8)
-            )
-            return NSRect(origin: origin, size: toastSize)
+            return frame(overHistoryFrame: parentFrame, screen: lastHistoryWindowScreen ?? parentWindow?.screen)
         }
 
-        let screenFrame = screenVisibleFrame(for: NSScreen.main)
+        let fallbackScreen = parentWindow?.screen ?? NSScreen.clipeaseScreenContainingMouse ?? NSScreen.main
+        return frame(overHistoryFrame: fallbackHistoryFrame(for: fallbackScreen), screen: fallbackScreen)
+    }
+
+    private func frame(overHistoryFrame historyFrame: NSRect, screen: NSScreen?) -> NSRect {
+        let visibleFrame = screenVisibleFrame(for: screen)
         let origin = NSPoint(
-            x: screenFrame.midX - toastSize.width / 2,
-            y: screenFrame.maxY - toastSize.height - topMargin
+            x: historyFrame.midX - toastSize.width / 2,
+            y: min(historyFrame.maxY + 14, visibleFrame.maxY - toastSize.height - 8)
         )
         return NSRect(origin: origin, size: toastSize)
+    }
+
+    private func fallbackHistoryFrame(for screen: NSScreen?) -> NSRect {
+        let screenFrame = screen?.frame ?? NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 800, height: 600)
+        return NSRect(
+            x: screenFrame.minX,
+            y: screenFrame.minY,
+            width: screenFrame.width,
+            height: fallbackHistoryPanelHeight
+        )
     }
 
     private func screenVisibleFrame(for screen: NSScreen?) -> NSRect {

@@ -12,6 +12,7 @@ final class AppMenuController: NSObject {
     private var richTextEditorControllers: [RichTextEditorController] = []
     private var settingsWindowController: SettingsWindowController?
     private var helpWindowController: HelpWindowController?
+    private var permissionGuideWindowController: AccessibilityPermissionGuideWindowController?
     private weak var historyWindowController: HistoryWindowController?
     private var statusToastAnchorWindow: NSWindow?
 
@@ -43,13 +44,14 @@ final class AppMenuController: NSObject {
     }
 
     private func closeHistoryWindowIfNeeded() {
-        historyWindowController?.close()
+        historyWindowController?.hideImmediatelyForAutoPaste()
     }
 
     func createTextItem(
         defaultGroupID: ClipboardGroup.ID? = nil,
         onCreated: ((ClipboardItem) -> Void)? = nil
     ) {
+        closeHistoryWindowIfNeeded()
         let editorController = RichTextEditorController(
             groups: historyStore.groups,
             selectedGroupID: defaultGroupID
@@ -145,6 +147,20 @@ final class AppMenuController: NSObject {
         settingsWindowController.show()
     }
 
+    func showPermissionGuide() {
+        closeHistoryWindowIfNeeded()
+        accessibilityPermissionState.refresh()
+        if accessibilityPermissionState.isTrusted {
+            return
+        }
+
+        let permissionGuideWindowController = permissionGuideWindowController ?? AccessibilityPermissionGuideWindowController(
+            permissionState: accessibilityPermissionState
+        )
+        self.permissionGuideWindowController = permissionGuideWindowController
+        permissionGuideWindowController.show()
+    }
+
     func pauseRecording() {
         closeHistoryWindowIfNeeded()
         recordingController.setPaused(true)
@@ -224,6 +240,7 @@ final class AppMenuController: NSObject {
     }
 
     func makeStatusBarMenu() -> NSMenu {
+        closeHistoryWindowIfNeeded()
         let menu = NSMenu()
         menu.addItem(makeItem(HistoryCommand.newText.title, action: #selector(newTextAction)))
         menu.addItem(.separator())

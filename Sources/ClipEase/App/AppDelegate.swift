@@ -71,6 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardMonitor.start()
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 700_000_000)
+            if !accessibilityPermissionState.refresh() {
+                appMenuController.showPermissionGuide()
+                return
+            }
             historyWindowController.preloadHistoryDataAfterLaunch()
         }
 

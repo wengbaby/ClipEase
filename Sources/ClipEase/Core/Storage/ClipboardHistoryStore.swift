@@ -78,9 +78,13 @@ final class ClipboardHistoryStore: ObservableObject {
         self.persistence = persistence
         self.saveWriter = ClipboardHistorySaveWriter(persistence: persistence)
         self.userDefaults = userDefaults
-        self.retentionPolicy = HistoryRetentionPolicy(
-            rawValue: userDefaults.integer(forKey: Self.retentionPolicyKey)
-        ) ?? .forever
+        if userDefaults.object(forKey: Self.retentionPolicyKey) == nil {
+            self.retentionPolicy = .sevenDays
+        } else {
+            self.retentionPolicy = HistoryRetentionPolicy(
+                rawValue: userDefaults.integer(forKey: Self.retentionPolicyKey)
+            ) ?? .sevenDays
+        }
         let loadStartedAt = CFAbsoluteTimeGetCurrent()
         let snapshot = persistence.loadSnapshot(itemLimit: Self.startupItemPageSize)
         PerformanceDiagnosticsService.shared.record(
