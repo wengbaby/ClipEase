@@ -123,6 +123,7 @@ struct HistoryWindowView: View {
     private let previewItemCacheRetainedItemCount = 320
     private let maxSearchResultCount = 500
     private let hiddenResourceCheckpointMinimumInterval: CFTimeInterval = 10
+    private let latestInsertedCardLeadingInset: CGFloat = 28
 
     private var items: [HistoryPreviewItem] {
         allPreviewItems
@@ -3584,17 +3585,17 @@ struct HistoryWindowView: View {
             width: historyCardWidth,
             height: 270
         )
-        let preferredOffset = frame.minX - focusedItemLeadingX(
-            for: id,
-            frame: frame,
-            forceEdgePeekAlignment: true
-        )
+        let preferredOffset = latestInsertedCardPreferredOffset(frame: frame)
         return targetScrollOffsetForFocusedFrame(
             id: id,
             frame: frame,
             visibleWidth: HistoryScrollCoordinator.shared.visibleDocumentRect?.width,
             preferredOffset: preferredOffset
         )
+    }
+
+    private func latestInsertedCardPreferredOffset(frame: CGRect) -> CGFloat {
+        max(0, frame.minX - latestInsertedCardLeadingInset)
     }
 
     private func targetScrollOffsetForFocusedItem(
@@ -3717,7 +3718,7 @@ struct HistoryWindowView: View {
         }
 
         if isFirstRenderedItem(id) {
-            return 0
+            return max(0, preferredOffset)
         }
 
         let nextPeekOffset = frame.maxX + edgeRevealTrailingX(for: id, frame: frame) - visibleWidth
@@ -3868,12 +3869,18 @@ struct HistoryWindowView: View {
     }
 
     private func resetVisibleRailWindowForLatestFocus(_ id: HistoryPreviewItem.ID) {
-        guard let targetOffset = programmaticJumpTargetOffset(for: id) else {
+        guard programmaticJumpTargetOffset(for: id) != nil else {
             return
         }
 
+        let focusedIndex = filteredItemIndex(for: id) ?? 0
         cardRailVisibleRect = CGRect(
-            x: targetOffset,
+            x: latestInsertedCardPreferredOffset(frame: CGRect(
+                x: horizontalContentPadding + CGFloat(focusedIndex) * itemStride,
+                y: 0,
+                width: historyCardWidth,
+                height: 270
+            )),
             y: cardRailVisibleRect.minY,
             width: max(cardRailVisibleRect.width, 1),
             height: cardRailVisibleRect.height
@@ -4635,6 +4642,7 @@ struct HistoryWindowView: View {
             searchText: currentSearchText,
             criteria: currentSearchCriteria
         )
+        let searchStore = store
         guard requestSignature != lastSearchRequestSignature else {
             return
         }
@@ -4707,15 +4715,41 @@ struct HistoryWindowView: View {
             PerformanceDiagnosticsService.shared.recordResourceCheckpoint("search.filter.start")
 
             let filterStartedAt = CFAbsoluteTimeGetCurrent()
-            let filterTask = Task.detached(priority: .userInitiated) {
-                let filteredItems = try Self.filterItems(
-                    sourceItems,
-                    selectedGroup: currentGroup,
-                    searchText: currentSearchText,
-                    criteria: currentSearchCriteria,
-                    maxResultCount: maxResultCount,
-                    now: Date()
+            let repositorySearchTask = Task.detached(priority: .userInitiated) {
+                searchStore.searchItems(
+                    ClipboardSearchQuery(
+                        text: currentSearchText,
+                        limit: maxResultCount ?? maxSearchResultCount
+                    )
                 )
+            }
+            let filterTask = Task.detached(priority: .userInitiated) {
+                let repositoryItems = await repositorySearchTask.value
+                let repositoryPreviewItems = repositoryItems.map { item in
+                    HistoryPreviewItem(item: item)
+                }
+                let sourceByID = Dictionary(uniqueKeysWithValues: sourceItems.map { ($0.id, $0) })
+                let mergedSourceItems = repositoryPreviewItems.map { sourceByID[$0.id] ?? $0 }
+                let filteredItems: [HistoryPreviewItem]
+                if mergedSourceItems.isEmpty {
+                    filteredItems = try Self.filterItems(
+                        sourceItems,
+                        selectedGroup: currentGroup,
+                        searchText: currentSearchText,
+                        criteria: currentSearchCriteria,
+                        maxResultCount: maxResultCount,
+                        now: Date()
+                    )
+                } else {
+                    filteredItems = try Self.filterItems(
+                        mergedSourceItems,
+                        selectedGroup: currentGroup,
+                        searchText: currentSearchText,
+                        criteria: currentSearchCriteria,
+                        maxResultCount: maxResultCount,
+                        now: Date()
+                    )
+                }
                 return HistorySearchFilterResult(items: filteredItems)
             }
 
@@ -4724,6 +4758,7 @@ struct HistoryWindowView: View {
                 result = try await withTaskCancellationHandler {
                     try await filterTask.value
                 } onCancel: {
+                    repositorySearchTask.cancel()
                     filterTask.cancel()
                 }
             } catch is CancellationError {
@@ -4768,6 +4803,7 @@ struct HistoryWindowView: View {
                     metadata: [
                         "queryLength": "\(currentSearchText.count)",
                         "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                        "mode": "sqliteFTS",
                         "trigger": currentSearchTrigger
                     ]
                 )
@@ -4780,6 +4816,7 @@ struct HistoryWindowView: View {
                     metadata: [
                         "queryLength": "\(currentSearchText.count)",
                         "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                        "mode": "sqliteFTS",
                         "animated": "\(shouldAnimateResults)",
                         "trigger": currentSearchTrigger
                     ]

@@ -68,6 +68,23 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         }
     }
 
+    func prepareSearchIndex() {
+        do {
+            try repository.prepareSearchIndex()
+        } catch {
+            NSLog("ClipEase failed to prepare clipboard search index: \(error.localizedDescription)")
+        }
+    }
+
+    func searchItems(_ query: ClipboardSearchQuery) -> [ClipboardItem] {
+        do {
+            return try repository.searchItems(query)
+        } catch {
+            NSLog("ClipEase failed to search clipboard history: \(error.localizedDescription)")
+            return []
+        }
+    }
+
     func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) {
         do {
             try saveSnapshotOrThrow(snapshot)

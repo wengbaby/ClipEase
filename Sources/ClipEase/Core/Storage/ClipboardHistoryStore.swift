@@ -61,6 +61,7 @@ final class ClipboardHistoryStore: ObservableObject {
     private var isLoadingNextPage = false
     private var didLoadAllPersistedItems = false
     private var pagedLoadTask: Task<Void, Never>?
+    private var searchIndexWarmupTask: Task<Void, Never>?
 
     var debugTextItemCount: Int {
         items.lazy.filter(Self.isDebugTextItem).count
@@ -127,6 +128,7 @@ final class ClipboardHistoryStore: ObservableObject {
         )
         itemsMutationGeneration = 1
         scheduleInitialBackgroundPageLoadIfNeeded()
+        scheduleSearchIndexWarmup()
     }
 
     func addText(_ text: String, sourceApp: SourceAppInfo) {
@@ -272,6 +274,47 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         loadNextItemPage(reason: "visibleWindow")
+    }
+
+    nonisolated func searchItems(_ query: ClipboardSearchQuery) -> [ClipboardItem] {
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        let items = persistence.searchItems(query)
+        let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+        Task { @MainActor in
+            PerformanceDiagnosticsService.shared.record(
+                "history.store.searchAll",
+                category: "search",
+                durationMS: durationMS,
+                resultCount: items.count,
+                metadata: [
+                    "queryLength": "\(query.text.count)",
+                    "limit": "\(query.limit)"
+                ]
+            )
+        }
+        return items
+    }
+
+    private func scheduleSearchIndexWarmup() {
+        searchIndexWarmupTask?.cancel()
+        let persistence = persistence
+        searchIndexWarmupTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let startedAt = CFAbsoluteTimeGetCurrent()
+            persistence.prepareSearchIndex()
+            let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+            await MainActor.run {
+                PerformanceDiagnosticsService.shared.record(
+                    "history.store.searchIndexWarmup",
+                    category: "search",
+                    durationMS: durationMS
+                )
+            }
+        }
     }
 
     func deleteItem(with id: ClipboardItem.ID?) {

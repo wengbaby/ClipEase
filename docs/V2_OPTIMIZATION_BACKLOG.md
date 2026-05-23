@@ -23,6 +23,39 @@
 ## Backlog 条目
 
 ```text
+优化任务 ID：V2-OPT-100K-HISTORY-FTS5-SEARCH-LEFT-INSET-001
+来源任务卡：用户继续要求完成 10 万+ 性能优化，并修复新增卡片左侧贴边问题
+来源 Agent：Codex
+风险等级：中
+问题描述：
+- 分页启动后，非空搜索仍只能覆盖已加载 preview 数据；10 万+ 历史下需要数据库级 top N 搜索，不能每次输入对所有 item 重新构造搜索文本。
+- 旧数据库如果在启动时同步全量补建搜索索引，会重新把首屏加载拖慢。
+- 用户补充反馈：滚轮切换卡片并选中后，新增内容快速调出窗口时，新卡片定位需要计算左侧留白，不能顶到屏幕边缘。
+已实施方案：
+- 新增 `ClipboardSearchQuery` 和 Repository/Persistence/Store 搜索接口。
+- `SQLiteClipboardStore` 新增 `clipboard_items_fts` FTS5 虚拟表与 `clipboard_search_index_state`。
+- 非空搜索使用 SQLite FTS5，按 `rank + pinned + created_at` 取 top N ID，再加载这些 ID 的完整 item；空搜索仍走 unfilteredSource 快路径。
+- 新增/更新 item 增量写 FTS；单删、删分组、全量替换、清空同步维护 FTS。
+- 启动后使用 utility 后台任务执行 `history.store.searchIndexWarmup` 分批补建旧数据索引；建表路径不做同步全量补建，避免首屏阻塞。
+- 最新插入卡片定位改为 `max(0, frame.minX - latestInsertedCardLeadingInset)`，首张新卡片保留 28pt 左侧间距。
+- 新增守卫脚本 `scripts/verify_sqlite_fts_search_guards.py`、`scripts/verify_latest_card_left_padding_guards.py`。
+验证方式：
+- `python3 scripts/verify_sqlite_fts_search_guards.py` 通过。
+- `python3 scripts/verify_latest_card_left_padding_guards.py` 通过。
+- `swift build` 通过。
+- `./scripts/build-app.sh --bump patch --run` 通过，最终运行 `2.3.38 (260523.2338)`。
+- 最终日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_23-39-11.jsonl`：`history.store.loadStartupPage` 约 `4.83ms`，`history.store.initialize` 约 `5.21ms`，`history.store.searchIndexWarmup` 约 `2.65ms`，启动后周期主线程采样约 `0.21ms - 0.36ms`。
+行为影响：
+- 搜索结果保持 top `500`，避免一次性刷新 10 万条 UI。
+- 首次旧库索引补建在后台执行；搜索路径也会兜底准备索引。
+- UI 可见变化仅为最新插入卡片保留左侧间距。
+剩余问题：
+- FTS 当前主要索引轻量文本字段；历史旧数据的文件名/OCR 深字段在首次轻量补建中不主动读取，新增/更新后的记录会写入完整搜索文本。
+- `swift test` 当前无 Tests target，只能依赖守卫脚本、编译、运行和 PerformanceLogs。
+是否阻塞当前阶段：否；已作为 10 万+ 搜索与新增定位的低风险阶段落地。
+```
+
+```text
 优化任务 ID：V2-OPT-100K-HISTORY-PAGED-STARTUP-DELETE-001
 来源任务卡：用户要求全部做完后再验证 / PerformanceLogs 2026-05-23
 来源 Agent：Codex
