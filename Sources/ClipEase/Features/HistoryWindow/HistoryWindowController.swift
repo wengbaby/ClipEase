@@ -460,6 +460,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        store.skipNextClipboardText(text)
         store.addText(text, sourceApp: .clipease)
         ClipEaseSoundPlayer.shared.playCopyFeedback()
     }
@@ -493,6 +494,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let pathsText = paths.joined(separator: "\n")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(pathsText, forType: .string)
+        store.skipNextClipboardText(pathsText)
         store.addText(pathsText, sourceApp: .clipease)
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")

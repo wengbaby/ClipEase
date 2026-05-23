@@ -3963,6 +3963,7 @@ struct HistoryWindowView: View {
     }
 
     private func addClipEaseTextCard(_ text: String) {
+        store.skipNextClipboardText(text)
         store.addText(text, sourceApp: .clipease)
     }
 
