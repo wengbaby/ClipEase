@@ -25,7 +25,7 @@
 - DMG 挂载结构验收：PASS，根目录包含 `ClipEase.app` 和 `Applications` 快捷入口，`ClipEase.app` 版本为 `2.3.2 (260523.0437)`，可执行文件存在且有执行权限
 - DMG 内 App 启动验收：PASS，从只读挂载卷启动 `ClipEase.app --show-settings`，进程正常存活，System Events 可见进程 `ClipEase` 和 1 个设置窗口；验收后已关闭 release App、卸载 DMG，并恢复开发包运行
 - `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.3.2 (260523.0437)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前恢复运行 PID `27313`
-- GitHub 推送：待最终确认后执行
+- GitHub 推送：最终冻结提交推送到 `origin/main` 后，以远端 `main` 最新提交为准
 
 ## 手动回归
 
@@ -52,12 +52,12 @@
 - 当前运行进程：PID `27313`
 - 当前 DMG：`dist/ClipEase-2.3.2-260523.0437.dmg`
 - 当前 DMG SHA-256：`e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
-- 当前 Git 提交：`55592e2 docs: record v2 dmg validation`
+- 冻结基线提交：`912cbb1 docs: freeze v2 release candidate`；后续文档提交和推送状态以 `git log -1 --oneline` 与远端 `main` 为准
 - 当前状态：V2 发布候选冻结；不再新增功能，只接受阻塞 bug、崩溃和发布包风险修复。后续如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
-- `2.3.2(260523.0437)`：V2 发布候选冻结记录对齐。RC 报告已更新到最新提交 `55592e2` 和当前恢复运行 PID `27313`；发布状态改为冻结，不再新增 V2 功能，只接受阻塞 bug、崩溃和发布包风险修复。
+- `2.3.2(260523.0437)`：V2 发布候选冻结记录对齐。RC 报告已更新到冻结基线提交 `912cbb1` 和当前恢复运行 PID `27313`；发布状态改为冻结，不再新增 V2 功能，只接受阻塞 bug、崩溃和发布包风险修复。为避免报告提交后哈希自引用过期，最终提交和推送状态以 `git log -1 --oneline` 与远端 `main` 为准。
 - `2.3.2(260523.0437)`：DMG 发布包验收。`hdiutil verify` 通过，DMG 内包含 `ClipEase.app` 和 `Applications` 快捷入口；从 DMG 只读挂载卷启动 App，版本 / 构建号正确，进程正常存活，设置窗口可见。曾尝试用临时 `HOME` 做剪贴板捕获写入验收，但 macOS App 的 Application Support 路径未被该方式隔离，测试文本进入真实历史；已备份真实 SQLite，仅删除精确匹配测试记录 `131202DC-E5F3-4EA1-9F34-F3E7AC5B6CCD`，删除后匹配数为 0，并恢复开发包运行。因此本轮正式验收证据只采用 DMG 结构、版本、启动和窗口可见性。
 - `2.3.2(260523.0437)`：第二版发布准备收尾。发布说明和发布候选流程已从第一版口径更新为 V2 口径，明确当前 RC、无 iCloud 同步、文件预览限制、版本规则、最终 gate 和 DMG 打包流程；新增 `scripts/final_release_gate.py`，基于当前已构建 `.app` 执行非编译型最终发布门禁；新增 `scripts/build-dmg.sh`，从当前 `.build/ClipEase.app` 打包 `dist/ClipEase-2.3.2-260523.0437.dmg` 并输出 SHA-256。本轮只改发布文档 / 发布脚本 / 守卫脚本，未改 App 运行代码，未触发新的 build/run。
 - `2.3.2(260523.0437)`：发布前帮助与设置页 polish。帮助窗口文案压缩为用户常用操作，去除冗长实现说明；设置页保存期限改为自定义按钮组，当前选中项统一蓝色背景和白色文字；新增 `scripts/verify_help_and_retention_polish.py` 防止帮助文案和保存期限选中态回归。已执行 build/run，当前运行进程为 PID `87202`。
