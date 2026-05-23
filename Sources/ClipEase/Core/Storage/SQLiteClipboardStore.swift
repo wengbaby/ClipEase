@@ -5,6 +5,11 @@ private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self
 
 struct SQLiteClipboardStore: ClipboardHistoryRepository {
     static let currentSchemaVersion = 4
+    private static let defaultItemOrderSQL = """
+        clipboard_items.is_pinned DESC,
+        clipboard_items.created_at DESC,
+        COALESCE(clipboard_items.pinned_at, clipboard_items.created_at) DESC
+        """
 
     let databaseURL: URL
     private let fileManager: FileManager
@@ -115,49 +120,103 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                 continue
             }
 
-            let assets = assetsByItemID[id] ?? []
-            let fileReferences = fileReferencesByItemID[id] ?? []
-            let imageAsset = assets.first { $0.type == "image" }
-            let richTextAsset = assets.first { $0.type == "rich_text" }
-
-            let groupInfo = groupedItems[id]
-            let ocrResult = ocrResultsByItemID[id]
             items.append(
-                ClipboardItem(
+                makeItem(
+                    from: row,
                     id: id,
-                    type: ClipboardItemType(rawValue: row.requiredText("type")) ?? .text,
-                    text: row.requiredText("plain_text"),
-                    url: row.optionalText("url").flatMap(URL.init(string:)),
-                    linkTitle: row.optionalText("link_title"),
-                    linkSubtitle: row.optionalText("link_subtitle"),
-                    imageFileName: imageAsset?.fileName,
-                    imageWidth: imageAsset?.width,
-                    imageHeight: imageAsset?.height,
-                    imageHash: row.optionalText("content_hash"),
-                    richTextFileName: richTextAsset?.fileName,
-                    fileReferences: fileReferences,
-                    createdAt: Date(timeIntervalSince1970: row.requiredDouble("created_at")),
-                    sourceAppName: row.requiredText("source_app_name"),
-                    sourceBundleID: row.optionalText("source_bundle_id"),
-                    iconName: row.requiredText("source_icon_name"),
-                    iconFileName: row.optionalText("source_icon_file_name"),
-                    headerColorHex: row.requiredText("header_color"),
-                    isPinned: row.requiredBool("is_pinned"),
-                    pinnedAt: row.optionalDouble("pinned_at").map(Date.init(timeIntervalSince1970:)),
-                    groupID: groupInfo?.groupID,
-                    groupedAt: groupInfo?.createdAt,
-                    ocrStatus: ocrResult?.status ?? .none,
-                    ocrText: ocrResult?.text ?? "",
-                    ocrEmails: ocrResult?.emails ?? [],
-                    ocrPhoneNumbers: ocrResult?.phoneNumbers ?? [],
-                    ocrURLs: ocrResult?.urls ?? [],
-                    ocrTextRegions: ocrResult?.textRegions ?? [],
-                    ocrUpdatedAt: ocrResult?.updatedAt
+                    assets: assetsByItemID[id] ?? [],
+                    fileReferences: fileReferencesByItemID[id] ?? [],
+                    groupInfo: groupedItems[id],
+                    ocrResult: ocrResultsByItemID[id]
                 )
             )
         }
 
         return ClipboardHistorySnapshot(items: items, groups: groups)
+    }
+
+    func loadItems(limit: Int, offset: Int) throws -> [ClipboardItem] {
+        guard limit > 0 else {
+            return []
+        }
+
+        try createParentDirectory()
+        try resetLegacyDatabaseIfNeeded()
+        let database = try SQLiteDatabase(url: databaseURL)
+        defer { database.close() }
+
+        try database.execute("PRAGMA foreign_keys = ON")
+        try createSchema(in: database)
+        try recordSchemaVersion(in: database)
+
+        return try loadItems(
+            in: database,
+            whereSQL: "clipboard_items.is_deleted = 0",
+            values: [],
+            orderSQL: Self.defaultItemOrderSQL,
+            limit: limit,
+            offset: max(0, offset)
+        )
+    }
+
+    func loadSnapshot(itemLimit: Int, offset: Int) throws -> ClipboardHistorySnapshot {
+        guard itemLimit > 0 else {
+            try createParentDirectory()
+            try resetLegacyDatabaseIfNeeded()
+            let database = try SQLiteDatabase(url: databaseURL)
+            defer { database.close() }
+            try database.execute("PRAGMA foreign_keys = ON")
+            try createSchema(in: database)
+            try recordSchemaVersion(in: database)
+            return ClipboardHistorySnapshot(items: [], groups: try loadGroups(in: database))
+        }
+
+        try createParentDirectory()
+        try resetLegacyDatabaseIfNeeded()
+        let database = try SQLiteDatabase(url: databaseURL)
+        defer { database.close() }
+
+        try database.execute("PRAGMA foreign_keys = ON")
+        try createSchema(in: database)
+        try recordSchemaVersion(in: database)
+
+        let groups = try loadGroups(in: database)
+        let items = try loadItems(
+            in: database,
+            whereSQL: "clipboard_items.is_deleted = 0",
+            values: [],
+            orderSQL: Self.defaultItemOrderSQL,
+            limit: itemLimit,
+            offset: max(0, offset)
+        )
+        return ClipboardHistorySnapshot(items: items, groups: groups)
+    }
+
+    func loadItems(contentHash: String, sourceBundleID: String?) throws -> [ClipboardItem] {
+        try createParentDirectory()
+        try resetLegacyDatabaseIfNeeded()
+        let database = try SQLiteDatabase(url: databaseURL)
+        defer { database.close() }
+
+        try database.execute("PRAGMA foreign_keys = ON")
+        try createSchema(in: database)
+        try recordSchemaVersion(in: database)
+
+        let sourcePredicate: String
+        var values: [SQLiteValue] = [.text(contentHash)]
+        if let sourceBundleID {
+            sourcePredicate = "clipboard_items.source_bundle_id = ?"
+            values.append(.text(sourceBundleID))
+        } else {
+            sourcePredicate = "clipboard_items.source_bundle_id IS NULL"
+        }
+
+        return try loadItems(
+            in: database,
+            whereSQL: "clipboard_items.is_deleted = 0 AND clipboard_items.content_hash = ? AND \(sourcePredicate)",
+            values: values,
+            orderSQL: Self.defaultItemOrderSQL
+        )
     }
 
     func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) throws {
@@ -182,6 +241,57 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             if item.groupID != nil {
                 try insertGroupItem(for: item, in: database)
             }
+            try database.execute("COMMIT")
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    func deleteItems(with ids: Set<ClipboardItem.ID>, deletingGroups groupIDs: Set<ClipboardGroup.ID>) throws {
+        guard !ids.isEmpty || !groupIDs.isEmpty else {
+            return
+        }
+
+        try createParentDirectory()
+        try resetLegacyDatabaseIfNeeded()
+        let database = try SQLiteDatabase(url: databaseURL)
+        defer { database.close() }
+
+        try database.execute("PRAGMA foreign_keys = ON")
+        try createSchema(in: database)
+        try recordSchemaVersion(in: database)
+        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+
+        do {
+            try deleteItems(with: ids, in: database)
+            try deleteItems(inGroups: groupIDs, in: database)
+            try deleteGroups(with: groupIDs, in: database)
+            try database.execute("COMMIT")
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    func deleteAllItemsAndGroups() throws {
+        try createParentDirectory()
+        try resetLegacyDatabaseIfNeeded()
+        let database = try SQLiteDatabase(url: databaseURL)
+        defer { database.close() }
+
+        try database.execute("PRAGMA foreign_keys = ON")
+        try createSchema(in: database)
+        try recordSchemaVersion(in: database)
+        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+
+        do {
+            try database.execute("DELETE FROM group_items")
+            try database.execute("DELETE FROM groups")
+            try database.execute("DELETE FROM item_ocr_results")
+            try database.execute("DELETE FROM item_assets")
+            try database.execute("DELETE FROM clipboard_item_files")
+            try database.execute("DELETE FROM clipboard_items")
             try database.execute("COMMIT")
         } catch {
             try? database.execute("ROLLBACK")
@@ -421,6 +531,108 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         return results
     }
 
+    private func loadItems(
+        in database: SQLiteDatabase,
+        whereSQL: String,
+        values: [SQLiteValue],
+        orderSQL: String,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [ClipboardItem] {
+        var queryValues = values
+        var limitSQL = ""
+        if let limit {
+            limitSQL = "LIMIT ? OFFSET ?"
+            queryValues.append(.int(max(0, limit)))
+            queryValues.append(.int(max(0, offset)))
+        }
+
+        let rows = try database.query(
+            """
+            SELECT
+                id, type, plain_text, url, link_title, link_subtitle,
+                source_app_name, source_bundle_id, source_icon_name, source_icon_file_name,
+                header_color, created_at, pinned_at, is_pinned, content_hash
+            FROM clipboard_items
+            WHERE \(whereSQL)
+            ORDER BY \(orderSQL)
+            \(limitSQL)
+            """,
+            values: queryValues
+        )
+        let ids = rows.compactMap { UUID(uuidString: $0.requiredText("id")) }
+        let idSet = Set(ids)
+        let assetsByItemID = try loadAssetsByItemID(for: idSet, in: database)
+        let fileReferencesByItemID = try loadFileReferencesByItemID(for: idSet, in: database)
+        let ocrResultsByItemID = try loadOCRResultsByItemID(for: idSet, in: database)
+        let groupedItems = try loadGroupedItems(for: idSet, in: database)
+
+        var items: [ClipboardItem] = []
+        items.reserveCapacity(rows.count)
+        for row in rows {
+            guard let id = UUID(uuidString: row.requiredText("id")) else {
+                continue
+            }
+
+            items.append(
+                makeItem(
+                    from: row,
+                    id: id,
+                    assets: assetsByItemID[id] ?? [],
+                    fileReferences: fileReferencesByItemID[id] ?? [],
+                    groupInfo: groupedItems[id],
+                    ocrResult: ocrResultsByItemID[id]
+                )
+            )
+        }
+
+        return items
+    }
+
+    private func makeItem(
+        from row: SQLiteRow,
+        id: UUID,
+        assets: [SQLiteAssetRow],
+        fileReferences: [ClipboardFileReference],
+        groupInfo: SQLiteGroupItemRow?,
+        ocrResult: SQLiteOCRResultRow?
+    ) -> ClipboardItem {
+        let imageAsset = assets.first { $0.type == "image" }
+        let richTextAsset = assets.first { $0.type == "rich_text" }
+
+        return ClipboardItem(
+            id: id,
+            type: ClipboardItemType(rawValue: row.requiredText("type")) ?? .text,
+            text: row.requiredText("plain_text"),
+            url: row.optionalText("url").flatMap(URL.init(string:)),
+            linkTitle: row.optionalText("link_title"),
+            linkSubtitle: row.optionalText("link_subtitle"),
+            imageFileName: imageAsset?.fileName,
+            imageWidth: imageAsset?.width,
+            imageHeight: imageAsset?.height,
+            imageHash: row.optionalText("content_hash"),
+            richTextFileName: richTextAsset?.fileName,
+            fileReferences: fileReferences,
+            createdAt: Date(timeIntervalSince1970: row.requiredDouble("created_at")),
+            sourceAppName: row.requiredText("source_app_name"),
+            sourceBundleID: row.optionalText("source_bundle_id"),
+            iconName: row.requiredText("source_icon_name"),
+            iconFileName: row.optionalText("source_icon_file_name"),
+            headerColorHex: row.requiredText("header_color"),
+            isPinned: row.requiredBool("is_pinned"),
+            pinnedAt: row.optionalDouble("pinned_at").map(Date.init(timeIntervalSince1970:)),
+            groupID: groupInfo?.groupID,
+            groupedAt: groupInfo?.createdAt,
+            ocrStatus: ocrResult?.status ?? .none,
+            ocrText: ocrResult?.text ?? "",
+            ocrEmails: ocrResult?.emails ?? [],
+            ocrPhoneNumbers: ocrResult?.phoneNumbers ?? [],
+            ocrURLs: ocrResult?.urls ?? [],
+            ocrTextRegions: ocrResult?.textRegions ?? [],
+            ocrUpdatedAt: ocrResult?.updatedAt
+        )
+    }
+
     private func loadAssetsByItemID(in database: SQLiteDatabase) throws -> [UUID: [SQLiteAssetRow]] {
         let rows = try database.query(
             """
@@ -430,6 +642,41 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             WHERE clipboard_items.is_deleted = 0
             ORDER BY item_assets.created_at ASC
             """
+        )
+
+        var assetsByItemID: [UUID: [SQLiteAssetRow]] = [:]
+        for row in rows {
+            guard let itemID = UUID(uuidString: row.requiredText("item_id")) else {
+                continue
+            }
+
+            assetsByItemID[itemID, default: []].append(
+                SQLiteAssetRow(
+                    type: row.requiredText("asset_type"),
+                    fileName: row.requiredText("file_name"),
+                    width: row.optionalInt("width"),
+                    height: row.optionalInt("height")
+                )
+            )
+        }
+
+        return assetsByItemID
+    }
+
+    private func loadAssetsByItemID(for ids: Set<UUID>, in database: SQLiteDatabase) throws -> [UUID: [SQLiteAssetRow]] {
+        guard !ids.isEmpty else {
+            return [:]
+        }
+
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        let rows = try database.query(
+            """
+            SELECT item_id, asset_type, file_name, width, height
+            FROM item_assets
+            WHERE item_id IN (\(placeholders))
+            ORDER BY created_at ASC
+            """,
+            values: ids.map { .text($0.uuidString) }
         )
 
         var assetsByItemID: [UUID: [SQLiteAssetRow]] = [:]
@@ -464,6 +711,58 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             WHERE clipboard_items.is_deleted = 0
             ORDER BY clipboard_item_files.item_id ASC, display_order ASC, clipboard_item_files.created_at ASC
             """
+        )
+
+        var referencesByItemID: [UUID: [ClipboardFileReference]] = [:]
+        for row in rows {
+            guard let id = UUID(uuidString: row.requiredText("id")),
+                  let itemID = UUID(uuidString: row.requiredText("item_id")) else {
+                continue
+            }
+
+            referencesByItemID[itemID, default: []].append(
+                ClipboardFileReference(
+                    id: id,
+                    itemID: itemID,
+                    orderIndex: row.requiredInt("display_order"),
+                    path: row.requiredText("file_path"),
+                    displayName: row.requiredText("file_name"),
+                    fileExtension: row.optionalText("file_extension"),
+                    contentType: row.optionalText("uti_or_content_type"),
+                    fileSize: row.optionalInt("byte_size"),
+                    modifiedAt: row.optionalDouble("modified_at").map(Date.init(timeIntervalSince1970:)),
+                    isDirectory: row.requiredBool("is_directory"),
+                    isAlias: row.requiredBool("is_alias"),
+                    pathStatus: ClipboardFilePathStatus(rawValue: row.requiredText("path_status")) ?? .unknown,
+                    lastCheckedAt: row.optionalDouble("last_checked_at").map(Date.init(timeIntervalSince1970:)),
+                    createdAt: Date(timeIntervalSince1970: row.requiredDouble("created_at"))
+                )
+            )
+        }
+
+        return referencesByItemID
+    }
+
+    private func loadFileReferencesByItemID(
+        for ids: Set<UUID>,
+        in database: SQLiteDatabase
+    ) throws -> [UUID: [ClipboardFileReference]] {
+        guard !ids.isEmpty else {
+            return [:]
+        }
+
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        let rows = try database.query(
+            """
+            SELECT
+                id, item_id, display_order, file_path, file_name, file_extension,
+                uti_or_content_type, byte_size, modified_at, is_directory, is_alias,
+                path_status, last_checked_at, created_at
+            FROM clipboard_item_files
+            WHERE item_id IN (\(placeholders))
+            ORDER BY item_id ASC, display_order ASC, created_at ASC
+            """,
+            values: ids.map { .text($0.uuidString) }
         )
 
         var referencesByItemID: [UUID: [ClipboardFileReference]] = [:]
@@ -548,6 +847,77 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         return groupedItems
     }
 
+    private func loadGroupedItems(for ids: Set<UUID>, in database: SQLiteDatabase) throws -> [UUID: SQLiteGroupItemRow] {
+        guard !ids.isEmpty else {
+            return [:]
+        }
+
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        let rows = try database.query(
+            """
+            SELECT group_id, item_id, created_at, sort_order
+            FROM group_items
+            WHERE item_id IN (\(placeholders))
+            ORDER BY created_at DESC
+            """,
+            values: ids.map { .text($0.uuidString) }
+        )
+
+        var groupedItems: [UUID: SQLiteGroupItemRow] = [:]
+        for row in rows {
+            guard let itemID = UUID(uuidString: row.requiredText("item_id")),
+                  let groupID = UUID(uuidString: row.requiredText("group_id")) else {
+                continue
+            }
+
+            groupedItems[itemID] = SQLiteGroupItemRow(
+                groupID: groupID,
+                createdAt: Date(timeIntervalSince1970: row.requiredDouble("created_at")),
+                sortOrder: row.requiredInt("sort_order")
+            )
+        }
+
+        return groupedItems
+    }
+
+    private func loadOCRResultsByItemID(for ids: Set<UUID>, in database: SQLiteDatabase) throws -> [UUID: SQLiteOCRResultRow] {
+        guard !ids.isEmpty else {
+            return [:]
+        }
+
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        let rows = try database.query(
+            """
+            SELECT
+                item_id, status, recognized_text, emails, phone_numbers,
+                urls, text_regions, updated_at
+            FROM item_ocr_results
+            WHERE item_id IN (\(placeholders))
+            """,
+            values: ids.map { .text($0.uuidString) }
+        )
+
+        var results: [UUID: SQLiteOCRResultRow] = [:]
+        results.reserveCapacity(rows.count)
+        for row in rows {
+            guard let itemID = UUID(uuidString: row.requiredText("item_id")) else {
+                continue
+            }
+
+            results[itemID] = SQLiteOCRResultRow(
+                status: ClipboardOCRStatus(rawValue: row.requiredText("status")) ?? .none,
+                text: row.requiredText("recognized_text"),
+                emails: Self.decodeList(row.requiredText("emails")),
+                phoneNumbers: Self.decodeList(row.requiredText("phone_numbers")),
+                urls: Self.decodeList(row.requiredText("urls")),
+                textRegions: Self.decodeRegions(row.optionalText("text_regions") ?? ""),
+                updatedAt: row.optionalDouble("updated_at").map(Date.init(timeIntervalSince1970:))
+            )
+        }
+
+        return results
+    }
+
     private func recordSchemaVersion(in database: SQLiteDatabase) throws {
         try database.execute("PRAGMA user_version = \(Self.currentSchemaVersion)")
         try database.execute(
@@ -579,6 +949,35 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
         try database.execute(
             "DELETE FROM clipboard_items WHERE id IN (\(placeholders))",
+            values: ids.map { .text($0.uuidString) }
+        )
+    }
+
+    private func deleteGroups(with ids: Set<ClipboardGroup.ID>, in database: SQLiteDatabase) throws {
+        guard !ids.isEmpty else {
+            return
+        }
+
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        try database.execute(
+            "DELETE FROM groups WHERE id IN (\(placeholders))",
+            values: ids.map { .text($0.uuidString) }
+        )
+    }
+
+    private func deleteItems(inGroups ids: Set<ClipboardGroup.ID>, in database: SQLiteDatabase) throws {
+        guard !ids.isEmpty else {
+            return
+        }
+
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        try database.execute(
+            """
+            DELETE FROM clipboard_items
+            WHERE id IN (
+                SELECT item_id FROM group_items WHERE group_id IN (\(placeholders))
+            )
+            """,
             values: ids.map { .text($0.uuidString) }
         )
     }

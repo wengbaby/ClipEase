@@ -23,6 +23,40 @@
 ## Backlog 条目
 
 ```text
+优化任务 ID：V2-OPT-100K-HISTORY-PAGED-STARTUP-DELETE-001
+来源任务卡：用户要求全部做完后再验证 / PerformanceLogs 2026-05-23
+来源 Agent：Codex
+风险等级：中
+问题描述：
+- Paste.app 研究结论指向“首屏 metadata 分页 + 搜索/预览按需化”；轻贴此前仍在 `ClipboardHistoryStore.init` 同步加载全量 `loadSnapshot()`，10 万+ 启动必然被主线程读库、组装 item、重建 hash 拖慢。
+- `deleteItem`、`deleteGroup(s)`、`clearDebugTextItems` 和部分更新路径仍会落到 `saveImmediately()` / `scheduleSave()`，在大库下容易触发全量 `replaceAllItems`。
+- `SQLiteClipboardStore` 缺少分页读取和批量删除公开接口，UI/Store 无法按 Paste 的思路做首屏加载和滚动续载。
+已实施方案：
+- `ClipboardHistoryRepository` / `ClipboardHistoryPersistence` 新增 `loadSnapshot(itemLimit:offset:)`、`loadItems(limit:offset:)`、`deleteItems(with:deletingGroups:)`、`deleteAllItemsAndGroups()`。
+- `SQLiteClipboardStore` 新增分页 query，按 page ids 批量读取 assets、file references、OCR、group items；删除改为 SQLite `BEGIN IMMEDIATE TRANSACTION` 内批量删除 item / group / group 内 item。
+- `SQLiteClipboardStore` 新增按 `content_hash + source_bundle_id` 查询重复记录，避免首屏分页后新增剪切板无法识别未加载旧重复项。
+- `ClipboardHistoryStore.init` 改为同步加载最近 `1000` 条和所有分组，记录 `history.store.loadStartupPage`，启动后后台续载下一页；滚动接近尾部时由 `HistoryWindowView.requestNextHistoryPageIfNeeded()` 继续分页载入。
+- 单条删除、删除分组、清空、清测试数据、置顶、markUsed、link metadata、OCR 状态/结果更新接入增量 upsert/delete，新增 `history.persistence.delete`、`history.persistence.deleteAll`、`history.store.loadNextPage`、`history.store.loadAllBeforeFullSave` 埋点。
+- 新增路径在历史未全部加载时会从 SQLite 查同 hash 旧记录，再与内存 hash 表合并 duplicateIDs。
+- 为防止旧全量保存路径只保存首批数据，`saveImmediatelyOrThrow()` 和 `scheduleSave()` 在全量保存前会补齐剩余分页数据。
+- 新增守卫脚本 `scripts/verify_startup_paged_history_load_guards.py`、`scripts/verify_sqlite_incremental_delete_guards.py`。
+验证方式：
+- `swift build` 通过。
+- `python3 scripts/verify_startup_paged_history_load_guards.py` 通过。
+- `python3 scripts/verify_sqlite_incremental_delete_guards.py` 通过。
+- 原有 SQLite upsert、Store index、窗口可见范围、空搜索快路径、过滤索引守卫继续通过。
+行为影响：
+- 历史窗口初始只显示已加载的最近页；继续滚动会逐页加载旧记录。
+- 搜索仍基于当前已加载 preview 数据，未加载的旧记录需要后续 FTS5/metadata search 阶段覆盖。
+- 删除分组现在会同时删除数据库中该分组下未加载的旧 item，避免只删当前 UI 页。
+剩余问题：
+- 还没有独立 FTS5 搜索索引，搜索 10 万全库仍需下一阶段做 SQLite FTS top N。
+- 文本 payload 仍在 `clipboard_items.plain_text` 中随 metadata 读取，超大文本拆分存储尚未完成。
+- 部分老功能仍会触发全量保存；本轮已加“保存前补齐”保护，后续应继续把分组改名、移动分组、导入等路径迁到增量 SQL。
+是否阻塞当前阶段：否；这是向 Paste 式分页数据源推进的第一批可运行实现。
+```
+
+```text
 优化任务 ID：V2-OPT-HISTORY-OPEN-UNFILTERED-FAST-PATH-001
 来源任务卡：用户要求根据新日志继续优化性能
 来源 Agent：Codex

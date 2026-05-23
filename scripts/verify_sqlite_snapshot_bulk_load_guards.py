@@ -53,7 +53,7 @@ required_sqlite = [
 ]
 
 required_history_store = [
-    '"history.store.loadSnapshot"',
+    '"history.store.loadStartupPage"',
     '"history.store.sort"',
     '"history.store.rebuildHashes"',
     '"history.store.initialize"',
@@ -61,6 +61,7 @@ required_history_store = [
     "if didPruneExpiredItems {",
     "private func pruneExpiredItems(now: Date = Date()) -> Bool",
     '"mode": "snapshotOrder.indexOnly"',
+    '"mode": "startupPage"',
 ]
 
 forbidden_load_snapshot = [

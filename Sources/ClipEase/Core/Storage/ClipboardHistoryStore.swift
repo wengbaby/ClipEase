@@ -40,6 +40,8 @@ final class ClipboardHistoryStore: ObservableObject {
     nonisolated private static let debugTextPrefix = "轻贴性能测试文本 "
     nonisolated private static let deferredSaveDelay: UInt64 = 350_000_000
     nonisolated private static let debugBatchSize = 500
+    nonisolated private static let startupItemPageSize = 1_000
+    nonisolated private static let incrementalItemPageSize = 1_000
     private let persistence: ClipboardHistoryPersistence
     private let saveWriter: ClipboardHistorySaveWriter
     private let userDefaults: UserDefaults
@@ -56,9 +58,16 @@ final class ClipboardHistoryStore: ObservableObject {
     private var groupIndexByID: [ClipboardGroup.ID: Int] = [:]
     private var itemCountByGroupID: [ClipboardGroup.ID: Int] = [:]
     private var saveRevision = 0
+    private var isLoadingNextPage = false
+    private var didLoadAllPersistedItems = false
+    private var pagedLoadTask: Task<Void, Never>?
 
     var debugTextItemCount: Int {
         items.lazy.filter(Self.isDebugTextItem).count
+    }
+
+    var hasLoadedAllPersistedItems: Bool {
+        didLoadAllPersistedItems
     }
 
     init(
@@ -72,16 +81,18 @@ final class ClipboardHistoryStore: ObservableObject {
             rawValue: userDefaults.integer(forKey: Self.retentionPolicyKey)
         ) ?? .forever
         let loadStartedAt = CFAbsoluteTimeGetCurrent()
-        let snapshot = persistence.loadSnapshot()
+        let snapshot = persistence.loadSnapshot(itemLimit: Self.startupItemPageSize)
         PerformanceDiagnosticsService.shared.record(
-            "history.store.loadSnapshot",
+            "history.store.loadStartupPage",
             category: "storage",
             durationMS: (CFAbsoluteTimeGetCurrent() - loadStartedAt) * 1_000,
             itemCount: snapshot.items.count,
-            resultCount: snapshot.groups.count
+            resultCount: snapshot.groups.count,
+            metadata: ["limit": "\(Self.startupItemPageSize)"]
         )
         self.items = snapshot.items
         self.groups = snapshot.groups
+        self.didLoadAllPersistedItems = snapshot.items.count < Self.startupItemPageSize
         let sortStartedAt = CFAbsoluteTimeGetCurrent()
         rebuildItemIndexes()
         sortGroups()
@@ -111,9 +122,11 @@ final class ClipboardHistoryStore: ObservableObject {
             category: "storage",
             durationMS: (CFAbsoluteTimeGetCurrent() - loadStartedAt) * 1_000,
             itemCount: items.count,
-            resultCount: groups.count
+            resultCount: groups.count,
+            metadata: ["mode": "startupPage"]
         )
         itemsMutationGeneration = 1
+        scheduleInitialBackgroundPageLoadIfNeeded()
     }
 
     func addText(_ text: String, sourceApp: SourceAppInfo) {
@@ -251,6 +264,16 @@ final class ClipboardHistoryStore: ObservableObject {
         return index
     }
 
+    func loadMoreItemsIfNeeded(visibleUpperBound: Int, preloadMargin: Int = 160) {
+        guard !didLoadAllPersistedItems,
+              !isLoadingNextPage,
+              visibleUpperBound + preloadMargin >= items.count else {
+            return
+        }
+
+        loadNextItemPage(reason: "visibleWindow")
+    }
+
     func deleteItem(with id: ClipboardItem.ID?) {
         guard let id else {
             return
@@ -267,20 +290,21 @@ final class ClipboardHistoryStore: ObservableObject {
         cancelLinkMetadataTasks(for: deletedItems)
         deleteExternalFiles(for: deletedItems)
         removeRecentHashes(for: deletedItems)
-        saveImmediately()
+        persistIncrementalDelete(itemIDs: [id])
     }
 
     func clearAllItems() {
         let removedItems = items
         items.removeAll()
         rebuildItemIndexes()
+        didLoadAllPersistedItems = true
         cancelAllOCRTasks()
         cancelAllLinkMetadataTasks()
         deleteExternalFiles(for: removedItems)
         itemIDsByHash.removeAll()
         skippedClipboardTexts.removeAll()
         skippedImageHashes.removeAll()
-        saveImmediately()
+        persistDeleteAll()
     }
 
     func importItems(_ importedItems: [ClipboardItem]) -> Int {
@@ -336,7 +360,11 @@ final class ClipboardHistoryStore: ObservableObject {
         items[index].isPinned.toggle()
         items[index].pinnedAt = items[index].isPinned ? Date() : nil
         sortItems()
-        scheduleSave()
+        if let updatedItem = item(with: id) {
+            persistIncrementalUpsert(updatedItem, deleting: [])
+        } else {
+            scheduleSave()
+        }
     }
 
     enum GroupRenameResult: Equatable {
@@ -409,7 +437,10 @@ final class ClipboardHistoryStore: ObservableObject {
         cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
         removeRecentHashes(for: removedItems)
-        saveImmediately()
+        persistIncrementalDelete(
+            itemIDs: Set(removedItems.map(\.id)),
+            groupIDs: [id]
+        )
         return removedItems.count
     }
 
@@ -431,7 +462,10 @@ final class ClipboardHistoryStore: ObservableObject {
         cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
         removeRecentHashes(for: removedItems)
-        saveImmediately()
+        persistIncrementalDelete(
+            itemIDs: Set(removedItems.map(\.id)),
+            groupIDs: ids
+        )
         return removedItems.count
     }
 
@@ -531,7 +565,11 @@ final class ClipboardHistoryStore: ObservableObject {
 
         items[index].createdAt = Date()
         sortItems()
-        scheduleSave()
+        if let updatedItem = item(with: id) {
+            persistIncrementalUpsert(updatedItem, deleting: [])
+        } else {
+            scheduleSave()
+        }
     }
 
     @discardableResult
@@ -741,7 +779,7 @@ final class ClipboardHistoryStore: ObservableObject {
             imageHeight: storedImage?.height,
             imageHash: storedImage?.hash
         )
-        scheduleSave()
+        persistIncrementalUpsert(items[index], deleting: [])
     }
 
     func addDebugTextItems(count: Int) {
@@ -783,7 +821,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items.removeAll(where: Self.isDebugTextItem)
         rebuildItemIndexes()
         rebuildRecentHashes()
-        saveImmediately()
+        persistIncrementalDelete(itemIDs: Set(removedItems.map(\.id)))
         return removedItems.count
     }
 
@@ -1032,7 +1070,7 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         items[index].ocrStatus = status
-        scheduleSave()
+        persistIncrementalUpsert(items[index], deleting: [])
     }
 
     private func applyOCRResult(_ result: ClipboardOCRMatch, status: ClipboardOCRStatus, to id: ClipboardItem.ID) {
@@ -1049,7 +1087,11 @@ final class ClipboardHistoryStore: ObservableObject {
             textRegions: result.textRegions
         )
         sortItems()
-        scheduleSave()
+        if let updatedItem = item(with: id) {
+            persistIncrementalUpsert(updatedItem, deleting: [])
+        } else {
+            scheduleSave()
+        }
         finishOCRTask(for: id)
     }
 
@@ -1124,6 +1166,35 @@ final class ClipboardHistoryStore: ObservableObject {
         return (lhs.pinnedAt ?? lhs.createdAt) > (rhs.pinnedAt ?? rhs.createdAt)
     }
 
+    private func persistedDuplicateItems(for item: ClipboardItem) -> [ClipboardItem] {
+        guard !didLoadAllPersistedItems,
+              let contentHash = item.contentHash else {
+            return []
+        }
+
+        return persistence.loadItems(
+            contentHash: contentHash,
+            sourceBundleID: item.sourceBundleID
+        )
+    }
+
+    private func mergeDuplicateItems(
+        _ cachedItems: [ClipboardItem],
+        _ persistedItems: [ClipboardItem]
+    ) -> [ClipboardItem] {
+        guard !persistedItems.isEmpty else {
+            return cachedItems
+        }
+
+        var seenIDs = Set<ClipboardItem.ID>()
+        var mergedItems: [ClipboardItem] = []
+        mergedItems.reserveCapacity(cachedItems.count + persistedItems.count)
+        for item in cachedItems + persistedItems where seenIDs.insert(item.id).inserted {
+            mergedItems.append(item)
+        }
+        return mergedItems
+    }
+
     private func itemIndex(for id: ClipboardItem.ID) -> Int? {
         guard let index = itemIndexByID[id],
               items.indices.contains(index),
@@ -1193,6 +1264,9 @@ final class ClipboardHistoryStore: ObservableObject {
 
     private func scheduleSave() {
         deferredSaveTask?.cancel()
+        if !didLoadAllPersistedItems {
+            loadAllPersistedItemsBeforeFullSave()
+        }
         let snapshot = ClipboardHistorySnapshot(items: items, groups: groups)
         let revision = nextSaveRevision()
         let saveWriter = saveWriter
@@ -1212,6 +1286,95 @@ final class ClipboardHistoryStore: ObservableObject {
         }
     }
 
+    private func scheduleInitialBackgroundPageLoadIfNeeded() {
+        guard !didLoadAllPersistedItems else {
+            return
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            self.loadNextItemPage(reason: "startupBackground")
+        }
+    }
+
+    private func loadNextItemPage(reason: String) {
+        guard !didLoadAllPersistedItems,
+              !isLoadingNextPage else {
+            return
+        }
+
+        isLoadingNextPage = true
+        let offset = items.count
+        let limit = Self.incrementalItemPageSize
+        let persistence = persistence
+        pagedLoadTask = Task(priority: .utility) {
+            let startedAt = CFAbsoluteTimeGetCurrent()
+            let page = await Task.detached(priority: .utility) {
+                persistence.loadItems(limit: limit, offset: offset)
+            }.value
+            let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+            mergeLoadedPage(
+                page,
+                offset: offset,
+                limit: limit,
+                durationMS: durationMS,
+                reason: reason
+            )
+        }
+    }
+
+    private func mergeLoadedPage(
+        _ page: [ClipboardItem],
+        offset: Int,
+        limit: Int,
+        durationMS: Double,
+        reason: String
+    ) {
+        defer {
+            isLoadingNextPage = false
+            pagedLoadTask = nil
+        }
+
+        guard offset == items.count else {
+            return
+        }
+
+        if page.isEmpty {
+            didLoadAllPersistedItems = true
+        } else {
+            appendLoadedItems(page)
+            didLoadAllPersistedItems = page.count < limit
+        }
+
+        PerformanceDiagnosticsService.shared.record(
+            "history.store.loadNextPage",
+            category: "storage",
+            durationMS: durationMS,
+            itemCount: page.count,
+            resultCount: items.count,
+            metadata: [
+                "offset": "\(offset)",
+                "limit": "\(limit)",
+                "reason": reason,
+                "didLoadAll": "\(didLoadAllPersistedItems)"
+            ]
+        )
+    }
+
+    private func appendLoadedItems(_ page: [ClipboardItem]) {
+        let existingIDs = Set(itemIndexByID.keys)
+        let newItems = page.filter { !existingIDs.contains($0.id) }
+        guard !newItems.isEmpty else {
+            return
+        }
+
+        items.append(contentsOf: newItems)
+        sortItems()
+        for item in newItems {
+            addRecentHash(for: item)
+        }
+    }
+
     private func persistIncrementalUpsert(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>) {
         deferredSaveTask?.cancel()
         deferredSaveTask = nil
@@ -1219,6 +1382,27 @@ final class ClipboardHistoryStore: ObservableObject {
         let revision = nextSaveRevision()
         let saveWriter = saveWriter
         saveWriter.upsertAsync(item, deleting: deletedIDs, groups: groups, revision: revision)
+    }
+
+    private func persistIncrementalDelete(
+        itemIDs: Set<ClipboardItem.ID>,
+        groupIDs: Set<ClipboardGroup.ID> = []
+    ) {
+        deferredSaveTask?.cancel()
+        deferredSaveTask = nil
+        pagedLoadTask?.cancel()
+        pagedLoadTask = nil
+        let revision = nextSaveRevision()
+        let saveWriter = saveWriter
+        saveWriter.deleteAsync(itemIDs: itemIDs, groupIDs: groupIDs, revision: revision)
+    }
+
+    private func persistDeleteAll() {
+        deferredSaveTask?.cancel()
+        deferredSaveTask = nil
+        let revision = nextSaveRevision()
+        let saveWriter = saveWriter
+        saveWriter.deleteAllAsync(revision: revision)
     }
 
     private func saveImmediately() {
@@ -1232,7 +1416,41 @@ final class ClipboardHistoryStore: ObservableObject {
     private func saveImmediatelyOrThrow() throws {
         deferredSaveTask?.cancel()
         deferredSaveTask = nil
+        loadAllPersistedItemsBeforeFullSave()
         try saveWriter.saveSync(ClipboardHistorySnapshot(items: items, groups: groups), revision: nextSaveRevision())
+    }
+
+    private func loadAllPersistedItemsBeforeFullSave() {
+        guard !didLoadAllPersistedItems else {
+            return
+        }
+
+        pagedLoadTask?.cancel()
+        pagedLoadTask = nil
+        isLoadingNextPage = false
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        var loadedCount = 0
+
+        while !didLoadAllPersistedItems {
+            let offset = items.count
+            let page = persistence.loadItems(limit: Self.incrementalItemPageSize, offset: offset)
+            if page.isEmpty {
+                didLoadAllPersistedItems = true
+                break
+            }
+
+            appendLoadedItems(page)
+            loadedCount += page.count
+            didLoadAllPersistedItems = page.count < Self.incrementalItemPageSize
+        }
+
+        PerformanceDiagnosticsService.shared.record(
+            "history.store.loadAllBeforeFullSave",
+            category: "storage",
+            durationMS: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000,
+            itemCount: loadedCount,
+            resultCount: items.count
+        )
     }
 
     private func nextSaveRevision() -> Int {
@@ -1297,10 +1515,13 @@ final class ClipboardHistoryStore: ObservableObject {
     ) -> ClipboardItem {
         let startedAt = CFAbsoluteTimeGetCurrent()
         let hash = Self.textHash(for: item)
-        let duplicateIDs = itemIDsByHash[hash] ?? []
-        let duplicateItems = duplicateIDs.compactMap { self.item(with: $0) }
+        let cachedDuplicateIDs = itemIDsByHash[hash] ?? []
+        let cachedDuplicateItems = cachedDuplicateIDs.compactMap { self.item(with: $0) }
+        let persistedDuplicateItems = persistedDuplicateItems(for: item)
+        let duplicateItems = mergeDuplicateItems(cachedDuplicateItems, persistedDuplicateItems)
+        let duplicateIDs = Set(duplicateItems.map(\.id))
         let resolvedDuplicateIDs = Set(duplicateItems.map(\.id))
-        if resolvedDuplicateIDs.count != duplicateIDs.count {
+        if resolvedDuplicateIDs.count != cachedDuplicateIDs.count {
             itemIDsByHash[hash] = resolvedDuplicateIDs.isEmpty ? nil : resolvedDuplicateIDs
         }
         let firstDuplicate = duplicateItems.first
@@ -1797,6 +2018,30 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
         }
     }
 
+    func deleteAsync(
+        itemIDs: Set<ClipboardItem.ID>,
+        groupIDs: Set<ClipboardGroup.ID>,
+        revision: Int
+    ) {
+        queue.async { [self] in
+            do {
+                try deleteIfCurrent(itemIDs: itemIDs, groupIDs: groupIDs, revision: revision)
+            } catch {
+                NSLog("ClipEase failed to delete clipboard history items: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func deleteAllAsync(revision: Int) {
+        queue.async { [self] in
+            do {
+                try deleteAllIfCurrent(revision: revision)
+            } catch {
+                NSLog("ClipEase failed to clear clipboard history: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func saveSync(_ snapshot: ClipboardHistorySnapshot, revision: Int) throws {
         try queue.sync { [self] in
             try saveIfCurrent(snapshot, revision: revision)
@@ -1834,6 +2079,50 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 itemCount: deletedIDs.count,
                 resultCount: 1,
                 metadata: ["revision": "\(revision)", "type": item.type.rawValue]
+            )
+        }
+    }
+
+    private func deleteIfCurrent(
+        itemIDs: Set<ClipboardItem.ID>,
+        groupIDs: Set<ClipboardGroup.ID>,
+        revision: Int
+    ) throws {
+        guard revision >= latestRevision else {
+            return
+        }
+
+        latestRevision = revision
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        try persistence.deleteItemsOrThrow(with: itemIDs, deletingGroups: groupIDs)
+        let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+        Task { @MainActor in
+            PerformanceDiagnosticsService.shared.record(
+                "history.persistence.delete",
+                category: "storage",
+                durationMS: durationMS,
+                itemCount: itemIDs.count,
+                resultCount: groupIDs.count,
+                metadata: ["revision": "\(revision)"]
+            )
+        }
+    }
+
+    private func deleteAllIfCurrent(revision: Int) throws {
+        guard revision >= latestRevision else {
+            return
+        }
+
+        latestRevision = revision
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        try persistence.deleteAllItemsAndGroupsOrThrow()
+        let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+        Task { @MainActor in
+            PerformanceDiagnosticsService.shared.record(
+                "history.persistence.deleteAll",
+                category: "storage",
+                durationMS: durationMS,
+                metadata: ["revision": "\(revision)"]
             )
         }
     }

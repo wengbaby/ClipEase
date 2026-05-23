@@ -37,8 +37,35 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         }
     }
 
+    func loadSnapshot(itemLimit: Int, offset: Int = 0) -> ClipboardHistorySnapshot {
+        do {
+            return try repository.loadSnapshot(itemLimit: itemLimit, offset: offset)
+        } catch {
+            NSLog("ClipEase failed to load clipboard history page snapshot: \(error.localizedDescription)")
+            return ClipboardHistorySnapshot(items: [], groups: [])
+        }
+    }
+
     func loadItems() -> [ClipboardItem] {
         loadSnapshot().items
+    }
+
+    func loadItems(limit: Int, offset: Int = 0) -> [ClipboardItem] {
+        do {
+            return try repository.loadItems(limit: limit, offset: offset)
+        } catch {
+            NSLog("ClipEase failed to load clipboard history page: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    func loadItems(contentHash: String, sourceBundleID: String?) -> [ClipboardItem] {
+        do {
+            return try repository.loadItems(contentHash: contentHash, sourceBundleID: sourceBundleID)
+        } catch {
+            NSLog("ClipEase failed to load clipboard history duplicates: \(error.localizedDescription)")
+            return []
+        }
     }
 
     func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) {
@@ -55,6 +82,14 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
 
     func upsertItemOrThrow(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws {
         try repository.upsertItem(item, deleting: deletedIDs, groups: groups)
+    }
+
+    func deleteItemsOrThrow(with ids: Set<ClipboardItem.ID>, deletingGroups groupIDs: Set<ClipboardGroup.ID>) throws {
+        try repository.deleteItems(with: ids, deletingGroups: groupIDs)
+    }
+
+    func deleteAllItemsAndGroupsOrThrow() throws {
+        try repository.deleteAllItemsAndGroups()
     }
 
     func saveItems(_ items: [ClipboardItem]) {

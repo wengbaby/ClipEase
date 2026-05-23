@@ -272,6 +272,10 @@ struct HistoryWindowView: View {
         return renderedItems[range]
     }
 
+    private func requestNextHistoryPageIfNeeded() {
+        store.loadMoreItemsIfNeeded(visibleUpperBound: historyRailVisibleWindow.upperBound)
+    }
+
     private var historyRailAnimationValue: [HistoryPreviewItem.ID] {
         guard shouldAnimateHistoryRailChange(sourceItemCount: allPreviewItems.count, renderedItemCount: renderedItems.count) else {
             return []
@@ -495,6 +499,7 @@ struct HistoryWindowView: View {
 
                 Task { @MainActor in
                     updateCardRailVisibleRect()
+                    requestNextHistoryPageIfNeeded()
                     followPreviewForCurrentScroll()
                 }
             }
@@ -525,6 +530,7 @@ struct HistoryWindowView: View {
         .onChange(of: store.items) { newItems in
             syncLatestItemFocusIfNeeded(sourceItems: newItems)
             schedulePreviewItemsRebuild(from: newItems)
+            requestNextHistoryPageIfNeeded()
             if previewState.isVisible {
                 showPreview(previewState.itemID)
             }
@@ -3857,6 +3863,7 @@ struct HistoryWindowView: View {
             abs(cardRailVisibleRect.width - visibleRect.width) > 0.5 ||
             cardRailVisibleRect == .zero {
             cardRailVisibleRect = visibleRect
+            requestNextHistoryPageIfNeeded()
         }
     }
 
