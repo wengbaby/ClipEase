@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         self.globalHotKeyController = globalHotKeyController
         globalHotKeyController.start()
+        ClipEaseSoundPlayer.shared.preloadFeedbackSounds()
         let clipboardMonitor = ClipboardMonitor(
             store: historyStore,
             recordingController: recordingController,

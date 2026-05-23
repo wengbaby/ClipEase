@@ -359,29 +359,9 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
     func deleteAllItemsAndGroups() throws {
         try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
-        defer { database.close() }
-
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
-        try database.execute("BEGIN IMMEDIATE TRANSACTION")
-
-        do {
-            try database.execute("DELETE FROM group_items")
-            try database.execute("DELETE FROM groups")
-            try database.execute("DELETE FROM item_ocr_results")
-            try database.execute("DELETE FROM item_assets")
-            try database.execute("DELETE FROM clipboard_item_files")
-            try database.execute("DELETE FROM clipboard_items_fts")
-            try database.execute("DELETE FROM clipboard_search_index_state")
-            try database.execute("DELETE FROM clipboard_items")
-            try database.execute("COMMIT")
-        } catch {
-            try? database.execute("ROLLBACK")
-            throw error
-        }
+        try removeExistingDatabaseFiles()
+        try deleteHistoryStorageDirectories()
+        try initialize()
     }
 
     func countItems() throws -> Int {
@@ -417,8 +397,27 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         [
             databaseURL,
             URL(fileURLWithPath: databaseURL.path + "-wal"),
-            URL(fileURLWithPath: databaseURL.path + "-shm")
+            URL(fileURLWithPath: databaseURL.path + "-shm"),
+            URL(fileURLWithPath: databaseURL.path + "-journal")
         ]
+    }
+
+    private func deleteHistoryStorageDirectories() throws {
+        let liveStoreURL = try ClipEaseStoragePaths.sqliteStoreURL(fileManager: fileManager)
+        guard databaseURL.standardizedFileURL == liveStoreURL.standardizedFileURL else {
+            return
+        }
+
+        let directoryURLs = try [
+            ClipEaseStoragePaths.imagesDirectory(fileManager: fileManager),
+            ClipEaseStoragePaths.thumbnailsDirectory(fileManager: fileManager),
+            ClipEaseStoragePaths.richTextsDirectory(fileManager: fileManager),
+            ClipEaseStoragePaths.appIconsDirectory(fileManager: fileManager)
+        ]
+
+        for directoryURL in directoryURLs where fileManager.fileExists(atPath: directoryURL.path) {
+            try fileManager.removeItem(at: directoryURL)
+        }
     }
 
     private func resetLegacyDatabaseIfNeeded() throws {

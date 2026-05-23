@@ -23,6 +23,15 @@ final class ClipEaseSoundPlayer {
         play(.paste)
     }
 
+    func preloadFeedbackSounds() {
+        if copyPlayer == nil {
+            copyPlayer = loadPlayer(.copy)
+        }
+        if pastePlayer == nil {
+            pastePlayer = loadPlayer(.paste)
+        }
+    }
+
     private func play(_ feedbackSound: FeedbackSound) {
         let cachedPlayer = playerCache(for: feedbackSound)
         let player = cachedPlayer ?? loadPlayer(feedbackSound)
