@@ -1328,24 +1328,39 @@ struct SettingsView: View {
                     .buttonStyle(.bordered)
                 }
 
-                HStack(alignment: .top, spacing: 16) {
-                    SupportQRCodeAssets.supportQRCode(
-                        name: "Alipay",
-                        extensionName: "jpg",
-                        missingTitle: "支付宝二维码",
-                        cropRect: CGRect(x: 190, y: 460, width: 635, height: 635),
-                        borderColor: Color(red: 0.09, green: 0.52, blue: 0.96),
-                        size: 170
-                    )
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("赞赏支持")
+                            .font(.system(size: 13, weight: .semibold))
 
-                    SupportQRCodeAssets.supportQRCode(
-                        name: "WeChat",
-                        extensionName: "png",
-                        missingTitle: "微信二维码",
-                        cropRect: CGRect(x: 198, y: 115, width: 900, height: 900),
-                        borderColor: Color(red: 0.12, green: 0.74, blue: 0.34),
-                        size: 170
-                    )
+                        Text("感谢支持轻贴 ClipEase 的持续维护。")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    GeometryReader { geometry in
+                        let qrSize = max((geometry.size.width - 16) / 2, 170)
+                        HStack(alignment: .top, spacing: 16) {
+                            SupportQRCodeAssets.supportQRCode(
+                                name: "Alipay",
+                                extensionName: "jpg",
+                                missingTitle: "支付宝二维码",
+                                cropRect: CGRect(x: 190, y: 460, width: 635, height: 635),
+                                borderColor: Color(red: 0.09, green: 0.52, blue: 0.96),
+                                size: qrSize
+                            )
+
+                            SupportQRCodeAssets.supportQRCode(
+                                name: "WeChat",
+                                extensionName: "png",
+                                missingTitle: "微信二维码",
+                                cropRect: CGRect(x: 198, y: 115, width: 900, height: 900),
+                                borderColor: Color(red: 0.12, green: 0.74, blue: 0.34),
+                                size: qrSize
+                            )
+                        }
+                    }
+                    .aspectRatio(2.05, contentMode: .fit)
                 }
             }
         }

@@ -41,6 +41,11 @@ def main() -> None:
         ".strokeBorder(borderColor, lineWidth: 4)",
         "openSupportCommunity()",
         "Button(\"加入交流群\")",
+        "Text(\"赞赏支持\")",
+        "Text(\"感谢支持轻贴 ClipEase 的持续维护。\")",
+        "GeometryReader",
+        "let qrSize = max((geometry.size.width - 16) / 2, 170)",
+        ".aspectRatio(2.05, contentMode: .fit)",
     ]
     forbidden = [
         "SupportQRCodeSheet",
