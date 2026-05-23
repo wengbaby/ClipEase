@@ -79,78 +79,53 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
     }
 }
 
-private struct SupportQRCodeSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("赞赏支持")
-                        .font(.system(size: 18, weight: .semibold))
-
-                    Text("感谢支持轻贴 ClipEase 的持续维护。")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Button("关闭") {
-                    dismiss()
-                }
-                .buttonStyle(.bordered)
-            }
-
-            HStack(spacing: 18) {
-                supportQRCode(
-                    name: "Alipay",
-                    extensionName: "jpg",
-                    missingTitle: "支付宝二维码",
-                    cropRect: CGRect(x: 190, y: 460, width: 635, height: 635),
-                    borderColor: Color(red: 0.09, green: 0.52, blue: 0.96)
-                )
-                supportQRCode(
-                    name: "WeChat",
-                    extensionName: "png",
-                    missingTitle: "微信二维码",
-                    cropRect: CGRect(x: 198, y: 115, width: 900, height: 900),
-                    borderColor: Color(red: 0.12, green: 0.74, blue: 0.34)
-                )
-            }
-        }
-        .padding(22)
-        .frame(width: 620)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
+private struct SupportQRCodeAssets {
     private func supportQRCode(
         name: String,
         extensionName: String,
         missingTitle: String,
         cropRect: CGRect,
-        borderColor: Color
+        borderColor: Color,
+        size: CGFloat
     ) -> some View {
         ZStack {
             if let image = supportImage(name: name, extensionName: extensionName, cropRect: cropRect) {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 260, height: 260)
+                    .frame(width: size, height: size)
             } else {
                 Text("未找到\(missingTitle)")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 260, height: 260)
+                    .frame(width: size, height: size)
             }
         }
-        .frame(width: 260, height: 260)
+        .frame(width: size, height: size)
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: 4)
         }
+    }
+
+    static func supportQRCode(
+        name: String,
+        extensionName: String,
+        missingTitle: String,
+        cropRect: CGRect,
+        borderColor: Color,
+        size: CGFloat
+    ) -> some View {
+        Self().supportQRCode(
+            name: name,
+            extensionName: extensionName,
+            missingTitle: missingTitle,
+            cropRect: cropRect,
+            borderColor: borderColor,
+            size: size
+        )
     }
 
     private func supportImage(name: String, extensionName: String, cropRect: CGRect) -> NSImage? {
@@ -201,7 +176,6 @@ struct SettingsView: View {
     @State private var groupSelection = Set<ClipboardGroup.ID>()
     @State private var groupPendingDeletion: ClipboardGroup?
     @State private var isBulkGroupDeleteConfirmationPresented = false
-    @State private var isSupportSheetPresented = false
     @State private var groupAppearancePickerGroupID: ClipboardGroup.ID?
     @State private var groupAppearanceColor = Color(red: 0.18, green: 0.55, blue: 1.0)
     @State private var groupIconSearchText = ""
@@ -334,9 +308,6 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("会删除所选分组及其中内容，无法恢复。")
-        }
-        .sheet(isPresented: $isSupportSheetPresented) {
-            SupportQRCodeSheet()
         }
     }
 
@@ -1344,7 +1315,7 @@ struct SettingsView: View {
                         Text("支持与交流")
                             .font(.system(size: 13, weight: .semibold))
 
-                        Text("加入交流群反馈问题，或赞赏支持轻贴继续维护。")
+                        Text("加入交流群反馈问题，查看项目更新。")
                             .font(.system(size: 12, weight: .regular))
                             .foregroundStyle(.secondary)
                     }
@@ -1355,15 +1326,26 @@ struct SettingsView: View {
                         openSupportCommunity()
                     }
                     .buttonStyle(.bordered)
+                }
 
-                    Button {
-                        isSupportSheetPresented = true
-                    } label: {
-                        Label("赞赏支持", systemImage: "heart.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .padding(.horizontal, 4)
-                    }
-                    .buttonStyle(.borderedProminent)
+                HStack(alignment: .top, spacing: 16) {
+                    SupportQRCodeAssets.supportQRCode(
+                        name: "Alipay",
+                        extensionName: "jpg",
+                        missingTitle: "支付宝二维码",
+                        cropRect: CGRect(x: 190, y: 460, width: 635, height: 635),
+                        borderColor: Color(red: 0.09, green: 0.52, blue: 0.96),
+                        size: 170
+                    )
+
+                    SupportQRCodeAssets.supportQRCode(
+                        name: "WeChat",
+                        extensionName: "png",
+                        missingTitle: "微信二维码",
+                        cropRect: CGRect(x: 198, y: 115, width: 900, height: 900),
+                        borderColor: Color(red: 0.12, green: 0.74, blue: 0.34),
+                        size: 170
+                    )
                 }
             }
         }
