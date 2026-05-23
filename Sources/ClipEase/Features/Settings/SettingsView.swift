@@ -96,8 +96,18 @@ private struct SupportQRCodeSheet: View {
             }
 
             HStack(spacing: 18) {
-                supportQRCode(name: "Alipay", extensionName: "jpg", title: "支付宝赞赏")
-                supportQRCode(name: "WeChat", extensionName: "png", title: "微信赞赏")
+                supportQRCode(
+                    name: "Alipay",
+                    extensionName: "jpg",
+                    title: "支付宝赞赏",
+                    cropRect: CGRect(x: 75, y: 405, width: 860, height: 860)
+                )
+                supportQRCode(
+                    name: "WeChat",
+                    extensionName: "png",
+                    title: "微信赞赏",
+                    cropRect: CGRect(x: 135, y: 115, width: 900, height: 900)
+                )
             }
         }
         .padding(22)
@@ -105,9 +115,14 @@ private struct SupportQRCodeSheet: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func supportQRCode(name: String, extensionName: String, title: String) -> some View {
+    private func supportQRCode(
+        name: String,
+        extensionName: String,
+        title: String,
+        cropRect: CGRect
+    ) -> some View {
         VStack(spacing: 10) {
-            if let image = supportImage(name: name, extensionName: extensionName) {
+            if let image = supportImage(name: name, extensionName: extensionName, cropRect: cropRect) {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
@@ -133,7 +148,7 @@ private struct SupportQRCodeSheet: View {
         .frame(width: 276)
     }
 
-    private func supportImage(name: String, extensionName: String) -> NSImage? {
+    private func supportImage(name: String, extensionName: String, cropRect: CGRect) -> NSImage? {
         guard let url = Bundle.main.url(
             forResource: name,
             withExtension: extensionName,
@@ -142,7 +157,14 @@ private struct SupportQRCodeSheet: View {
             return nil
         }
 
-        return NSImage(contentsOf: url)
+        guard let image = NSImage(contentsOf: url),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let croppedImage = cgImage.cropping(to: cropRect) else {
+            return NSImage(contentsOf: url)
+        }
+
+        let size = NSSize(width: cropRect.width, height: cropRect.height)
+        return NSImage(cgImage: croppedImage, size: size)
     }
 }
 
