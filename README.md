@@ -69,13 +69,26 @@ scripts/build-app.sh --bump none --run
 
 欢迎扫码加入 轻贴ClipEase 交流群，反馈问题、交流使用体验或提出新功能建议：
 
-![轻贴ClipEase 交流群](docs/images/WechatQun.png)
+<p>
+  <img src="docs/images/WechatQun.png" alt="轻贴ClipEase 交流群" width="260">
+</p>
 
 可以请我喝杯咖啡，或者随手赞赏支持一下，谢谢！
 
-![支付宝赞赏](docs/images/Alipay.jpg)
-
-![微信赞赏](docs/images/WeChat.png)
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/images/Alipay.jpg" alt="支付宝赞赏" width="260">
+    </td>
+    <td align="center">
+      <img src="docs/images/WeChat.png" alt="微信赞赏" width="260">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">支付宝赞赏</td>
+    <td align="center">微信赞赏</td>
+  </tr>
+</table>
 
 ## License
 
