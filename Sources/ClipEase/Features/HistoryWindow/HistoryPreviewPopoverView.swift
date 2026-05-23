@@ -3,6 +3,8 @@ import AppKit
 import SwiftUI
 @preconcurrency import VisionKit
 
+typealias PreviewHeaderDragCompletion = (NSEvent) -> Void
+
 struct HistoryPreviewPopoverView: View {
     let item: ClipboardItem
     let ocrResult: ClipboardOCRMatch?
@@ -18,7 +20,7 @@ struct HistoryPreviewPopoverView: View {
     let onCopyMarkdown: () -> Void
     let onCopyPath: () -> Void
     let onCopyRGB: () -> Void
-    let onDetachDrag: () -> (() -> Void)?
+    let onDetachDrag: () -> PreviewHeaderDragCompletion?
     @State private var previewImage: PreviewImage?
     @State private var filePreviewImage: PreviewImage?
     @State private var selectedFileReferenceID: ClipboardFileReference.ID?
@@ -817,7 +819,7 @@ private struct PreviewImage {
 }
 
 private struct PreviewHeaderDragRegion: NSViewRepresentable {
-    let onDragStarted: () -> (() -> Void)?
+    let onDragStarted: () -> PreviewHeaderDragCompletion?
 
     func makeNSView(context: Context) -> HeaderDragView {
         let view = HeaderDragView()
@@ -831,9 +833,8 @@ private struct PreviewHeaderDragRegion: NSViewRepresentable {
 }
 
 private final class HeaderDragView: NSView {
-    var onDragStarted: () -> (() -> Void)? = { nil }
+    var onDragStarted: () -> PreviewHeaderDragCompletion? = { nil }
     private let dragActivationDistance: CGFloat = 4
-    private var initialMouseDownEvent: NSEvent?
     private var initialMouseDownLocation: CGPoint?
     private var didStartWindowDrag = false
 
@@ -855,14 +856,12 @@ private final class HeaderDragView: NSView {
             return
         }
 
-        initialMouseDownEvent = event
         initialMouseDownLocation = event.locationInWindow
         didStartWindowDrag = false
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard !didStartWindowDrag,
-              let initialMouseDownEvent,
               let initialMouseDownLocation else {
             return
         }
@@ -874,14 +873,11 @@ private final class HeaderDragView: NSView {
         }
 
         didStartWindowDrag = true
-        let dragWindow = window
         let dragCompletion = onDragStarted()
-        dragWindow?.performDrag(with: initialMouseDownEvent)
-        dragCompletion?()
+        dragCompletion?(event)
     }
 
     override func mouseUp(with event: NSEvent) {
-        initialMouseDownEvent = nil
         initialMouseDownLocation = nil
         didStartWindowDrag = false
     }

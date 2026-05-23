@@ -362,7 +362,7 @@ final class HistoryPreviewWindowController {
         isContentReady: Bool,
         showsArrow: Bool,
         onClose: @escaping () -> Void,
-        onDetachDrag: @escaping () -> (() -> Void)?
+        onDetachDrag: @escaping () -> PreviewHeaderDragCompletion?
     ) {
         panel.contentView = NSHostingView(
             rootView: HistoryPreviewPopoverView(
@@ -412,7 +412,7 @@ final class HistoryPreviewWindowController {
         }
     }
 
-    private func detachCurrentPreview() -> (() -> Void)? {
+    private func detachCurrentPreview() -> PreviewHeaderDragCompletion? {
         guard let panel,
               panel.isVisible,
               let configuration = contentConfiguration else {
@@ -442,9 +442,13 @@ final class HistoryPreviewWindowController {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         configuration.onDetach()
-        return { [weak self, weak panel] in
+        return { [weak self, weak panel] event in
             guard let panel else {
                 return
+            }
+            if let dragPanel = panel as? HistoryPreviewPanel,
+               dragPanel.isVisible {
+                dragPanel.performDrag(with: event)
             }
             self?.finishDetachedPreviewDrag(panel: panel, configuration: configuration)
         }

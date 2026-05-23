@@ -23,6 +23,31 @@
 ## Backlog 条目
 
 ```text
+优化任务 ID：V2-BUGFIX-PREVIEW-HEADER-DRAG-JITTER-001
+来源任务卡：用户反馈预览窗口顶部按住拖动时窗口抖动
+来源 Agent：Codex
+风险等级：中低
+问题描述：
+- 预览顶部 `HeaderDragView` 超过拖动阈值后会先 detach 贴附预览并改变 panel frame。
+- 旧实现随后用最初的 mouseDown event 调用 `performDrag(with:)`，该事件坐标基于 detach 前 frame，系统拖动会重新校正窗口位置，容易造成抖动。
+已实施方案：
+- 新增 `PreviewHeaderDragCompletion = (NSEvent) -> Void`。
+- Header 只保存初始鼠标位置用于阈值判断，不再保存/复用初始 mouseDown event。
+- 拖动开始时把当前 `mouseDragged` event 传给 controller。
+- `HistoryPreviewWindowController.detachCurrentPreview()` 返回接收当前 event 的 completion，由 controller 在 detach 后调用 `dragPanel.performDrag(with: event)`。
+- 新增守卫脚本 `scripts/verify_preview_header_drag_guards.py`，禁止回退到复用旧 mouseDown event 的路径。
+验证方式：
+- `python3 scripts/verify_preview_header_drag_guards.py` 先失败后通过。
+- 全量守卫通过。
+- `swift build` 通过。
+- `./scripts/build-app.sh --bump patch --run` 通过，最终运行 `2.3.40 (260524.0011)`。
+- 最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_00-11-58.jsonl`：70,076 条数据下 `history.store.loadStartupPage` 约 `27.53ms`，`history.store.initialize` 约 `29.02ms`，稳定后主线程采样约 `0.03ms - 0.17ms`。
+行为影响：
+- 只影响预览顶部拖动变独立窗口的手势路径；预览内容、关闭、复制、打开和列表性能路径不变。
+是否阻塞当前阶段：否；作为用户反馈 bugfix 已落地。
+```
+
+```text
 优化任务 ID：V2-OPT-DEBUG-DATA-BULK-INSERT-001
 来源任务卡：用户询问开发入口生成 10,000 条测试数据导致数据库变大的问题
 来源 Agent：Codex
