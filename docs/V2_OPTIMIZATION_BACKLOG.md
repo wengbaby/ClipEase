@@ -23,6 +23,95 @@
 ## Backlog 条目
 
 ```text
+优化任务 ID：V2-OPT-PASTE-STYLE-REOPEN-STABILITY-001
+来源任务卡：用户要求参照 Paste.app 思路继续优化 / 修复三项 UI 回归
+来源 Agent：Codex
+风险等级：中
+问题描述：
+- 用户指出上轮性能修改后出现三项回归：卡片整体偏下；快速调出主窗口时卡片偶发错位；用户滚动很远后选择卡片、关闭窗口、复制新内容并快速重开时，主窗口偶发不显示卡片或第一张空白。
+- 运行日志同时暴露 `SwiftUI` 的 `Modifying state during view update` 警告，说明 UI 计算期间仍有可能经由索引自修复写状态。
+- Paste.app 研究显示其低延迟来自轻量索引、首屏 metadata 优先、搜索/OCR/缩略图队列化和 payload 按需加载；轻贴应按该思路分阶段迁移，而不是继续让 UI 生命周期承担全量重建。
+已实施方案：
+- 卡片顶部布局恢复：`selectedCardTopContentInset` 从 `14` 调整为 `0`，回到参考图的卡片高度。
+- 卡片 x 坐标按 `id -> index` 稳定推导，禁止测量未完成时 `.offset(... ?? 0)` 导致多卡片叠在原点。
+- 虚拟窗口在 `pendingLatestFocusItemID` / `pendingProgrammaticJumpItemID` / `pendingItemScrollID` 存在时优先渲染焦点附近，避免旧远端 scroll rect 把最新卡片排除在渲染窗口外。
+- 最新内容聚焦时同步重置 `cardRailVisibleRect` 到目标 offset，快速重开时先保证目标卡片进入可见窗口。
+- Store 增加 `itemsMutationGeneration`；HistoryWindow 只在 preview rebuild 结果真正应用后提交 source signature 和 generation，避免构建被取消后下次误判为已完成。
+- 数据未变化时重开窗口直接记录 `preview.rebuild.skip`，跳过重复全量 preview rebuild。
+- UI 热路径改用 `cachedItemIndex(with:)` 只读索引，避免 `itemIndex(with:)` 的索引自修复在 SwiftUI view update 中写状态。
+- 新增 `scripts/verify_history_reopen_stability_guards.py`，并更新 filtered index 守卫，禁止回归到会写状态的 UI 索引查询。
+验证结果：
+- `python3 scripts/verify_history_reopen_stability_guards.py` 通过。
+- `python3 scripts/verify_history_filtered_index_guards.py` 通过。
+- `python3 scripts/verify_history_search_performance_guards.py` 通过。
+- `python3 scripts/verify_history_visible_window_range_guards.py` 通过。
+- `python3 scripts/verify_store_index_performance_guards.py` 通过。
+- `swift build` 通过。
+- `./scripts/build-app.sh --bump none --run` 通过，最终运行 `2.3.29 (260523.1845)`，PID `26639`。
+- 快速开关窗口截图 `/tmp/clipease-final-window-check.png` 显示卡片回到底部轨道高度，未复现第一张空白或整排错位。
+- 最终日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_18-46-23.jsonl`：
+  - 第二次重开 `preview.rebuild.skip` 约 `0.01ms`。
+  - 空搜索 `search.applyResults` 约 `0.03ms`，`mode=unfilteredSource`。
+  - 稳定后 CPU `0%`，主线程延迟约 `0.03-0.07ms`。
+- 系统日志复查未再出现 `Modifying state during view update` / SwiftUI fatal / crash。
+- 最新系统崩溃报告仍为 `2026-05-23 16:07:38` 的旧 `ClipEase-*.ips`，最终包运行后未新增崩溃报告。
+行为影响：
+- 不改变 SQLite schema、备份格式、搜索语义、授权入口或远程 `.gitignore`。
+- 可见行为变化为卡片 top inset 恢复到原参考位置；快速重开时焦点卡片会优先进入渲染窗口。
+- 当前实现是 Paste 思路的第一阶段低风险落地；尚未引入独立 FTS5 索引库或 metadata 分页。
+剩余问题：
+- 10 万+ 冷启动仍需要下一阶段做 SQLite metadata 首屏分页、FTS5 搜索索引和 payload/preview 按需加载。
+是否阻塞当前阶段：否；已作为阻塞回归修复落地。
+```
+
+```text
+优化任务 ID：V2-OPT-100K-HISTORY-EMPTY-SEARCH-TOPN-HASH-001
+来源任务卡：用户性能专项继续优化 / PerformanceLogs 2026-05-23
+来源 Agent：Codex
+风险等级：中
+问题描述：
+- `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_16-42-10.jsonl` 显示，空搜索 / 全部历史路径仍会对 11 万条结果触发 `search.filter` 和 filtered 索引构建，`search.apply.complete` 周边可见 100ms+ 主线程延迟。
+- 来源 App 筛选项在 SwiftUI body 中从 `allPreviewItems` 全量扫描，打开筛选面板时会放大重绘成本。
+- Store 启动去重索引同时维护 `recentHashes` 与 `itemIDsByHash`，其中去重判断实际只依赖 `itemIDsByHash`，存在重复工作。
+已实施方案：
+- 空搜索直通：全部历史、无查询、无筛选时直接复用 `allPreviewItems`，不再派发全量 `search.filter`，不再为 11 万条结果重建 filtered ID Set / `id -> index`。
+- filtered 直通模式复用 `ClipboardHistoryStore.cachedItemIndex(with:)` 的只读 `id -> index`，保持选择、滚动、预览跟随 O(1)，并避免 SwiftUI view update 期间触发索引自修复写状态。
+- 非空搜索 / 筛选结果限制为 top `500` 条，避免一次性刷新 10 万条 UI 结果。
+- 来源 App 筛选快照随 preview rebuild 在后台构建并缓存，SwiftUI body 不再扫描全量历史。
+- Store 去重索引去掉 `recentHashes` 二级集合，仅保留 `hash -> ids`。
+- 大历史 rail 变化增加动画防护，搜索源或渲染结果超过 `2,000` 时禁用 rail 事务动画，避免 top N 和全量直通结果来回切换时触发大范围 SwiftUI / Accessibility 动画布局。
+- 追加日志显示 top `2,000` 搜索结果在连续输入时仍可能触发几十到数百毫秒 SwiftUI / Accessibility 布局采样延迟，因此将交互搜索 top N 降到 `500`；空搜索全量直通不受影响。
+- 更新 `verify_history_search_performance_guards.py`、`verify_history_filtered_index_guards.py`、`verify_store_index_performance_guards.py` 防回归。
+验证结果：
+- `swift build` 通过。
+- `python3 scripts/verify_history_visible_window_range_guards.py` 通过。
+- `python3 scripts/verify_history_search_performance_guards.py` 通过。
+- `python3 scripts/verify_sqlite_snapshot_bulk_load_guards.py` 通过。
+- `python3 scripts/verify_history_filtered_index_guards.py` 通过。
+- `python3 scripts/verify_store_index_performance_guards.py` 通过。
+- `python3 scripts/verify_card_click_performance_guards.py` 通过。
+- `python3 scripts/verify_preview_window_performance_guards.py` 通过。
+- `python3 scripts/benchmark_history_search_performance.py` 通过，最终 10k 常见查询约 `1.48ms`，10k 中文查询约 `2.16ms`。
+- `./scripts/build-app.sh --bump none --run` 通过，最终运行 `2.3.28 (260523.1732)`，PID `81240`。
+- 最终日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_17-33-17.jsonl`：
+  - `history.store.rebuildHashes` 从上一轮约 `192.86ms` 降到约 `132.42ms`。
+  - `history.store.initialize` 从上一轮约 `988.38ms` 降到约 `914.90ms`。
+  - 空搜索 `search.applyResults` 约 `0.02ms`，`search.postApply` 约 `0.03ms`。
+  - 空搜索路径不再出现 `search.filter`。
+  - `preview.rebuild.apply` 约 `0.17ms`，`animated=false`。
+  - 稳定后 CPU `0%`，主线程延迟约 `0.02-0.06ms`。
+行为影响：
+- 空搜索 / 全部历史语义不变。
+- 非空搜索 / 筛选从一次性全量刷新改为 top `500`，符合 10 万+ 数据规模下“分页结果或 top N 结果”的性能约束。
+- 大结果集切换不再播放 rail 动画；小结果集仍保留原交互动画。
+- 不改变 SQLite schema、备份格式、授权入口或远程 `.gitignore` 规则。
+剩余问题：
+- 启动仍同步加载 11 万+ 条 metadata，`history.store.loadSnapshot` 约 `742ms`。
+- 启动仍后台全量构建 11 万个 `HistoryPreviewItem`，`preview.rebuild.background` 约 `1.31s`；下一阶段应做首屏 / 可视窗口懒构建和分页数据源。
+是否阻塞当前阶段：否；作为第三批低风险性能削峰修复。
+```
+
+```text
 优化任务 ID：V2-OPT-OFFICE-PREVIEW-FORMAT-SELECTION-001
 来源任务卡：用户反馈 / 2026-05-21 Office 预览收口
 来源 Agent：Codex 主控 Agent

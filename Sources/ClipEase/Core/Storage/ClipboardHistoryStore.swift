@@ -20,7 +20,12 @@ struct ClipboardItemFocusRequest: Equatable {
 
 @MainActor
 final class ClipboardHistoryStore: ObservableObject {
-    @Published private(set) var items: [ClipboardItem] = []
+    @Published private(set) var items: [ClipboardItem] = [] {
+        didSet {
+            itemsMutationGeneration &+= 1
+        }
+    }
+    private(set) var itemsMutationGeneration: UInt64 = 0
     @Published private(set) var groups: [ClipboardGroup] = []
     @Published private(set) var latestItemFocusRequest: ClipboardItemFocusRequest?
     @Published var retentionPolicy: HistoryRetentionPolicy {
@@ -38,7 +43,6 @@ final class ClipboardHistoryStore: ObservableObject {
     private let persistence: ClipboardHistoryPersistence
     private let saveWriter: ClipboardHistorySaveWriter
     private let userDefaults: UserDefaults
-    private var recentHashes: Set<String> = []
     private var itemIDsByHash: [String: Set<ClipboardItem.ID>] = [:]
     private var skippedClipboardTexts: Set<String> = []
     private var skippedImageHashes: Set<String> = []
@@ -100,7 +104,7 @@ final class ClipboardHistoryStore: ObservableObject {
             category: "storage",
             durationMS: (CFAbsoluteTimeGetCurrent() - hashStartedAt) * 1_000,
             itemCount: items.count,
-            resultCount: recentHashes.count
+            resultCount: itemIDsByHash.count
         )
         PerformanceDiagnosticsService.shared.record(
             "history.store.initialize",
@@ -109,6 +113,7 @@ final class ClipboardHistoryStore: ObservableObject {
             itemCount: items.count,
             resultCount: groups.count
         )
+        itemsMutationGeneration = 1
     }
 
     func addText(_ text: String, sourceApp: SourceAppInfo) {
@@ -227,6 +232,25 @@ final class ClipboardHistoryStore: ObservableObject {
         return items[index]
     }
 
+    func itemIndex(with id: ClipboardItem.ID?) -> Int? {
+        guard let id else {
+            return nil
+        }
+
+        return itemIndex(for: id)
+    }
+
+    func cachedItemIndex(with id: ClipboardItem.ID?) -> Int? {
+        guard let id,
+              let index = itemIndexByID[id],
+              items.indices.contains(index),
+              items[index].id == id else {
+            return nil
+        }
+
+        return index
+    }
+
     func deleteItem(with id: ClipboardItem.ID?) {
         guard let id else {
             return
@@ -253,7 +277,6 @@ final class ClipboardHistoryStore: ObservableObject {
         cancelAllOCRTasks()
         cancelAllLinkMetadataTasks()
         deleteExternalFiles(for: removedItems)
-        recentHashes.removeAll()
         itemIDsByHash.removeAll()
         skippedClipboardTexts.removeAll()
         skippedImageHashes.removeAll()
@@ -1180,18 +1203,14 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func rebuildRecentHashes() {
-        var hashes: Set<String> = []
         var idsByHash: [String: Set<ClipboardItem.ID>] = [:]
-        hashes.reserveCapacity(items.count)
         idsByHash.reserveCapacity(items.count)
 
         for item in items {
             let hash = textHash(for: item)
-            hashes.insert(hash)
             idsByHash[hash, default: []].insert(item.id)
         }
 
-        recentHashes = hashes
         itemIDsByHash = idsByHash
     }
 
@@ -1201,7 +1220,6 @@ final class ClipboardHistoryStore: ObservableObject {
             itemIDsByHash[hash]?.remove(item.id)
             if itemIDsByHash[hash]?.isEmpty == true {
                 itemIDsByHash[hash] = nil
-                recentHashes.remove(hash)
             }
         }
     }

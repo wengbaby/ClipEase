@@ -2,14 +2,14 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前收口包为 `2.3.27(260523.1641)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前收口包为 `2.3.29(260523.1845)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布候选冻结。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序；当前也已移除主窗口更多菜单中的“开发测试”入口，并完成帮助文案与设置页保存期限选中态 polish。冻结后不再新增 V2 功能，只接受阻塞 bug、崩溃和发布包风险修复。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.3.21(260523.1408)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.3.29(260523.1845)`
 - `python3 scripts/benchmark_history_search_performance.py`：PASS，1k / 10k 混合历史样本、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造均在阈值内
 - `python3 scripts/verify_help_and_retention_polish.py`：PASS，帮助文案保持简洁，设置页保存期限选中态为统一蓝色背景
 - `python3 scripts/verify_no_visible_debug_menu.py`：PASS，主窗口更多菜单不再暴露“开发测试”，设置页隐藏性能测试数据入口保留
@@ -24,7 +24,7 @@
 - `./scripts/build-dmg.sh`：PASS，已生成 `dist/ClipEase-2.3.2-260523.0437.dmg`，SHA-256 `e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - DMG 挂载结构验收：PASS，根目录包含 `ClipEase.app` 和 `Applications` 快捷入口，`ClipEase.app` 版本为 `2.3.2 (260523.0437)`，可执行文件存在且有执行权限
 - DMG 内 App 启动验收：PASS，从只读挂载卷启动 `ClipEase.app --show-settings`，进程正常存活，System Events 可见进程 `ClipEase` 和 1 个设置窗口；验收后已关闭 release App、卸载 DMG，并恢复开发包运行
-- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.3.27 (260523.1641)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `40447`
+- `scripts/build-app.sh --bump none --run`：通过；当前运行包为 `2.3.29 (260523.1845)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `26639`
 - GitHub 推送：PASS，`origin/main` 已推送到 `717e760`
 - GitHub Tag：PASS，`v2.3.2-260523.0437` 已推送
 - GitHub Release：PASS，已创建 `https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`，并上传 `ClipEase-2.3.2-260523.0437.dmg`
@@ -49,10 +49,10 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.3.27`
-- 当前构建号：`260523.1641`
-- 当前 build/run：`2.3.27 (260523.1641)`
-- 当前运行进程：PID `40447`
+- 当前候选版本：`2.3.29`
+- 当前构建号：`260523.1845`
+- 当前 build/run：`2.3.29 (260523.1845)`
+- 当前运行进程：PID `26639`
 - 当前 DMG：`dist/ClipEase-2.3.2-260523.0437.dmg`
 - 当前 DMG SHA-256：`e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - 当前 GitHub Release：`https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`
@@ -62,6 +62,8 @@
 
 ## RC 修复记录
 
+- `2.3.29(260523.1845)`：按 Paste.app 的性能思路落地第一阶段低风险修复，并修复上轮引入的三项 UI 回归。Paste 研究已记录在 `docs/PASTE_APP_PERFORMANCE_RESEARCH.md`：核心思路是轻量索引 / metadata 优先、搜索与 OCR 队列化、大 payload 按需加载、UI 不围绕完整 payload 重建。本轮未复制 Paste 代码，先在轻贴现有架构内实现：卡片顶部 inset 从 `14` 回到 `0`，恢复参考图中的卡片高度；卡片 x 坐标改为按 `id -> index` 稳定推导，不再在测量未完成时回退到 `0` 导致重叠 / 空白；虚拟化窗口在最新复制、程序跳转或 pending scroll 期间优先渲染焦点附近，避免用户滚动很远后新增内容、快速重开时目标卡片不在渲染窗口；preview rebuild 增加 `itemsMutationGeneration`，只有结果真正应用后才提交签名，防止窗口快速关闭取消构建后下一次误判“已构建”；数据未变时重开窗口记录 `preview.rebuild.skip` 并跳过全量 rebuild；HistoryWindow 在 SwiftUI View 计算期间改用只读 `cachedItemIndex`，避免 `store.itemIndex(with:)` 的索引自修复在 view update 中写状态并触发 SwiftUI runtime warning。新增 `scripts/verify_history_reopen_stability_guards.py`，并更新 filtered index 守卫禁止 UI 热路径回退到会写状态的索引查询。最终运行包 `2.3.29 (260523.1845)`，PID `26639`；`/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_18-46-23.jsonl` 显示快速重开第二次 `preview.rebuild.skip` 约 `0.01ms`，空搜索 `search.applyResults` 约 `0.03ms` 且 `mode=unfilteredSource`，稳定后 CPU `0%`、主线程延迟约 `0.03-0.07ms`。系统日志复查未再出现 `Modifying state during view update` / SwiftUI fatal / crash；最新 `ClipEase-*.ips` 仍停留在 `2026-05-23 16:07:38` 的旧报告。当前本机最终复测数据集为 22 条，10 万+ 路径由此前 `17:33` 的 11 万日志和本轮静态守卫覆盖；下一阶段仍应按 Paste 思路推进 SQLite metadata 分页和 FTS5 索引。
+- `2.3.28(260523.1732)`：根据最新 `PerformanceLogs` 继续收口 10 万+ 历史性能。新日志显示 `2.3.27` 已无新增崩溃，但开窗 / 空搜索路径仍会对 11 万条结果触发全量过滤和结果索引应用，`search.apply.complete` 仍出现 100ms+ 主线程延迟；来源 App 筛选项也会在 SwiftUI body 中反复扫描全量历史。本轮让“全部 / 无查询 / 无筛选”的空搜索直接复用 `allPreviewItems`，不再派发后台 `search.filter`，不再为 11 万条结果重建 filtered ID Set / `id -> index`；筛选 / 查询结果限制为前 `500` 条，避免一次性刷新 10 万条搜索结果；来源 App 筛选快照改为随 preview rebuild 在后台构建并缓存；Store 去重索引移除未参与判断的 `recentHashes` 二级集合，只保留 `hash -> ids`。补充采样确认连续输入搜索时高 CPU 主要在 SwiftUI / AppKit 布局、Accessibility 图更新和动画提交，本轮对大历史 rail 变化增加动画防护，搜索源或渲染结果超过 `2,000` 时禁用 rail 事务动画。新增 / 更新守卫覆盖空搜索直通、搜索结果上限、来源 App 缓存、filtered 索引直通、Store 单索引去重和大历史动画防护。最终日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_17-33-17.jsonl`：`history.store.loadSnapshot` 约 `741.62ms`，`history.store.sort` 约 `40.27ms`，`history.store.rebuildHashes` 从上一轮约 `192.86ms` 降到约 `132.42ms`，`history.store.initialize` 从上一轮约 `988.38ms` 降到约 `914.90ms`，`preview.rebuild.background` 约 `1305.54ms`，`preview.rebuild.apply` 约 `0.17ms` 且 `animated=false`，空搜索 `search.applyResults` 约 `0.02ms`，`search.postApply` 约 `0.02ms`，未再出现空搜索 `search.filter`；稳定后资源采样 CPU `0%`，主线程延迟约 `0.02-0.06ms`。运行后最新系统崩溃报告仍停留在 `2026-05-23 16:07:38` 的旧报告，未生成新的 `ClipEase-*.ips`。本轮不改变 SQLite schema、备份格式、授权入口或远程 ignore 规则；可见行为变化是非空搜索 / 筛选只展示 top `500` 条结果，且大结果集切换不再播放 rail 动画，避免向 UI 一次性刷新 10 万条。
 - `2.3.27(260523.1641)`：历史窗口空闲 CPU 收口。`sample` 显示 `2.3.26` 打开历史窗口后主线程主要消耗在 SwiftUI / Accessibility 图更新与布局；本轮移除未授权“请授权”按钮的 `.repeatForever` 脉冲动画，改为静态高可见度提示，并将 `HistorySearchFilterResult(items:)` 构建移入 detached 搜索任务，让 11 万条结果的 ID Set / `id -> index` 继续在后台构建。新增 / 更新守卫禁止历史窗口恢复 `.repeatForever(`，并要求搜索结果索引在 detached task 内构建。最终运行 `2.3.27`，日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_16-42-10.jsonl` 显示 `history.store.sort` 约 `40.71ms`、`history.store.initialize` 约 `977.92ms`；`ps -p 40447` 在稳定窗口从约 `4.3%` 降到 `0.0%` CPU。运行后最新系统崩溃报告仍停留在 `2026-05-23 16:07:38` 的旧报告，未生成新的 `ClipEase-*.ips`。本轮不改变授权入口、搜索语义、SQLite schema、备份格式或远程 ignore 规则。
 - `2.3.26(260523.1625)`：修复 10 万+ 历史记录下搜索 / 分组结果骤降后 App 崩溃的问题。崩溃报告 `/Users/wpc/Library/Logs/DiagnosticReports/ClipEase-2026-05-23-160737.ips` 显示 `HistoryWindowView.historyRailVisibleWindow.getter` 构造 `Range` 时触发 Swift runtime failure：`Range requires lowerBound <= upperBound`；原因是旧横向滚动偏移仍对应 11 万条列表，而新结果只剩 1 条，旧实现未把 `rawStart` 夹紧到当前 item count 内。本轮新增 `clampedHistoryRailWindow(itemCount:visibleRect:bufferItemCount:)`，列表渲染窗口和预览缓存保留窗口共用该夹紧逻辑，并新增 `scripts/verify_history_visible_window_range_guards.py` 防回归。同时将 SQLite snapshot 的主表排序对齐 Swift 列表排序，启动时不再对 11 万条 items 二次 `sortItems()`，`history.store.sort` 改为 `mode=snapshotOrder.indexOnly`。最终日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_16-26-22.jsonl`：`history.store.sort` 约 `38.94ms`、`history.store.initialize` 约 `965.46ms`；对比 `2.3.24` 的 `history.store.sort` 约 `108.66ms`、`history.store.initialize` 约 `1034.08ms`。运行新包后最新系统崩溃报告仍停留在 `2026-05-23 16:07:38` 的旧报告，未生成新的 `ClipEase-*.ips`。本轮不改变 UI 功能行为、SQLite schema、备份格式或远程 ignore 规则。
 - `2.3.24(260523.1449)`：10 万+ 历史记录性能专项第二批启动 / 搜索应用削峰。`SQLiteClipboardStore.loadSnapshot()` 改为批量读取 assets、file references、OCR 并按 itemID 组装，避免 11 万条数据启动时 N+1 SQLite 查询；`ClipboardHistoryStore` 启动时只有真实过期剪裁后才同步保存，避免无变化时全量重写；`HistoryWindowView` 为过滤结果维护 `id -> index` 和 ID Set，并将搜索结果索引构建移到后台任务，主线程只应用结果。新增 `scripts/verify_sqlite_snapshot_bulk_load_guards.py` 与 `scripts/verify_history_filtered_index_guards.py`，并更新搜索性能守卫。最终运行日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_14-50-07.jsonl`：`history.store.loadSnapshot` 约 `734.78ms`，`history.store.initialize` 约 `1034.08ms`，`search.applyResults` 约 `0.14ms`，启动主线程 latency 约 `1080.74ms`；对比本轮中间日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_14-42-37.jsonl` 的 `history.store.initialize` 约 `2961.21ms`、启动主线程 latency 约 `3029.70ms`，启动同步阻塞明显下降。本轮不改变 UI 功能行为、SQLite schema、备份格式或远程 ignore 规则。

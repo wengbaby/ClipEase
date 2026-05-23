@@ -32,6 +32,7 @@ def main() -> None:
     source = STORE.read_text(encoding="utf-8")
 
     item_lookup = extract_function(source, "func item(with id: ClipboardItem.ID?) -> ClipboardItem?")
+    item_index_lookup = extract_function(source, "func itemIndex(with id: ClipboardItem.ID?) -> Int?")
     item_count = extract_function(source, "func itemCount(inGroup id: ClipboardGroup.ID) -> Int")
     delete_item = extract_function(source, "func deleteItem(with id: ClipboardItem.ID?)")
     sort_items = extract_function(source, "private func sortItems()")
@@ -44,16 +45,19 @@ def main() -> None:
         "private var itemIndexByID: [ClipboardItem.ID: Int] = [:]",
         "private var groupIndexByID: [ClipboardGroup.ID: Int] = [:]",
         "private var itemCountByGroupID: [ClipboardGroup.ID: Int] = [:]",
+        "private var itemIDsByHash: [String: Set<ClipboardItem.ID>] = [:]",
         "private func itemIndex(for id: ClipboardItem.ID) -> Int?",
         "private func groupIndex(for id: ClipboardGroup.ID) -> Int?",
         "private func rebuildItemIndexes()",
         "private func rebuildGroupIndex()",
         "private func removeRecentHashes(for removedItems: [ClipboardItem])",
         "private func updateGroupCountOnMove(from oldGroupID: ClipboardGroup.ID?, to newGroupID: ClipboardGroup.ID?)",
+        "func itemIndex(with id: ClipboardItem.ID?) -> Int?",
     ]
 
     scoped_required = [
         ("item lookup", item_lookup, ["itemIndex(for: id)", "return items[index]"]),
+        ("item index lookup", item_index_lookup, ["return itemIndex(for: id)"]),
         ("item count", item_count, ["itemCountByGroupID[id] ?? 0"]),
         ("delete item", delete_item, ["itemIndex(for: id)", "items.remove(at: deletedIndex)", "removeRecentHashes(for: deletedItems)"]),
         ("sort items", sort_items, ["rebuildItemIndexes()"]),
@@ -64,6 +68,14 @@ def main() -> None:
     ]
 
     forbidden_global = [
+        "private var recentHashes: Set<String> = []",
+        "var hashes: Set<String> = []",
+        "hashes.reserveCapacity(items.count)",
+        "hashes.insert(hash)",
+        "recentHashes = hashes",
+        "recentHashes.remove(hash)",
+        "recentHashes.removeAll()",
+        "resultCount: recentHashes.count",
         "items.lazy.filter { $0.groupID == id }.count",
         "return groups.first { $0.id == id }",
         "guard let index = groups.firstIndex(where: { $0.id == id }) else",

@@ -56,10 +56,14 @@ struct HistoryWindowView: View {
     @State private var filteredPreviewItems: [HistoryPreviewItem] = []
     @State private var filteredPreviewItemIDs: Set<HistoryPreviewItem.ID> = []
     @State private var filteredPreviewItemIndexByID: [HistoryPreviewItem.ID: Int] = [:]
+    @State private var isUsingUnfilteredPreviewResult = true
+    @State private var sourceAppFilterOptions: [SourceAppFilterOption] = []
+    @State private var sourceAppIconFileNameByName: [String: String] = [:]
     @State private var previewBuildTask: Task<Void, Never>?
     @State private var previewBuildGeneration: UInt64 = 0
     @State private var deferredStartupTask: Task<Void, Never>?
     @State private var previewItemsSourceSignature: [HistoryPreviewSourceSignature] = []
+    @State private var appliedPreviewItemsMutationGeneration: UInt64 = 0
     @State private var previewItemCache: [ClipboardItem.ID: CachedHistoryPreviewItem] = [:]
     @State private var searchTask: Task<Void, Never>?
     @State private var searchGeneration: UInt64 = 0
@@ -105,7 +109,7 @@ struct HistoryWindowView: View {
     private let allHistoryGroupColor = Color(red: 0.18, green: 0.55, blue: 1.0)
     private let groupAppearancePopoverWidth: CGFloat = 304
     private let groupAppearanceIconGridHeight: CGFloat = 178
-    private let selectedCardTopContentInset: CGFloat = 14
+    private let selectedCardTopContentInset: CGFloat = 0
     private let horizontalContentPadding: CGFloat = 28
     private let horizontalCardSpacing: CGFloat = 20
     private let historyCardWidth: CGFloat = 250
@@ -113,13 +117,14 @@ struct HistoryWindowView: View {
     private let largeHistoryAnimationThreshold = 2_000
     private let historyRailWindowBufferItemCount = 36
     private let previewItemCacheRetainedItemCount = 320
+    private let maxSearchResultCount = 500
 
     private var items: [HistoryPreviewItem] {
         allPreviewItems
     }
 
     private var filteredItems: [HistoryPreviewItem] {
-        filteredPreviewItems
+        isUsingUnfilteredPreviewResult ? allPreviewItems : filteredPreviewItems
     }
 
     private var renderedItems: [HistoryPreviewItem] {
@@ -127,14 +132,34 @@ struct HistoryWindowView: View {
     }
 
     private func applyFilteredPreviewResult(_ result: HistorySearchFilterResult) {
+        guard isUsingUnfilteredPreviewResult || filteredPreviewItems != result.items else {
+            return
+        }
+
+        isUsingUnfilteredPreviewResult = false
         filteredPreviewItems = result.items
         filteredPreviewItemIDs = result.itemIDs
         filteredPreviewItemIndexByID = result.itemIndexByID
     }
 
+    private func applyUnfilteredPreviewResult() {
+        guard !isUsingUnfilteredPreviewResult else {
+            return
+        }
+
+        isUsingUnfilteredPreviewResult = true
+        filteredPreviewItems.removeAll(keepingCapacity: false)
+        filteredPreviewItemIDs.removeAll(keepingCapacity: true)
+        filteredPreviewItemIndexByID.removeAll(keepingCapacity: true)
+    }
+
     private func containsFilteredItem(_ id: HistoryPreviewItem.ID?) -> Bool {
         guard let id else {
             return false
+        }
+
+        if isUsingUnfilteredPreviewResult {
+            return store.cachedItemIndex(with: id) != nil
         }
 
         return filteredPreviewItemIDs.contains(id)
@@ -143,6 +168,10 @@ struct HistoryWindowView: View {
     private func filteredItemIndex(for id: HistoryPreviewItem.ID?) -> Int? {
         guard let id else {
             return nil
+        }
+
+        if isUsingUnfilteredPreviewResult {
+            return store.cachedItemIndex(with: id)
         }
 
         return filteredPreviewItemIndexByID[id]
@@ -170,10 +199,33 @@ struct HistoryWindowView: View {
     }
 
     private var historyRailVisibleWindow: Range<Int> {
-        clampedHistoryRailWindow(
+        if let focusedWindow = focusedHistoryRailVisibleWindow {
+            return focusedWindow
+        }
+
+        return clampedHistoryRailWindow(
             itemCount: renderedItems.count,
             visibleRect: cardRailVisibleRect,
             bufferItemCount: historyRailWindowBufferItemCount
+        )
+    }
+
+    private var focusedHistoryRailVisibleWindow: Range<Int>? {
+        guard let focusedID = pendingLatestFocusItemID ?? pendingProgrammaticJumpItemID ?? pendingItemScrollID ?? selectedItemID,
+              let focusedIndex = filteredItemIndex(for: focusedID) else {
+            return nil
+        }
+
+        guard pendingLatestFocusItemID != nil ||
+                pendingProgrammaticJumpItemID != nil ||
+                pendingItemScrollID != nil ||
+                cardRailVisibleRect == .zero else {
+            return nil
+        }
+
+        return historyRailWindow(
+            aroundFocusedIndex: focusedIndex,
+            itemCount: renderedItems.count
         )
     }
 
@@ -195,6 +247,17 @@ struct HistoryWindowView: View {
         return clampedStart..<clampedEnd
     }
 
+    private func historyRailWindow(aroundFocusedIndex focusedIndex: Int, itemCount: Int) -> Range<Int> {
+        guard itemCount > 0 else {
+            return 0..<0
+        }
+
+        let clampedIndex = min(max(focusedIndex, 0), itemCount - 1)
+        let start = max(0, clampedIndex - historyRailWindowBufferItemCount)
+        let end = min(itemCount, clampedIndex + historyRailWindowBufferItemCount + 1)
+        return start..<max(start + 1, end)
+    }
+
     private var renderedWindowItems: ArraySlice<HistoryPreviewItem> {
         let range = historyRailVisibleWindow
         guard !range.isEmpty else {
@@ -205,11 +268,16 @@ struct HistoryWindowView: View {
     }
 
     private var historyRailAnimationValue: [HistoryPreviewItem.ID] {
-        guard renderedItems.count <= largeHistoryAnimationThreshold else {
+        guard shouldAnimateHistoryRailChange(sourceItemCount: allPreviewItems.count, renderedItemCount: renderedItems.count) else {
             return []
         }
 
         return renderedItems.map(\.id)
+    }
+
+    private func shouldAnimateHistoryRailChange(sourceItemCount: Int, renderedItemCount: Int) -> Bool {
+        sourceItemCount <= largeHistoryAnimationThreshold &&
+            renderedItemCount <= largeHistoryAnimationThreshold
     }
 
     private var filteredGroupIcons: [String] {
@@ -275,35 +343,6 @@ struct HistoryWindowView: View {
             systemGroupAppearanceTarget != nil ||
             moveToGroupPickerTarget != nil ||
             NSApp.keyWindow?.firstResponder is NSTextView
-    }
-
-    private var sourceAppOptions: [String] {
-        var seen = Set<String>()
-        var options: [String] = []
-
-        for item in allPreviewItems {
-            let name = item.sourceAppName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, !seen.contains(name) else {
-                continue
-            }
-
-            seen.insert(name)
-            options.append(name)
-        }
-
-        return options
-    }
-
-    private var sourceAppIconFileNames: [String: String] {
-        var result: [String: String] = [:]
-        for item in allPreviewItems {
-            guard let iconFileName = item.iconFileName,
-                  result[item.sourceAppName] == nil else {
-                continue
-            }
-            result[item.sourceAppName] = iconFileName
-        }
-        return result
     }
 
     var body: some View {
@@ -609,7 +648,7 @@ struct HistoryWindowView: View {
                                 .combined(with: .opacity)
                         ))
                         .frame(width: historyCardWidth)
-                        .offset(x: cardDocumentFrame(for: item.id)?.minX ?? 0)
+                        .offset(x: cardDocumentX(for: item.id))
                 }
             }
             .frame(width: historyRailContentWidth, height: 300, alignment: .topLeading)
@@ -1572,16 +1611,17 @@ struct HistoryWindowView: View {
                     }
 
                     searchFilterSection("App") {
-                        if sourceAppOptions.isEmpty {
+                        if sourceAppFilterOptions.isEmpty {
                             Text("暂无来源")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.secondary)
                         } else {
                             filterChipGrid {
-                                ForEach(sourceAppOptions, id: \.self) { appName in
+                                ForEach(sourceAppFilterOptions) { option in
+                                    let appName = option.name
                                     searchFilterChip(
                                         title: appName,
-                                        iconFileName: sourceAppIconFileName(appName),
+                                        iconFileName: option.iconFileName,
                                         fallbackSystemImage: "app.fill",
                                         isSelected: searchCriteria.sourceAppNames.contains(appName),
                                         action: { toggleSearchSourceApp(appName) }
@@ -1963,7 +2003,6 @@ struct HistoryWindowView: View {
 
     private func scheduleDeferredStartupWork(delayNanoseconds: UInt64) {
         deferredStartupTask?.cancel()
-        let sourceItems = store.items
         deferredStartupTask = Task { @MainActor in
             if delayNanoseconds > 0 {
                 try? await Task.sleep(nanoseconds: 32_000_000)
@@ -1973,7 +2012,7 @@ struct HistoryWindowView: View {
                 return
             }
 
-            schedulePreviewItemsRebuild(from: sourceItems)
+            schedulePreviewItemsRebuild(from: store.items)
             refreshAccessibilityStateAfterFirstFrame()
             deferredStartupTask = nil
         }
@@ -3651,6 +3690,14 @@ struct HistoryWindowView: View {
         return cardDocumentFrame(forRenderedIndex: itemIndex)
     }
 
+    private func cardDocumentX(for id: HistoryPreviewItem.ID) -> CGFloat {
+        guard let itemIndex = renderedItemIndex(for: id) else {
+            return horizontalContentPadding
+        }
+
+        return cardDocumentFrame(forRenderedIndex: itemIndex).minX
+    }
+
     private func cardViewportFrame(for id: HistoryPreviewItem.ID) -> CGRect? {
         guard let documentFrame = cardDocumentFrame(for: id) else {
             return nil
@@ -3770,6 +3817,19 @@ struct HistoryWindowView: View {
             cardRailVisibleRect == .zero {
             cardRailVisibleRect = visibleRect
         }
+    }
+
+    private func resetVisibleRailWindowForLatestFocus(_ id: HistoryPreviewItem.ID) {
+        guard let targetOffset = programmaticJumpTargetOffset(for: id) else {
+            return
+        }
+
+        cardRailVisibleRect = CGRect(
+            x: targetOffset,
+            y: cardRailVisibleRect.minY,
+            width: max(cardRailVisibleRect.width, 1),
+            height: cardRailVisibleRect.height
+        )
     }
 
     private func retainedPreviewCacheIDs(for sourceItems: [ClipboardItem]) -> Set<ClipboardItem.ID> {
@@ -4117,7 +4177,7 @@ struct HistoryWindowView: View {
     }
 
     private func sourceAppIconFileName(_ appName: String) -> String? {
-        sourceAppIconFileNames[appName]
+        sourceAppIconFileNameByName[appName]
     }
 
     private func toggleSearchType(_ type: HistorySearchItemType) {
@@ -4199,19 +4259,51 @@ struct HistoryWindowView: View {
     }
 
     private func schedulePreviewItemsRebuild(from sourceItems: [ClipboardItem]) {
+        let signatureStartedAt = CFAbsoluteTimeGetCurrent()
         let currentSourceSignature = previewItemsSourceSignature
+        let sourceGeneration = store.itemsMutationGeneration
+        if canSkipPreviewRebuild(
+            sourceItems: sourceItems,
+            sourceGeneration: sourceGeneration
+        ) {
+            PerformanceDiagnosticsService.shared.record(
+                "preview.rebuild.skip",
+                category: "history",
+                durationMS: (CFAbsoluteTimeGetCurrent() - signatureStartedAt) * 1_000,
+                itemCount: sourceItems.count,
+                resultCount: allPreviewItems.count,
+                metadata: [
+                    "reason": "sourceGenerationUnchanged",
+                    "cacheStored": "\(previewItemCache.count)"
+                ]
+            )
+            scheduleSearchUpdate(sourceItems: allPreviewItems, immediate: true)
+            convergeLatestClipboardFocusIfNeeded()
+            return
+        }
+
         let signatureUpdate = Self.previewSignatureUpdate(
             sourceItems: sourceItems,
             currentSourceSignature: currentSourceSignature
         )
         guard signatureUpdate.hasChanges else {
+            PerformanceDiagnosticsService.shared.record(
+                "preview.rebuild.skip",
+                category: "history",
+                durationMS: (CFAbsoluteTimeGetCurrent() - signatureStartedAt) * 1_000,
+                itemCount: sourceItems.count,
+                resultCount: allPreviewItems.count,
+                metadata: [
+                    "reason": "sourceSignatureUnchanged",
+                    "cacheStored": "\(previewItemCache.count)"
+                ]
+            )
             scheduleSearchUpdate(sourceItems: allPreviewItems, immediate: true)
             convergeLatestClipboardFocusIfNeeded()
             return
         }
 
         let sourceSignature = signatureUpdate.sourceSignature
-        previewItemsSourceSignature = sourceSignature
         previewBuildTask?.cancel()
         previewBuildGeneration &+= 1
         let generation = previewBuildGeneration
@@ -4259,10 +4351,12 @@ struct HistoryWindowView: View {
                     }
 
                     try Task.checkCancellation()
+                    let sourceAppSnapshot = Self.sourceAppFilterSnapshot(from: sourceItems)
                     let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
                     return PreviewRebuildResult.prepend(
                         insertedItems: insertion.insertedItems,
                         nextCache: nextCache,
+                        sourceAppSnapshot: sourceAppSnapshot,
                         cacheHitCount: insertion.cacheHitCount,
                         durationMS: durationMS
                     )
@@ -4296,10 +4390,12 @@ struct HistoryWindowView: View {
                 }
 
                 try Task.checkCancellation()
+                let sourceAppSnapshot = Self.sourceAppFilterSnapshot(from: sourceItems)
                 let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
                 return PreviewRebuildResult.full(
                     previewItems: previewItems,
                     nextCache: nextCache,
+                    sourceAppSnapshot: sourceAppSnapshot,
                     cacheHitCount: cacheHitCount,
                     durationMS: durationMS
                 )
@@ -4335,14 +4431,14 @@ struct HistoryWindowView: View {
                 let buildDurationMS: Double
                 let rebuildMode: String
                 switch rebuildResult {
-                case .full(let previewItems, let nextCache, let hitCount, let durationMS):
+                case .full(let previewItems, let nextCache, _, let hitCount, let durationMS):
                     resultCount = previewItems.count
                     cacheMisses = previewItems.count - hitCount
                     cacheHitCount = hitCount
                     cacheStored = nextCache.count
                     buildDurationMS = durationMS
                     rebuildMode = "full"
-                case .prepend(let insertedItems, let nextCache, let hitCount, let durationMS):
+                case .prepend(let insertedItems, let nextCache, _, let hitCount, let durationMS):
                     resultCount = currentPreviewItems.count + insertedItems.count
                     cacheMisses = insertedItems.count
                     cacheHitCount = hitCount
@@ -4364,24 +4460,34 @@ struct HistoryWindowView: View {
                     ]
                 )
                 var transaction = Transaction()
-                let shouldAnimateRebuild = inputState.isWindowPresentedSnapshot
+                let shouldAnimateRebuild = inputState.isWindowPresentedSnapshot && shouldAnimateHistoryRailChange(
+                    sourceItemCount: sourceItems.count,
+                    renderedItemCount: resultCount
+                )
                 if shouldAnimateRebuild {
                     transaction.animation = .easeOut(duration: pendingLatestFocusItemID != nil ? 0.30 : 0.18)
                 } else {
                     transaction.disablesAnimations = true
                 }
                 let previewItemsForSearch: [HistoryPreviewItem]
+                let sourceAppSnapshot = rebuildResult.sourceAppSnapshot
                 withTransaction(transaction) {
                     switch rebuildResult {
-                    case .full(let previewItems, let nextCache, _, _):
+                    case .full(let previewItems, let nextCache, _, _, _):
                         previewItemCache = nextCache
                         allPreviewItems = previewItems
-                    case .prepend(let insertedItems, let nextCache, _, _):
+                    case .prepend(let insertedItems, let nextCache, _, _, _):
                         previewItemCache = nextCache
                         allPreviewItems.insert(contentsOf: insertedItems, at: 0)
                     }
                 }
                 previewItemsForSearch = allPreviewItems
+                if sourceAppFilterOptions != sourceAppSnapshot.options {
+                    sourceAppFilterOptions = sourceAppSnapshot.options
+                }
+                if sourceAppIconFileNameByName != sourceAppSnapshot.iconFileNameByName {
+                    sourceAppIconFileNameByName = sourceAppSnapshot.iconFileNameByName
+                }
                 PerformanceDiagnosticsService.shared.record(
                     "preview.rebuild.apply",
                     category: "history",
@@ -4395,6 +4501,8 @@ struct HistoryWindowView: View {
                         "mode": rebuildMode
                     ]
                 )
+                previewItemsSourceSignature = sourceSignature
+                appliedPreviewItemsMutationGeneration = sourceGeneration
                 renderState.mark("preview-items-ready count=\(previewItemsForSearch.count)")
 
                 scheduleSearchUpdate(sourceItems: previewItemsForSearch, immediate: true)
@@ -4411,6 +4519,23 @@ struct HistoryWindowView: View {
                 }
             }
         }
+    }
+
+    private func canSkipPreviewRebuild(
+        sourceItems: [ClipboardItem],
+        sourceGeneration: UInt64
+    ) -> Bool {
+        guard appliedPreviewItemsMutationGeneration == sourceGeneration,
+              allPreviewItems.count == sourceItems.count else {
+            return false
+        }
+
+        if sourceItems.isEmpty {
+            return allPreviewItems.isEmpty
+        }
+
+        return allPreviewItems.first?.id == sourceItems.first?.id &&
+            allPreviewItems.last?.id == sourceItems.last?.id
     }
 
     private func scheduleSearchUpdate(
@@ -4438,6 +4563,12 @@ struct HistoryWindowView: View {
         let currentSearchCriteria = searchCriteria
         let currentSearchTrigger = pendingSearchTrigger
         pendingSearchTrigger = "stateChange"
+        let usesUnfilteredSource = Self.usesUnfilteredSearchSource(
+            selectedGroup: currentGroup,
+            searchText: currentSearchText,
+            criteria: currentSearchCriteria
+        )
+        let maxResultCount = usesUnfilteredSource ? nil : maxSearchResultCount
         let requestSignature = HistorySearchRequestSignature(
             sourceIdentity: HistorySearchSourceIdentity(items: sourceItems),
             selectedGroup: currentGroup.storageValue,
@@ -4469,6 +4600,55 @@ struct HistoryWindowView: View {
             guard !Task.isCancelled else {
                 return
             }
+
+            if usesUnfilteredSource {
+                await MainActor.run {
+                    guard searchGeneration == generation else {
+                        return
+                    }
+
+                    let applyStartedAt = CFAbsoluteTimeGetCurrent()
+                    applyUnfilteredPreviewResult()
+                    if pendingLatestFocusItemID == nil {
+                        ensureSelectionInFilteredItems()
+                    }
+                    PerformanceDiagnosticsService.shared.record(
+                        "search.applyResults",
+                        category: "search",
+                        durationMS: (CFAbsoluteTimeGetCurrent() - applyStartedAt) * 1_000,
+                        itemCount: sourceItems.count,
+                        resultCount: allPreviewItems.count,
+                        metadata: [
+                            "queryLength": "\(currentSearchText.count)",
+                            "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                            "mode": "unfilteredSource",
+                            "trigger": currentSearchTrigger
+                        ]
+                    )
+                    renderState.mark("filtered-items-ready count=\(allPreviewItems.count)")
+                    let followupStartedAt = CFAbsoluteTimeGetCurrent()
+                    restoreRememberedViewportIfNeeded()
+                    fulfillPendingLatestFocusIfPossible()
+                    convergeLatestClipboardFocusIfNeeded()
+                    applyPendingProgrammaticJumpIfPossible()
+                    schedulePreheatVisibleAssets()
+                    PerformanceDiagnosticsService.shared.record(
+                        "search.postApply",
+                        category: "search",
+                        durationMS: (CFAbsoluteTimeGetCurrent() - followupStartedAt) * 1_000,
+                        itemCount: sourceItems.count,
+                        resultCount: allPreviewItems.count,
+                        metadata: [
+                            "queryLength": "\(currentSearchText.count)",
+                            "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                            "mode": "unfilteredSource",
+                            "trigger": currentSearchTrigger
+                        ]
+                    )
+                    PerformanceDiagnosticsService.shared.recordResourceCheckpoint("search.apply.complete")
+                }
+                return
+            }
             PerformanceDiagnosticsService.shared.recordResourceCheckpoint("search.filter.start")
 
             let filterStartedAt = CFAbsoluteTimeGetCurrent()
@@ -4478,6 +4658,7 @@ struct HistoryWindowView: View {
                     selectedGroup: currentGroup,
                     searchText: currentSearchText,
                     criteria: currentSearchCriteria,
+                    maxResultCount: maxResultCount,
                     now: Date()
                 )
                 return HistorySearchFilterResult(items: filteredItems)
@@ -4508,7 +4689,10 @@ struct HistoryWindowView: View {
 
                 let applyStartedAt = CFAbsoluteTimeGetCurrent()
                 var transaction = Transaction()
-                let shouldAnimateResults = inputState.isWindowPresentedSnapshot
+                let shouldAnimateResults = inputState.isWindowPresentedSnapshot && shouldAnimateHistoryRailChange(
+                    sourceItemCount: sourceItems.count,
+                    renderedItemCount: result.items.count
+                )
                 if shouldAnimateResults {
                     transaction.animation = .easeOut(duration: pendingLatestFocusItemID != nil ? 0.30 : 0.16)
                 } else {
@@ -4617,15 +4801,25 @@ struct HistoryWindowView: View {
         case full(
             previewItems: [HistoryPreviewItem],
             nextCache: [ClipboardItem.ID: CachedHistoryPreviewItem],
+            sourceAppSnapshot: SourceAppFilterSnapshot,
             cacheHitCount: Int,
             durationMS: Double
         )
         case prepend(
             insertedItems: [HistoryPreviewItem],
             nextCache: [ClipboardItem.ID: CachedHistoryPreviewItem],
+            sourceAppSnapshot: SourceAppFilterSnapshot,
             cacheHitCount: Int,
             durationMS: Double
         )
+
+        var sourceAppSnapshot: SourceAppFilterSnapshot {
+            switch self {
+            case .full(_, _, let sourceAppSnapshot, _, _),
+                 .prepend(_, _, let sourceAppSnapshot, _, _):
+                sourceAppSnapshot
+            }
+        }
     }
 
     private struct IncrementalPreviewInsertion: Sendable {
@@ -4666,11 +4860,45 @@ struct HistoryWindowView: View {
         )
     }
 
+    nonisolated private static func sourceAppFilterSnapshot(
+        from sourceItems: [ClipboardItem]
+    ) -> SourceAppFilterSnapshot {
+        var seen = Set<String>()
+        var options: [SourceAppFilterOption] = []
+        var iconFileNameByName: [String: String] = [:]
+
+        options.reserveCapacity(min(sourceItems.count, 128))
+        for item in sourceItems {
+            let name = item.sourceAppName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else {
+                continue
+            }
+
+            if iconFileNameByName[name] == nil,
+               let iconFileName = item.iconFileName {
+                iconFileNameByName[name] = iconFileName
+            }
+
+            guard !seen.contains(name) else {
+                continue
+            }
+
+            seen.insert(name)
+            options.append(SourceAppFilterOption(name: name, iconFileName: item.iconFileName))
+        }
+
+        return SourceAppFilterSnapshot(
+            options: options,
+            iconFileNameByName: iconFileNameByName
+        )
+    }
+
     nonisolated private static func filterItems(
         _ items: [HistoryPreviewItem],
         selectedGroup: HistoryGroupSelection,
         searchText: String,
         criteria: HistorySearchCriteria,
+        maxResultCount: Int? = nil,
         now: Date
     ) throws -> [HistoryPreviewItem] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4684,7 +4912,7 @@ struct HistoryWindowView: View {
         }
 
         var result: [HistoryPreviewItem] = []
-        result.reserveCapacity(items.count)
+        result.reserveCapacity(min(items.count, maxResultCount ?? items.count))
 
         for item in items {
             try Task.checkCancellation()
@@ -4724,11 +4952,17 @@ struct HistoryWindowView: View {
 
             guard !normalizedQuery.isEmpty else {
                 result.append(item)
+                if let maxResultCount, result.count >= maxResultCount {
+                    break
+                }
                 continue
             }
 
             if item.normalizedSearchText.contains(normalizedQuery) {
                 result.append(item)
+                if let maxResultCount, result.count >= maxResultCount {
+                    break
+                }
             }
         }
 
@@ -4742,6 +4976,16 @@ struct HistoryWindowView: View {
 
         try Task.checkCancellation()
         return result
+    }
+
+    nonisolated private static func usesUnfilteredSearchSource(
+        selectedGroup: HistoryGroupSelection,
+        searchText: String,
+        criteria: HistorySearchCriteria
+    ) -> Bool {
+        selectedGroup == .all &&
+            searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !criteria.hasActiveFilters
     }
 
     nonisolated private static func itemMatchesSearchGroup(
@@ -4812,6 +5056,7 @@ struct HistoryWindowView: View {
         pendingLatestFocusLockID = focusCandidateID
         shouldResetHorizontalOffsetForPendingItemScroll = true
         HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
+        resetVisibleRailWindowForLatestFocus(focusCandidateID)
         fulfillPendingLatestFocusIfPossible()
     }
 
@@ -4832,6 +5077,7 @@ struct HistoryWindowView: View {
         pendingLatestFocusLockID = newestChangedItem.id
         shouldResetHorizontalOffsetForPendingItemScroll = true
         HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
+        resetVisibleRailWindowForLatestFocus(newestChangedItem.id)
         fulfillPendingLatestFocusIfPossible()
     }
 
@@ -4848,6 +5094,7 @@ struct HistoryWindowView: View {
             pendingLatestFocusReason = .refreshed
             pendingLatestFocusLockID = newestChangedItem.id
             shouldResetHorizontalOffsetForPendingItemScroll = true
+            resetVisibleRailWindowForLatestFocus(newestChangedItem.id)
         }
 
         fulfillPendingLatestFocusIfPossible()
@@ -4911,6 +5158,7 @@ struct HistoryWindowView: View {
         if resetToAll {
             HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
         }
+        resetVisibleRailWindowForLatestFocus(id)
         scrollToItemWhenRendered(id, animated: shouldAnimatePendingItemScroll)
         applyPendingProgrammaticJumpIfPossible()
         retryPendingLatestFocusJumpIfNeeded(id, remainingAttempts: 4)
@@ -5029,6 +5277,7 @@ struct HistoryWindowView: View {
         if resetToAll {
             HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
         }
+        resetVisibleRailWindowForLatestFocus(itemID)
     }
 
     private func latestItemObservation(sourceItems: [ClipboardItem]) -> LatestItemObservation? {
@@ -5718,6 +5967,20 @@ private struct HistoryPreviewSourceSignature: Equatable {
 private struct CachedHistoryPreviewItem: Sendable {
     let signature: HistoryPreviewSourceSignature
     let item: HistoryPreviewItem
+}
+
+private struct SourceAppFilterSnapshot: Sendable {
+    let options: [SourceAppFilterOption]
+    let iconFileNameByName: [String: String]
+}
+
+private struct SourceAppFilterOption: Identifiable, Equatable, Sendable {
+    let name: String
+    let iconFileName: String?
+
+    var id: String {
+        name
+    }
 }
 
 private struct HistorySearchSourceIdentity: Equatable {

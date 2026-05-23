@@ -53,14 +53,20 @@ required_schedule_search = [
     "searchTask?.cancel()",
     "searchGeneration &+= 1",
     "let generation = searchGeneration",
+    "let usesUnfilteredSource = Self.usesUnfilteredSearchSource(",
+    "let maxResultCount = usesUnfilteredSource ? nil : maxSearchResultCount",
     "HistorySearchRequestSignature(",
     "guard requestSignature != lastSearchRequestSignature else",
     "lastSearchRequestSignature = requestSignature",
     "Task(priority: .userInitiated)",
     "try? await Task.sleep(nanoseconds: debounceNanoseconds)",
     "guard !Task.isCancelled else",
+    "if usesUnfilteredSource {",
+    "applyUnfilteredPreviewResult()",
+    "\"mode\": \"unfilteredSource\"",
     "Task.detached(priority: .userInitiated)",
     "try Self.filterItems(",
+    "maxResultCount: maxResultCount",
     "return HistorySearchFilterResult(items: filteredItems)",
     "try await withTaskCancellationHandler",
     "filterTask.cancel()",
@@ -68,17 +74,26 @@ required_schedule_search = [
     "await MainActor.run",
     "guard searchGeneration == generation else",
     "withTransaction(transaction)",
+    "let shouldAnimateResults = inputState.isWindowPresentedSnapshot && shouldAnimateHistoryRailChange(",
+    "sourceItemCount: sourceItems.count,",
+    "renderedItemCount: result.items.count",
     "try await filterTask.value",
     "applyFilteredPreviewResult(result)",
     "schedulePreheatVisibleAssets()",
 ]
 
+required_top_result_limit = [
+    "private let maxSearchResultCount = 500",
+]
+
 required_filter_items = [
     "throws -> [HistoryPreviewItem]",
-    "result.reserveCapacity(items.count)",
+    "maxResultCount: Int? = nil",
+    "result.reserveCapacity(min(items.count, maxResultCount ?? items.count))",
     "for item in items",
     "try Task.checkCancellation()",
     "item.normalizedSearchText.contains(normalizedQuery)",
+    "if let maxResultCount, result.count >= maxResultCount",
     "result.sort(by:",
     "return result",
 ]
@@ -103,6 +118,27 @@ required_preview_item = [
     "hasher.combine(normalizedSearchText)",
 ]
 
+required_source_app_cache = [
+    "@State private var sourceAppFilterOptions: [SourceAppFilterOption] = []",
+    "@State private var sourceAppIconFileNameByName: [String: String] = [:]",
+    "private struct SourceAppFilterSnapshot: Sendable",
+    "private struct SourceAppFilterOption: Identifiable, Equatable, Sendable",
+    "sourceAppFilterSnapshot(",
+    "from sourceItems: [ClipboardItem]",
+    "sourceAppSnapshot: sourceAppSnapshot",
+    "let sourceAppSnapshot = rebuildResult.sourceAppSnapshot",
+    "sourceAppFilterOptions = sourceAppSnapshot.options",
+    "sourceAppIconFileNameByName = sourceAppSnapshot.iconFileNameByName",
+]
+
+required_large_history_animation_guard = [
+    "private func shouldAnimateHistoryRailChange(",
+    "sourceItemCount <= largeHistoryAnimationThreshold",
+    "renderedItemCount <= largeHistoryAnimationThreshold",
+    "shouldAnimateHistoryRailChange(sourceItemCount: allPreviewItems.count, renderedItemCount: renderedItems.count)",
+    "let shouldAnimateRebuild = inputState.isWindowPresentedSnapshot && shouldAnimateHistoryRailChange(",
+]
+
 required_search_signature = [
     "let searchFingerprint: Int",
     "searchFingerprint = item.searchFingerprint",
@@ -116,6 +152,9 @@ forbidden_view = [
     "HistorySearchFilterResult(items: try await filterTask.value)",
     "await MainActor.run {\n                filteredPreviewItems = result",
     "searchGeneration == generation else {\n                    filteredPreviewItems = result",
+    "private var sourceAppOptions: [String] {\n        var seen = Set<String>()",
+    "private var sourceAppIconFileNames: [String: String] {\n        var result: [String: String] = [:]",
+    "sourceAppSnapshot = Self.sourceAppFilterSnapshot(from: previewItemsForSearch)",
     "let normalizedSearchText: String\n    let isPinned",
     "normalizedSearchText = item.normalizedSearchText",
 ]
@@ -125,6 +164,9 @@ checks = [
     ("filterItems required", required_filter_items, filter_items, True),
     ("preview rebuild required", required_preview_rebuild, schedule_preview, True),
     ("preview item normalized search required", required_preview_item, preview_item_text, True),
+    ("source app cache required", required_source_app_cache, view_text, True),
+    ("top result limit required", required_top_result_limit, view_text, True),
+    ("large history animation guard required", required_large_history_animation_guard, view_text, True),
     ("search signature fingerprint required", required_search_signature, view_text, True),
     ("view forbidden", forbidden_view, view_text, False),
 ]
