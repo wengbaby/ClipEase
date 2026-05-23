@@ -400,6 +400,42 @@
 ```
 
 ```text
+优化任务 ID：V2-OPT-HISTORY-IDLE-CPU-PULSE-001
+来源任务卡：用户性能专项继续优化 / 运行后 CPU 采样
+来源 Agent：Codex
+风险等级：中
+问题描述：
+- `2.3.26` 修复崩溃后，历史窗口打开观察时仍出现较长时间 `40% - 50%` CPU。
+- `sample` 显示主要栈在主线程 SwiftUI / Accessibility 图更新和布局。
+- 未授权状态下顶部“请授权”按钮使用 `.repeatForever` 脉冲动画，窗口常驻时持续触发 SwiftUI 刷新。
+- 搜索过滤虽然在 detached task，但 `HistorySearchFilterResult` 的 ID Set 和 `id -> index` 构建仍在等待任务一侧执行，会放大 11 万条结果应用压力。
+已实施方案：
+- 移除 `authorizationPulse` 状态和“请授权”按钮无限动画，改为静态高可见度提示，保留点击授权行为。
+- 将 `HistorySearchFilterResult(items:)` 构建移进 `Task.detached`，搜索结果 ID Set / `id -> index` 在后台构建，主线程只应用结果。
+- `scripts/verify_history_visible_window_range_guards.py` 禁止 `.repeatForever(` 回归。
+- `scripts/verify_history_search_performance_guards.py`、`scripts/verify_history_filtered_index_guards.py` 要求搜索结果索引在 detached task 内构建。
+验证结果：
+- `swift build` 通过。
+- `python3 scripts/verify_history_visible_window_range_guards.py` 通过。
+- `python3 scripts/verify_history_search_performance_guards.py` 通过。
+- `python3 scripts/verify_sqlite_snapshot_bulk_load_guards.py` 通过。
+- `python3 scripts/verify_history_filtered_index_guards.py` 通过。
+- `python3 scripts/verify_store_index_performance_guards.py` 通过。
+- `python3 scripts/verify_card_click_performance_guards.py` 通过。
+- `python3 scripts/verify_preview_window_performance_guards.py` 通过。
+- `python3 scripts/benchmark_history_search_performance.py` 通过。
+- `./scripts/build-app.sh --bump patch --run` 通过，最终运行 `2.3.27 (260523.1641)`，PID `40447`。
+- 运行观察：`ps -p 40447` 在稳定窗口从约 `4.3%` 降到 `0.0%` CPU；`sample 40447 3` physical footprint 约 `463.5MB`，peak 约 `475.3MB`；运行后未生成新的 `ClipEase-*.ips`。
+行为影响：
+- 不改变授权入口、搜索结果语义、列表行为、SQLite schema 或备份格式。
+- “请授权”提示不再脉冲闪烁，改为静态按钮。
+剩余问题：
+- 外部 App 持续写剪贴板时仍会触发新增记录、增量 preview 和搜索同步。
+- 启动全量 preview 构建仍约 `1.2s`，后续进入首屏分页 / 惰性 preview 数据源专项。
+是否阻塞当前阶段：否；作为窗口空闲 CPU 收口修复。
+```
+
+```text
 优化任务 ID：V2-OPT-100K-HISTORY-VISIBLE-WINDOW-RANGE-CRASH-001
 来源任务卡：用户性能专项继续优化 / 软件崩溃自动结束
 来源 Agent：Codex

@@ -52,7 +52,6 @@ struct HistoryWindowView: View {
     @State private var isSearchFocused = false
     @State private var isSearchTextComposing = false
     @State private var searchFocusRequestID = 0
-    @State private var authorizationPulse = false
     @State private var allPreviewItems: [HistoryPreviewItem] = []
     @State private var filteredPreviewItems: [HistoryPreviewItem] = []
     @State private var filteredPreviewItemIDs: Set<HistoryPreviewItem.ID> = []
@@ -462,7 +461,6 @@ struct HistoryWindowView: View {
             }
             focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
             scheduleDeferredStartupWork()
-            authorizationPulse = false
         }
         .onDisappear {
             cancelPendingGroupRename()
@@ -829,12 +827,6 @@ struct HistoryWindowView: View {
 
                 if !accessibilityPermissionState.isTrusted {
                     authorizationButton
-                        .onAppear {
-                            authorizationPulse = true
-                        }
-                        .onDisappear {
-                            authorizationPulse = false
-                        }
                 }
 
                 moreMenu
@@ -1388,12 +1380,12 @@ struct HistoryWindowView: View {
             .foregroundStyle(Color(red: 0.78, green: 0.36, blue: 0.08))
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(Color.white.opacity(authorizationPulse ? 0.92 : 0.45))
+            .background(Color.white.opacity(0.76))
             .clipShape(Capsule())
             .overlay {
                 Capsule()
                     .stroke(
-                        Color(red: 0.78, green: 0.36, blue: 0.08).opacity(authorizationPulse ? 0.9 : 0.25),
+                        Color(red: 0.78, green: 0.36, blue: 0.08).opacity(0.55),
                         lineWidth: 1
                     )
             }
@@ -1401,10 +1393,6 @@ struct HistoryWindowView: View {
         .buttonStyle(.plain)
         .historyRailControlStyle()
         .help("点击打开辅助功能权限设置")
-        .animation(
-            accessibilityPermissionState.isTrusted ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
-            value: authorizationPulse
-        )
     }
 
     private var searchField: some View {
@@ -4485,19 +4473,20 @@ struct HistoryWindowView: View {
 
             let filterStartedAt = CFAbsoluteTimeGetCurrent()
             let filterTask = Task.detached(priority: .userInitiated) {
-                try Self.filterItems(
+                let filteredItems = try Self.filterItems(
                     sourceItems,
                     selectedGroup: currentGroup,
                     searchText: currentSearchText,
                     criteria: currentSearchCriteria,
                     now: Date()
                 )
+                return HistorySearchFilterResult(items: filteredItems)
             }
 
             let result: HistorySearchFilterResult
             do {
                 result = try await withTaskCancellationHandler {
-                    HistorySearchFilterResult(items: try await filterTask.value)
+                    try await filterTask.value
                 } onCancel: {
                     filterTask.cancel()
                 }

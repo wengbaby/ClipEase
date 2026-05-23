@@ -25,6 +25,7 @@ required = [
 forbidden = [
     "let start = max(0, rawStart)\n        let end = min(renderedItems.count, max(start + 1, rawEnd))",
     "let start = max(0, rawStart)\n            let end = min(sourceItems.count, max(start + 1, rawEnd))",
+    ".repeatForever(",
 ]
 
 

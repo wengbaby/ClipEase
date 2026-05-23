@@ -20,7 +20,8 @@ required = [
     "private func containsFilteredItem(_ id: HistoryPreviewItem.ID?) -> Bool",
     "private func filteredItemIndex(for id: HistoryPreviewItem.ID?) -> Int?",
     "private func filteredItem(for id: HistoryPreviewItem.ID?) -> HistoryPreviewItem?",
-    "HistorySearchFilterResult(items: try await filterTask.value)",
+    "return HistorySearchFilterResult(items: filteredItems)",
+    "try await filterTask.value",
     "applyFilteredPreviewResult(result)",
 ]
 
@@ -37,6 +38,7 @@ hot_path_forbidden = [
     "store.items.firstIndex(where: { $0.id == id })",
     "filteredPreviewItemIDs = Set(nextItems.map(\\.id))",
     "nextIndexByID.reserveCapacity(nextItems.count)",
+    "HistorySearchFilterResult(items: try await filterTask.value)",
 ]
 
 failures: list[str] = []
