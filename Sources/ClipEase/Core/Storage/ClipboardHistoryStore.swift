@@ -48,6 +48,9 @@ final class ClipboardHistoryStore: ObservableObject {
     private var linkMetadataGenerationByItemID: [ClipboardItem.ID: Int] = [:]
     private var deferredSaveTask: Task<Void, Never>?
     private var debugGenerationTask: Task<Void, Never>?
+    private var itemIndexByID: [ClipboardItem.ID: Int] = [:]
+    private var groupIndexByID: [ClipboardGroup.ID: Int] = [:]
+    private var itemCountByGroupID: [ClipboardGroup.ID: Int] = [:]
     private var saveRevision = 0
 
     var debugTextItemCount: Int {
@@ -64,14 +67,47 @@ final class ClipboardHistoryStore: ObservableObject {
         self.retentionPolicy = HistoryRetentionPolicy(
             rawValue: userDefaults.integer(forKey: Self.retentionPolicyKey)
         ) ?? .forever
+        let loadStartedAt = CFAbsoluteTimeGetCurrent()
         let snapshot = persistence.loadSnapshot()
+        PerformanceDiagnosticsService.shared.record(
+            "history.store.loadSnapshot",
+            category: "storage",
+            durationMS: (CFAbsoluteTimeGetCurrent() - loadStartedAt) * 1_000,
+            itemCount: snapshot.items.count,
+            resultCount: snapshot.groups.count
+        )
         self.items = snapshot.items
         self.groups = snapshot.groups
+        let sortStartedAt = CFAbsoluteTimeGetCurrent()
         sortItems()
         sortGroups()
-        pruneExpiredItems()
-        saveImmediately()
+        PerformanceDiagnosticsService.shared.record(
+            "history.store.sort",
+            category: "storage",
+            durationMS: (CFAbsoluteTimeGetCurrent() - sortStartedAt) * 1_000,
+            itemCount: items.count,
+            resultCount: groups.count
+        )
+        let didPruneExpiredItems = pruneExpiredItems()
+        if didPruneExpiredItems {
+            saveImmediately()
+        }
+        let hashStartedAt = CFAbsoluteTimeGetCurrent()
         rebuildRecentHashes()
+        PerformanceDiagnosticsService.shared.record(
+            "history.store.rebuildHashes",
+            category: "storage",
+            durationMS: (CFAbsoluteTimeGetCurrent() - hashStartedAt) * 1_000,
+            itemCount: items.count,
+            resultCount: recentHashes.count
+        )
+        PerformanceDiagnosticsService.shared.record(
+            "history.store.initialize",
+            category: "storage",
+            durationMS: (CFAbsoluteTimeGetCurrent() - loadStartedAt) * 1_000,
+            itemCount: items.count,
+            resultCount: groups.count
+        )
     }
 
     func addText(_ text: String, sourceApp: SourceAppInfo) {
@@ -126,7 +162,7 @@ final class ClipboardHistoryStore: ObservableObject {
             sourceApp: sourceApp
         )
         let now = Date()
-        if let groupID, groups.contains(where: { $0.id == groupID }) {
+        if let groupID, groupIndexByID[groupID] != nil {
             item.groupID = groupID
             item.groupedAt = now
         }
@@ -183,7 +219,11 @@ final class ClipboardHistoryStore: ObservableObject {
             return nil
         }
 
-        return items.first { $0.id == id }
+        guard let index = itemIndex(for: id) else {
+            return nil
+        }
+
+        return items[index]
     }
 
     func deleteItem(with id: ClipboardItem.ID?) {
@@ -191,22 +231,29 @@ final class ClipboardHistoryStore: ObservableObject {
             return
         }
 
-        let deletedItems = items.filter { $0.id == id }
-        items.removeAll { $0.id == id }
+        guard let deletedIndex = itemIndex(for: id) else {
+            return
+        }
+
+        let deletedItems = [items[deletedIndex]]
+        items.remove(at: deletedIndex)
+        rebuildItemIndexes()
         cancelOCRTasks(for: deletedItems)
         cancelLinkMetadataTasks(for: deletedItems)
         deleteExternalFiles(for: deletedItems)
-        rebuildRecentHashes()
+        removeRecentHashes(for: deletedItems)
         saveImmediately()
     }
 
     func clearAllItems() {
         let removedItems = items
         items.removeAll()
+        rebuildItemIndexes()
         cancelAllOCRTasks()
         cancelAllLinkMetadataTasks()
         deleteExternalFiles(for: removedItems)
         recentHashes.removeAll()
+        itemIDsByHash.removeAll()
         skippedClipboardTexts.removeAll()
         skippedImageHashes.removeAll()
         saveImmediately()
@@ -223,7 +270,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items.append(contentsOf: newItems)
         sortItems()
         pruneExpiredItems()
-        rebuildRecentHashes()
+        rebuildRecentHashesAndGroupCounts()
         scheduleSave()
         return newItems.count
     }
@@ -247,7 +294,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items.append(contentsOf: newItems)
         sortItems()
         pruneExpiredItems()
-        rebuildRecentHashes()
+        rebuildRecentHashesAndGroupCounts()
         scheduleSave()
         return newItems.count
     }
@@ -258,7 +305,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
     func togglePinned(for id: ClipboardItem.ID?) {
         guard let id,
-              let index = items.firstIndex(where: { $0.id == id }) else {
+              let index = itemIndex(for: id) else {
             return
         }
 
@@ -295,7 +342,7 @@ final class ClipboardHistoryStore: ObservableObject {
             return .empty
         }
 
-        guard let index = groups.firstIndex(where: { $0.id == id }) else {
+        guard let index = groupIndex(for: id) else {
             return .notFound
         }
 
@@ -314,7 +361,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     func updateGroupAppearance(_ id: ClipboardGroup.ID, colorHex: String? = nil, iconName: String? = nil) {
-        guard let index = groups.firstIndex(where: { $0.id == id }) else {
+        guard let index = groupIndex(for: id) else {
             return
         }
 
@@ -332,11 +379,12 @@ final class ClipboardHistoryStore: ObservableObject {
         let removedItems = items.filter { $0.groupID == id }
         groups.removeAll { $0.id == id }
         items.removeAll { $0.groupID == id }
+        rebuildItemIndexes()
         sortGroups()
         cancelOCRTasks(for: removedItems)
         cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
-        rebuildRecentHashes()
+        removeRecentHashes(for: removedItems)
         saveImmediately()
         return removedItems.count
     }
@@ -353,11 +401,12 @@ final class ClipboardHistoryStore: ObservableObject {
         items.removeAll { item in
             item.groupID.map(ids.contains) ?? false
         }
+        rebuildItemIndexes()
         sortGroups()
         cancelOCRTasks(for: removedItems)
         cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
-        rebuildRecentHashes()
+        removeRecentHashes(for: removedItems)
         saveImmediately()
         return removedItems.count
     }
@@ -370,14 +419,16 @@ final class ClipboardHistoryStore: ObservableObject {
 
     func addItem(_ id: ClipboardItem.ID?, toGroup groupID: ClipboardGroup.ID) {
         guard let id,
-              groups.contains(where: { $0.id == groupID }),
-              let index = items.firstIndex(where: { $0.id == id }) else {
+              groupIndexByID[groupID] != nil,
+              let index = itemIndex(for: id) else {
             return
         }
 
         let now = Date()
+        let oldGroupID = items[index].groupID
         items[index].groupID = groupID
         items[index].groupedAt = now
+        updateGroupCountOnMove(from: oldGroupID, to: groupID)
         sortItems()
         scheduleSave()
     }
@@ -385,7 +436,7 @@ final class ClipboardHistoryStore: ObservableObject {
     @discardableResult
     func addItems(_ ids: Set<ClipboardItem.ID>, toGroup groupID: ClipboardGroup.ID) -> Int {
         guard !ids.isEmpty,
-              groups.contains(where: { $0.id == groupID }) else {
+              groupIndexByID[groupID] != nil else {
             return 0
         }
 
@@ -393,6 +444,7 @@ final class ClipboardHistoryStore: ObservableObject {
         var changedCount = 0
         for index in items.indices where ids.contains(items[index].id) {
             var didChangeItem = false
+            let oldGroupID = items[index].groupID
             if items[index].groupID != groupID {
                 items[index].groupID = groupID
                 items[index].groupedAt = now
@@ -404,6 +456,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
             if didChangeItem {
                 changedCount += 1
+                updateGroupCountOnMove(from: oldGroupID, to: groupID)
             }
         }
 
@@ -418,12 +471,14 @@ final class ClipboardHistoryStore: ObservableObject {
 
     func removeItemFromGroup(_ id: ClipboardItem.ID?) {
         guard let id,
-              let index = items.firstIndex(where: { $0.id == id }) else {
+              let index = itemIndex(for: id) else {
             return
         }
 
+        let oldGroupID = items[index].groupID
         items[index].groupID = nil
         items[index].groupedAt = nil
+        updateGroupCountOnMove(from: oldGroupID, to: nil)
         scheduleSave()
     }
 
@@ -432,16 +487,20 @@ final class ClipboardHistoryStore: ObservableObject {
             return nil
         }
 
-        return groups.first { $0.id == id }
+        guard let index = groupIndex(for: id) else {
+            return nil
+        }
+
+        return groups[index]
     }
 
     func itemCount(inGroup id: ClipboardGroup.ID) -> Int {
-        items.lazy.filter { $0.groupID == id }.count
+        itemCountByGroupID[id] ?? 0
     }
 
     func markUsed(_ id: ClipboardItem.ID?) {
         guard let id,
-              let index = items.firstIndex(where: { $0.id == id }),
+              let index = itemIndex(for: id),
               !items[index].isPinned else {
             return
         }
@@ -454,7 +513,7 @@ final class ClipboardHistoryStore: ObservableObject {
     @discardableResult
     func updateEditableContent(for id: ClipboardItem.ID?, text: String) -> ClipboardItem? {
         guard let id,
-              let index = items.firstIndex(where: { $0.id == id }) else {
+              let index = itemIndex(for: id) else {
             return nil
         }
 
@@ -493,7 +552,7 @@ final class ClipboardHistoryStore: ObservableObject {
         sortItems()
         rebuildRecentHashes()
         scheduleSave()
-        guard let updatedItem = items.first(where: { $0.id == id }) else {
+        guard let updatedItem = self.item(with: id) else {
             return nil
         }
         if let richTextFileName = item.richTextFileName,
@@ -634,7 +693,7 @@ final class ClipboardHistoryStore: ObservableObject {
         for id: ClipboardItem.ID,
         url: URL
     ) {
-        guard let index = items.firstIndex(where: { $0.id == id }),
+        guard let index = itemIndex(for: id),
               items[index].type == .link,
               items[index].url == url else {
             return
@@ -698,6 +757,7 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         items.removeAll(where: Self.isDebugTextItem)
+        rebuildItemIndexes()
         rebuildRecentHashes()
         saveImmediately()
         return removedItems.count
@@ -783,7 +843,7 @@ final class ClipboardHistoryStore: ObservableObject {
     @discardableResult
     func updateRichTextContent(for id: ClipboardItem.ID?, data: Data, plainText: String) throws -> ClipboardItem? {
         guard let id,
-              let index = items.firstIndex(where: { $0.id == id }) else {
+              let index = itemIndex(for: id) else {
             return nil
         }
 
@@ -806,7 +866,7 @@ final class ClipboardHistoryStore: ObservableObject {
         do {
             try saveImmediatelyOrThrow()
         } catch {
-            if let rollbackIndex = items.firstIndex(where: { $0.id == id }) {
+            if let rollbackIndex = itemIndex(for: id) {
                 items[rollbackIndex] = item
                 sortItems()
             }
@@ -818,7 +878,7 @@ final class ClipboardHistoryStore: ObservableObject {
         if let richTextFileName = item.richTextFileName {
             persistence.deleteRichText(fileName: richTextFileName)
         }
-        guard let updatedItem = items.first(where: { $0.id == id }) else {
+        guard let updatedItem = self.item(with: id) else {
             return nil
         }
 
@@ -943,7 +1003,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func setOCRStatus(_ status: ClipboardOCRStatus, for id: ClipboardItem.ID) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else {
+        guard let index = itemIndex(for: id) else {
             return
         }
 
@@ -952,7 +1012,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func applyOCRResult(_ result: ClipboardOCRMatch, status: ClipboardOCRStatus, to id: ClipboardItem.ID) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else {
+        guard let index = itemIndex(for: id) else {
             return
         }
 
@@ -1003,6 +1063,55 @@ final class ClipboardHistoryStore: ObservableObject {
 
             return (lhs.pinnedAt ?? lhs.createdAt) > (rhs.pinnedAt ?? rhs.createdAt)
         }
+        rebuildItemIndexes()
+    }
+
+    private func itemIndex(for id: ClipboardItem.ID) -> Int? {
+        guard let index = itemIndexByID[id],
+              items.indices.contains(index),
+              items[index].id == id else {
+            rebuildItemIndexes()
+            guard let repairedIndex = itemIndexByID[id],
+                  items.indices.contains(repairedIndex),
+                  items[repairedIndex].id == id else {
+                return nil
+            }
+
+            return repairedIndex
+        }
+
+        return index
+    }
+
+    private func groupIndex(for id: ClipboardGroup.ID) -> Int? {
+        guard let index = groupIndexByID[id],
+              groups.indices.contains(index),
+              groups[index].id == id else {
+            rebuildGroupIndex()
+            guard let repairedIndex = groupIndexByID[id],
+                  groups.indices.contains(repairedIndex),
+                  groups[repairedIndex].id == id else {
+                return nil
+            }
+
+            return repairedIndex
+        }
+
+        return index
+    }
+
+    private func rebuildItemIndexes() {
+        var indexByID: [ClipboardItem.ID: Int] = [:]
+        var countByGroupID: [ClipboardGroup.ID: Int] = [:]
+        indexByID.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            indexByID[item.id] = index
+            if let groupID = item.groupID {
+                countByGroupID[groupID, default: 0] += 1
+            }
+        }
+        itemIndexByID = indexByID
+        itemCountByGroupID = countByGroupID
     }
 
     private func sortGroups() {
@@ -1012,6 +1121,16 @@ final class ClipboardHistoryStore: ObservableObject {
         for index in groups.indices {
             groups[index].sortOrder = index
         }
+        rebuildGroupIndex()
+    }
+
+    private func rebuildGroupIndex() {
+        var indexByID: [ClipboardGroup.ID: Int] = [:]
+        indexByID.reserveCapacity(groups.count)
+        for (index, group) in groups.enumerated() {
+            indexByID[group.id] = index
+        }
+        groupIndexByID = indexByID
     }
 
     private func scheduleSave() {
@@ -1054,6 +1173,11 @@ final class ClipboardHistoryStore: ObservableObject {
         return saveRevision
     }
 
+    private func rebuildRecentHashesAndGroupCounts() {
+        rebuildItemIndexes()
+        rebuildRecentHashes()
+    }
+
     private func rebuildRecentHashes() {
         var hashes: Set<String> = []
         var idsByHash: [String: Set<ClipboardItem.ID>] = [:]
@@ -1070,6 +1194,37 @@ final class ClipboardHistoryStore: ObservableObject {
         itemIDsByHash = idsByHash
     }
 
+    private func removeRecentHashes(for removedItems: [ClipboardItem]) {
+        for item in removedItems {
+            let hash = textHash(for: item)
+            itemIDsByHash[hash]?.remove(item.id)
+            if itemIDsByHash[hash]?.isEmpty == true {
+                itemIDsByHash[hash] = nil
+                recentHashes.remove(hash)
+            }
+        }
+    }
+
+    private func updateGroupCountOnMove(from oldGroupID: ClipboardGroup.ID?, to newGroupID: ClipboardGroup.ID?) {
+        if oldGroupID == newGroupID {
+            return
+        }
+
+        if let oldGroupID,
+           let count = itemCountByGroupID[oldGroupID] {
+            let nextCount = max(0, count - 1)
+            if nextCount == 0 {
+                itemCountByGroupID[oldGroupID] = nil
+            } else {
+                itemCountByGroupID[oldGroupID] = nextCount
+            }
+        }
+
+        if let newGroupID {
+            itemCountByGroupID[newGroupID, default: 0] += 1
+        }
+    }
+
     @discardableResult
     private func upsertClipboardItem(
         _ item: ClipboardItem,
@@ -1077,7 +1232,7 @@ final class ClipboardHistoryStore: ObservableObject {
     ) -> ClipboardItem {
         let hash = Self.textHash(for: item)
         let duplicateIDs = itemIDsByHash[hash] ?? []
-        let duplicateItems = items.filter { duplicateIDs.contains($0.id) }
+        let duplicateItems = duplicateIDs.compactMap { self.item(with: $0) }
         let firstDuplicate = duplicateItems.first
         var insertedItem = item
 
@@ -1099,6 +1254,7 @@ final class ClipboardHistoryStore: ObservableObject {
                 }
             }
             items.removeAll { duplicateIDs.contains($0.id) }
+            rebuildItemIndexes()
             cancelOCRTasks(for: duplicateIDs)
             cancelLinkMetadataTasks(for: duplicateIDs)
         }
@@ -1380,9 +1536,10 @@ final class ClipboardHistoryStore: ObservableObject {
         return .available
     }
 
-    private func pruneExpiredItems(now: Date = Date()) {
+    @discardableResult
+    private func pruneExpiredItems(now: Date = Date()) -> Bool {
         guard let days = retentionPolicy.days else {
-            return
+            return false
         }
 
         let cutoffDate = Calendar.current.date(
@@ -1400,14 +1557,16 @@ final class ClipboardHistoryStore: ObservableObject {
         let removedItems = items.filter(shouldPrune)
 
         guard !removedItems.isEmpty else {
-            return
+            return false
         }
 
         items.removeAll(where: shouldPrune)
+        rebuildItemIndexes()
         cancelOCRTasks(for: removedItems)
         cancelLinkMetadataTasks(for: removedItems)
         deleteExternalFiles(for: removedItems)
         rebuildRecentHashes()
+        return true
     }
 
     private func deleteExternalFiles(for items: [ClipboardItem]) {

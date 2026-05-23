@@ -39,6 +39,23 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         super.init()
     }
 
+    func preloadHistoryDataAfterLaunch() {
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        let targetFrame = frameForPanel()
+        panel.setFrame(hiddenFrame(for: targetFrame), display: false)
+        renderState.prepareForShow(itemCount: store.items.count)
+        inputState.setWindowVisible(true)
+        inputState.setWindowPresented(false)
+        PerformanceDiagnosticsService.shared.record(
+            "history.preload.start",
+            category: "history",
+            durationMS: 0,
+            itemCount: store.items.count,
+            metadata: ["reason": "app.launch"]
+        )
+    }
+
     func toggle() {
         if let panel, panel.isVisible {
             close()

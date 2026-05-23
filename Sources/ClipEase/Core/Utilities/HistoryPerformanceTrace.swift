@@ -17,5 +17,16 @@ final class HistoryPerformanceTrace: @unchecked Sendable {
         let deltaMS = (now - lastMarkAt) * 1_000
         lastMarkAt = now
         NSLog("ClipEasePerf[\(id)] \(label) \(name) total=\(String(format: "%.1f", totalMS))ms delta=\(String(format: "%.1f", deltaMS))ms")
+        Task { @MainActor in
+            PerformanceDiagnosticsService.shared.record(
+                "\(label).\(name)",
+                category: "history",
+                durationMS: deltaMS,
+                metadata: [
+                    "traceID": String(id),
+                    "totalMS": String(format: "%.1f", totalMS)
+                ]
+            )
+        }
     }
 }

@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.applicationIconImage = ClipEaseAppIcon.image(size: NSSize(width: 512, height: 512))
+        PerformanceDiagnosticsService.shared.startSession(reason: "app.launch")
 
         let historyStore = ClipboardHistoryStore()
         self.historyStore = historyStore
@@ -67,6 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             historyWindowController?.isPreviewInteractionActive == true
         }
         clipboardMonitor.start()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            historyWindowController.preloadHistoryDataAfterLaunch()
+        }
 
         if CommandLine.arguments.contains("--show-settings") {
             appMenuController.showSettings()

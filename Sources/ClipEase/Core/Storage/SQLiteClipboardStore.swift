@@ -92,6 +92,9 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
         let groups = try loadGroups(in: database)
         let groupedItems = try loadGroupedItems(in: database)
+        let assetsByItemID = try loadAssetsByItemID(in: database)
+        let fileReferencesByItemID = try loadFileReferencesByItemID(in: database)
+        let ocrResultsByItemID = try loadOCRResultsByItemID(in: database)
         let rows = try database.query(
             """
             SELECT
@@ -112,13 +115,13 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                 continue
             }
 
-            let assets = try loadAssets(for: id, in: database)
-            let fileReferences = try loadFileReferences(for: id, in: database)
+            let assets = assetsByItemID[id] ?? []
+            let fileReferences = fileReferencesByItemID[id] ?? []
             let imageAsset = assets.first { $0.type == "image" }
             let richTextAsset = assets.first { $0.type == "rich_text" }
 
             let groupInfo = groupedItems[id]
-            let ocrResult = try loadOCRResult(for: id, in: database)
+            let ocrResult = ocrResultsByItemID[id]
             items.append(
                 ClipboardItem(
                     id: id,
@@ -360,90 +363,112 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         )
     }
 
-    private func loadOCRResult(for itemID: UUID, in database: SQLiteDatabase) throws -> SQLiteOCRResultRow? {
-        let rows = try database.query(
-            """
-            SELECT status, recognized_text, emails, phone_numbers, urls, text_regions, updated_at
-            FROM item_ocr_results
-            WHERE item_id = ?
-            LIMIT 1
-            """,
-            values: [.text(itemID.uuidString)]
-        )
-
-        guard let row = rows.first else {
-            return nil
-        }
-
-        return SQLiteOCRResultRow(
-            status: ClipboardOCRStatus(rawValue: row.requiredText("status")) ?? .none,
-            text: row.requiredText("recognized_text"),
-            emails: Self.decodeList(row.requiredText("emails")),
-            phoneNumbers: Self.decodeList(row.requiredText("phone_numbers")),
-            urls: Self.decodeList(row.requiredText("urls")),
-            textRegions: Self.decodeRegions(row.optionalText("text_regions") ?? ""),
-            updatedAt: row.optionalDouble("updated_at").map(Date.init(timeIntervalSince1970:))
-        )
-    }
-
-    private func loadAssets(for itemID: UUID, in database: SQLiteDatabase) throws -> [SQLiteAssetRow] {
-        let rows = try database.query(
-            """
-            SELECT asset_type, file_name, width, height
-            FROM item_assets
-            WHERE item_id = ?
-            ORDER BY created_at ASC
-            """,
-            values: [.text(itemID.uuidString)]
-        )
-
-        return rows.map { row in
-            SQLiteAssetRow(
-                type: row.requiredText("asset_type"),
-                fileName: row.requiredText("file_name"),
-                width: row.optionalInt("width"),
-                height: row.optionalInt("height")
-            )
-        }
-    }
-
-    private func loadFileReferences(for itemID: UUID, in database: SQLiteDatabase) throws -> [ClipboardFileReference] {
+    private func loadOCRResultsByItemID(in database: SQLiteDatabase) throws -> [UUID: SQLiteOCRResultRow] {
         let rows = try database.query(
             """
             SELECT
-                id, item_id, display_order, file_path, file_name, file_extension,
-                uti_or_content_type, byte_size, modified_at, is_directory, is_alias,
-                path_status, last_checked_at, created_at
-            FROM clipboard_item_files
-            WHERE item_id = ?
-            ORDER BY display_order ASC, created_at ASC
-            """,
-            values: [.text(itemID.uuidString)]
+                item_ocr_results.item_id, status, recognized_text, emails, phone_numbers,
+                urls, text_regions, item_ocr_results.updated_at
+            FROM item_ocr_results
+            INNER JOIN clipboard_items ON clipboard_items.id = item_ocr_results.item_id
+            WHERE clipboard_items.is_deleted = 0
+            """
         )
 
-        return rows.compactMap { row in
-            guard let id = UUID(uuidString: row.requiredText("id")),
-                  let rowItemID = UUID(uuidString: row.requiredText("item_id")) else {
-                return nil
+        var results: [UUID: SQLiteOCRResultRow] = [:]
+        results.reserveCapacity(rows.count)
+        for row in rows {
+            guard let itemID = UUID(uuidString: row.requiredText("item_id")) else {
+                continue
             }
 
-            return ClipboardFileReference(
-                id: id,
-                itemID: rowItemID,
-                orderIndex: row.requiredInt("display_order"),
-                path: row.requiredText("file_path"),
-                displayName: row.requiredText("file_name"),
-                fileExtension: row.optionalText("file_extension"),
-                contentType: row.optionalText("uti_or_content_type"),
-                fileSize: row.optionalInt("byte_size"),
-                modifiedAt: row.optionalDouble("modified_at").map(Date.init(timeIntervalSince1970:)),
-                isDirectory: row.requiredBool("is_directory"),
-                isAlias: row.requiredBool("is_alias"),
-                pathStatus: ClipboardFilePathStatus(rawValue: row.requiredText("path_status")) ?? .unknown,
-                lastCheckedAt: row.optionalDouble("last_checked_at").map(Date.init(timeIntervalSince1970:)),
-                createdAt: Date(timeIntervalSince1970: row.requiredDouble("created_at"))
+            results[itemID] = SQLiteOCRResultRow(
+                status: ClipboardOCRStatus(rawValue: row.requiredText("status")) ?? .none,
+                text: row.requiredText("recognized_text"),
+                emails: Self.decodeList(row.requiredText("emails")),
+                phoneNumbers: Self.decodeList(row.requiredText("phone_numbers")),
+                urls: Self.decodeList(row.requiredText("urls")),
+                textRegions: Self.decodeRegions(row.optionalText("text_regions") ?? ""),
+                updatedAt: row.optionalDouble("updated_at").map(Date.init(timeIntervalSince1970:))
             )
         }
+
+        return results
+    }
+
+    private func loadAssetsByItemID(in database: SQLiteDatabase) throws -> [UUID: [SQLiteAssetRow]] {
+        let rows = try database.query(
+            """
+            SELECT item_id, asset_type, file_name, width, height
+            FROM item_assets
+            INNER JOIN clipboard_items ON clipboard_items.id = item_assets.item_id
+            WHERE clipboard_items.is_deleted = 0
+            ORDER BY item_assets.created_at ASC
+            """
+        )
+
+        var assetsByItemID: [UUID: [SQLiteAssetRow]] = [:]
+        for row in rows {
+            guard let itemID = UUID(uuidString: row.requiredText("item_id")) else {
+                continue
+            }
+
+            assetsByItemID[itemID, default: []].append(
+                SQLiteAssetRow(
+                    type: row.requiredText("asset_type"),
+                    fileName: row.requiredText("file_name"),
+                    width: row.optionalInt("width"),
+                    height: row.optionalInt("height")
+                )
+            )
+        }
+
+        return assetsByItemID
+    }
+
+    private func loadFileReferencesByItemID(in database: SQLiteDatabase) throws -> [UUID: [ClipboardFileReference]] {
+        let rows = try database.query(
+            """
+            SELECT
+                clipboard_item_files.id, clipboard_item_files.item_id, display_order,
+                file_path, file_name, file_extension, uti_or_content_type, byte_size,
+                modified_at, is_directory, is_alias, path_status, last_checked_at,
+                clipboard_item_files.created_at
+            FROM clipboard_item_files
+            INNER JOIN clipboard_items ON clipboard_items.id = clipboard_item_files.item_id
+            WHERE clipboard_items.is_deleted = 0
+            ORDER BY clipboard_item_files.item_id ASC, display_order ASC, clipboard_item_files.created_at ASC
+            """
+        )
+
+        var referencesByItemID: [UUID: [ClipboardFileReference]] = [:]
+        for row in rows {
+            guard let id = UUID(uuidString: row.requiredText("id")),
+                  let itemID = UUID(uuidString: row.requiredText("item_id")) else {
+                continue
+            }
+
+            referencesByItemID[itemID, default: []].append(
+                ClipboardFileReference(
+                    id: id,
+                    itemID: itemID,
+                    orderIndex: row.requiredInt("display_order"),
+                    path: row.requiredText("file_path"),
+                    displayName: row.requiredText("file_name"),
+                    fileExtension: row.optionalText("file_extension"),
+                    contentType: row.optionalText("uti_or_content_type"),
+                    fileSize: row.optionalInt("byte_size"),
+                    modifiedAt: row.optionalDouble("modified_at").map(Date.init(timeIntervalSince1970:)),
+                    isDirectory: row.requiredBool("is_directory"),
+                    isAlias: row.requiredBool("is_alias"),
+                    pathStatus: ClipboardFilePathStatus(rawValue: row.requiredText("path_status")) ?? .unknown,
+                    lastCheckedAt: row.optionalDouble("last_checked_at").map(Date.init(timeIntervalSince1970:)),
+                    createdAt: Date(timeIntervalSince1970: row.requiredDouble("created_at"))
+                )
+            )
+        }
+
+        return referencesByItemID
     }
 
     private func loadGroups(in database: SQLiteDatabase) throws -> [ClipboardGroup] {
