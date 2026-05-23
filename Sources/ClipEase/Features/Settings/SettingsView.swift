@@ -72,6 +72,80 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
     }
 }
 
+private struct SupportQRCodeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("赞赏支持")
+                        .font(.system(size: 18, weight: .semibold))
+
+                    Text("感谢支持轻贴 ClipEase 的持续维护。")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("关闭") {
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            HStack(spacing: 18) {
+                supportQRCode(name: "Alipay", extensionName: "jpg", title: "支付宝赞赏")
+                supportQRCode(name: "WeChat", extensionName: "png", title: "微信赞赏")
+            }
+        }
+        .padding(22)
+        .frame(width: 620)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func supportQRCode(name: String, extensionName: String, title: String) -> some View {
+        VStack(spacing: 10) {
+            if let image = supportImage(name: name, extensionName: extensionName) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 260, height: 260)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    }
+            } else {
+                Text("未找到二维码")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 260, height: 260)
+                    .background(Color.white.opacity(0.72))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .frame(width: 276)
+    }
+
+    private func supportImage(name: String, extensionName: String) -> NSImage? {
+        guard let url = Bundle.main.url(
+            forResource: name,
+            withExtension: extensionName,
+            subdirectory: "Support"
+        ) else {
+            return nil
+        }
+
+        return NSImage(contentsOf: url)
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var store: ClipboardHistoryStore
     @ObservedObject var recordingController: RecordingController
@@ -99,6 +173,7 @@ struct SettingsView: View {
     @State private var groupSelection = Set<ClipboardGroup.ID>()
     @State private var groupPendingDeletion: ClipboardGroup?
     @State private var isBulkGroupDeleteConfirmationPresented = false
+    @State private var isSupportSheetPresented = false
     @State private var groupAppearancePickerGroupID: ClipboardGroup.ID?
     @State private var groupAppearanceColor = Color(red: 0.18, green: 0.55, blue: 1.0)
     @State private var groupIconSearchText = ""
@@ -231,6 +306,9 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("会删除所选分组及其中内容，无法恢复。")
+        }
+        .sheet(isPresented: $isSupportSheetPresented) {
+            SupportQRCodeSheet()
         }
     }
 
@@ -947,28 +1025,59 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         settingsSection(title: "关于轻贴", subtitle: "ClipEase \(AppVersionInfo.displayVersion)") {
-            HStack(spacing: 10) {
-                Label("简洁好用的 macOS 粘贴板历史助手", systemImage: "info.circle")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Label("简洁好用的 macOS 粘贴板历史助手", systemImage: "info.circle")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(.secondary)
 
-                Spacer()
+                    Spacer()
 
-                Button("打开 GitHub") {
-                    openGitHub()
+                    Button("打开 GitHub") {
+                        openGitHub()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("复制版本号") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(AppVersionInfo.displayVersion, forType: .string)
+                        showStatus("已复制版本号")
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
-
-                Button("复制版本号") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(AppVersionInfo.displayVersion, forType: .string)
-                    showStatus("已复制版本号")
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    revealDebugToolsIfNeeded()
                 }
-                .buttonStyle(.bordered)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                revealDebugToolsIfNeeded()
+
+                Divider()
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("支持与交流")
+                            .font(.system(size: 13, weight: .semibold))
+
+                        Text("加入交流群反馈问题，或赞赏支持轻贴继续维护。")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button("加入交流群") {
+                        openSupportCommunity()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        isSupportSheetPresented = true
+                    } label: {
+                        Label("赞赏支持", systemImage: "heart.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             }
         }
     }
@@ -1554,6 +1663,16 @@ struct SettingsView: View {
 
         NSWorkspace.shared.open(url)
         showStatus("已打开 GitHub")
+    }
+
+    private func openSupportCommunity() {
+        guard let url = AppVersionInfo.githubSupportURL else {
+            showStatus("无法打开交流群")
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+        showStatus("已打开交流群")
     }
 
     private func exportDateString() -> String {

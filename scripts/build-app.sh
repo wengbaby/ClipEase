@@ -45,6 +45,9 @@ cp "$ROOT_DIR/Resources/ClipEase.icns" "$RESOURCES_DIR/ClipEase.icns"
 if [[ -d "$ROOT_DIR/Resources/Sounds" ]]; then
   cp -R "$ROOT_DIR/Resources/Sounds" "$RESOURCES_DIR/Sounds"
 fi
+if [[ -d "$ROOT_DIR/Resources/Support" ]]; then
+  cp -R "$ROOT_DIR/Resources/Support" "$RESOURCES_DIR/Support"
+fi
 
 if [[ -z "$SIGN_IDENTITY" ]]; then
   SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '\"' '/Apple Development/ { print $2; exit }' || true)"
