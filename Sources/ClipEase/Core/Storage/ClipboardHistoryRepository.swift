@@ -23,6 +23,7 @@ protocol ClipboardHistoryRepository {
     func prepareSearchIndex() throws
     func searchItems(_ query: ClipboardSearchQuery) throws -> [ClipboardItem]
     func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) throws
+    func insertItems(_ items: [ClipboardItem]) throws
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws
     func deleteItems(with ids: Set<ClipboardItem.ID>, deletingGroups groupIDs: Set<ClipboardGroup.ID>) throws
     func deleteAllItemsAndGroups() throws
@@ -98,6 +99,16 @@ extension ClipboardHistoryRepository {
 
     func saveItems(_ items: [ClipboardItem]) throws {
         try saveSnapshot(ClipboardHistorySnapshot(items: items, groups: []))
+    }
+
+    func insertItems(_ items: [ClipboardItem]) throws {
+        guard !items.isEmpty else {
+            return
+        }
+
+        var snapshot = try loadSnapshot()
+        snapshot.items.insert(contentsOf: items, at: 0)
+        try saveSnapshot(snapshot)
     }
 
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws {

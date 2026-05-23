@@ -97,6 +97,10 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         try repository.saveSnapshot(snapshot)
     }
 
+    func insertItemsOrThrow(_ items: [ClipboardItem]) throws {
+        try repository.insertItems(items)
+    }
+
     func upsertItemOrThrow(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws {
         try repository.upsertItem(item, deleting: deletedIDs, groups: groups)
     }

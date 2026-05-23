@@ -275,6 +275,37 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try replaceAllItems(with: snapshot.items, groups: snapshot.groups)
     }
 
+    func insertItems(_ items: [ClipboardItem]) throws {
+        guard !items.isEmpty else {
+            return
+        }
+
+        try createParentDirectory()
+        try resetLegacyDatabaseIfNeeded()
+        let database = try SQLiteDatabase(url: databaseURL)
+        defer { database.close() }
+
+        try database.execute("PRAGMA foreign_keys = ON")
+        try createSchema(in: database)
+        try recordSchemaVersion(in: database)
+        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+
+        do {
+            for item in items {
+                try insert(item, in: database)
+                if item.groupID != nil {
+                    try insertGroupItem(for: item, in: database)
+                }
+            }
+
+            try database.execute("COMMIT")
+            try database.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
+        }
+    }
+
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws {
         try createParentDirectory()
         try resetLegacyDatabaseIfNeeded()

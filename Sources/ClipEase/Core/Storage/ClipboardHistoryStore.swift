@@ -883,7 +883,20 @@ final class ClipboardHistoryStore: ObservableObject {
         sortItems()
         pruneExpiredItems()
         rebuildRecentHashes()
-        scheduleSave()
+        persistDebugItemsIncrementally(newItems)
+    }
+
+    private func persistDebugItemsIncrementally(_ items: [ClipboardItem]) {
+        let revision = nextSaveRevision()
+        let saveWriter = saveWriter
+        saveWriter.insertItemsAsync(items, revision: revision)
+        PerformanceDiagnosticsService.shared.record(
+            "history.store.addDebugTextItems",
+            category: "storage",
+            durationMS: 0,
+            itemCount: items.count,
+            metadata: ["revision": "\(revision)"]
+        )
     }
 
     func skipNextClipboardText(_ text: String) {
@@ -2061,6 +2074,16 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
         }
     }
 
+    func insertItemsAsync(_ items: [ClipboardItem], revision: Int) {
+        queue.async { [self] in
+            do {
+                try insertItemsIfCurrent(items, revision: revision)
+            } catch {
+                NSLog("ClipEase failed to insert clipboard history items: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func deleteAsync(
         itemIDs: Set<ClipboardItem.ID>,
         groupIDs: Set<ClipboardGroup.ID>,
@@ -2122,6 +2145,27 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 itemCount: deletedIDs.count,
                 resultCount: 1,
                 metadata: ["revision": "\(revision)", "type": item.type.rawValue]
+            )
+        }
+    }
+
+    private func insertItemsIfCurrent(_ items: [ClipboardItem], revision: Int) throws {
+        guard revision >= latestRevision,
+              !items.isEmpty else {
+            return
+        }
+
+        latestRevision = revision
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        try persistence.insertItemsOrThrow(items)
+        let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+        Task { @MainActor in
+            PerformanceDiagnosticsService.shared.record(
+                "history.persistence.insertDebugItems",
+                category: "storage",
+                durationMS: durationMS,
+                itemCount: items.count,
+                metadata: ["revision": "\(revision)"]
             )
         }
     }

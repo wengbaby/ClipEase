@@ -23,6 +23,35 @@
 ## Backlog 条目
 
 ```text
+优化任务 ID：V2-OPT-DEBUG-DATA-BULK-INSERT-001
+来源任务卡：用户询问开发入口生成 10,000 条测试数据导致数据库变大的问题
+来源 Agent：Codex
+风险等级：中低
+问题描述：
+- 设置页“生成 10,000 条”会创建 debug 文本，但旧实现经 `mergeDebugTextItems()` 调用 `scheduleSave()`，进入全量 snapshot 保存。
+- 全量保存会走 `SQLiteClipboardStore.replaceAllItems()`，删除并重写整库，同时重写 FTS，导致开发压测入口自身放大数据库写入和 WAL/FTS 体积。
+- 1 万条文本本身、索引、FTS5 内部表和 WAL 都会让数据库大于原始文本体积；但开发入口不应通过全量重写制造额外放大。
+已实施方案：
+- Repository/Persistence 新增 `insertItems(_:)` / `insertItemsOrThrow(_:)`。
+- `SQLiteClipboardStore.insertItems(_:)` 使用单个 `BEGIN IMMEDIATE TRANSACTION` 批量插入 item、group item 和 FTS，不再删除重写整库。
+- 批量提交后执行 `PRAGMA wal_checkpoint(PASSIVE)`，便于开发者观察真实主库体积，减少 WAL 误判。
+- `ClipboardHistoryStore.mergeDebugTextItems()` 改为 `persistDebugItemsIncrementally(newItems)`，不再调用 `scheduleSave()`。
+- `ClipboardHistorySaveWriter` 新增 `insertItemsAsync(_:revision:)`，保持写库串行且不阻塞主线程。
+- 新增埋点 `history.store.addDebugTextItems` 和 `history.persistence.insertDebugItems`。
+- 新增守卫脚本 `scripts/verify_debug_data_bulk_insert_guards.py`。
+验证方式：
+- `python3 scripts/verify_debug_data_bulk_insert_guards.py` 先失败后通过。
+- 全量性能守卫通过。
+- `swift build` 通过。
+- `./scripts/build-app.sh --bump patch --run` 通过，最终运行 `2.3.39 (260523.2355)`。
+- 最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_23-56-50.jsonl`：`history.store.loadStartupPage` 约 `2.85ms`，`history.store.initialize` 约 `3.21ms`，`history.store.searchIndexWarmup` 约 `2.08ms`，稳定后主线程采样约 `0.02ms - 0.10ms`。
+行为影响：
+- 只改变设置页开发测试数据生成入口；普通剪贴板新增、删除、搜索、预览不变。
+- 测试数据仍显示在 UI 顶部，并保留现有排序语义。
+是否阻塞当前阶段：否；已作为开发压测入口修复落地。
+```
+
+```text
 优化任务 ID：V2-OPT-100K-HISTORY-FTS5-SEARCH-LEFT-INSET-001
 来源任务卡：用户继续要求完成 10 万+ 性能优化，并修复新增卡片左侧贴边问题
 来源 Agent：Codex
