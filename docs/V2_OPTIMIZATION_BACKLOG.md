@@ -23,6 +23,33 @@
 ## Backlog 条目
 
 ```text
+优化任务 ID：V2-OPT-HISTORY-OPEN-UNFILTERED-FAST-PATH-001
+来源任务卡：用户要求根据新日志继续优化性能
+来源 Agent：Codex
+风险等级：中低
+问题描述：
+- `PerformanceLogs/2026-05-23_18-46-23.jsonl` 显示最终包未新增崩溃，但窗口调出链路仍存在 `history-open.filtered-items-ready` 约 `150.41ms` 和 `history-open.panel-ordered` 平均约 `39.29ms` 的主线程排队。
+- 无搜索 / 无筛选场景已经复用 unfiltered source，但仍进入异步 `Task` 后再 `MainActor.run` 应用，窗口调出时会被 SwiftUI / AppKit 绘制队列放大。
+- 动画打开前对隐藏 frame 执行 `setFrame(..., display: true)`，会强制不可见位置同步绘制。
+已实施方案：
+- `HistoryWindowView.scheduleSearchUpdate(sourceItems:...)` 在 `usesUnfilteredSource` 时直接同步应用 unfiltered 结果、记录性能事件并返回；真实搜索 / 筛选仍走原 debounce / cancel / detached filter 路径。
+- `HistoryWindowController.show()` 动画打开前 hidden frame 设置改为 `display: false`，避免不可见位置同步 display。
+- `HistoryWindowView.noteHistoryWindowHidden()` 保留隐藏事件日志，但将 `history.hidden.keepWarm` 资源采样节流到最多 10 秒一次，避免快速开关窗口且性能图表打开时诊断采样自身放大主线程排队。
+- 新增 `scripts/verify_history_unfiltered_search_fast_path_guards.py`、`scripts/verify_history_panel_show_performance_guards.py` 和 `scripts/verify_history_diagnostics_throttle_guards.py`，并更新 `verify_card_click_performance_guards.py` 防回归。
+验证结果：
+- 新增守卫已按 TDD 先失败后通过。
+- 已通过历史搜索、filtered index、快速重开、visible window、store index、SQLite snapshot、card click、preview window 等守卫。
+- `swift build` 通过。
+- `./scripts/build-app.sh --bump none --run` 通过，最终运行 `2.3.30 (260523.1925)`。
+- 最终日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_19-28-54.jsonl`：`history-open.panel-ordered` 27 次平均约 `18.79ms`，`preview.rebuild.skip` 26 次平均约 `0.008ms`，空搜索 `search.applyResults` 为毫秒以下。
+- 最终运行后未生成新的 `ClipEase-*.ips` 崩溃报告。
+行为影响：
+- 不改变搜索语义、筛选语义、SQLite schema、备份格式、授权入口或远程 `.gitignore`。
+- 可见行为只应是主窗口打开更快；窗口仍保留原底部进入动画。
+是否阻塞当前阶段：否；作为 Paste 思路下的低风险开窗削峰修复。
+```
+
+```text
 优化任务 ID：V2-OPT-PASTE-STYLE-REOPEN-STABILITY-001
 来源任务卡：用户要求参照 Paste.app 思路继续优化 / 修复三项 UI 回归
 来源 Agent：Codex
@@ -557,6 +584,48 @@
 剩余问题：
 - `PerformanceLogs/2026-05-23_16-26-22.jsonl` 显示启动仍有 `history.store.loadSnapshot` 约 `741ms` 和 `history.store.rebuildHashes` 约 `185ms` 主线程成本。
 是否阻塞当前阶段：已修复；作为崩溃阻塞项完成。
+```
+
+```text
+优化任务 ID：V2-OPT-CLIPBOARD-RICHTEXT-BACKGROUND-IMPORT-001
+来源任务卡：用户根据新日志继续优化 / PerformanceLogs 2026-05-23 20:21
+来源 Agent：Codex
+风险等级：中
+问题描述：
+- 最新日志中 `clipboard.poll capturedType=html` 多次达到 `354ms - 918ms`。
+- 旧 `ClipboardMonitor.poll()` 在 MainActor 同步读取 HTML 后立即用 `NSAttributedString(data: .html)` 解析并转 RTF，复杂网页 / 富文本复制会直接阻塞主线程。
+已实施方案：
+- 主线程 poll 只读取 pasteboard `Data` 和 fallback plain text，并立即记录 `html.scheduled` / `rtf.scheduled`。
+- HTML / RTF 解析、plain text 提取和 RTF 转换移到 `Task.detached(priority: .utility)`。
+- 新增 `richTextImportTask`，下一次 pasteboard change 或 stop 时取消未完成解析，避免快速复制时堆积后台任务。
+- 新增 `clipboard.richText.import` 埋点，记录后台解析总耗时、`parseMS`、`storeMS` 和 payload 大小。
+- 新增 `scripts/verify_clipboard_rich_text_background_import.py`，禁止 poll 主线程恢复同步富文本解析。
+行为影响：
+- 复杂 HTML / RTF 记录会以异步方式入库，通常只是延迟一个后台解析周期出现在历史列表。
+- 极快速连续复制复杂 HTML 时，取消旧解析并保留最新 pasteboard change，优先保证 UI 不被旧内容解析拖慢。
+剩余问题：
+- AppKit 富文本解析虽然移出主线程，但仍可能消耗后台 CPU；后续可继续引入大小阈值、HTML plain text 快速路径和持久化解析队列。
+是否阻塞当前阶段：否；作为日志驱动低风险削峰修复。
+```
+
+```text
+优化任务 ID：V2-OPT-HISTORY-HIDDEN-KEEPWARM-DEFERRED-CHECKPOINT-001
+来源任务卡：用户根据新日志继续优化 / PerformanceLogs 2026-05-23 20:21
+来源 Agent：Codex
+风险等级：低
+问题描述：
+- `history.hidden.keepWarm` 资源采样出现过约 `152ms` MainActor latency。
+- 旧实现隐藏窗口时立即调用 `recordResourceCheckpoint`，会在 AppKit / SwiftUI 隐藏动画收尾期间测 MainActor 队列并刷新诊断 UI，形成诊断自扰。
+已实施方案：
+- `history.hidden.keepWarm` 保留轻量事件记录。
+- 资源 checkpoint 延迟 `750ms` 执行，并在窗口快速重开或 View disappear 时取消。
+- checkpoint reason 改为 `history.hidden.keepWarm.deferred`，便于后续日志区分真实隐藏收尾与延后采样。
+- 新增 `scripts/verify_hidden_keepwarm_deferred_checkpoint.py`，禁止回退到隐藏时立即资源采样。
+行为影响：
+- 不改变历史窗口功能；只改变性能诊断采样时机。
+剩余问题：
+- 性能日志 UI 打开时仍可能因图表刷新造成额外主线程工作；后续可继续把性能面板列表刷新改为更粗粒度。
+是否阻塞当前阶段：否；作为诊断自扰削峰修复。
 ```
 
 ```text

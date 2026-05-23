@@ -1,6 +1,16 @@
 import AppKit
 import Foundation
 
+private enum RichTextPasteboardPayload: Sendable {
+    case rtf(data: Data, fallbackPlainText: String?)
+    case html(data: Data, fallbackPlainText: String?)
+}
+
+private struct RichTextImportResult: Sendable {
+    let data: Data
+    let plainText: String
+}
+
 @MainActor
 final class ClipboardMonitor {
     private static let filenamesPasteboardType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
@@ -8,6 +18,9 @@ final class ClipboardMonitor {
     private static let fileURLPromisePasteboardType = NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url")
     private static let filePromiseContentPasteboardType = NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-content-type")
     private static let filePromiseMetadataPasteboardType = NSPasteboard.PasteboardType("com.apple.NSFilePromiseItemMetaData")
+    private static let publicPNGType = NSPasteboard.PasteboardType("public.png")
+    private static let publicTIFFType = NSPasteboard.PasteboardType("public.tiff")
+    private static let publicJPEGType = NSPasteboard.PasteboardType("public.jpeg")
 
     private let pasteboard: NSPasteboard
     private let store: ClipboardHistoryStore
@@ -16,6 +29,7 @@ final class ClipboardMonitor {
     var shouldSuppressRecording: (() -> Bool)?
     private var timer: Timer?
     private var lastChangeCount: Int
+    private var richTextImportTask: Task<Void, Never>?
 
     init(
         store: ClipboardHistoryStore,
@@ -48,14 +62,21 @@ final class ClipboardMonitor {
     func stop() {
         timer?.invalidate()
         timer = nil
+        richTextImportTask?.cancel()
+        richTextImportTask = nil
     }
 
     private func poll() {
-        guard pasteboard.changeCount != lastChangeCount else {
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        let currentChangeCount = pasteboard.changeCount
+        guard currentChangeCount != lastChangeCount else {
             return
         }
 
-        lastChangeCount = pasteboard.changeCount
+        lastChangeCount = currentChangeCount
+        richTextImportTask?.cancel()
+        richTextImportTask = nil
+        let changeDetectedAt = CFAbsoluteTimeGetCurrent()
         guard shouldSuppressRecording?() != true else {
             return
         }
@@ -64,84 +85,231 @@ final class ClipboardMonitor {
         }
 
         let sourceApp = monitoredSourceApp
+        let sourceResolvedAt = CFAbsoluteTimeGetCurrent()
         guard !ignoredAppSettings.contains(bundleID: sourceApp.bundleID) else {
             return
         }
 
-        let fileURLs = localFileURLsFromPasteboard()
+        let availableTypes = Set(pasteboard.types ?? [])
+        let typesLoadedAt = CFAbsoluteTimeGetCurrent()
+        if shouldCapturePlainTextFirst(availableTypes),
+           let text = pasteboard.string(forType: .string) {
+            let payloadLoadedAt = CFAbsoluteTimeGetCurrent()
+            store.addText(text, sourceApp: sourceApp)
+            recordPollDuration(
+                startedAt: startedAt,
+                changeDetectedAt: changeDetectedAt,
+                sourceResolvedAt: sourceResolvedAt,
+                typesLoadedAt: typesLoadedAt,
+                payloadLoadedAt: payloadLoadedAt,
+                capturedType: "text.fastPath"
+            )
+            return
+        }
+
+        let fileURLs = localFileURLsFromPasteboard(availableTypes: availableTypes)
         if !fileURLs.isEmpty {
             guard !store.consumeSkippedClipboardFiles(fileURLs) else {
                 return
             }
 
             store.addFiles(fileURLs, sourceApp: sourceApp)
+            recordPollDuration(startedAt: startedAt, capturedType: "file")
             return
         }
 
-        if let richText = rtfRichTextFromPasteboard() {
-            if shouldCaptureRichTextAsPlainText(richText.plainText) {
-                store.addText(richText.plainText, sourceApp: sourceApp)
-                return
-            }
-
-            store.addRichText(
-                richText.data,
-                plainText: richText.plainText,
-                sourceApp: sourceApp
+        if pasteboardHasRichTextTypes(availableTypes),
+           let rtfData = pasteboard.data(forType: .rtf) {
+            scheduleRichTextImport(
+                payload: .rtf(data: rtfData, fallbackPlainText: pasteboard.string(forType: .string)),
+                sourceApp: sourceApp,
+                changeCount: currentChangeCount,
+                startedAt: startedAt,
+                capturedType: "rtf"
             )
+            recordPollDuration(startedAt: startedAt, capturedType: "rtf.scheduled")
             return
         }
 
-        if let image = pasteboard.readObjects(
+        if pasteboardHasImageTypes(availableTypes),
+           let image = pasteboard.readObjects(
             forClasses: [NSImage.self],
             options: nil
         )?.first as? NSImage {
             store.addImage(image, sourceApp: sourceApp)
+            recordPollDuration(startedAt: startedAt, capturedType: "image")
             return
         }
 
-        if let richText = htmlRichTextFromPasteboard() {
-            if shouldCaptureRichTextAsPlainText(richText.plainText) {
-                store.addText(richText.plainText, sourceApp: sourceApp)
-                return
-            }
-
-            store.addRichText(
-                richText.data,
-                plainText: richText.plainText,
-                sourceApp: sourceApp
+        if pasteboardHasRichTextTypes(availableTypes),
+           let htmlData = pasteboard.data(forType: .html) {
+            scheduleRichTextImport(
+                payload: .html(data: htmlData, fallbackPlainText: pasteboard.string(forType: .string)),
+                sourceApp: sourceApp,
+                changeCount: currentChangeCount,
+                startedAt: startedAt,
+                capturedType: "html"
             )
+            recordPollDuration(startedAt: startedAt, capturedType: "html.scheduled")
             return
         }
 
         if let text = pasteboard.string(forType: .string) {
             store.addText(text, sourceApp: sourceApp)
+            recordPollDuration(startedAt: startedAt, capturedType: "text")
         }
+    }
+
+    private func recordPollDuration(startedAt: CFAbsoluteTime, capturedType: String) {
+        PerformanceDiagnosticsService.shared.record(
+            "clipboard.poll",
+            category: "clipboard",
+            durationMS: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000,
+            metadata: ["capturedType": capturedType]
+        )
+    }
+
+    private func recordPollDuration(
+        startedAt: CFAbsoluteTime,
+        changeDetectedAt: CFAbsoluteTime,
+        sourceResolvedAt: CFAbsoluteTime,
+        typesLoadedAt: CFAbsoluteTime,
+        payloadLoadedAt: CFAbsoluteTime,
+        capturedType: String
+    ) {
+        let finishedAt = CFAbsoluteTimeGetCurrent()
+        PerformanceDiagnosticsService.shared.record(
+            "clipboard.poll",
+            category: "clipboard",
+            durationMS: (finishedAt - startedAt) * 1_000,
+            metadata: [
+                "capturedType": capturedType,
+                "changeMS": Self.formatStageMS(changeDetectedAt - startedAt),
+                "sourceMS": Self.formatStageMS(sourceResolvedAt - changeDetectedAt),
+                "typesMS": Self.formatStageMS(typesLoadedAt - sourceResolvedAt),
+                "payloadMS": Self.formatStageMS(payloadLoadedAt - typesLoadedAt),
+                "storeMS": Self.formatStageMS(finishedAt - payloadLoadedAt)
+            ]
+        )
+    }
+
+    nonisolated private static func formatStageMS(_ seconds: CFAbsoluteTime) -> String {
+        String(format: "%.3f", seconds * 1_000)
+    }
+
+    private func scheduleRichTextImport(
+        payload: RichTextPasteboardPayload,
+        sourceApp: SourceAppInfo,
+        changeCount: Int,
+        startedAt: CFAbsoluteTime,
+        capturedType: String
+    ) {
+        richTextImportTask?.cancel()
+        richTextImportTask = Task.detached(priority: .utility) { [weak self] in
+            let parseStartedAt = CFAbsoluteTimeGetCurrent()
+            let result: RichTextImportResult?
+            switch payload {
+            case .rtf(let data, let fallbackPlainText):
+                result = Self.richTextFromRTFData(data, fallbackPlainText: fallbackPlainText)
+            case .html(let data, let fallbackPlainText):
+                result = Self.richTextFromHTMLData(data, fallbackPlainText: fallbackPlainText)
+            }
+
+            guard !Task.isCancelled,
+                  let result else {
+                return
+            }
+
+            let parsedAt = CFAbsoluteTimeGetCurrent()
+            await MainActor.run { [weak self] in
+                guard let self,
+                      !Task.isCancelled,
+                      self.lastChangeCount == changeCount else {
+                    return
+                }
+
+                let storedType: String
+                if result.data.isEmpty || self.shouldCaptureRichTextAsPlainText(result.plainText) {
+                    self.store.addText(result.plainText, sourceApp: sourceApp)
+                    storedType = "\(capturedType)AsText"
+                } else {
+                    self.store.addRichText(
+                        result.data,
+                        plainText: result.plainText,
+                        sourceApp: sourceApp
+                    )
+                    storedType = capturedType
+                }
+
+                self.recordRichTextImportDuration(
+                    startedAt: startedAt,
+                    parseStartedAt: parseStartedAt,
+                    parsedAt: parsedAt,
+                    capturedType: storedType,
+                    payloadByteCount: result.data.count
+                )
+                self.richTextImportTask = nil
+            }
+        }
+    }
+
+    private func recordRichTextImportDuration(
+        startedAt: CFAbsoluteTime,
+        parseStartedAt: CFAbsoluteTime,
+        parsedAt: CFAbsoluteTime,
+        capturedType: String,
+        payloadByteCount: Int
+    ) {
+        let finishedAt = CFAbsoluteTimeGetCurrent()
+        PerformanceDiagnosticsService.shared.record(
+            "clipboard.richText.import",
+            category: "clipboard",
+            durationMS: (finishedAt - startedAt) * 1_000,
+            metadata: [
+                "capturedType": capturedType,
+                "mode": "background",
+                "payloadBytes": "\(payloadByteCount)",
+                "parseMS": Self.formatStageMS(parsedAt - parseStartedAt),
+                "storeMS": Self.formatStageMS(finishedAt - parsedAt)
+            ]
+        )
+    }
+
+    private func shouldCapturePlainTextFirst(_ types: Set<NSPasteboard.PasteboardType>) -> Bool {
+        types.contains(.string) &&
+            !pasteboardHasFileSemanticTypes(types) &&
+            !pasteboardHasRichTextTypes(types) &&
+            !pasteboardHasImageTypes(types)
     }
 
     private func shouldCaptureRichTextAsPlainText(_ text: String) -> Bool {
         ColorParser.hexColor(from: text) != nil || URLParser.url(from: text) != nil
     }
 
-    private func rtfRichTextFromPasteboard() -> (data: Data, plainText: String)? {
-        guard let rtfData = pasteboard.data(forType: .rtf),
-              let plainText = plainTextForRichTextData(
-            rtfData,
+    nonisolated private static func richTextFromRTFData(
+        _ data: Data,
+        fallbackPlainText: String?
+    ) -> RichTextImportResult? {
+        guard let plainText = plainTextForRichTextData(
+            data,
             documentType: .rtf
-           ) ?? pasteboard.string(forType: .string),
+        ) ?? fallbackPlainText,
               !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
 
-        return (rtfData, plainText)
+        return RichTextImportResult(data: data, plainText: plainText)
     }
 
-    private func htmlRichTextFromPasteboard() -> (data: Data, plainText: String)? {
-        guard let htmlData = pasteboard.data(forType: .html),
-              let attributedString = attributedString(
-                from: htmlData,
-                documentType: .html
-              ) else {
+    nonisolated private static func richTextFromHTMLData(
+        _ data: Data,
+        fallbackPlainText: String?
+    ) -> RichTextImportResult? {
+        guard let attributedString = attributedString(from: data, documentType: .html) else {
+            if let fallbackPlainText,
+               !fallbackPlainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return RichTextImportResult(data: Data(), plainText: fallbackPlainText)
+            }
             return nil
         }
 
@@ -154,17 +322,17 @@ final class ClipboardMonitor {
             return nil
         }
 
-        return (rtfData, plainText)
+        return RichTextImportResult(data: rtfData, plainText: plainText)
     }
 
-    private func plainTextForRichTextData(
+    nonisolated private static func plainTextForRichTextData(
         _ data: Data,
         documentType: NSAttributedString.DocumentType
     ) -> String? {
         attributedString(from: data, documentType: documentType)?.string
     }
 
-    private func attributedString(
+    nonisolated private static func attributedString(
         from data: Data,
         documentType: NSAttributedString.DocumentType
     ) -> NSAttributedString? {
@@ -175,8 +343,8 @@ final class ClipboardMonitor {
         )
     }
 
-    private func localFileURLsFromPasteboard() -> [URL] {
-        guard pasteboardHasFileSemanticTypes else {
+    private func localFileURLsFromPasteboard(availableTypes: Set<NSPasteboard.PasteboardType>) -> [URL] {
+        guard pasteboardHasFileSemanticTypes(availableTypes) else {
             return []
         }
 
@@ -266,8 +434,19 @@ final class ClipboardMonitor {
         ]
     }
 
-    private var pasteboardHasFileSemanticTypes: Bool {
-        pasteboard.types?.contains { fileSemanticTypes.contains($0) } ?? false
+    private func pasteboardHasFileSemanticTypes(_ types: Set<NSPasteboard.PasteboardType>) -> Bool {
+        types.contains { fileSemanticTypes.contains($0) }
+    }
+
+    private func pasteboardHasRichTextTypes(_ types: Set<NSPasteboard.PasteboardType>) -> Bool {
+        types.contains(.rtf) || types.contains(.html)
+    }
+
+    private func pasteboardHasImageTypes(_ types: Set<NSPasteboard.PasteboardType>) -> Bool {
+        types.contains(.tiff) ||
+            types.contains(Self.publicPNGType) ||
+            types.contains(Self.publicTIFFType) ||
+            types.contains(Self.publicJPEGType)
     }
 
     private func itemHasPathBackedFileSemanticTypes(_ item: NSPasteboardItem) -> Bool {

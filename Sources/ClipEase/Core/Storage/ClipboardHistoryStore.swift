@@ -1076,18 +1076,52 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func sortItems() {
-        items.sort { lhs, rhs in
-            if lhs.isPinned != rhs.isPinned {
-                return lhs.isPinned && !rhs.isPinned
-            }
-
-            if lhs.createdAt != rhs.createdAt {
-                return lhs.createdAt > rhs.createdAt
-            }
-
-            return (lhs.pinnedAt ?? lhs.createdAt) > (rhs.pinnedAt ?? rhs.createdAt)
-        }
+        items.sort(by: Self.shouldSortBefore)
         rebuildItemIndexes()
+    }
+
+    private func insertItemMaintainingSort(_ item: ClipboardItem) {
+        let insertionIndex = sortedInsertionIndex(for: item)
+        items.insert(item, at: insertionIndex)
+        updateItemIndexes(startingAt: insertionIndex)
+        if let groupID = item.groupID {
+            itemCountByGroupID[groupID, default: 0] += 1
+        }
+    }
+
+    private func sortedInsertionIndex(for item: ClipboardItem) -> Int {
+        var low = items.startIndex
+        var high = items.endIndex
+
+        while low < high {
+            let mid = low + (high - low) / 2
+            if Self.shouldSortBefore(item, items[mid]) {
+                high = mid
+            } else {
+                low = mid + 1
+            }
+        }
+
+        return low
+    }
+
+    private func updateItemIndexes(startingAt startIndex: Int) {
+        let safeStartIndex = max(items.startIndex, min(startIndex, items.endIndex))
+        for index in safeStartIndex..<items.endIndex {
+            itemIndexByID[items[index].id] = index
+        }
+    }
+
+    private static func shouldSortBefore(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
+        if lhs.isPinned != rhs.isPinned {
+            return lhs.isPinned && !rhs.isPinned
+        }
+
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+
+        return (lhs.pinnedAt ?? lhs.createdAt) > (rhs.pinnedAt ?? rhs.createdAt)
     }
 
     private func itemIndex(for id: ClipboardItem.ID) -> Int? {
@@ -1178,6 +1212,15 @@ final class ClipboardHistoryStore: ObservableObject {
         }
     }
 
+    private func persistIncrementalUpsert(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>) {
+        deferredSaveTask?.cancel()
+        deferredSaveTask = nil
+        let groups = groups
+        let revision = nextSaveRevision()
+        let saveWriter = saveWriter
+        saveWriter.upsertAsync(item, deleting: deletedIDs, groups: groups, revision: revision)
+    }
+
     private func saveImmediately() {
         do {
             try saveImmediatelyOrThrow()
@@ -1207,11 +1250,14 @@ final class ClipboardHistoryStore: ObservableObject {
         idsByHash.reserveCapacity(items.count)
 
         for item in items {
-            let hash = textHash(for: item)
-            idsByHash[hash, default: []].insert(item.id)
+            idsByHash[textHash(for: item), default: []].insert(item.id)
         }
 
         itemIDsByHash = idsByHash
+    }
+
+    private func addRecentHash(for item: ClipboardItem) {
+        itemIDsByHash[textHash(for: item), default: []].insert(item.id)
     }
 
     private func removeRecentHashes(for removedItems: [ClipboardItem]) {
@@ -1249,9 +1295,14 @@ final class ClipboardHistoryStore: ObservableObject {
         _ item: ClipboardItem,
         replacingRichTextFileName newRichTextFileName: String? = nil
     ) -> ClipboardItem {
+        let startedAt = CFAbsoluteTimeGetCurrent()
         let hash = Self.textHash(for: item)
         let duplicateIDs = itemIDsByHash[hash] ?? []
         let duplicateItems = duplicateIDs.compactMap { self.item(with: $0) }
+        let resolvedDuplicateIDs = Set(duplicateItems.map(\.id))
+        if resolvedDuplicateIDs.count != duplicateIDs.count {
+            itemIDsByHash[hash] = resolvedDuplicateIDs.isEmpty ? nil : resolvedDuplicateIDs
+        }
         let firstDuplicate = duplicateItems.first
         var insertedItem = item
 
@@ -1276,14 +1327,30 @@ final class ClipboardHistoryStore: ObservableObject {
             rebuildItemIndexes()
             cancelOCRTasks(for: duplicateIDs)
             cancelLinkMetadataTasks(for: duplicateIDs)
+            removeRecentHashes(for: duplicateItems)
         }
 
-        items.insert(insertedItem, at: 0)
-        sortItems()
-        pruneExpiredItems()
-        rebuildRecentHashes()
-        scheduleSave()
+        insertItemMaintainingSort(insertedItem)
+        let didPruneExpiredItems = pruneExpiredItems()
+        addRecentHash(for: insertedItem)
+        if didPruneExpiredItems {
+            scheduleSave()
+        } else {
+            persistIncrementalUpsert(insertedItem, deleting: duplicateIDs)
+        }
         latestItemFocusRequest = ClipboardItemFocusRequest(itemID: insertedItem.id, reason: .inserted)
+        PerformanceDiagnosticsService.shared.record(
+            "history.store.upsert",
+            category: "storage",
+            durationMS: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000,
+            itemCount: items.count,
+            resultCount: duplicateItems.count,
+            metadata: [
+                "type": insertedItem.type.rawValue,
+                "didPruneExpiredItems": "\(didPruneExpiredItems)",
+                "persistence": didPruneExpiredItems ? "snapshot" : "incremental"
+            ]
+        )
         return insertedItem
     }
 
@@ -1720,6 +1787,16 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
         }
     }
 
+    func upsertAsync(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup], revision: Int) {
+        queue.async { [self] in
+            do {
+                try upsertIfCurrent(item, deleting: deletedIDs, groups: groups, revision: revision)
+            } catch {
+                NSLog("ClipEase failed to upsert clipboard history: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func saveSync(_ snapshot: ClipboardHistorySnapshot, revision: Int) throws {
         try queue.sync { [self] in
             try saveIfCurrent(snapshot, revision: revision)
@@ -1733,5 +1810,31 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
 
         latestRevision = revision
         try persistence.saveSnapshotOrThrow(snapshot)
+    }
+
+    private func upsertIfCurrent(
+        _ item: ClipboardItem,
+        deleting deletedIDs: Set<ClipboardItem.ID>,
+        groups: [ClipboardGroup],
+        revision: Int
+    ) throws {
+        guard revision >= latestRevision else {
+            return
+        }
+
+        latestRevision = revision
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        try persistence.upsertItemOrThrow(item, deleting: deletedIDs, groups: groups)
+        let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+        Task { @MainActor in
+            PerformanceDiagnosticsService.shared.record(
+                "history.persistence.upsert",
+                category: "storage",
+                durationMS: durationMS,
+                itemCount: deletedIDs.count,
+                resultCount: 1,
+                metadata: ["revision": "\(revision)", "type": item.type.rawValue]
+            )
+        }
     }
 }

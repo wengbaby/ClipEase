@@ -44,7 +44,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         self.panel = panel
         let targetFrame = frameForPanel()
         panel.setFrame(hiddenFrame(for: targetFrame), display: false)
-        renderState.prepareForShow(itemCount: store.items.count)
+        renderState.prepareForPreload(itemCount: store.items.count)
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(false)
         PerformanceDiagnosticsService.shared.record(
@@ -54,6 +54,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             itemCount: store.items.count,
             metadata: ["reason": "app.launch"]
         )
+        renderState.mark("prepared")
+        renderState.finishTrace()
     }
 
     func toggle() {
@@ -80,7 +82,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.alphaValue = 1
         if shouldAnimate {
             renderState.prepareForShow(itemCount: store.items.count)
-            panel.setFrame(hiddenFrame(for: targetFrame), display: true)
+            panel.setFrame(hiddenFrame(for: targetFrame), display: false)
         } else {
             panel.disableScreenUpdatesUntilFlush()
             panel.setFrame(targetFrame, display: true)

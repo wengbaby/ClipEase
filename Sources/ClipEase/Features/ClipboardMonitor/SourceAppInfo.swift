@@ -13,6 +13,10 @@ struct SourceAppInfo: Sendable {
     }
 
     static var current: SourceAppInfo {
+        currentFast
+    }
+
+    static var currentFast: SourceAppInfo {
         let app = NSWorkspace.shared.runningApplications.first { app in
             app.isActive && app.bundleIdentifier != Bundle.main.bundleIdentifier
         } ?? NSWorkspace.shared.frontmostApplication
@@ -27,14 +31,24 @@ struct SourceAppInfo: Sendable {
             )
         }
 
-        let cachedIcon = AppIconCache.cacheIcon(for: app)
+        cacheIconAsync(for: app)
         return SourceAppInfo(
             name: app.localizedName ?? "未知应用",
             bundleID: app.bundleIdentifier,
             iconName: iconName(for: app.bundleIdentifier),
-            iconFileName: cachedIcon?.fileName,
-            headerColorHex: cachedIcon?.dominantColorHex ?? headerColorHex(for: app.bundleIdentifier)
+            iconFileName: nil,
+            headerColorHex: headerColorHex(for: app.bundleIdentifier)
         )
+    }
+
+    static func cacheIconAsync(for app: NSRunningApplication) {
+        guard app.bundleIdentifier != nil else {
+            return
+        }
+
+        Task.detached(priority: .utility) {
+            _ = AppIconCache.cacheIcon(for: app)
+        }
     }
 
     static let clipease = SourceAppInfo(

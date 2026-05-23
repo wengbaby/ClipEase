@@ -121,12 +121,17 @@ final class PerformanceDiagnosticsService: ObservableObject {
     nonisolated private static let maxResourceSnapshots = 120
     nonisolated private static let slowEventThresholdMS = 16.0
     nonisolated private static let resourceSamplingNanoseconds: UInt64 = 5_000_000_000
+    nonisolated private static let diagnosticsUIPublishNanoseconds: UInt64 = 750_000_000
     nonisolated private static let logWriter = PerformanceLogWriter()
     private let userDefaults: UserDefaults
     private let fileManager: FileManager
     private let encoder = JSONEncoder()
     private var cleanupTask: Task<Void, Never>?
     private var resourceSamplingTask: Task<Void, Never>?
+    private var diagnosticsUIPublishTask: Task<Void, Never>?
+    private var recentEventsStore: [PerformanceDiagnosticEvent] = []
+    private var recentResourceSnapshotsStore: [PerformanceResourceSnapshot] = []
+    private var latestResourceSnapshotStore: PerformanceResourceSnapshot?
 
     private init(userDefaults: UserDefaults = .standard, fileManager: FileManager = .default) {
         self.userDefaults = userDefaults
@@ -175,10 +180,7 @@ final class PerformanceDiagnosticsService: ObservableObject {
             resultCount: resultCount,
             metadata: metadata
         )
-        recentEvents.insert(event, at: 0)
-        if recentEvents.count > Self.maxRecentEvents {
-            recentEvents.removeLast(recentEvents.count - Self.maxRecentEvents)
-        }
+        appendRecentEventForUI(event)
         write(event)
     }
 
@@ -327,10 +329,10 @@ final class PerformanceDiagnosticsService: ObservableObject {
             return
         }
 
-        latestResourceSnapshot = snapshot
-        recentResourceSnapshots.insert(snapshot, at: 0)
-        if recentResourceSnapshots.count > Self.maxResourceSnapshots {
-            recentResourceSnapshots.removeLast(recentResourceSnapshots.count - Self.maxResourceSnapshots)
+        latestResourceSnapshotStore = snapshot
+        recentResourceSnapshotsStore.insert(snapshot, at: 0)
+        if recentResourceSnapshotsStore.count > Self.maxResourceSnapshots {
+            recentResourceSnapshotsStore.removeLast(recentResourceSnapshotsStore.count - Self.maxResourceSnapshots)
         }
 
         let event = PerformanceDiagnosticEvent(
@@ -351,11 +353,40 @@ final class PerformanceDiagnosticsService: ObservableObject {
             threadCount: snapshot.threadCount,
             mainThreadLatencyMS: snapshot.mainThreadLatencyMS
         )
-        recentEvents.insert(event, at: 0)
-        if recentEvents.count > Self.maxRecentEvents {
-            recentEvents.removeLast(recentEvents.count - Self.maxRecentEvents)
-        }
+        appendRecentEventForUI(event)
         write(event)
+    }
+
+    private func appendRecentEventForUI(_ event: PerformanceDiagnosticEvent) {
+        recentEventsStore.insert(event, at: 0)
+        if recentEventsStore.count > Self.maxRecentEvents {
+            recentEventsStore.removeLast(recentEventsStore.count - Self.maxRecentEvents)
+        }
+        scheduleDiagnosticsUIPublish()
+    }
+
+    private func scheduleDiagnosticsUIPublish() {
+        guard diagnosticsUIPublishTask == nil else {
+            return
+        }
+
+        diagnosticsUIPublishTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.diagnosticsUIPublishNanoseconds)
+            publishDiagnosticsUI()
+        }
+    }
+
+    private func publishDiagnosticsUI() {
+        diagnosticsUIPublishTask = nil
+        if recentEvents != recentEventsStore {
+            recentEvents = recentEventsStore
+        }
+        if recentResourceSnapshots != recentResourceSnapshotsStore {
+            recentResourceSnapshots = recentResourceSnapshotsStore
+        }
+        if latestResourceSnapshot != latestResourceSnapshotStore {
+            latestResourceSnapshot = latestResourceSnapshotStore
+        }
     }
 
     private func write(_ event: PerformanceDiagnosticEvent) {

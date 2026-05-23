@@ -164,6 +164,31 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try replaceAllItems(with: snapshot.items, groups: snapshot.groups)
     }
 
+    func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws {
+        try createParentDirectory()
+        try resetLegacyDatabaseIfNeeded()
+        let database = try SQLiteDatabase(url: databaseURL)
+        defer { database.close() }
+
+        try database.execute("PRAGMA foreign_keys = ON")
+        try createSchema(in: database)
+        try recordSchemaVersion(in: database)
+        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+
+        do {
+            try deleteItems(with: deletedIDs.union([item.id]), in: database)
+            try upsertGroups(groups, in: database)
+            try insert(item, in: database)
+            if item.groupID != nil {
+                try insertGroupItem(for: item, in: database)
+            }
+            try database.execute("COMMIT")
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
+        }
+    }
+
     func countItems() throws -> Int {
         try resetLegacyDatabaseIfNeeded()
         let database = try SQLiteDatabase(url: databaseURL)
@@ -546,10 +571,43 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try database.execute("ALTER TABLE \(table) ADD COLUMN \(column) \(definition)")
     }
 
+    private func deleteItems(with ids: Set<ClipboardItem.ID>, in database: SQLiteDatabase) throws {
+        guard !ids.isEmpty else {
+            return
+        }
+
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        try database.execute(
+            "DELETE FROM clipboard_items WHERE id IN (\(placeholders))",
+            values: ids.map { .text($0.uuidString) }
+        )
+    }
+
+    private func upsertGroups(_ groups: [ClipboardGroup], in database: SQLiteDatabase) throws {
+        for group in groups {
+            try database.execute(
+                """
+                INSERT OR REPLACE INTO groups (
+                    id, name, color_hex, icon_name, sort_order, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                values: [
+                    .text(group.id.uuidString),
+                    .text(group.name),
+                    .text(group.colorHex),
+                    .text(group.iconName),
+                    .int(group.sortOrder),
+                    .double(group.createdAt.timeIntervalSince1970),
+                    .double(group.updatedAt.timeIntervalSince1970)
+                ]
+            )
+        }
+    }
+
     private func insert(_ item: ClipboardItem, in database: SQLiteDatabase) throws {
         try database.execute(
             """
-            INSERT INTO clipboard_items (
+            INSERT OR REPLACE INTO clipboard_items (
                 id, type, plain_text, url, link_title, link_subtitle,
                 source_app_name, source_bundle_id, source_icon_name, source_icon_file_name,
                 header_color, created_at, updated_at, last_used_at, pinned_at, is_pinned,

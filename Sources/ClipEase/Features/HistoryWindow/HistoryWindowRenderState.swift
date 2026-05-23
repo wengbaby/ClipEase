@@ -12,7 +12,16 @@ final class HistoryWindowRenderState: ObservableObject {
         performanceTrace = HistoryPerformanceTrace(label: "history-open", itemCount: itemCount)
     }
 
+    func prepareForPreload(itemCount: Int) {
+        renderGeneration = UUID()
+        performanceTrace = HistoryPerformanceTrace(label: "history-preload", itemCount: itemCount)
+    }
+
     func mark(_ name: String) {
         performanceTrace?.mark(name)
+    }
+
+    func finishTrace() {
+        performanceTrace = nil
     }
 }

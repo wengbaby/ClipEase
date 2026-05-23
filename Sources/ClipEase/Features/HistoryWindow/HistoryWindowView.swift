@@ -74,7 +74,9 @@ struct HistoryWindowView: View {
     @State private var previewFollowTask: Task<Void, Never>?
     @State private var rememberSelectedItemTask: Task<Void, Never>?
     @State private var latestFocusRetryTask: Task<Void, Never>?
+    @State private var hiddenResourceCheckpointTask: Task<Void, Never>?
     @State private var pendingPreviewFollowItemID: ClipboardItem.ID?
+    @State private var lastHiddenResourceCheckpointAt: CFAbsoluteTime = 0
     @State private var windowWidth: CGFloat = 0
     @State private var latestPresentedItemID: ClipboardItem.ID?
     @State private var latestPresentedItemTimestamp: Date = .distantPast
@@ -118,6 +120,7 @@ struct HistoryWindowView: View {
     private let historyRailWindowBufferItemCount = 36
     private let previewItemCacheRetainedItemCount = 320
     private let maxSearchResultCount = 500
+    private let hiddenResourceCheckpointMinimumInterval: CFTimeInterval = 10
 
     private var items: [HistoryPreviewItem] {
         allPreviewItems
@@ -505,15 +508,16 @@ struct HistoryWindowView: View {
             cancelPendingGroupRename()
             closeInactiveSearchBeforeHiding()
             deferredStartupTask?.cancel()
-            previewBuildTask?.cancel()
-            previewBuildGeneration &+= 1
-            searchTask?.cancel()
-            searchVisibilityTask?.cancel()
-            preheatTask?.cancel()
-            previewFollowTask?.cancel()
-            rememberSelectedItemTask?.cancel()
-            latestFocusRetryTask?.cancel()
-            HistoryScrollCoordinator.shared.onOffsetChange = nil
+        previewBuildTask?.cancel()
+        previewBuildGeneration &+= 1
+        searchTask?.cancel()
+        searchVisibilityTask?.cancel()
+        preheatTask?.cancel()
+        previewFollowTask?.cancel()
+        rememberSelectedItemTask?.cancel()
+        latestFocusRetryTask?.cancel()
+        hiddenResourceCheckpointTask?.cancel()
+        HistoryScrollCoordinator.shared.onOffsetChange = nil
         }
         .onChange(of: store.items) { newItems in
             syncLatestItemFocusIfNeeded(sourceItems: newItems)
@@ -687,7 +691,7 @@ struct HistoryWindowView: View {
         .equatable()
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(
+                .strokeBorder(
                     isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.black.opacity(0.08),
                     lineWidth: isSelected ? 4 : 1
                 )
@@ -699,7 +703,7 @@ struct HistoryWindowView: View {
             x: 0,
             y: isSelected ? 5 : 0
         )
-        .scaleEffect(isSelected ? 1.015 : 1)
+        .scaleEffect(1)
         .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isSelected)
         .id(item.id)
         .contentShape(Rectangle())
@@ -1983,7 +1987,21 @@ struct HistoryWindowView: View {
                 "cacheStored": "\(previewItemCache.count)"
             ]
         )
-        PerformanceDiagnosticsService.shared.recordResourceCheckpoint("history.hidden.keepWarm")
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastHiddenResourceCheckpointAt >= hiddenResourceCheckpointMinimumInterval {
+            lastHiddenResourceCheckpointAt = now
+            hiddenResourceCheckpointTask?.cancel()
+            hiddenResourceCheckpointTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 750_000_000)
+                guard !Task.isCancelled,
+                      !inputState.isWindowPresentedSnapshot else {
+                    return
+                }
+
+                PerformanceDiagnosticsService.shared.recordResourceCheckpoint("history.hidden.keepWarm.deferred")
+                hiddenResourceCheckpointTask = nil
+            }
+        }
     }
 
     private func rebuildPreviewItemsIfNeededForVisibleWindow() {
@@ -4592,6 +4610,49 @@ struct HistoryWindowView: View {
             ]
         )
 
+        if usesUnfilteredSource {
+            searchTask = nil
+            let applyStartedAt = CFAbsoluteTimeGetCurrent()
+            applyUnfilteredPreviewResult()
+            if pendingLatestFocusItemID == nil {
+                ensureSelectionInFilteredItems()
+            }
+            PerformanceDiagnosticsService.shared.record(
+                "search.applyResults",
+                category: "search",
+                durationMS: (CFAbsoluteTimeGetCurrent() - applyStartedAt) * 1_000,
+                itemCount: sourceItems.count,
+                resultCount: allPreviewItems.count,
+                metadata: [
+                    "queryLength": "\(currentSearchText.count)",
+                    "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                    "mode": "unfilteredSource",
+                    "trigger": currentSearchTrigger
+                ]
+            )
+            renderState.mark("filtered-items-ready count=\(allPreviewItems.count)")
+            let followupStartedAt = CFAbsoluteTimeGetCurrent()
+            restoreRememberedViewportIfNeeded()
+            fulfillPendingLatestFocusIfPossible()
+            convergeLatestClipboardFocusIfNeeded()
+            applyPendingProgrammaticJumpIfPossible()
+            schedulePreheatVisibleAssets()
+            PerformanceDiagnosticsService.shared.record(
+                "search.postApply",
+                category: "search",
+                durationMS: (CFAbsoluteTimeGetCurrent() - followupStartedAt) * 1_000,
+                itemCount: sourceItems.count,
+                resultCount: allPreviewItems.count,
+                metadata: [
+                    "queryLength": "\(currentSearchText.count)",
+                    "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                    "mode": "unfilteredSource",
+                    "trigger": currentSearchTrigger
+                ]
+            )
+            return
+        }
+
         searchTask = Task(priority: .userInitiated) {
             if !immediate {
                 try? await Task.sleep(nanoseconds: debounceNanoseconds)
@@ -4601,54 +4662,6 @@ struct HistoryWindowView: View {
                 return
             }
 
-            if usesUnfilteredSource {
-                await MainActor.run {
-                    guard searchGeneration == generation else {
-                        return
-                    }
-
-                    let applyStartedAt = CFAbsoluteTimeGetCurrent()
-                    applyUnfilteredPreviewResult()
-                    if pendingLatestFocusItemID == nil {
-                        ensureSelectionInFilteredItems()
-                    }
-                    PerformanceDiagnosticsService.shared.record(
-                        "search.applyResults",
-                        category: "search",
-                        durationMS: (CFAbsoluteTimeGetCurrent() - applyStartedAt) * 1_000,
-                        itemCount: sourceItems.count,
-                        resultCount: allPreviewItems.count,
-                        metadata: [
-                            "queryLength": "\(currentSearchText.count)",
-                            "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
-                            "mode": "unfilteredSource",
-                            "trigger": currentSearchTrigger
-                        ]
-                    )
-                    renderState.mark("filtered-items-ready count=\(allPreviewItems.count)")
-                    let followupStartedAt = CFAbsoluteTimeGetCurrent()
-                    restoreRememberedViewportIfNeeded()
-                    fulfillPendingLatestFocusIfPossible()
-                    convergeLatestClipboardFocusIfNeeded()
-                    applyPendingProgrammaticJumpIfPossible()
-                    schedulePreheatVisibleAssets()
-                    PerformanceDiagnosticsService.shared.record(
-                        "search.postApply",
-                        category: "search",
-                        durationMS: (CFAbsoluteTimeGetCurrent() - followupStartedAt) * 1_000,
-                        itemCount: sourceItems.count,
-                        resultCount: allPreviewItems.count,
-                        metadata: [
-                            "queryLength": "\(currentSearchText.count)",
-                            "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
-                            "mode": "unfilteredSource",
-                            "trigger": currentSearchTrigger
-                        ]
-                    )
-                    PerformanceDiagnosticsService.shared.recordResourceCheckpoint("search.apply.complete")
-                }
-                return
-            }
             PerformanceDiagnosticsService.shared.recordResourceCheckpoint("search.filter.start")
 
             let filterStartedAt = CFAbsoluteTimeGetCurrent()
@@ -5063,7 +5076,7 @@ struct HistoryWindowView: View {
     private func focusRecentlyAddedItemOnShowIfNeeded(sourceItems: [ClipboardItem]) {
         guard inputState.isWindowPresentedSnapshot,
               pendingLatestFocusItemID == nil,
-              let newestChangedItem = sourceItems.max(by: latestChangedItemSort),
+              let newestChangedItem = latestPresentationCandidate(from: sourceItems),
               newestChangedItem.createdAt > latestPresentedItemTimestamp.addingTimeInterval(0.001) else {
             return
         }
@@ -5101,7 +5114,7 @@ struct HistoryWindowView: View {
     }
 
     private func latestChangedFocusItemCandidate() -> ClipboardItem? {
-        let newestByTimestamp = store.items.max(by: latestChangedItemSort)
+        let newestByTimestamp = latestPresentationCandidate(from: store.items)
 
         guard let pendingLatestFocusTimestamp,
               let newestByTimestamp,
@@ -5281,7 +5294,15 @@ struct HistoryWindowView: View {
     }
 
     private func latestItemObservation(sourceItems: [ClipboardItem]) -> LatestItemObservation? {
-        LatestItemObservation(item: sourceItems.max(by: latestChangedItemSort))
+        LatestItemObservation(item: latestPresentationCandidate(from: sourceItems))
+    }
+
+    private func latestPresentationCandidate(from sourceItems: [ClipboardItem]) -> ClipboardItem? {
+        if let requestedItem = store.latestItemFocusRequest.flatMap({ store.item(with: $0.itemID) }) {
+            return requestedItem
+        }
+
+        return sourceItems.first { !$0.isPinned } ?? sourceItems.first
     }
 
     private func scrollToItemWhenRendered(_ id: HistoryPreviewItem.ID, animated: Bool = false) {
