@@ -171,17 +171,29 @@ struct HistoryWindowView: View {
     }
 
     private var historyRailVisibleWindow: Range<Int> {
-        guard !renderedItems.isEmpty else {
+        clampedHistoryRailWindow(
+            itemCount: renderedItems.count,
+            visibleRect: cardRailVisibleRect,
+            bufferItemCount: historyRailWindowBufferItemCount
+        )
+    }
+
+    private func clampedHistoryRailWindow(
+        itemCount: Int,
+        visibleRect: CGRect,
+        bufferItemCount: Int
+    ) -> Range<Int> {
+        guard itemCount > 0 else {
             return 0..<0
         }
 
-        let visibleMinX = max(cardRailVisibleRect.minX - horizontalContentPadding, 0)
-        let visibleMaxX = max(cardRailVisibleRect.maxX - horizontalContentPadding, visibleMinX)
-        let rawStart = Int(floor(visibleMinX / itemStride)) - historyRailWindowBufferItemCount
-        let rawEnd = Int(ceil(visibleMaxX / itemStride)) + historyRailWindowBufferItemCount + 1
-        let start = max(0, rawStart)
-        let end = min(renderedItems.count, max(start + 1, rawEnd))
-        return start..<end
+        let visibleMinX = max(visibleRect.minX - horizontalContentPadding, 0)
+        let visibleMaxX = max(visibleRect.maxX - horizontalContentPadding, visibleMinX)
+        let rawStart = Int(floor(visibleMinX / itemStride)) - bufferItemCount
+        let rawEnd = Int(ceil(visibleMaxX / itemStride)) + bufferItemCount + 1
+        let clampedStart = min(max(0, rawStart), max(itemCount - 1, 0))
+        let clampedEnd = min(itemCount, max(clampedStart + 1, rawEnd))
+        return clampedStart..<clampedEnd
     }
 
     private var renderedWindowItems: ArraySlice<HistoryPreviewItem> {
@@ -3794,13 +3806,11 @@ struct HistoryWindowView: View {
         if cardRailVisibleRect == .zero {
             visibleRange = 0..<min(sourceItems.count, previewItemCacheRetainedItemCount)
         } else {
-            let visibleMinX = max(cardRailVisibleRect.minX - horizontalContentPadding, 0)
-            let visibleMaxX = max(cardRailVisibleRect.maxX - horizontalContentPadding, visibleMinX)
-            let rawStart = Int(floor(visibleMinX / itemStride)) - previewItemCacheRetainedItemCount / 2
-            let rawEnd = Int(ceil(visibleMaxX / itemStride)) + previewItemCacheRetainedItemCount / 2 + 1
-            let start = max(0, rawStart)
-            let end = min(sourceItems.count, max(start + 1, rawEnd))
-            visibleRange = start..<end
+            visibleRange = clampedHistoryRailWindow(
+                itemCount: sourceItems.count,
+                visibleRect: cardRailVisibleRect,
+                bufferItemCount: previewItemCacheRetainedItemCount / 2
+            )
         }
 
         if !visibleRange.isEmpty {

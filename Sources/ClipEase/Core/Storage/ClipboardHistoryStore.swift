@@ -79,14 +79,15 @@ final class ClipboardHistoryStore: ObservableObject {
         self.items = snapshot.items
         self.groups = snapshot.groups
         let sortStartedAt = CFAbsoluteTimeGetCurrent()
-        sortItems()
+        rebuildItemIndexes()
         sortGroups()
         PerformanceDiagnosticsService.shared.record(
             "history.store.sort",
             category: "storage",
             durationMS: (CFAbsoluteTimeGetCurrent() - sortStartedAt) * 1_000,
             itemCount: items.count,
-            resultCount: groups.count
+            resultCount: groups.count,
+            metadata: ["mode": "snapshotOrder.indexOnly"]
         )
         let didPruneExpiredItems = pruneExpiredItems()
         if didPruneExpiredItems {

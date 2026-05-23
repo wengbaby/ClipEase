@@ -103,7 +103,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                 header_color, created_at, pinned_at, is_pinned, content_hash
             FROM clipboard_items
             WHERE is_deleted = 0
-            ORDER BY is_pinned DESC, COALESCE(pinned_at, created_at) DESC, created_at DESC
+            ORDER BY is_pinned DESC, created_at DESC, COALESCE(pinned_at, created_at) DESC
             """
         )
 

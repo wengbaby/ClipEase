@@ -400,6 +400,73 @@
 ```
 
 ```text
+优化任务 ID：V2-OPT-100K-HISTORY-VISIBLE-WINDOW-RANGE-CRASH-001
+来源任务卡：用户性能专项继续优化 / 软件崩溃自动结束
+来源 Agent：Codex
+风险等级：高
+问题描述：
+- 用户反馈 App 崩溃、进程自动结束。
+- 崩溃报告 `/Users/wpc/Library/Logs/DiagnosticReports/ClipEase-2026-05-23-160737.ips` 显示 `EXC_BREAKPOINT / SIGTRAP`，Swift runtime failure：`Range requires lowerBound <= upperBound`。
+- 崩溃栈落在 `HistoryWindowView.historyRailVisibleWindow.getter` 与 `schedulePreheatVisibleAssets()`。
+- 10 万+ 列表曾滚动到很大的横向 offset；搜索 / 分组状态切换后结果缩小到 1 条时，旧 `cardRailVisibleRect` 仍被用来计算可见窗口，`start` 没有夹紧到 item count 内，形成非法 `Range` 并崩溃。
+已实施方案：
+- 新增 `clampedHistoryRailWindow(itemCount:visibleRect:bufferItemCount:)`，统一处理列表渲染窗口和预览缓存保留窗口。
+- 空列表返回 `0..<0`；非空列表将 `rawStart` 夹紧到 `0...(itemCount - 1)`，保证 `Range` 可用于数组切片。
+- 新增 `scripts/verify_history_visible_window_range_guards.py`，覆盖“超大旧偏移 + 1 条结果”的回归场景，并禁止恢复旧的未夹紧 range 计算。
+- 运行 `2.3.25 (260523.1614)` 后，同类 `search.filter resultCount=1` 状态切换不再崩溃。
+验证结果：
+- `python3 scripts/verify_history_visible_window_range_guards.py` 先失败后通过。
+- `swift build` 通过。
+- `python3 scripts/verify_history_search_performance_guards.py` 通过。
+- `python3 scripts/verify_history_filtered_index_guards.py` 通过。
+- `python3 scripts/verify_store_index_performance_guards.py` 通过。
+- `python3 scripts/verify_card_click_performance_guards.py` 通过。
+- `python3 scripts/verify_preview_window_performance_guards.py` 通过。
+- `python3 scripts/benchmark_history_search_performance.py` 通过。
+- `git diff --check` 通过。
+- `./scripts/build-app.sh --bump patch --run` 通过，最终运行 `2.3.26 (260523.1625)`。
+- 崩溃报告检查：最新 `ClipEase-*.ips` 仍为 `2026-05-23 16:07:38` 的旧报告，运行新包后未新增 crash report，PID `27308` 在观察窗口后仍存活。
+行为影响：
+- 不改变搜索、分组、列表 UI、预览语义、SQLite schema 或备份格式。
+- 当旧横向偏移超出当前结果数量时，渲染 / 预热窗口夹紧到有效范围，避免崩溃。
+剩余问题：
+- `PerformanceLogs/2026-05-23_16-26-22.jsonl` 显示启动仍有 `history.store.loadSnapshot` 约 `741ms` 和 `history.store.rebuildHashes` 约 `185ms` 主线程成本。
+是否阻塞当前阶段：已修复；作为崩溃阻塞项完成。
+```
+
+```text
+优化任务 ID：V2-OPT-100K-HISTORY-STARTUP-SNAPSHOT-ORDER-001
+来源任务卡：用户性能专项继续优化 / PerformanceLogs 2026-05-23
+来源 Agent：Codex
+风险等级：中
+问题描述：
+- 第二批优化后，启动日志仍显示 `history.store.sort` 约 `108.66ms`。
+- SQLite snapshot 已经按列表展示顺序读取 11 万+ 条数据，但 `ClipboardHistoryStore.init` 又在主线程对 `items` 调用 `sortItems()`，导致额外 O(n log n) 排序和索引重建。
+已实施方案：
+- 将 `SQLiteClipboardStore.loadSnapshot()` 的主表 `ORDER BY` 对齐 Swift `sortItems()`：`is_pinned DESC, created_at DESC, COALESCE(pinned_at, created_at) DESC`。
+- `ClipboardHistoryStore.init` 读取 snapshot 后不再对 items 二次排序，改为只 `rebuildItemIndexes()` 并继续 `sortGroups()`。
+- `history.store.sort` 埋点新增 `mode=snapshotOrder.indexOnly`，用于确认启动命中索引重建路径。
+- `scripts/verify_sqlite_snapshot_bulk_load_guards.py` 新增守卫：要求 SQLite 顺序与 Swift 排序一致，并禁止初始化阶段恢复 `sortItems()`。
+验证结果：
+- `python3 scripts/verify_sqlite_snapshot_bulk_load_guards.py` 先失败后通过。
+- `swift build` 通过。
+- `./scripts/build-app.sh --bump patch --run` 通过，最终运行 `2.3.26 (260523.1625)`。
+- 最终日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_16-26-22.jsonl`：
+  - `history.store.sort` 约 `38.94ms`，`mode=snapshotOrder.indexOnly`。
+  - `history.store.initialize` 约 `965.46ms`。
+- 对比上一轮 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-23_14-50-07.jsonl`：
+  - `history.store.sort` 从约 `108.66ms` 降到约 `38.94ms`。
+  - `history.store.initialize` 从约 `1034.08ms` 降到约 `965.46ms`。
+行为影响：
+- 不改变列表排序语义；只是让 SQLite 输出顺序与 Swift 当前排序一致，避免二次排序。
+- 不改变 SQLite schema、备份格式或远程 `.gitignore` 规则。
+剩余问题：
+- 启动仍同步加载全量 metadata；首屏分页 / 懒加载尚未实现。
+- 去重哈希仍在主线程同步重建，下一阶段需要结合剪贴板监听启动时机分阶段处理。
+是否阻塞当前阶段：否；作为低风险启动削峰修复。
+```
+
+```text
 优化任务 ID：V2-OPT-100K-HISTORY-SQLITE-BULK-STARTUP-001
 来源任务卡：用户性能专项审查 / PerformanceLogs 2026-05-23
 来源 Agent：Codex

@@ -49,6 +49,7 @@ required_sqlite = [
     "INNER JOIN clipboard_items ON clipboard_items.id = clipboard_item_files.item_id",
     "INNER JOIN clipboard_items ON clipboard_items.id = item_ocr_results.item_id",
     "WHERE clipboard_items.is_deleted = 0",
+    "ORDER BY is_pinned DESC, created_at DESC, COALESCE(pinned_at, created_at) DESC",
 ]
 
 required_history_store = [
@@ -59,12 +60,17 @@ required_history_store = [
     "let didPruneExpiredItems = pruneExpiredItems()",
     "if didPruneExpiredItems {",
     "private func pruneExpiredItems(now: Date = Date()) -> Bool",
+    '"mode": "snapshotOrder.indexOnly"',
 ]
 
 forbidden_load_snapshot = [
     "loadAssets(for:",
     "loadFileReferences(for:",
     "loadOCRResult(for:",
+]
+
+forbidden_store_init = [
+    "sortItems()",
 ]
 
 failures: list[str] = []
@@ -79,6 +85,16 @@ for snippet in required_history_store:
 for snippet in forbidden_load_snapshot:
     if snippet in load_snapshot:
         failures.append(f"Forbidden N+1 snapshot query in loadSnapshot: {snippet}")
+
+try:
+    store_init = extract_function(history_text, "init(\n        persistence: ClipboardHistoryPersistence = ClipboardHistoryPersistence(),")
+except AssertionError as error:
+    print(f"SQLite snapshot bulk load guard failed:\n{error}")
+    raise SystemExit(1)
+
+for snippet in forbidden_store_init:
+    if snippet in store_init:
+        failures.append(f"Forbidden startup item resort in ClipboardHistoryStore.init: {snippet}")
 
 if failures:
     print("SQLite snapshot bulk load guard failed:")
