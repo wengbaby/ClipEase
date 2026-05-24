@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 @MainActor
@@ -23,6 +24,8 @@ final class HistoryPreviewWindowController {
     // Keeps tiny or 1px-edge images operable without returning to the old 220pt fixed image window.
     private let imagePreviewMinimumContentSize = CGSize(width: 180, height: 140)
     private let deferredContentLoadDelay: UInt64 = 50_000_000
+    private let bloomOpenDuration: TimeInterval = 0.22
+    private let bloomCloseDuration: TimeInterval = 0.16
 
     var frame: CGRect? {
         panel?.frame
@@ -133,10 +136,10 @@ final class HistoryPreviewWindowController {
                 )
             }
         } else {
-            panel.alphaValue = 0
             panel.setFrame(frame, display: true)
+            prepareContentBloomLayer(panel, anchorX: arrowX, isOpening: true)
             panel.orderFrontRegardless()
-            animatePanelOpen(panel, targetFrame: frame)
+            animatePanelOpen(panel)
             (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
             if !shouldLoadImmediately {
                 scheduleContentLoad(
@@ -153,15 +156,67 @@ final class HistoryPreviewWindowController {
         return panel.isVisible
     }
 
-    private func animatePanelOpen(_ panel: NSPanel, targetFrame: CGRect) {
-        let startFrame = targetFrame.offsetBy(dx: 0, dy: -6)
-        panel.setFrame(startFrame, display: true)
+    private func animatePanelOpen(_ panel: NSPanel) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+            context.duration = bloomOpenDuration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
-            panel.animator().alphaValue = 1
-            panel.animator().setFrame(targetFrame, display: true)
+            panel.contentView?.animator().alphaValue = 1
+            panel.contentView?.layer?.transform = CATransform3DIdentity
+        } completionHandler: { [weak panel] in
+            self.resetContentBloomLayer(panel)
         }
+    }
+
+    private func prepareContentBloomLayer(_ panel: NSPanel, anchorX: CGFloat, isOpening: Bool) {
+        guard let contentView = panel.contentView else {
+            return
+        }
+
+        contentView.wantsLayer = true
+        guard let layer = contentView.layer else {
+            return
+        }
+
+        let width = max(contentView.bounds.width, panel.frame.width, 1)
+        let normalizedAnchorX = min(max(anchorX / width, 0.08), 0.92)
+        updateLayerAnchorPoint(layer, anchorPoint: CGPoint(x: normalizedAnchorX, y: 0))
+        contentView.alphaValue = isOpening ? 0 : 1
+        layer.transform = isOpening ? previewBloomCollapsedTransform : CATransform3DIdentity
+    }
+
+    private var previewBloomCollapsedTransform: CATransform3D {
+        CATransform3DMakeScale(0.18, 0.04, 1)
+    }
+
+    private func updateLayerAnchorPoint(_ layer: CALayer, anchorPoint: CGPoint) {
+        guard layer.anchorPoint != anchorPoint else {
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let oldOrigin = layer.frame.origin
+        layer.anchorPoint = anchorPoint
+        let newOrigin = layer.frame.origin
+        layer.position = CGPoint(
+            x: layer.position.x - newOrigin.x + oldOrigin.x,
+            y: layer.position.y - newOrigin.y + oldOrigin.y
+        )
+        CATransaction.commit()
+    }
+
+    private func resetContentBloomLayer(_ panel: NSPanel?) {
+        guard let contentView = panel?.contentView,
+              let layer = contentView.layer else {
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        contentView.alphaValue = 1
+        layer.transform = CATransform3DIdentity
+        updateLayerAnchorPoint(layer, anchorPoint: CGPoint(x: 0.5, y: 0.5))
+        CATransaction.commit()
     }
 
     func close() {
@@ -170,6 +225,7 @@ final class HistoryPreviewWindowController {
 
     func close(allowDetached: Bool) {
         let parentWindow = parentWindow
+        let bloomAnchorX = contentConfiguration?.arrowX
         removeOutsideClickMonitor()
         removeEscapeKeyMonitor()
         contentLoadTask?.cancel()
@@ -184,14 +240,17 @@ final class HistoryPreviewWindowController {
             return
         }
 
-        panel.contentView = NSView()
+        let anchorX = bloomAnchorX ?? panel.frame.width / 2
+        prepareContentBloomLayer(panel, anchorX: anchorX, isOpening: false)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.10
+            context.duration = bloomCloseDuration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
-            panel.animator().alphaValue = 0
+            panel.contentView?.animator().alphaValue = 0
+            panel.contentView?.layer?.transform = previewBloomCollapsedTransform
         } completionHandler: { [weak panel] in
+            panel?.contentView = NSView()
             panel?.orderOut(nil)
-            panel?.alphaValue = 1
+            panel?.contentView?.alphaValue = 1
         }
     }
 

@@ -80,12 +80,14 @@ def main() -> None:
 
     require("private let deferredContentLoadDelay: UInt64 = 50_000_000" in controller,
             "preview content should keep a small deferred heavy-content delay")
-    require("let shouldLoadImmediately = item.type == .text || item.type == .color" in show,
-            "image/link/file previews must not load heavy content before open animation starts")
+    require("let shouldLoadImmediately = item.type == .text || item.type == .color || item.type == .file" in show,
+            "image/link previews must not load heavy content before open animation starts, while file previews render stable lightweight content immediately")
     require("scheduleContentLoad(" in show and "if !shouldLoadImmediately" in show,
             "heavy preview content must be scheduled after the light shell is visible")
-    require("contentLoadTask?.cancel()" in close and "panel.contentView = NSView()" in close,
-            "closing preview must cancel pending loads and unload heavy content before close animation")
+    require("contentLoadTask?.cancel()" in close
+            and "prepareContentBloomLayer(panel, anchorX: anchorX, isOpening: false)" in close
+            and "panel?.contentView = NSView()" in close,
+            "closing preview must cancel pending loads, play the anchored close animation, and unload heavy content after the animation")
     require("try? await Task.sleep(nanoseconds: delay)" in schedule_content
             and "guard !Task.isCancelled, panel.isVisible else" in schedule_content,
             "deferred preview content load must be cancellable")
