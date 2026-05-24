@@ -57,10 +57,11 @@ required = [
     "let isSelected = selectedItemID == item.id",
     "@State private var isHovered = false",
     "@State private var isPressed = false",
-    ".fill(Color.white.opacity(isPressed ? 0.16 : (isHovered ? 0.08 : 0)))",
-    ".scaleEffect(isPressed ? 0.996 : (isHovered ? 1.004 : 1))",
-    ".animation(.easeOut(duration: 0.12), value: isHovered)",
-    ".animation(.easeOut(duration: 0.08), value: isPressed)",
+    ".fill(Color.white.opacity(isPressed ? 0.24 : (isHovered ? 0.14 : 0)))",
+    ".strokeBorder(Color.white.opacity(isPressed ? 0.46 : (isHovered ? 0.28 : 0)), lineWidth: isPressed ? 2 : 1)",
+    ".scaleEffect(isPressed ? 0.985 : (isHovered ? 1.012 : 1))",
+    ".animation(.easeOut(duration: 0.10), value: isHovered)",
+    ".animation(.easeOut(duration: 0.06), value: isPressed)",
     "onHoverChanged",
     "onPressChanged",
     "override func updateTrackingAreas()",
@@ -157,6 +158,8 @@ required = [
     "HistoryScrollCoordinator.shared.forceLayout()",
     "if previewWindowController.isAttachedVisible",
     "fulfillPendingLatestFocusIfPossible()",
+    "guard selectedIndex > 0 else { return }",
+    "guard selectedIndex < filteredItems.count - 1 else { return }",
 ]
 
 forbidden = [

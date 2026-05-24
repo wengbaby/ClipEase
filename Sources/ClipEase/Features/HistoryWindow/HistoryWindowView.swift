@@ -2406,9 +2406,11 @@ struct HistoryWindowView: View {
         let nextID: HistoryPreviewItem.ID
         switch direction {
         case .left:
-            nextID = filteredItems[max(selectedIndex - 1, 0)].id
+            guard selectedIndex > 0 else { return }
+            nextID = filteredItems[selectedIndex - 1].id
         case .right:
-            nextID = filteredItems[min(selectedIndex + 1, filteredItems.count - 1)].id
+            guard selectedIndex < filteredItems.count - 1 else { return }
+            nextID = filteredItems[selectedIndex + 1].id
         default:
             return
         }

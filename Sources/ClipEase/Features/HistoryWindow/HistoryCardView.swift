@@ -79,13 +79,18 @@ struct HistoryCardView: View, Equatable {
         }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(isPressed ? 0.16 : (isHovered ? 0.08 : 0)))
+                .fill(Color.white.opacity(isPressed ? 0.24 : (isHovered ? 0.14 : 0)))
+                .allowsHitTesting(false)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.white.opacity(isPressed ? 0.46 : (isHovered ? 0.28 : 0)), lineWidth: isPressed ? 2 : 1)
                 .allowsHitTesting(false)
         }
         .offset(y: entranceOffset)
-        .scaleEffect(isPressed ? 0.996 : (isHovered ? 1.004 : 1))
-        .animation(.easeOut(duration: 0.12), value: isHovered)
-        .animation(.easeOut(duration: 0.08), value: isPressed)
+        .scaleEffect(isPressed ? 0.985 : (isHovered ? 1.012 : 1))
+        .animation(.easeOut(duration: 0.10), value: isHovered)
+        .animation(.easeOut(duration: 0.06), value: isPressed)
         .overlay(
             CardDragSourceView(
                 item: item,
