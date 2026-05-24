@@ -24,8 +24,9 @@ final class HistoryPreviewWindowController {
     // Keeps tiny or 1px-edge images operable without returning to the old 220pt fixed image window.
     private let imagePreviewMinimumContentSize = CGSize(width: 180, height: 140)
     private let deferredContentLoadDelay: UInt64 = 50_000_000
-    private let bloomOpenDuration: TimeInterval = 0.34
-    private let bloomCloseDuration: TimeInterval = 0.22
+    private let bloomOpenDuration: TimeInterval = 0.28
+    private let bloomCloseDuration: TimeInterval = 0.18
+    private let previewLiftOffset: CGFloat = 12
 
     var frame: CGRect? {
         panel?.frame
@@ -185,7 +186,9 @@ final class HistoryPreviewWindowController {
     }
 
     private var previewBloomCollapsedTransform: CATransform3D {
-        CATransform3DMakeScale(0.12, 0.04, 1)
+        var transform = CATransform3DMakeTranslation(0, -previewLiftOffset, 0)
+        transform = CATransform3DScale(transform, 0.94, 0.90, 1)
+        return transform
     }
 
     private func updateLayerAnchorPoint(_ layer: CALayer, anchorPoint: CGPoint) {

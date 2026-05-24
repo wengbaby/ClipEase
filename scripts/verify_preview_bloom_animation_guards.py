@@ -6,8 +6,9 @@ controller = (root / "Sources/ClipEase/Features/HistoryWindow/HistoryPreviewWind
 
 required = [
     "import QuartzCore",
-    "private let bloomOpenDuration: TimeInterval = 0.34",
-    "private let bloomCloseDuration: TimeInterval = 0.22",
+    "private let bloomOpenDuration: TimeInterval = 0.28",
+    "private let bloomCloseDuration: TimeInterval = 0.18",
+    "private let previewLiftOffset: CGFloat = 12",
     "prepareContentBloomLayer(panel, anchorX: arrowX, isOpening: true)",
     "private func animatePanelOpen(_ panel: NSPanel)",
     "panel.contentView?.animator().alphaValue = 1",
@@ -16,7 +17,8 @@ required = [
     "let normalizedAnchorX = min(max(anchorX / width, 0.08), 0.92)",
     "updateLayerAnchorPoint(layer, anchorPoint: CGPoint(x: normalizedAnchorX, y: 0))",
     "contentView.alphaValue = isOpening ? 0 : 1",
-    "CATransform3DMakeScale(0.12, 0.04, 1)",
+    "CATransform3DMakeTranslation(0, -previewLiftOffset, 0)",
+    "CATransform3DScale(transform, 0.94, 0.90, 1)",
     "let bloomAnchorX = contentConfiguration?.arrowX",
     "prepareContentBloomLayer(panel, anchorX: anchorX, isOpening: false)",
     "panel.contentView?.animator().alphaValue = 0",
@@ -30,6 +32,8 @@ forbidden = [
     "panel.animator().setFrame(targetFrame",
     "panel.contentView = NSView()\n        NSAnimationContext.runAnimationGroup",
     "layer.opacity = isOpening ? 0 : 1",
+    "CATransform3DMakeScale(0.12, 0.04, 1)",
+    "CATransform3DMakeScale(0.18, 0.04, 1)",
 ]
 
 missing = [snippet for snippet in required if snippet not in controller]

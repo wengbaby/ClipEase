@@ -2,14 +2,14 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前收口包为 `2.3.29(260523.1845)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前收口包为 `2.3.53(260524.1651)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布候选冻结。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序；当前也已移除主窗口更多菜单中的“开发测试”入口，并完成帮助文案与设置页保存期限选中态 polish。冻结后不再新增 V2 功能，只接受阻塞 bug、崩溃和发布包风险修复。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.3.29(260523.1845)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.3.53(260524.1651)`
 - `python3 scripts/benchmark_history_search_performance.py`：PASS，1k / 10k 混合历史样本、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造均在阈值内
 - `python3 scripts/verify_help_and_retention_polish.py`：PASS，帮助文案保持简洁，设置页保存期限选中态为统一蓝色背景
 - `python3 scripts/verify_no_visible_debug_menu.py`：PASS，主窗口更多菜单不再暴露“开发测试”，设置页隐藏性能测试数据入口保留
@@ -24,7 +24,7 @@
 - `./scripts/build-dmg.sh`：PASS，已生成 `dist/ClipEase-2.3.2-260523.0437.dmg`，SHA-256 `e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - DMG 挂载结构验收：PASS，根目录包含 `ClipEase.app` 和 `Applications` 快捷入口，`ClipEase.app` 版本为 `2.3.2 (260523.0437)`，可执行文件存在且有执行权限
 - DMG 内 App 启动验收：PASS，从只读挂载卷启动 `ClipEase.app --show-settings`，进程正常存活，System Events 可见进程 `ClipEase` 和 1 个设置窗口；验收后已关闭 release App、卸载 DMG，并恢复开发包运行
-- `scripts/build-app.sh --bump none --run`：通过；当前运行包为 `2.3.29 (260523.1845)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `26639`
+- `scripts/build-app.sh --bump patch --run`：通过；当前运行包为 `2.3.53 (260524.1651)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `14663`
 - GitHub 推送：PASS，`origin/main` 已推送到 `717e760`
 - GitHub Tag：PASS，`v2.3.2-260523.0437` 已推送
 - GitHub Release：PASS，已创建 `https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`，并上传 `ClipEase-2.3.2-260523.0437.dmg`
@@ -49,10 +49,10 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.3.30`
-- 当前构建号：`260523.1925`
-- 当前 build/run：`2.3.30 (260523.1925)`
-- 当前运行进程：PID `56460`
+- 当前候选版本：`2.3.53`
+- 当前构建号：`260524.1651`
+- 当前 build/run：`2.3.53 (260524.1651)`
+- 当前运行进程：PID `14663`
 - 当前 DMG：`dist/ClipEase-2.3.2-260523.0437.dmg`
 - 当前 DMG SHA-256：`e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - 当前 GitHub Release：`https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`
@@ -62,6 +62,7 @@
 
 ## RC 修复记录
 
+- `2.3.53(260524.1651)`：根据用户要求继续观察 Paste.app 的预览展开方式，并将轻贴当前点状绽开改为更接近 Paste 的独立预览浮层抬起。补充黑盒观察记录到 `docs/PASTE_APP_PERFORMANCE_RESEARCH.md`：Paste 的预览更像由 `ItemPreviewWindowManager` 管理的独立弹层，容器先稳定出现，内容在内部填充，不让历史卡片自身变形。本轮保留轻贴现有 attached preview panel 和 content layer 动画路径，只把初始 transform 从 `scaleX 0.12 / scaleY 0.04` 改为 `translateY -12pt + scaleX 0.94 / scaleY 0.90`，打开动画 `0.28s`，关闭动画 `0.18s`，继续只动画 contentView layer 和 alpha，不动画 panel frame。更新 `scripts/verify_preview_bloom_animation_guards.py`，禁止回退到 `0.12/0.04` 或 `0.18/0.04` 点状展开。验证：新增守卫先在旧实现下失败，修复后通过；预览性能和文件预览闪烁守卫通过；全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`python3 scripts/smoke_check.py` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --bump patch --run` 通过。最终运行包 `2.3.53 (260524.1651)`，PID `14663`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_16-52-19.jsonl` 显示 `history.store.loadStartupPage` 约 `5.45ms`、`history.store.initialize` 约 `5.98ms`、`preview.rebuild.background` 约 `1.81ms`、`search.applyResults` 约 `0.009ms`，稳定后主线程 latency 约 `0.02ms - 0.08ms`。
 - `2.3.52(260524.1625)`：根据用户反馈“动画应该再慢一点，感觉看不出来效果”，调整预览窗口顶部中心绽开动画节奏。打开动画从 `0.22s` 放慢到 `0.34s`，关闭收回动画从 `0.16s` 放慢到 `0.22s`；初始横向缩放从 `0.18` 收窄到 `0.12`，纵向仍保持 `0.04`，让从卡片顶部中心向外绽开的幅度更明显。该调整只改变 attached 预览窗口的动画参数，不改变内容加载、文件预览稳定性、拖拽脱离或 detached 预览。更新 `scripts/verify_preview_bloom_animation_guards.py` 防止参数回退。验证：预览绽开和预览性能守卫通过，全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --bump patch --run` 通过。最终运行包 `2.3.52 (260524.1625)`，PID `92707`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_16-26-21.jsonl` 显示 `history.store.loadStartupPage` 约 `6.74ms`、`history.store.initialize` 约 `7.25ms`、`search.applyResults` 约 `0.007ms`，稳定后主线程 latency 约 `0.02ms - 0.07ms`，另有一次 `0.63ms` interval sample。
 - `2.3.51(260524.1610)`：根据用户选择的临时 HTML 预览方案 1，优化预览窗口打开 / 关闭动效为“从卡片顶部中心绽开 / 收回”。本轮不再用整窗 `alphaValue` 和 frame 上移动画，而是让 attached preview panel 的最终 frame 先到位，只对 `contentView` 的 Core Animation layer 做锚点缩放和淡入：打开前将 layer anchorPoint 设置到箭头 / 卡片顶部对应的底部锚点，初始 `CATransform3DMakeScale(0.18, 0.04, 1)`，再恢复到 identity；关闭时用同一个锚点反向收回，动画结束后再卸载 contentView，避免提前清空内容。该方案不改变文件 / 图片 / 链接加载策略，不触发 SwiftUI 预览内容重建，也不影响拖拽脱离和 detached 预览。新增 `scripts/verify_preview_bloom_animation_guards.py`，并更新 `verify_preview_window_performance_guards.py` 以守卫关闭动画结束后卸载内容。验证：预览绽开、预览性能、卡片点击和主窗口动画专项守卫通过；全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --bump patch --run` 通过。最终运行包 `2.3.51 (260524.1610)`，PID `80073`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_16-11-57.jsonl` 显示 `history.store.loadStartupPage` 约 `11.45ms`、`history.store.initialize` 约 `11.99ms`、`search.applyResults` 约 `0.009ms`，稳定后主线程 latency 约 `0.02ms - 0.05ms`。
 - `2.3.50(260524.1530)`：修复文件卡片打开预览窗口时内容区闪几下的问题。根因是文件预览本身已经能首帧显示轻量内容和文件列表，但控制器仍把 `.file` 当成延迟 heavy content，先渲染 shell 再切 ready；同时 `previewContentTransitionID` 对所有类型都包含 `selectedFileReferenceID` 和 `isContentReady`，文件预览打开时默认选中文件和 shell -> ready 会触发整个内容区多次 `.id(...)` 重建和 opacity / scale transition。本轮将文件卡片纳入 `shouldLoadImmediately`，首帧直接稳定渲染；并让 `.file` 的内容 transition identity 只依赖 `item.id + item.type`，不再随默认选中文件或 ready 状态重建整个内容区。新增 `scripts/verify_file_preview_flicker_guards.py` 防止回归。验证：新增守卫先在旧逻辑下失败，修复后通过；全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --bump patch --run` 通过。最终运行包 `2.3.50 (260524.1530)`，PID `29584`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_15-31-55.jsonl` 显示 `history.store.loadStartupPage` 约 `5.90ms`、`history.store.initialize` 约 `6.35ms`、`search.applyResults` 约 `0.007ms`。
