@@ -3354,7 +3354,9 @@ struct HistoryWindowView: View {
             selectedItemID = item.id
         }
 
-        revealPartiallyVisibleCardIfNeeded(item.id)
+        if !revealPartiallyVisibleCardIfNeeded(item.id) {
+            scrollToItemWhenRendered(item.id, animated: true)
+        }
         PerformanceDiagnosticsService.shared.record(
             "card.click",
             category: "interaction",
@@ -3376,7 +3378,9 @@ struct HistoryWindowView: View {
             selectedItemID = item.id
         }
 
-        revealPartiallyVisibleCardIfNeeded(item.id)
+        if !revealPartiallyVisibleCardIfNeeded(item.id) {
+            scrollToItemWhenRendered(item.id, animated: true)
+        }
         PerformanceDiagnosticsService.shared.record(
             "card.contextMenuSelect",
             category: "interaction",
@@ -3396,16 +3400,24 @@ struct HistoryWindowView: View {
         hostWindow?.makeFirstResponder(nil)
     }
 
-    private func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID) {
+    @discardableResult
+    private func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID) -> Bool {
         revealPartiallyVisibleCardIfNeeded(id, animated: true)
     }
 
-    private func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID, animated: Bool) {
+    @discardableResult
+    private func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID, animated: Bool) -> Bool {
+        if let frame = cardDocumentFrame(for: id),
+           isFrameFullyVisible(frame) {
+            return true
+        }
+
         guard let targetOffset = partialRevealTargetOffset(for: id) else {
-            return
+            return false
         }
 
         HistoryScrollCoordinator.shared.scrollToOffset(targetOffset, animated: animated)
+        return true
     }
 
     private func partialRevealTargetOffset(for id: ClipboardItem.ID) -> CGFloat? {

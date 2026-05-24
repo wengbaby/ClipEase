@@ -426,14 +426,15 @@ final class HistoryPreviewWindowController {
         contentConfiguration = nil
         isContentReady = false
         parentWindow = nil
-        return { [weak self, weak panel] initialMouseDownEvent, _ in
+        return { [weak self, weak panel] initialMouseDownEvent, firstDragEvent in
             guard let panel else {
                 return
             }
-            if let dragPanel = panel as? HistoryPreviewPanel,
-               dragPanel.isVisible {
-                dragPanel.performDrag(with: initialMouseDownEvent)
-            }
+            self?.dragPanelManually(
+                panel,
+                initialMouseDownEvent: initialMouseDownEvent,
+                firstDragEvent: firstDragEvent
+            )
             self?.completeInitialDetachedPreviewDrag(panel: panel, configuration: configuration)
         }
     }
@@ -461,14 +462,55 @@ final class HistoryPreviewWindowController {
     }
 
     private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion {
-        { [weak panel] initialMouseDownEvent, _ in
+        { [weak self, weak panel] initialMouseDownEvent, firstDragEvent in
             guard let panel = panel as? HistoryPreviewPanel,
                   panel.isVisible else {
                 return
             }
 
-            panel.makeKeyAndOrderFront(nil)
-            panel.performDrag(with: initialMouseDownEvent)
+            self?.dragPanelManually(
+                panel,
+                initialMouseDownEvent: initialMouseDownEvent,
+                firstDragEvent: firstDragEvent
+            )
+        }
+    }
+
+    private func dragPanelManually(
+        _ panel: NSPanel,
+        initialMouseDownEvent: NSEvent,
+        firstDragEvent: NSEvent
+    ) {
+        let initialMouseScreenPoint = panel.convertPoint(toScreen: initialMouseDownEvent.locationInWindow)
+        let initialFrameOrigin = panel.frame.origin
+
+        func movePanelToCurrentMouse() {
+            let currentMousePoint = NSEvent.mouseLocation
+            let nextOrigin = NSPoint(
+                x: initialFrameOrigin.x + currentMousePoint.x - initialMouseScreenPoint.x,
+                y: initialFrameOrigin.y + currentMousePoint.y - initialMouseScreenPoint.y
+            )
+            panel.setFrameOrigin(nextOrigin)
+        }
+
+        movePanelToCurrentMouse()
+        while true {
+            guard let event = NSApp.nextEvent(
+                matching: [.leftMouseDragged, .leftMouseUp],
+                until: .distantFuture,
+                inMode: .eventTracking,
+                dequeue: true
+            ) else {
+                continue
+            }
+
+            if event.type == .leftMouseUp {
+                break
+            }
+
+            if event.type == .leftMouseDragged {
+                movePanelToCurrentMouse()
+            }
         }
     }
 

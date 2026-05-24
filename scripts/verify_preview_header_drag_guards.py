@@ -15,12 +15,13 @@ def main() -> None:
         "typealias PreviewHeaderDragCompletion = (_ initialMouseDownEvent: NSEvent, _ dragEvent: NSEvent) -> Void",
         "let onDetachDrag: () -> PreviewHeaderDragCompletion?",
         "dragCompletion?(initialMouseDownEvent, event)",
-        "dragPanel.performDrag(with: initialMouseDownEvent)",
+        "private func dragPanelManually(",
         "private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion",
     ]
     forbidden = [
         "let dragWindow = window\n        let dragCompletion = onDragStarted()\n        dragWindow?.performDrag(with: initialMouseDownEvent)",
         "dragWindow?.performDrag(with: initialMouseDownEvent)",
+        "performDrag(with:",
         "dragCompletion?()",
         "onDetachDrag: { nil }",
     ]

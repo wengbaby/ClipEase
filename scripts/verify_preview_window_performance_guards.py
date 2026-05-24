@@ -141,10 +141,18 @@ def main() -> None:
             "detaching must stop attached-popover monitors before drag but close history only after drag")
     require("typealias PreviewHeaderDragCompletion = (_ initialMouseDownEvent: NSEvent, _ dragEvent: NSEvent) -> Void" in popover
             and "private func detachCurrentPreview() -> PreviewHeaderDragCompletion?" in controller
-            and "return { [weak self, weak panel] initialMouseDownEvent, _ in" in detach_current
-            and "dragPanel.performDrag(with: initialMouseDownEvent)" in detach_current
+            and "return { [weak self, weak panel] initialMouseDownEvent, firstDragEvent in" in detach_current
+            and "self?.dragPanelManually(" in detach_current
             and "self?.completeInitialDetachedPreviewDrag(panel: panel, configuration: configuration)" in detach_current,
             "detaching must start the first system window drag before detached-state side effects")
+    require("private func dragPanelManually(" in controller
+            and "panel.convertPoint(toScreen: initialMouseDownEvent.locationInWindow)" in controller
+            and "NSEvent.mouseLocation" in controller
+            and "panel.setFrameOrigin(nextOrigin)" in controller
+            and "NSApp.nextEvent(" in controller
+            and ".eventTracking" in controller
+            and "performDrag(with:" not in controller,
+            "preview detach drag must manually follow the held mouse instead of using AppKit performDrag")
     require("configureDetachedPanel(panel)" not in detach_current
             and "NSApp.activate(ignoringOtherApps: true)" not in detach_current
             and "panel.makeKeyAndOrderFront(nil)" not in detach_current

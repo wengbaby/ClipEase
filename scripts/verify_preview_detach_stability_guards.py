@@ -12,7 +12,9 @@ required = [
     "showsArrow: false",
     "private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion",
     "return self.dragDetachedPreview(panel)",
-    "dragPanel.performDrag(with: initialMouseDownEvent)",
+    "private func dragPanelManually(",
+    "panel.setFrameOrigin(nextOrigin)",
+    "NSApp.nextEvent(",
 ]
 
 missing = [snippet for snippet in required if snippet not in source]
@@ -42,6 +44,7 @@ for forbidden in [
     "panel.makeKeyAndOrderFront(nil)",
     "configuration.onDetach()",
     "self.panel = nil",
+    "performDrag(with:",
 ]:
     if forbidden in detach_body:
         raise SystemExit(f"Detached preview must not run side effect before first system drag: {forbidden}")
