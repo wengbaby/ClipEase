@@ -710,7 +710,8 @@ struct HistoryWindowView: View {
             },
             onPressChanged: { isPressed in
                 setCardPress(item.id, isPressed: isPressed)
-            }
+            },
+            onMouseExitedWindow: closeWindowForCardDrag
         )
         .equatable()
         .overlay {
@@ -5849,6 +5850,12 @@ struct HistoryWindowView: View {
     }
 
     private func closeWindowFromShortcut() {
+        closePreview()
+        cancelPendingGroupRename()
+        onClose()
+    }
+
+    private func closeWindowForCardDrag() {
         closePreview()
         cancelPendingGroupRename()
         onClose()
