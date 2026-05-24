@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 @preconcurrency import VisionKit
 
-typealias PreviewHeaderDragCompletion = (NSEvent) -> Void
+typealias PreviewHeaderDragCompletion = (_ initialMouseDownEvent: NSEvent, _ dragEvent: NSEvent) -> Void
 
 struct HistoryPreviewPopoverView: View {
     let item: ClipboardItem
@@ -836,6 +836,7 @@ private final class HeaderDragView: NSView {
     var onDragStarted: () -> PreviewHeaderDragCompletion? = { nil }
     private let dragActivationDistance: CGFloat = 4
     private var initialMouseDownLocation: CGPoint?
+    private var initialMouseDownEvent: NSEvent?
     private var didStartWindowDrag = false
 
     override var acceptsFirstResponder: Bool {
@@ -857,12 +858,14 @@ private final class HeaderDragView: NSView {
         }
 
         initialMouseDownLocation = event.locationInWindow
+        initialMouseDownEvent = event
         didStartWindowDrag = false
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard !didStartWindowDrag,
-              let initialMouseDownLocation else {
+              let initialMouseDownLocation,
+              let initialMouseDownEvent else {
             return
         }
 
@@ -874,11 +877,12 @@ private final class HeaderDragView: NSView {
 
         didStartWindowDrag = true
         let dragCompletion = onDragStarted()
-        dragCompletion?(event)
+        dragCompletion?(initialMouseDownEvent, event)
     }
 
     override func mouseUp(with event: NSEvent) {
         initialMouseDownLocation = nil
+        initialMouseDownEvent = nil
         didStartWindowDrag = false
     }
 }

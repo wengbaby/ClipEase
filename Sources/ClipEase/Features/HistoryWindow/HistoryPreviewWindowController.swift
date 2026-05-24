@@ -428,8 +428,6 @@ final class HistoryPreviewWindowController {
         self.panel = nil
         parentWindow = nil
         configureDetachedPanel(panel)
-        let detachedFrame = detachedFrame(for: configuration.size, keepingTopEdgeFrom: panel.frame)
-        panel.setFrame(detachedFrame, display: true, animate: false)
         let panelID = ObjectIdentifier(panel)
         detachedPanels[panelID] = panel
         installDetachedEscapeKeyMonitorIfNeeded()
@@ -442,15 +440,27 @@ final class HistoryPreviewWindowController {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         configuration.onDetach()
-        return { [weak self, weak panel] event in
+        return { [weak self, weak panel] initialMouseDownEvent, dragEvent in
             guard let panel else {
                 return
             }
             if let dragPanel = panel as? HistoryPreviewPanel,
                dragPanel.isVisible {
-                dragPanel.performDrag(with: event)
+                dragPanel.performDrag(with: initialMouseDownEvent)
             }
             self?.finishDetachedPreviewDrag(panel: panel, configuration: configuration)
+        }
+    }
+
+    private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion {
+        { [weak panel] initialMouseDownEvent, _ in
+            guard let panel = panel as? HistoryPreviewPanel,
+                  panel.isVisible else {
+                return
+            }
+
+            panel.makeKeyAndOrderFront(nil)
+            panel.performDrag(with: initialMouseDownEvent)
         }
     }
 
@@ -482,7 +492,15 @@ final class HistoryPreviewWindowController {
                     }
                     self?.closeDetachedPreview(panel)
                 },
-                onDetachDrag: { nil }
+                onDetachDrag: { [weak self, weak panel] in
+                    guard let self,
+                          let panel,
+                          self.detachedPanels[panelID] === panel else {
+                        return nil
+                    }
+
+                    return self.dragDetachedPreview(panel)
+                }
             )
         }
     }

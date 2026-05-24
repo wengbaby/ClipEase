@@ -12,15 +12,17 @@ def main() -> None:
     window_controller = WINDOW_CONTROLLER.read_text(encoding="utf-8")
 
     required = [
-        "typealias PreviewHeaderDragCompletion = (NSEvent) -> Void",
+        "typealias PreviewHeaderDragCompletion = (_ initialMouseDownEvent: NSEvent, _ dragEvent: NSEvent) -> Void",
         "let onDetachDrag: () -> PreviewHeaderDragCompletion?",
-        "dragCompletion?(event)",
-        "dragPanel.performDrag(with: event)",
+        "dragCompletion?(initialMouseDownEvent, event)",
+        "dragPanel.performDrag(with: initialMouseDownEvent)",
+        "private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion",
     ]
     forbidden = [
         "let dragWindow = window\n        let dragCompletion = onDragStarted()\n        dragWindow?.performDrag(with: initialMouseDownEvent)",
         "dragWindow?.performDrag(with: initialMouseDownEvent)",
         "dragCompletion?()",
+        "onDetachDrag: { nil }",
     ]
 
     failures: list[str] = []

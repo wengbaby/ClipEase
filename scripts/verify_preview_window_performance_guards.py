@@ -137,12 +137,19 @@ def main() -> None:
             and "removeEscapeKeyMonitor()" in detach_current
             and "configuration.onDetach()" in detach_current,
             "detaching must stop attached-popover monitors and clear history preview state")
-    require("typealias PreviewHeaderDragCompletion = (NSEvent) -> Void" in popover
+    require("typealias PreviewHeaderDragCompletion = (_ initialMouseDownEvent: NSEvent, _ dragEvent: NSEvent) -> Void" in popover
             and "private func detachCurrentPreview() -> PreviewHeaderDragCompletion?" in controller
-            and "return { [weak self, weak panel] event in" in detach_current
-            and "dragPanel.performDrag(with: event)" in detach_current
+            and "return { [weak self, weak panel] initialMouseDownEvent, dragEvent in" in detach_current
+            and "dragPanel.performDrag(with: initialMouseDownEvent)" in detach_current
             and "self?.finishDetachedPreviewDrag(panel: panel, configuration: configuration)" in detach_current,
-            "detaching must return a current-drag-event completion instead of rebuilding content during the first drag")
+            "detaching must start the first system window drag from the original mouse-down event")
+    require("private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion" in controller
+            and "return self.dragDetachedPreview(panel)" in finish_detached_drag
+            and "onDetachDrag: { nil }" not in finish_detached_drag,
+            "detached previews must keep a reusable title-bar drag handler after the first detach")
+    require("setFrame(detachedFrame" not in detach_current
+            and "detachedFrame(for: configuration.size, keepingTopEdgeFrom: panel.frame)" not in detach_current,
+            "detaching must not move or shrink the window before the first system drag starts")
     require("renderPreviewContent(" not in detach_current
             and "renderPreviewContent(" in finish_detached_drag
             and "showsArrow: false" in finish_detached_drag,
@@ -166,7 +173,7 @@ def main() -> None:
             and "override func acceptsFirstMouse(for event: NSEvent?) -> Bool {\n        true\n    }" in popover
             and "override func mouseDragged(with event: NSEvent)" in popover
             and "let dragCompletion = onDragStarted()" in popover
-            and "dragCompletion?(event)" in popover
+            and "dragCompletion?(initialMouseDownEvent, event)" in popover
             and "minHeight: 22, maxHeight: 22" in header_body
             and header_body.count(".padding(.vertical, 10)") == 1
             and ".allowsHitTesting(false)" in popover,
