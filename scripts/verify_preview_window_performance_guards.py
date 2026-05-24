@@ -85,9 +85,10 @@ def main() -> None:
     require("scheduleContentLoad(" in show and "if !shouldLoadImmediately" in show,
             "heavy preview content must be scheduled after the light shell is visible")
     require("contentLoadTask?.cancel()" in close
-            and "prepareContentBloomLayer(panel, anchorX: anchorX, isOpening: false)" in close
+            and "panel.contentView?.animator().alphaValue = 0" in close
+            and "panel.contentView?.layer?.opacity = 0" in close
             and "panel?.contentView = NSView()" in close,
-            "closing preview must cancel pending loads, play the anchored close animation, and unload heavy content after the animation")
+            "closing preview must cancel pending loads, fade without shrinking into a top dot, and unload heavy content after the animation")
     require("try? await Task.sleep(nanoseconds: delay)" in schedule_content
             and "guard !Task.isCancelled, panel.isVisible else" in schedule_content,
             "deferred preview content load must be cancellable")

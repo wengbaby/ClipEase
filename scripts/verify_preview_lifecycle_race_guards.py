@@ -51,6 +51,8 @@ animation_start = close_body.index("NSAnimationContext.runAnimationGroup")
 animation_body = close_body[animation_start:completion_start]
 if "panel.contentView?.layer?.opacity = 0" not in animation_body:
     raise SystemExit("Attached close animation must fade the content layer itself so collapsed SwiftUI content cannot remain visible.")
+if "previewBloomCollapsedTransform" in close_body or "prepareContentBloomLayer(panel, anchorX: anchorX, isOpening: false)" in close_body:
+    raise SystemExit("Attached close must not shrink content back into a tiny top dot.")
 
 finish_start = source.index("    private func finishDetachedPreviewDrag")
 finish_end = source.index("    private func closeDetachedPreview", finish_start)

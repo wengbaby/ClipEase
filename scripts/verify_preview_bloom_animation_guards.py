@@ -19,11 +19,8 @@ required = [
     "contentView.alphaValue = isOpening ? 0 : 1",
     "layer.opacity = isOpening ? 0 : 1",
     "CATransform3DMakeScale(0.12, 0.04, 1)",
-    "let bloomAnchorX = contentConfiguration?.arrowX",
-    "prepareContentBloomLayer(panel, anchorX: anchorX, isOpening: false)",
     "panel.contentView?.animator().alphaValue = 0",
     "panel.contentView?.layer?.opacity = 0",
-    "panel.contentView?.layer?.transform = previewBloomCollapsedTransform",
     "panel?.contentView = NSView()",
 ]
 
@@ -39,16 +36,30 @@ forbidden = [
     "CATransform3DScale(transform, 0.94, 0.90, 1)",
 ]
 
+close_start = controller.index("    func close(allowDetached: Bool)")
+close_end = controller.index("    func move(anchorScreenPoint:", close_start)
+close_body = controller[close_start:close_end]
+
+close_forbidden = [
+    "let bloomAnchorX = contentConfiguration?.arrowX",
+    "prepareContentBloomLayer(panel, anchorX: anchorX, isOpening: false)",
+    "previewBloomCollapsedTransform",
+]
+
 missing = [snippet for snippet in required if snippet not in controller]
 present_forbidden = [snippet for snippet in forbidden if snippet in controller]
+present_close_forbidden = [snippet for snippet in close_forbidden if snippet in close_body]
 
-if missing or present_forbidden:
+if missing or present_forbidden or present_close_forbidden:
     if missing:
         print("Missing preview bloom animation guard(s):")
         print("\n".join(missing))
     if present_forbidden:
         print("Forbidden preview animation regression(s):")
         print("\n".join(present_forbidden))
+    if present_close_forbidden:
+        print("Forbidden preview close shrink-to-dot regression(s):")
+        print("\n".join(present_close_forbidden))
     raise SystemExit(1)
 
 print("OK preview bloom animation guards present")

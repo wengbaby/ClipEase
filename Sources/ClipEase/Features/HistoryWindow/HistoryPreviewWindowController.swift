@@ -238,7 +238,6 @@ final class HistoryPreviewWindowController {
 
     func close(allowDetached: Bool) {
         let parentWindow = parentWindow
-        let bloomAnchorX = contentConfiguration?.arrowX
         removeOutsideClickMonitor()
         removeEscapeKeyMonitor()
         contentLoadTask?.cancel()
@@ -257,14 +256,12 @@ final class HistoryPreviewWindowController {
         attachedAnimationGeneration &+= 1
         let animationGeneration = attachedAnimationGeneration
         isAttachedClosing = true
-        let anchorX = bloomAnchorX ?? panel.frame.width / 2
-        prepareContentBloomLayer(panel, anchorX: anchorX, isOpening: false)
+        resetContentBloomLayer(panel)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = bloomCloseDuration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
             panel.contentView?.animator().alphaValue = 0
             panel.contentView?.layer?.opacity = 0
-            panel.contentView?.layer?.transform = previewBloomCollapsedTransform
         } completionHandler: { [weak self, weak panel] in
             guard self?.attachedAnimationGeneration == animationGeneration else {
                 return
