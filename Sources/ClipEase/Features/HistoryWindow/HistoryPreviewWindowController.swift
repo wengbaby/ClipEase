@@ -90,7 +90,7 @@ final class HistoryPreviewWindowController {
         self.panel = panel
         self.parentWindow = parentWindow
         contentLoadTask?.cancel()
-        let shouldLoadImmediately = item.type == .text || item.type == .color
+        let shouldLoadImmediately = item.type == .text || item.type == .color || item.type == .file
         isContentReady = shouldLoadImmediately
         contentConfiguration = PreviewContentConfiguration(
             item: item,

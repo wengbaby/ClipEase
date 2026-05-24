@@ -310,7 +310,14 @@ struct HistoryPreviewPopoverView: View {
     }
 
     private var previewContentTransitionID: String {
-        [
+        if item.type == .file {
+            return [
+                item.id.uuidString,
+                item.type.rawValue
+            ].joined(separator: ":")
+        }
+
+        return [
             item.id.uuidString,
             item.type.rawValue,
             selectedFileReferenceID?.uuidString ?? "none",
