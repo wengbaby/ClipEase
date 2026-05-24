@@ -682,6 +682,7 @@ struct HistoryWindowView: View {
         let isSelected = selectedItemID == item.id
         let isHovered = hoveredCardIDs.contains(item.id)
         let isPressed = pressedCardIDs.contains(item.id)
+        let cardScale: CGFloat = isPressed ? 1.045 : (isHovered ? 1.04 : (isSelected ? 1.025 : 1))
 
         HistoryCardView(
             item: item,
@@ -723,14 +724,14 @@ struct HistoryWindowView: View {
                 .allowsHitTesting(false)
         }
         .shadow(
-            color: .black.opacity(isSelected ? 0.14 : ((isHovered || isPressed) ? 0.16 : 0)),
-            radius: isSelected ? 12 : ((isHovered || isPressed) ? 14 : 0),
+            color: .black.opacity(0),
+            radius: 0,
             x: 0,
-            y: isSelected ? 5 : ((isHovered || isPressed) ? 7 : 0)
+            y: 0
         )
-        .scaleEffect(isPressed ? 0.985 : (isHovered ? 1.012 : 1), anchor: .center)
+        .scaleEffect(cardScale, anchor: .center)
         .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isSelected)
-        .animation(.easeOut(duration: 0.10), value: isHovered)
+        .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
         .id(item.id)
         .contentShape(Rectangle())
@@ -2429,7 +2430,7 @@ struct HistoryWindowView: View {
     private func moveSelection(_ direction: MoveCommandDirection) {
         guard let currentSelectedID = selectedItemID,
               let selectedIndex = filteredItemIndex(for: currentSelectedID) else {
-            self.selectedItemID = filteredItems.first?.id
+            self.selectedItemID = rememberedSelectionFallbackID() ?? filteredItems.first?.id
             if let selectedItemID {
                 scrollToItemWhenRendered(selectedItemID, animated: true)
             }
@@ -2818,6 +2819,7 @@ struct HistoryWindowView: View {
 
     private func rememberSelectedItem(immediate: Bool = false) {
         rememberSelectedItemTask?.cancel()
+        guard inputState.isWindowPresentedSnapshot || immediate else { return }
         if immediate {
             persistSelectedItem()
             return
@@ -2848,6 +2850,15 @@ struct HistoryWindowView: View {
 
     private func rememberedSelectedItemUUID() -> ClipboardItem.ID? {
         UUID(uuidString: rememberedSelectedItemID)
+    }
+
+    private func rememberedSelectionFallbackID() -> HistoryPreviewItem.ID? {
+        guard let rememberedID = rememberedSelectedItemUUID(),
+              containsFilteredItem(rememberedID) else {
+            return nil
+        }
+
+        return rememberedID
     }
 
     private func selectAllGroups() {
@@ -5518,7 +5529,7 @@ struct HistoryWindowView: View {
            containsFilteredItem(preferredID) {
             selectedItemID = preferredID
         } else {
-            selectedItemID = filteredItems.first?.id
+            selectedItemID = rememberedSelectionFallbackID() ?? filteredItems.first?.id
         }
 
         if previewState.isVisible {
@@ -5542,7 +5553,7 @@ struct HistoryWindowView: View {
            store.item(with: preferredID) != nil {
             selectedItemID = preferredID
         } else {
-            selectedItemID = firstItem.id
+            selectedItemID = rememberedSelectionFallbackID() ?? firstItem.id
         }
         rememberSelectedItem()
 

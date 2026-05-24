@@ -1031,6 +1031,28 @@ private final class CardDragPasteboardWriter: NSObject, NSPasteboardWriting {
 }
 
 private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
+    private enum PendingCardDragPayload {
+        case file([NSDraggingItem], fallbackIconName: String)
+        case generic(NSDraggingItem, fallbackIconName: String)
+
+        var draggingItems: [NSDraggingItem] {
+            switch self {
+            case .file(let items, _):
+                items
+            case .generic(let item, _):
+                [item]
+            }
+        }
+
+        var fallbackIconName: String {
+            switch self {
+            case .file(_, let fallbackIconName),
+                 .generic(_, let fallbackIconName):
+                fallbackIconName
+            }
+        }
+    }
+
     var item: HistoryPreviewItem?
     var onClick: (() -> Void)?
     var onDoubleClick: (() -> Void)?
@@ -1045,6 +1067,8 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     private var mouseDownEvent: NSEvent?
     private var trackingArea: NSTrackingArea?
     private var didNotifyMouseExitedWindow = false
+    private var pendingDragPayload: PendingCardDragPayload?
+    private var didSelectForDrag = false
     private let clickMoveTolerance: CGFloat = 5
     private let dragStartDistance: CGFloat = 4
     private let dragPreviewController = CardDragPreviewWindowController()
@@ -1065,8 +1089,9 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
     func removeMonitor() {
         mouseDownEvent = nil
-        onPressChanged?(false)
-        onHoverChanged?(false)
+        pendingDragPayload = nil
+        didSelectForDrag = false
+        resetTransientInteractionState()
         dragPreviewController.finish()
     }
 
@@ -1078,7 +1103,7 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .enabledDuringMouseDrag, .inVisibleRect],
             owner: self
         )
         trackingArea = area
@@ -1089,9 +1114,12 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         onHoverChanged?(true)
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        onHoverChanged?(bounds.contains(convert(event.locationInWindow, from: nil)))
+    }
+
     override func mouseExited(with event: NSEvent) {
-        onHoverChanged?(false)
-        onPressChanged?(false)
+        resetTransientInteractionState()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1101,16 +1129,24 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
     override func mouseDragged(with event: NSEvent) {
         handleDrag(event)
+        updateFloatingDragIfNeeded(event)
+        startNativeDragIfNeeded(event)
     }
 
     override func mouseUp(with event: NSEvent) {
         guard let startingEvent = mouseDownEvent else {
-            onPressChanged?(false)
+            pendingDragPayload = nil
+            didSelectForDrag = false
+            dragPreviewController.finish()
+            resetTransientInteractionState()
             return
         }
 
         mouseDownEvent = nil
-        onPressChanged?(false)
+        pendingDragPayload = nil
+        didSelectForDrag = false
+        dragPreviewController.finish()
+        resetTransientInteractionState()
         let deltaX = event.locationInWindow.x - startingEvent.locationInWindow.x
         let deltaY = event.locationInWindow.y - startingEvent.locationInWindow.y
         guard hypot(deltaX, deltaY) <= clickMoveTolerance else {
@@ -1125,7 +1161,7 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        onPressChanged?(false)
+        resetTransientInteractionState()
         onRightMouseDown?()
         guard let menu = onMenu?() else {
             return
@@ -1139,20 +1175,27 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
               let item,
               isDraggableCard(item),
               draggableText(for: item) != nil,
+              pendingDragPayload == nil,
               shouldStartDrag(from: mouseDownEvent, to: event) else {
             return
         }
 
-        self.mouseDownEvent = nil
         onPressChanged?(false)
-        onClick?()
+        if !didSelectForDrag {
+            didSelectForDrag = true
+            onClick?()
+        }
         didNotifyMouseExitedWindow = false
         if item.type == .file {
-            startFileDrag(with: event)
+            pendingDragPayload = prepareFileDragPayload(with: event)
         } else if item.type == .image {
-            startImageDrag(with: event)
+            pendingDragPayload = prepareImageDragPayload()
         } else {
-            startTextDrag(with: event, text: draggableText(for: item) ?? "")
+            pendingDragPayload = prepareTextDragPayload(text: draggableText(for: item) ?? "")
+        }
+
+        if let payload = pendingDragPayload {
+            startFloatingPreview(with: event, fallbackIconName: payload.fallbackIconName)
         }
     }
 
@@ -1174,9 +1217,10 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        pendingDragPayload = nil
+        didSelectForDrag = false
         dragPreviewController.finish()
-        onPressChanged?(false)
-        onHoverChanged?(false)
+        resetTransientInteractionState()
     }
 
     private func shouldStartDrag(from startEvent: NSEvent, to event: NSEvent) -> Bool {
@@ -1185,17 +1229,56 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         return hypot(deltaX, deltaY) >= dragStartDistance
     }
 
-    private func startFileDrag(with event: NSEvent) {
+    private func resetTransientInteractionState() {
+        onPressChanged?(false)
+        onHoverChanged?(false)
+    }
+
+    private func updateFloatingDragIfNeeded(_ event: NSEvent) {
+        guard pendingDragPayload != nil else {
+            return
+        }
+
+        let screenPoint = window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+        dragPreviewController.update(
+            mouseScreenLocation: screenPoint,
+            isInsideSourceCard: isScreenPointInsideSourceCard(screenPoint)
+        )
+    }
+
+    private func startNativeDragIfNeeded(_ event: NSEvent) {
+        guard let pendingDragPayload,
+              isMouseEventOutsideWindow(event) else {
+            return
+        }
+
+        startNativeDrag(payload: pendingDragPayload, event: event)
+    }
+
+    private func startNativeDrag(payload: PendingCardDragPayload, event: NSEvent) {
+        guard isMouseEventOutsideWindow(event) else {
+            return
+        }
+
+        let draggingItems = payload.draggingItems
+        let screenPoint = window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+        self.pendingDragPayload = nil
+        self.mouseDownEvent = nil
+        setDragFrames(for: draggingItems, dragImage: transparentDragImage(), event: event)
+        beginDraggingSession(with: draggingItems, event: event, source: self)
+        notifyWindowExitIfNeeded(screenPoint)
+    }
+
+    private func prepareFileDragPayload(with event: NSEvent) -> PendingCardDragPayload? {
         let result = validFileDragURLs(for: item)
         let fallbackText = fileFallbackText(for: item)
         guard !result.urls.isEmpty else {
             onInvalid?()
             guard !fallbackText.isEmpty else {
-                return
+                return nil
             }
 
-            startFileFallbackTextDrag(with: event, text: fallbackText)
-            return
+            return prepareFileFallbackTextDragPayload(text: fallbackText)
         }
 
         if result.hasInvalidReferences {
@@ -1208,53 +1291,38 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
                 pasteboardWriter: CardDragPasteboardWriter(fileURL: url, fallbackText: fallbackText)
             )
         }
-        startFloatingPreview(
-            with: event,
-            fallbackIconName: result.urls.count > 1 ? "doc.on.doc.fill" : "doc.fill"
-        )
-        setDragFrames(for: draggingItems, dragImage: transparentDragImage(), event: event)
-        beginDraggingSession(with: draggingItems, event: event, source: self)
+        return .file(draggingItems, fallbackIconName: result.urls.count > 1 ? "doc.on.doc.fill" : "doc.fill")
     }
 
-    private func startFileFallbackTextDrag(with event: NSEvent, text: String) {
+    private func prepareFileFallbackTextDragPayload(text: String) -> PendingCardDragPayload {
         let draggingItem = NSDraggingItem(
             pasteboardWriter: CardDragPasteboardWriter(fileURL: nil, fallbackText: text)
         )
-        startDrag(with: [draggingItem], fallbackIconName: "doc.fill", event: event)
+        return .generic(draggingItem, fallbackIconName: "doc.fill")
     }
 
-    private func startImageDrag(with event: NSEvent) {
+    private func prepareImageDragPayload() -> PendingCardDragPayload? {
         guard let item,
               let imageFileName = item.imageFileName,
               let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
-            return
+            return nil
         }
 
         let draggingItem = NSDraggingItem(
             pasteboardWriter: CardDragPasteboardWriter(fileURL: imageURL, fallbackText: imageURL.path)
         )
-        startDrag(with: [draggingItem], fallbackIconName: "photo.fill", event: event)
+        return .generic(draggingItem, fallbackIconName: "photo.fill")
     }
 
-    private func startTextDrag(with event: NSEvent, text: String) {
+    private func prepareTextDragPayload(text: String) -> PendingCardDragPayload? {
         guard !text.isEmpty else {
-            return
+            return nil
         }
 
         let draggingItem = NSDraggingItem(
             pasteboardWriter: CardDragPasteboardWriter(fileURL: nil, fallbackText: text)
         )
-        startDrag(with: [draggingItem], fallbackIconName: "text.alignleft", event: event)
-    }
-
-    private func startDrag(
-        with draggingItems: [NSDraggingItem],
-        fallbackIconName: String,
-        event: NSEvent
-    ) {
-        startFloatingPreview(with: event, fallbackIconName: fallbackIconName)
-        setDragFrames(for: draggingItems, dragImage: transparentDragImage(), event: event)
-        beginDraggingSession(with: draggingItems, event: event, source: self)
+        return .generic(draggingItem, fallbackIconName: "text.alignleft")
     }
 
     private func startFloatingPreview(with event: NSEvent, fallbackIconName: String) {
@@ -1479,6 +1547,15 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
         didNotifyMouseExitedWindow = true
         onMouseExitedWindow?()
+    }
+
+    private func isMouseEventOutsideWindow(_ event: NSEvent) -> Bool {
+        guard let window else {
+            return true
+        }
+
+        let screenPoint = window.convertPoint(toScreen: event.locationInWindow)
+        return !window.frame.contains(screenPoint)
     }
 }
 

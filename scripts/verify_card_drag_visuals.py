@@ -31,11 +31,19 @@ def body_of_function(source: str, name: str) -> str:
 snapshot = body_of_function(card, "snapshotDragImage")
 frames = body_of_function(card, "setDragFrames")
 drag = body_of_function(card, "handleDrag")
+mouse_dragged = body_of_function(card, "mouseDragged")
+start_native_drag = body_of_function(card, "startNativeDrag")
 fallback = body_of_function(card, "fallbackDragImage")
 bridge = card[card.find("private final class FileCardDragSourceNSView"):]
 
 required = [
     ("private final class CardDragPreviewWindowController", card, "drag preview must use a dedicated floating window"),
+    ("private enum PendingCardDragPayload", card, "card drag must prepare payload before starting native drag"),
+    ("private var pendingDragPayload: PendingCardDragPayload?", bridge, "drag source must keep prepared payload while still inside the history window"),
+    ("updateFloatingDragIfNeeded(event)", mouse_dragged, "mouse drags inside the history window must update the floating preview instead of starting native drag"),
+    ("startNativeDragIfNeeded(event)", mouse_dragged, "drag source must start native drag only after the cursor leaves the history window"),
+    ("guard isMouseEventOutsideWindow(event)", start_native_drag, "native drag must not begin while the cursor is still inside the history window"),
+    ("beginDraggingSession(with: draggingItems, event: event, source: self)\n        notifyWindowExitIfNeeded(screenPoint)", start_native_drag, "history window must close only after native drag session has started"),
     ("dragPreviewController.show(", bridge, "drag source must show the floating preview before starting AppKit drag"),
     ("dragPreviewController.update(mouseScreenLocation:", bridge, "drag source must update floating preview during dragging"),
     ("dragPreviewController.finish()", bridge, "drag source must close floating preview when dragging ends"),
@@ -70,6 +78,7 @@ if missing:
 forbidden = [
     ("let scale: CGFloat = 0.82", snapshot, "floating preview snapshot must not be pre-shrunk before state scaling"),
     ("dragImage: cardDragImage", card, "AppKit drag image must not render the visible card snapshot directly"),
+    ("beginDraggingSession(with: draggingItems, event: event, source: self)", drag, "native drag must not start immediately when the cursor is still inside the history window"),
 ]
 present_forbidden = [message for snippet, haystack, message in forbidden if snippet in haystack]
 if present_forbidden:

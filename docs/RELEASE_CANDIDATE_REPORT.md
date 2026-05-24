@@ -2,14 +2,14 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.3.63(260524.2011)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.3.63(260524.2045)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布候选冻结。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序；当前也已移除主窗口更多菜单中的“开发测试”入口，并完成帮助文案与设置页保存期限选中态 polish。冻结后不再新增 V2 功能，只接受阻塞 bug、崩溃和发布包风险修复。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.3.63(260524.2011)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.3.63(260524.2045)`
 - `python3 scripts/benchmark_history_search_performance.py`：PASS，1k / 10k 混合历史样本、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造均在阈值内
 - `python3 scripts/verify_help_and_retention_polish.py`：PASS，帮助文案保持简洁，设置页保存期限选中态为统一蓝色背景
 - `python3 scripts/verify_no_visible_debug_menu.py`：PASS，主窗口更多菜单不再暴露“开发测试”，设置页隐藏性能测试数据入口保留
@@ -24,7 +24,7 @@
 - `./scripts/build-dmg.sh`：PASS，已生成 `dist/ClipEase-2.3.2-260523.0437.dmg`，SHA-256 `e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - DMG 挂载结构验收：PASS，根目录包含 `ClipEase.app` 和 `Applications` 快捷入口，`ClipEase.app` 版本为 `2.3.2 (260523.0437)`，可执行文件存在且有执行权限
 - DMG 内 App 启动验收：PASS，从只读挂载卷启动 `ClipEase.app --show-settings`，进程正常存活，System Events 可见进程 `ClipEase` 和 1 个设置窗口；验收后已关闭 release App、卸载 DMG，并恢复开发包运行
-- `scripts/build-app.sh --run`：通过；当前运行包为 `2.3.63 (260524.2011)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `34006`
+- `scripts/build-app.sh --run`：通过；当前运行包为 `2.3.63 (260524.2045)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `55760`
 - GitHub 推送：PASS，`origin/main` 已推送到 `717e760`
 - GitHub Tag：PASS，`v2.3.2-260523.0437` 已推送
 - GitHub Release：PASS，已创建 `https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`，并上传 `ClipEase-2.3.2-260523.0437.dmg`
@@ -50,9 +50,9 @@
 ## RC 包信息
 
 - 当前候选版本：`2.3.63`
-- 当前构建号：`260524.2011`
-- 当前 build/run：`2.3.63 (260524.2011)`
-- 当前运行进程：PID `34006`
+- 当前构建号：`260524.2045`
+- 当前 build/run：`2.3.63 (260524.2045)`
+- 当前运行进程：PID `55760`
 - 当前 DMG：`dist/ClipEase-2.3.2-260523.0437.dmg`
 - 当前 DMG SHA-256：`e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - 当前 GitHub Release：`https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`
@@ -62,6 +62,7 @@
 
 ## RC 修复记录
 
+- `2.3.63(260524.2045)`：修复卡片交互反馈和记忆选中位置。第一，选中 / 悬浮 / 按住卡片不再使用外层 `.shadow`，彻底去掉卡片周围的一圈阴影；选中卡片改为 `scale 1.025`，悬浮 `scale 1.04`，按住 `scale 1.045`，保留边框、状态层和 zIndex 以形成更明显但不带阴影的差异化。第二，卡片 tracking area 改为 `.activeAlways + .mouseMoved + .enabledDuringMouseDrag`，并统一通过 `resetTransientInteractionState()` 清理 hover / press，避免鼠标快速划过后状态残留。第三，拖拽仍按上一轮思路分阶段：主窗口内只更新浮层卡片和待拖拽 payload，离开轻贴主窗口后才启动 native drag，避免触发后面的应用。第四，记住用户选中的卡片和位置时，不再允许隐藏窗口期间的预览重建把 fallback 第一张写回 `history.lastSelectedItemID`；选择 fallback 现在优先使用 `rememberedSelectionFallbackID()`，再回退到第一张。更新 `scripts/verify_card_click_performance_guards.py`、`scripts/verify_history_card_selection_clip_guards.py`、`scripts/verify_history_reopen_stability_guards.py`、`scripts/verify_card_drag_visuals.py` 和 `scripts/verify_stage9_file_dragout_first_batch.py`。验证：全量 `scripts/verify_*guards.py`、`python3 scripts/verify_card_drag_visuals.py`、`python3 scripts/verify_stage9_file_dragout_first_batch.py`、`swift build`、`python3 scripts/smoke_check.py` 通过；`swift test` 已执行但项目当前无 Tests target。`./scripts/build-app.sh --bump none --run` 通过并启动 `2.3.63 (260524.2045)`，PID `55760`。最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_20-46-39.jsonl` 显示 `history.store.loadStartupPage` 约 `8.76ms`、`history.store.initialize` 约 `9.44ms`、`preview.rebuild.background` 约 `3.50ms`、`preview.rebuild.apply` 约 `0.14ms`、`search.applyResults` 约 `0.010ms`，稳定后主线程 latency 约 `0.03ms - 0.77ms`。
 - `2.3.63(260524.2011)`：根据用户确认的方案，新增“拖拽中的浮层卡片”：原卡片继续留在 10 万条虚拟化列表中，拖动时额外用 `CardDragPreviewWindowController` 创建置顶、透明背景、忽略鼠标事件的独立 `NSPanel` 渲染卡片副本。根因是直接依赖 AppKit drag image 难以同时满足“卡片区域内放大、离开卡片区域缩小、离开主窗口后主窗口关闭但卡片继续跟随鼠标”的产品要求，也容易把视觉状态和列表本体绑定，影响滚动 / diff / 点击逻辑。本轮将真实拖拽数据和视觉反馈分离：AppKit 拖拽继续使用原 `NSDraggingItem`、文件 URL / 图片 / 文本 pasteboard writer 和拖出行为；系统 drag image 改为 `1x1` 透明图，视觉由独立浮层卡片负责。拖拽过程中 `draggingSession(_:movedTo:)` 持续按屏幕坐标更新浮层，鼠标在原卡片区域内使用 `scale 1.06`，离开卡片区域后使用 `scale 0.48`，同一状态内移动不做动画以保证跟手，大小状态切换只用 `0.08s` 动画；鼠标离开主窗口时调用 `closeWindowForCardDrag()` 关闭主窗口，但浮层保持到拖拽结束。更新并强制纳入本地提交 `scripts/verify_card_drag_visuals.py`，守卫浮层窗口、透明 AppKit drag image、窗口退出关闭和真实拖拽路径。验证：`python3 scripts/verify_card_drag_visuals.py`、`python3 scripts/verify_stage9_file_dragout_first_batch.py`、`python3 scripts/verify_card_click_performance_guards.py` 和 `swift build` 通过；`./scripts/build-app.sh --bump none --run` 通过并启动 `2.3.63 (260524.2011)`，PID `34006`。最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_20-12-30.jsonl` 显示 `history.store.loadStartupPage` 约 `12.91ms`、`history.store.initialize` 约 `13.68ms`、`preview.rebuild.background` 约 `3.87ms`、`preview.rebuild.apply` 约 `0.16ms`、`search.applyResults` 约 `0.007ms`、`history.store.searchIndexWarmup` 约 `5.08ms`，稳定后主线程 latency 约 `0.02ms - 0.08ms`。
 - `2.3.62(260524.1927)`：修复卡片 hover / press 反馈被裁剪、像被主窗口或顶部挡住，以及 hover 后出现一圈线条的问题。根因是上轮把 hover / press 缩放和白色状态描边放在 `HistoryCardView` 内部，卡片内容已被 `clipShape` 裁剪，内部缩放不会带着外层选中描边 / 阴影一起动；新增白色 `strokeBorder` 也会在 hover 时形成用户截图中的线圈。本轮将 hover / press 状态上移到 `HistoryWindowView` 的 `hoveredCardIDs` / `pressedCardIDs`，由 `historyCard(_:)` 外层容器统一做整张卡片缩放、阴影和 zIndex 提升；`HistoryCardView` 移除内部 `@State`、内部缩放和白色 hover 描边，只保留轻量状态层。卡片顶部交互余量从 `0pt` 调整为 `6pt`，给 `1.012x` hover 放大预留空间；hover / press 时隐藏普通灰边，选中卡片仍保留蓝色边框。更新 `scripts/verify_card_click_performance_guards.py`、`scripts/verify_history_card_selection_clip_guards.py` 和 `scripts/verify_history_reopen_stability_guards.py`，防止交互缩放回退到内部裁剪路径。验证：新增 guard 先在旧实现下失败，修复后通过；全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`python3 scripts/smoke_check.py` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --run` 通过。最终运行包 `2.3.62 (260524.1927)`，PID `8648`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_19-28-10.jsonl` 显示 `history.store.loadStartupPage` 约 `6.79ms`、`history.store.initialize` 约 `7.44ms`、`preview.rebuild.background` 约 `3.21ms`、`preview.rebuild.apply` 约 `0.14ms`、`search.applyResults` 约 `0.010ms`，稳定后主线程 latency 约 `0.03ms - 0.07ms`。
 - `2.3.61(260524.1851)`：加强卡片 hover / press 反馈，并修复方向键右移到末尾后仍继续滚动的问题。根因是 `HistoryCardView` 已有 hover / press 状态，但反馈参数过轻：hover 仅 `scale 1.004`、`0.08` 白色状态层，press 仅 `scale 0.996`、`0.16` 状态层；左键按下时 AppKit `mouseDown` 已会立即触发 `onPressChanged(true)`，但幅度太小导致用户感知不到主窗口内按压动画。另一个根因是 `moveSelection(_:)` 到边界时用 `max/min` 返回当前卡片作为 `nextID`，持续按右键会重复 reveal / preview follow 当前最后一张卡。本轮将 hover 状态层提高到 `0.14`、press 提高到 `0.24`，新增白色描边状态层 hover `0.28/1pt`、press `0.46/2pt`，hover scale 提高到 `1.012`，press scale 调整为 `0.985`，press 动画缩短到 `0.06s`；方向键左/右移动在首尾边界直接 return，不再重复滚动当前卡片。更新 `scripts/verify_card_click_performance_guards.py` 守卫更强反馈参数和边界 early return。验证：新增 guard 先在旧实现下失败，修复后通过；全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`python3 scripts/smoke_check.py` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --run` 通过。最终运行包 `2.3.61 (260524.1851)`，PID `86487`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_18-52-22.jsonl` 显示 `history.store.loadStartupPage` 约 `6.32ms`、`history.store.initialize` 约 `6.95ms`、`preview.rebuild.background` 约 `3.22ms`、`preview.rebuild.apply` 约 `0.19ms`、`search.applyResults` 约 `0.011ms`，稳定后主线程 latency 约 `0.02ms - 0.05ms`。
