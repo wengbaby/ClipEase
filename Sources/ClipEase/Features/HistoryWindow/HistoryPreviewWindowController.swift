@@ -168,6 +168,7 @@ final class HistoryPreviewWindowController {
             context.duration = bloomOpenDuration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
             panel.contentView?.animator().alphaValue = 1
+            panel.contentView?.layer?.opacity = 1
             panel.contentView?.layer?.transform = CATransform3DIdentity
         } completionHandler: { [weak panel] in
             guard self.attachedAnimationGeneration == animationGeneration else {
@@ -191,6 +192,7 @@ final class HistoryPreviewWindowController {
         let normalizedAnchorX = min(max(anchorX / width, 0.08), 0.92)
         updateLayerAnchorPoint(layer, anchorPoint: CGPoint(x: normalizedAnchorX, y: 0))
         contentView.alphaValue = isOpening ? 0 : 1
+        layer.opacity = isOpening ? 0 : 1
         layer.transform = isOpening ? previewBloomCollapsedTransform : CATransform3DIdentity
     }
 
@@ -224,6 +226,7 @@ final class HistoryPreviewWindowController {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         contentView.alphaValue = 1
+        layer.opacity = 1
         layer.transform = CATransform3DIdentity
         updateLayerAnchorPoint(layer, anchorPoint: CGPoint(x: 0.5, y: 0.5))
         CATransaction.commit()
@@ -260,6 +263,7 @@ final class HistoryPreviewWindowController {
             context.duration = bloomCloseDuration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
             panel.contentView?.animator().alphaValue = 0
+            panel.contentView?.layer?.opacity = 0
             panel.contentView?.layer?.transform = previewBloomCollapsedTransform
         } completionHandler: { [weak self, weak panel] in
             guard self?.attachedAnimationGeneration == animationGeneration else {
@@ -267,6 +271,7 @@ final class HistoryPreviewWindowController {
             }
             self?.isAttachedClosing = false
             panel?.contentView?.alphaValue = 0
+            panel?.contentView?.layer?.opacity = 0
             panel?.contentView?.layer?.transform = CATransform3DIdentity
             panel?.orderOut(nil)
             panel?.contentView = NSView()

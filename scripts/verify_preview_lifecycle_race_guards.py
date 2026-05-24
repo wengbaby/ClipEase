@@ -14,6 +14,7 @@ required = [
     "isAttachedClosing = false",
     "guard self?.attachedAnimationGeneration == animationGeneration",
     "panel?.contentView?.alphaValue = 0",
+    "panel?.contentView?.layer?.opacity = 0",
     "panel?.contentView?.layer?.transform = CATransform3DIdentity",
     "panel?.orderOut(nil)",
     "isAttachedClosing = false",
@@ -38,12 +39,18 @@ completion_start = close_body.index("} completionHandler:")
 completion_body = close_body[completion_start:]
 
 alpha_zero = completion_body.find("panel?.contentView?.alphaValue = 0")
+layer_opacity_zero = completion_body.find("panel?.contentView?.layer?.opacity = 0")
 content_clear = completion_body.find("panel?.contentView = NSView()")
 order_out = completion_body.find("panel?.orderOut(nil)")
-if min(alpha_zero, content_clear, order_out) == -1:
-    raise SystemExit("Attached close completion must hide, clear, and order out the panel.")
-if not (alpha_zero < order_out < content_clear):
+if min(alpha_zero, layer_opacity_zero, content_clear, order_out) == -1:
+    raise SystemExit("Attached close completion must hide view alpha, layer opacity, clear, and order out the panel.")
+if not (alpha_zero < layer_opacity_zero < order_out < content_clear):
     raise SystemExit("Attached close completion must hide and order out the old tiny content before clearing it.")
+
+animation_start = close_body.index("NSAnimationContext.runAnimationGroup")
+animation_body = close_body[animation_start:completion_start]
+if "panel.contentView?.layer?.opacity = 0" not in animation_body:
+    raise SystemExit("Attached close animation must fade the content layer itself so collapsed SwiftUI content cannot remain visible.")
 
 finish_start = source.index("    private func finishDetachedPreviewDrag")
 finish_end = source.index("    private func closeDetachedPreview", finish_start)
