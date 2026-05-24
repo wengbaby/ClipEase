@@ -12,6 +12,8 @@ final class HistoryPreviewWindowController {
     private var contentLoadTask: Task<Void, Never>?
     private var contentConfiguration: PreviewContentConfiguration?
     private var isContentReady = false
+    private var attachedAnimationGeneration: UInt64 = 0
+    private var isAttachedClosing = false
     private var detachedPanels: [ObjectIdentifier: NSPanel] = [:]
     private var isInteractingInsidePreview = false
     private weak var parentWindow: NSWindow?
@@ -121,7 +123,12 @@ final class HistoryPreviewWindowController {
             onClose()
         }
 
-        if isAlreadyVisible {
+        attachedAnimationGeneration &+= 1
+        let animationGeneration = attachedAnimationGeneration
+        let shouldAnimateOpen = !isAlreadyVisible || isAttachedClosing
+        isAttachedClosing = false
+
+        if !shouldAnimateOpen {
             panel.setFrame(frame, display: true, animate: false)
             panel.orderFrontRegardless()
             (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
@@ -139,7 +146,7 @@ final class HistoryPreviewWindowController {
             panel.setFrame(frame, display: true)
             prepareContentBloomLayer(panel, anchorX: arrowX, isOpening: true)
             panel.orderFrontRegardless()
-            animatePanelOpen(panel)
+            animatePanelOpen(panel, animationGeneration: animationGeneration)
             (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
             if !shouldLoadImmediately {
                 scheduleContentLoad(
@@ -156,13 +163,16 @@ final class HistoryPreviewWindowController {
         return panel.isVisible
     }
 
-    private func animatePanelOpen(_ panel: NSPanel) {
+    private func animatePanelOpen(_ panel: NSPanel, animationGeneration: UInt64) {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = bloomOpenDuration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
             panel.contentView?.animator().alphaValue = 1
             panel.contentView?.layer?.transform = CATransform3DIdentity
         } completionHandler: { [weak panel] in
+            guard self.attachedAnimationGeneration == animationGeneration else {
+                return
+            }
             self.resetContentBloomLayer(panel)
         }
     }
@@ -236,10 +246,14 @@ final class HistoryPreviewWindowController {
         (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
         (panel as? HistoryPreviewPanel)?.onEscape = nil
         guard let panel, panel.isVisible else {
+            isAttachedClosing = false
             panel?.orderOut(nil)
             return
         }
 
+        attachedAnimationGeneration &+= 1
+        let animationGeneration = attachedAnimationGeneration
+        isAttachedClosing = true
         let anchorX = bloomAnchorX ?? panel.frame.width / 2
         prepareContentBloomLayer(panel, anchorX: anchorX, isOpening: false)
         NSAnimationContext.runAnimationGroup { context in
@@ -247,9 +261,15 @@ final class HistoryPreviewWindowController {
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
             panel.contentView?.animator().alphaValue = 0
             panel.contentView?.layer?.transform = previewBloomCollapsedTransform
-        } completionHandler: { [weak panel] in
-            panel?.contentView = NSView()
+        } completionHandler: { [weak self, weak panel] in
+            guard self?.attachedAnimationGeneration == animationGeneration else {
+                return
+            }
+            self?.isAttachedClosing = false
+            panel?.contentView?.alphaValue = 0
+            panel?.contentView?.layer?.transform = CATransform3DIdentity
             panel?.orderOut(nil)
+            panel?.contentView = NSView()
             panel?.contentView?.alphaValue = 1
         }
     }
@@ -409,6 +429,9 @@ final class HistoryPreviewWindowController {
             onDetachDrag: { [weak self] in
                 guard let self else {
                     return nil
+                }
+                if self.detachedPanels[ObjectIdentifier(panel)] === panel {
+                    return self.dragDetachedPreview(panel)
                 }
                 return self.detachCurrentPreview()
             }
@@ -575,42 +598,10 @@ final class HistoryPreviewWindowController {
 
     private func finishDetachedPreviewDrag(panel: NSPanel, configuration: PreviewContentConfiguration) {
         let panelID = ObjectIdentifier(panel)
-        guard let retainedPanel = detachedPanels[panelID],
+        guard let retainedPanel = self.detachedPanels[panelID],
               retainedPanel === panel,
               panel.isVisible else {
             return
-        }
-
-        Task { @MainActor [weak self, weak panel] in
-            try? await Task.sleep(nanoseconds: 40_000_000)
-            guard let self,
-                  let panel,
-                  self.detachedPanels[panelID] === panel,
-                  panel.isVisible else {
-                return
-            }
-
-            self.renderPreviewContent(
-                panel: panel,
-                configuration: configuration,
-                isContentReady: true,
-                showsArrow: false,
-                onClose: { [weak self, weak panel] in
-                    guard let panel else {
-                        return
-                    }
-                    self?.closeDetachedPreview(panel)
-                },
-                onDetachDrag: { [weak self, weak panel] in
-                    guard let self,
-                          let panel,
-                          self.detachedPanels[panelID] === panel else {
-                        return nil
-                    }
-
-                    return self.dragDetachedPreview(panel)
-                }
-            )
         }
     }
 

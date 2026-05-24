@@ -9,7 +9,7 @@ required = [
     "private let bloomOpenDuration: TimeInterval = 0.34",
     "private let bloomCloseDuration: TimeInterval = 0.22",
     "prepareContentBloomLayer(panel, anchorX: arrowX, isOpening: true)",
-    "private func animatePanelOpen(_ panel: NSPanel)",
+    "private func animatePanelOpen(_ panel: NSPanel, animationGeneration: UInt64)",
     "panel.contentView?.animator().alphaValue = 1",
     "panel.contentView?.layer?.transform = CATransform3DIdentity",
     "private func prepareContentBloomLayer(_ panel: NSPanel, anchorX: CGFloat, isOpening: Bool)",

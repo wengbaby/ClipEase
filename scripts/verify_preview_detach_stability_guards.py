@@ -7,11 +7,8 @@ source = (root / "Sources/ClipEase/Features/HistoryWindow/HistoryPreviewWindowCo
 required = [
     "completeInitialDetachedPreviewDrag(panel: NSPanel, configuration: PreviewContentConfiguration)",
     "finishDetachedPreviewDrag(panel: NSPanel, configuration: PreviewContentConfiguration)",
-    "try? await Task.sleep(nanoseconds: 40_000_000)",
-    "self.detachedPanels[panelID] === panel",
-    "showsArrow: false",
+    "self.detachedPanels[panelID]",
     "private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion",
-    "return self.dragDetachedPreview(panel)",
     "private func dragPanelManually(",
     "panel.setFrameOrigin(nextOrigin)",
     "NSApp.nextEvent(",
@@ -24,10 +21,15 @@ if missing:
 function_start = source.index("    private func finishDetachedPreviewDrag")
 function_end = source.index("    private func closeDetachedPreview", function_start)
 body = source[function_start:function_end]
-render_index = body.find("self.renderPreviewContent(")
-sleep_index = body.find("try? await Task.sleep(nanoseconds: 40_000_000)")
-if render_index == -1 or sleep_index == -1 or render_index < sleep_index:
-    raise SystemExit("Detached preview content must be rebuilt after the drag-settle delay.")
+
+for forbidden in [
+    "Task { @MainActor",
+    "try? await Task.sleep",
+    "self.renderPreviewContent(",
+    "showsArrow: false",
+]:
+    if forbidden in body:
+        raise SystemExit(f"Detached preview must not rebuild content after mouse-up: {forbidden}")
 
 if "onDetachDrag: { nil }" in body:
     raise SystemExit("Detached preview must keep a reusable drag handler after the first detach.")

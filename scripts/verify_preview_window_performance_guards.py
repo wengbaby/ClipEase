@@ -161,16 +161,17 @@ def main() -> None:
             and "self.panel = nil" not in detach_current,
             "the first detach drag must not mutate window level, activation, or attached slot before performDrag returns")
     require("private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion" in controller
-            and "return self.dragDetachedPreview(panel)" in finish_detached_drag
+            and "return self.dragDetachedPreview(panel)" in controller
             and "onDetachDrag: { nil }" not in finish_detached_drag,
             "detached previews must keep a reusable title-bar drag handler after the first detach")
     require("setFrame(detachedFrame" not in detach_current
             and "detachedFrame(for: configuration.size, keepingTopEdgeFrom: panel.frame)" not in detach_current,
             "detaching must not move or shrink the window before the first system drag starts")
     require("renderPreviewContent(" not in detach_current
-            and "renderPreviewContent(" in finish_detached_drag
-            and "showsArrow: false" in finish_detached_drag,
-            "detached preview content must hide the arrow only after the first system window drag completes")
+            and "renderPreviewContent(" not in finish_detached_drag
+            and "Task { @MainActor" not in finish_detached_drag
+            and "try? await Task.sleep" not in finish_detached_drag,
+            "detached preview content must not be rebuilt after mouse-up")
     require(complete_initial_drag.count("configuration.onDetach()") == 1
             and detach_current.count("configuration.onDetach()") == 0,
             "detached preview must close the main window only once after the first drag returns")
@@ -180,11 +181,10 @@ def main() -> None:
             and "self.close()" in show_preview,
             "detaching a preview must immediately close the main history window")
     require("showsArrow: true" in controller
-            and "showsArrow: false" in finish_detached_drag
             and "let showsArrow: Bool" in popover
             and "if showsArrow" in popover
             and "height: size.height + (showsArrow ? 14 : 0)" in popover,
-            "detached preview must hide the attached-popover arrow and shrink its window frame")
+            "attached preview arrow must remain controlled by preview content state")
     require("PreviewHeaderDragRegion(onDragStarted: onDetachDrag)" in popover
             and "private struct PreviewHeaderDragRegion: NSViewRepresentable" in popover
             and "private let dragActivationDistance: CGFloat = 4" in popover
