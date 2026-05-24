@@ -64,6 +64,7 @@ def main() -> None:
     schedule_content = body_of_function(controller, "scheduleContentLoad")
     load_preview_image = body_of_function(popover, "loadPreviewImage")
     detach_current = body_of_function(controller, "detachCurrentPreview")
+    complete_initial_drag = body_of_function(controller, "completeInitialDetachedPreviewDrag")
     finish_detached_drag = body_of_function(controller, "finishDetachedPreviewDrag")
     close_detached = body_of_function(controller, "closeDetachedPreview")
     configure_attached = body_of_function(controller, "configureAttachedPanel")
@@ -90,15 +91,15 @@ def main() -> None:
             "deferred preview content load must be cancellable")
     require("private var detachedPanels: [ObjectIdentifier: NSPanel] = [:]" in controller,
             "detached previews must be retained independently from the attached preview slot")
-    require("self.panel = nil" in detach_current
-            and "detachedPanels[panelID] = panel" in detach_current,
-            "detaching must release the attached preview slot so the next preview opens at the card position")
+    require("self.panel = nil" in complete_initial_drag
+            and "detachedPanels[panelID] = panel" in complete_initial_drag,
+            "detaching must release the attached preview slot after the first system drag finishes")
     require("private func closeDetachedPreview(_ detachedPanel: NSPanel)" in controller
             and "detachedPanels.removeValue(forKey: panelID)" in controller
             and "detachedPanel.contentView = NSView()" in controller,
             "each detached preview must close independently and clean up its own content")
     require("private var detachedEscapeKeyMonitor: Any?" in controller
-            and "installDetachedEscapeKeyMonitorIfNeeded()" in detach_current
+            and "installDetachedEscapeKeyMonitorIfNeeded()" in complete_initial_drag
             and "removeDetachedEscapeKeyMonitorIfNeeded()" in close_detached,
             "detached previews need their own Esc monitor lifecycle")
     require("NSEvent.addLocalMonitorForEvents(matching: .keyDown)" in install_detached_escape
@@ -114,11 +115,11 @@ def main() -> None:
             and "panel?.isVisible == true" in controller
             and "var isRecordingSuppressionActive: Bool" in controller,
             "controller must distinguish attached previews from detached windows")
-    require("configureDetachedPanel(panel)" in detach_current
+    require("configureDetachedPanel(panel)" in complete_initial_drag
             and "panel.level = .normal" in controller
             and "panel.hasShadow = true" in controller
-            and "panel.makeKeyAndOrderFront(nil)" in detach_current,
-            "detached preview must become a normal switchable App window")
+            and "panel.makeKeyAndOrderFront(nil)" in complete_initial_drag,
+            "detached preview must become a normal switchable App window after the first drag")
     require("private let detachedPreviewMinimumSize = CGSize(width: 390, height: 260)" in controller
             and "panel.minSize = .zero" in configure_attached
             and "panel.minSize = detachedPreviewMinimumSize" in configure_detached,
@@ -135,14 +136,20 @@ def main() -> None:
             "detached preview screen selection must use visible-frame intersection area")
     require("removeOutsideClickMonitor()" in detach_current
             and "removeEscapeKeyMonitor()" in detach_current
-            and "configuration.onDetach()" in detach_current,
-            "detaching must stop attached-popover monitors and clear history preview state")
+            and "configuration.onDetach()" not in detach_current
+            and "configuration.onDetach()" in complete_initial_drag,
+            "detaching must stop attached-popover monitors before drag but close history only after drag")
     require("typealias PreviewHeaderDragCompletion = (_ initialMouseDownEvent: NSEvent, _ dragEvent: NSEvent) -> Void" in popover
             and "private func detachCurrentPreview() -> PreviewHeaderDragCompletion?" in controller
-            and "return { [weak self, weak panel] initialMouseDownEvent, dragEvent in" in detach_current
+            and "return { [weak self, weak panel] initialMouseDownEvent, _ in" in detach_current
             and "dragPanel.performDrag(with: initialMouseDownEvent)" in detach_current
-            and "self?.finishDetachedPreviewDrag(panel: panel, configuration: configuration)" in detach_current,
-            "detaching must start the first system window drag from the original mouse-down event")
+            and "self?.completeInitialDetachedPreviewDrag(panel: panel, configuration: configuration)" in detach_current,
+            "detaching must start the first system window drag before detached-state side effects")
+    require("configureDetachedPanel(panel)" not in detach_current
+            and "NSApp.activate(ignoringOtherApps: true)" not in detach_current
+            and "panel.makeKeyAndOrderFront(nil)" not in detach_current
+            and "self.panel = nil" not in detach_current,
+            "the first detach drag must not mutate window level, activation, or attached slot before performDrag returns")
     require("private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion" in controller
             and "return self.dragDetachedPreview(panel)" in finish_detached_drag
             and "onDetachDrag: { nil }" not in finish_detached_drag,
@@ -154,8 +161,9 @@ def main() -> None:
             and "renderPreviewContent(" in finish_detached_drag
             and "showsArrow: false" in finish_detached_drag,
             "detached preview content must hide the arrow only after the first system window drag completes")
-    require(detach_current.count("configuration.onDetach()") == 1,
-            "detached preview close/escape must not re-run the main-window detach callback")
+    require(complete_initial_drag.count("configuration.onDetach()") == 1
+            and detach_current.count("configuration.onDetach()") == 0,
+            "detached preview must close the main window only once after the first drag returns")
     require("onDetach:" in show_preview
             and "self.inputState.setPreviewActive(false)" in show_preview
             and "self.previewState.close()" in show_preview

@@ -425,8 +425,25 @@ final class HistoryPreviewWindowController {
         contentLoadTask = nil
         contentConfiguration = nil
         isContentReady = false
-        self.panel = nil
         parentWindow = nil
+        return { [weak self, weak panel] initialMouseDownEvent, _ in
+            guard let panel else {
+                return
+            }
+            if let dragPanel = panel as? HistoryPreviewPanel,
+               dragPanel.isVisible {
+                dragPanel.performDrag(with: initialMouseDownEvent)
+            }
+            self?.completeInitialDetachedPreviewDrag(panel: panel, configuration: configuration)
+        }
+    }
+
+    private func completeInitialDetachedPreviewDrag(panel: NSPanel, configuration: PreviewContentConfiguration) {
+        guard panel.isVisible else {
+            return
+        }
+
+        self.panel = nil
         configureDetachedPanel(panel)
         let panelID = ObjectIdentifier(panel)
         detachedPanels[panelID] = panel
@@ -440,16 +457,7 @@ final class HistoryPreviewWindowController {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         configuration.onDetach()
-        return { [weak self, weak panel] initialMouseDownEvent, dragEvent in
-            guard let panel else {
-                return
-            }
-            if let dragPanel = panel as? HistoryPreviewPanel,
-               dragPanel.isVisible {
-                dragPanel.performDrag(with: initialMouseDownEvent)
-            }
-            self?.finishDetachedPreviewDrag(panel: panel, configuration: configuration)
-        }
+        finishDetachedPreviewDrag(panel: panel, configuration: configuration)
     }
 
     private func dragDetachedPreview(_ panel: NSPanel) -> PreviewHeaderDragCompletion {
