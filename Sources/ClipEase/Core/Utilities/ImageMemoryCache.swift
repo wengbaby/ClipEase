@@ -1,0 +1,35 @@
+import AppKit
+
+@MainActor
+final class ImageMemoryCache {
+    static let shared = ImageMemoryCache()
+
+    private let cache = NSCache<NSString, NSImage>()
+
+    private init() {}
+
+    func cachedImage(for key: String) -> NSImage? {
+        cache.object(forKey: key as NSString)
+    }
+
+    func store(_ image: NSImage, for key: String) {
+        cache.setObject(image, forKey: key as NSString)
+    }
+
+    func image(for key: String, load: () -> NSImage?) -> NSImage? {
+        if let image = cache.object(forKey: key as NSString) {
+            return image
+        }
+
+        guard let image = load() else {
+            return nil
+        }
+
+        cache.setObject(image, forKey: key as NSString)
+        return image
+    }
+
+    func preheatImage(for key: String, load: () -> NSImage?) {
+        _ = image(for: key, load: load)
+    }
+}

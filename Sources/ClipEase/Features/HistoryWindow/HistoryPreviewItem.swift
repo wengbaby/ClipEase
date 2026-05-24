@@ -1,0 +1,272 @@
+import SwiftUI
+
+enum HistoryPreviewType: Sendable, Equatable {
+    case text
+    case link
+    case image
+    case color
+    case file
+}
+
+struct HistoryFilePreviewReference: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let displayName: String
+    let path: String
+    let isDirectory: Bool
+    let pathStatus: ClipboardFilePathStatus
+}
+
+struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let type: HistoryPreviewType
+    let kind: String
+    let time: String
+    let iconName: String
+    let iconFileName: String?
+    let headerColor: Color
+    let preview: String
+    let footer: String
+    let sourceAppName: String
+    let createdAt: Date
+    let linkTitle: String?
+    let linkSubtitle: String?
+    let imageFileName: String?
+    let richTextFileName: String?
+    let filePreviewReferences: [HistoryFilePreviewReference]
+    let isPinned: Bool
+    let groupID: UUID?
+    let groupedAt: Date?
+    let normalizedSearchText: String
+    let searchFingerprint: Int
+
+    var searchText: String {
+        [
+            kind,
+            preview,
+            footer,
+            sourceAppName,
+            linkTitle,
+            linkSubtitle,
+            filePreviewReferences.map(\.displayName).joined(separator: " "),
+            filePreviewReferences.map(\.path).joined(separator: " ")
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+    }
+
+    init(item: ClipboardItem) {
+        self.id = item.id
+        self.type = HistoryPreviewType(item.type)
+        self.kind = item.kind
+        self.time = item.relativeTime
+        self.iconName = item.iconName
+        self.iconFileName = item.iconFileName
+        self.headerColor = item.headerColor
+        self.preview = item.preview
+        self.footer = item.footer
+        self.sourceAppName = item.sourceAppName
+        self.createdAt = item.createdAt
+        self.linkTitle = item.linkTitle
+        self.linkSubtitle = item.linkSubtitle
+        self.imageFileName = item.imageFileName
+        self.richTextFileName = item.richTextFileName
+        self.filePreviewReferences = item.fileReferences.map { reference in
+            HistoryFilePreviewReference(
+                id: reference.id,
+                displayName: reference.displayName,
+                path: reference.path,
+                isDirectory: reference.isDirectory,
+                pathStatus: reference.pathStatus
+            )
+        }
+        self.isPinned = item.isPinned
+        self.groupID = item.groupID
+        self.groupedAt = item.groupedAt
+        let normalizedSearchText = Self.normalizedSearchText(
+            kind: item.kind,
+            preview: item.preview,
+            footer: item.footer,
+            sourceAppName: item.sourceAppName,
+            linkTitle: item.linkTitle,
+            linkSubtitle: item.linkSubtitle,
+            filePreviewReferences: self.filePreviewReferences
+        )
+        self.normalizedSearchText = normalizedSearchText
+        self.searchFingerprint = Self.searchFingerprint(for: normalizedSearchText)
+    }
+
+    init(
+        id: UUID,
+        type: HistoryPreviewType,
+        kind: String,
+        time: String,
+        iconName: String,
+        iconFileName: String? = nil,
+        headerColor: Color,
+        preview: String,
+        footer: String,
+        sourceAppName: String = "",
+        createdAt: Date = Date(),
+        linkTitle: String? = nil,
+        linkSubtitle: String? = nil,
+        imageFileName: String? = nil,
+        richTextFileName: String? = nil,
+        filePreviewReferences: [HistoryFilePreviewReference] = [],
+        isPinned: Bool = false,
+        groupID: UUID? = nil,
+        groupedAt: Date? = nil
+    ) {
+        self.id = id
+        self.type = type
+        self.kind = kind
+        self.time = time
+        self.iconName = iconName
+        self.iconFileName = iconFileName
+        self.headerColor = headerColor
+        self.preview = preview
+        self.footer = footer
+        self.sourceAppName = sourceAppName
+        self.createdAt = createdAt
+        self.linkTitle = linkTitle
+        self.linkSubtitle = linkSubtitle
+        self.imageFileName = imageFileName
+        self.richTextFileName = richTextFileName
+        self.filePreviewReferences = filePreviewReferences
+        self.isPinned = isPinned
+        self.groupID = groupID
+        self.groupedAt = groupedAt
+        let normalizedSearchText = Self.normalizedSearchText(
+            kind: kind,
+            preview: preview,
+            footer: footer,
+            sourceAppName: sourceAppName,
+            linkTitle: linkTitle,
+            linkSubtitle: linkSubtitle,
+            filePreviewReferences: filePreviewReferences
+        )
+        self.normalizedSearchText = normalizedSearchText
+        self.searchFingerprint = Self.searchFingerprint(for: normalizedSearchText)
+    }
+
+    private static func normalizedSearchText(
+        kind: String,
+        preview: String,
+        footer: String,
+        sourceAppName: String,
+        linkTitle: String?,
+        linkSubtitle: String?,
+        filePreviewReferences: [HistoryFilePreviewReference]
+    ) -> String {
+        [
+            kind,
+            preview,
+            footer,
+            sourceAppName,
+            linkTitle,
+            linkSubtitle,
+            filePreviewReferences.map(\.displayName).joined(separator: " "),
+            filePreviewReferences.map(\.path).joined(separator: " ")
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private static func searchFingerprint(for normalizedSearchText: String) -> Int {
+        var hasher = Hasher()
+        hasher.combine(normalizedSearchText)
+        return hasher.finalize()
+    }
+
+    static let samples: [HistoryPreviewItem] = [
+        HistoryPreviewItem(
+            id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            type: .image,
+            kind: "图片",
+            time: "现在",
+            iconName: "app.fill",
+            headerColor: Color(red: 0.04, green: 0.50, blue: 0.95),
+            preview: "",
+            footer: "766 × 666"
+        ),
+        HistoryPreviewItem(
+            id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+            type: .text,
+            kind: "文本",
+            time: "7 分钟前",
+            iconName: "text.alignleft",
+            headerColor: Color(red: 0.04, green: 0.50, blue: 0.95),
+            preview: "现在请你规划开发步骤，不要一口气做太多，让项目稳定安全有效的推进。",
+            footer: "148 个字符"
+        ),
+        HistoryPreviewItem(
+            id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+            type: .image,
+            kind: "图片",
+            time: "4 分钟前",
+            iconName: "safari.fill",
+            headerColor: Color(red: 0.00, green: 0.72, blue: 0.66),
+            preview: "",
+            footer: "3360 × 332"
+        ),
+        HistoryPreviewItem(
+            id: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+            type: .color,
+            kind: "颜色",
+            time: "4 分钟前",
+            iconName: "paintpalette.fill",
+            headerColor: Color(red: 1.00, green: 0.24, blue: 0.22),
+            preview: "#888888",
+            footer: "颜色"
+        ),
+        HistoryPreviewItem(
+            id: UUID(uuidString: "55555555-5555-5555-5555-555555555555")!,
+            type: .text,
+            kind: "文本",
+            time: "12 分钟前",
+            iconName: "message.fill",
+            headerColor: Color(red: 0.04, green: 0.70, blue: 0.38),
+            preview: "卡片列表需要支持键盘切换，选中项要清晰，后续接入真实剪贴板数据时可以沿用这一套交互。",
+            footer: "52 个字符"
+        ),
+        HistoryPreviewItem(
+            id: UUID(uuidString: "66666666-6666-6666-6666-666666666666")!,
+            type: .image,
+            kind: "图片",
+            time: "18 分钟前",
+            iconName: "camera.viewfinder",
+            headerColor: Color(red: 0.57, green: 0.38, blue: 0.92),
+            preview: "",
+            footer: "1440 × 900"
+        ),
+        HistoryPreviewItem(
+            id: UUID(uuidString: "77777777-7777-7777-7777-777777777777")!,
+            type: .link,
+            kind: "链接",
+            time: "现在",
+            iconName: "safari.fill",
+            headerColor: Color(red: 0.04, green: 0.50, blue: 0.95),
+            preview: "https://api.totapp.com/admin/accounts",
+            footer: "api.totapp.com/admin/accounts",
+            linkTitle: "api.totapp.com",
+            linkSubtitle: "api.totapp.com/admin/accounts"
+        )
+    ]
+}
+
+extension HistoryPreviewType {
+    init(_ type: ClipboardItemType) {
+        switch type {
+        case .text:
+            self = .text
+        case .link:
+            self = .link
+        case .image:
+            self = .image
+        case .color:
+            self = .color
+        case .file:
+            self = .file
+        }
+    }
+}
