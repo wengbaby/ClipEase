@@ -244,12 +244,12 @@ final class HistoryPreviewWindowController {
         contentLoadTask = nil
         contentConfiguration = nil
         isContentReady = false
-        parentWindow?.makeKey()
         (panel as? HistoryPreviewPanel)?.onKeyStateChange?(false)
         (panel as? HistoryPreviewPanel)?.onEscape = nil
         guard let panel, panel.isVisible else {
             isAttachedClosing = false
             panel?.orderOut(nil)
+            parentWindow?.makeKey()
             return
         }
 
@@ -271,6 +271,7 @@ final class HistoryPreviewWindowController {
             panel?.contentView?.layer?.opacity = 0
             panel?.contentView?.layer?.transform = CATransform3DIdentity
             panel?.orderOut(nil)
+            parentWindow?.makeKey()
             panel?.contentView = NSView()
             panel?.contentView?.alphaValue = 1
         }

@@ -34,6 +34,8 @@ close_body = source[close_start:close_end]
 
 if "guard self?.attachedAnimationGeneration == animationGeneration" not in close_body:
     raise SystemExit("Attached close completion must ignore stale close animations after a new show.")
+if "parentWindow?.makeKey()" in close_body[:close_body.index("guard let panel, panel.isVisible else")]:
+    raise SystemExit("Attached preview close must not make the parent window key before the preview is hidden.")
 
 completion_start = close_body.index("} completionHandler:")
 completion_body = close_body[completion_start:]
@@ -46,6 +48,11 @@ if min(alpha_zero, layer_opacity_zero, content_clear, order_out) == -1:
     raise SystemExit("Attached close completion must hide view alpha, layer opacity, clear, and order out the panel.")
 if not (alpha_zero < layer_opacity_zero < order_out < content_clear):
     raise SystemExit("Attached close completion must hide and order out the old tiny content before clearing it.")
+restore_key = completion_body.find("parentWindow?.makeKey()")
+if restore_key == -1:
+    raise SystemExit("Attached preview close must restore parent key status only after the preview is ordered out.")
+if not (order_out < restore_key):
+    raise SystemExit("Attached preview close must order out before restoring the parent window key status.")
 
 animation_start = close_body.index("NSAnimationContext.runAnimationGroup")
 animation_body = close_body[animation_start:completion_start]
