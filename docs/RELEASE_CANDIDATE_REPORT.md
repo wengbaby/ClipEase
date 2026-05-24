@@ -2,7 +2,7 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前收口包为 `2.3.59(260524.1828)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.0.0(260519.2258)` 为 V2 大版本切线包；当前收口包为 `2.3.60(260524.1837)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布候选冻结。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序；当前也已移除主窗口更多菜单中的“开发测试”入口，并完成帮助文案与设置页保存期限选中态 polish。冻结后不再新增 V2 功能，只接受阻塞 bug、崩溃和发布包风险修复。
 
@@ -24,7 +24,7 @@
 - `./scripts/build-dmg.sh`：PASS，已生成 `dist/ClipEase-2.3.2-260523.0437.dmg`，SHA-256 `e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - DMG 挂载结构验收：PASS，根目录包含 `ClipEase.app` 和 `Applications` 快捷入口，`ClipEase.app` 版本为 `2.3.2 (260523.0437)`，可执行文件存在且有执行权限
 - DMG 内 App 启动验收：PASS，从只读挂载卷启动 `ClipEase.app --show-settings`，进程正常存活，System Events 可见进程 `ClipEase` 和 1 个设置窗口；验收后已关闭 release App、卸载 DMG，并恢复开发包运行
-- `scripts/build-app.sh --run`：通过；当前运行包为 `2.3.59 (260524.1828)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `71635`
+- `scripts/build-app.sh --run`：通过；当前运行包为 `2.3.60 (260524.1837)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `78736`
 - GitHub 推送：PASS，`origin/main` 已推送到 `717e760`
 - GitHub Tag：PASS，`v2.3.2-260523.0437` 已推送
 - GitHub Release：PASS，已创建 `https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`，并上传 `ClipEase-2.3.2-260523.0437.dmg`
@@ -49,10 +49,10 @@
 
 ## RC 包信息
 
-- 当前候选版本：`2.3.59`
-- 当前构建号：`260524.1828`
-- 当前 build/run：`2.3.59 (260524.1828)`
-- 当前运行进程：PID `71635`
+- 当前候选版本：`2.3.60`
+- 当前构建号：`260524.1837`
+- 当前 build/run：`2.3.60 (260524.1837)`
+- 当前运行进程：PID `78736`
 - 当前 DMG：`dist/ClipEase-2.3.2-260523.0437.dmg`
 - 当前 DMG SHA-256：`e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
 - 当前 GitHub Release：`https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`
@@ -62,6 +62,7 @@
 
 ## RC 修复记录
 
+- `2.3.60(260524.1837)`：继续修复打开预览后点击其他卡片时，预览窗口仍会被主窗口遮挡后才关闭的问题。上一轮只把 `parentWindow?.makeKey()` 后移到预览 `orderOut` 之后，但点击主窗口卡片这一动作本身会触发 AppKit 对同级窗口重新排序；由于主窗口和 attached 预览同为 `.screenSaver` level，主窗口会在同一 level 中被提到预览前面。根因是窗口 level 同级，而不是仅仅恢复 key 的时机。本轮将 attached 预览窗口 level 调整为 `NSWindow.Level.screenSaver.rawValue + 1`，让它在关闭动画期间保持位于主窗口之上；detached 预览仍通过 `configureDetachedPanel` 回到 `.normal`，不改变独立窗口行为。更新 `scripts/verify_preview_window_performance_guards.py`，要求 attached preview 必须高于 history panel，防止回退到同级。验证：新增 guard 先在旧实现下失败，修复后通过；全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`python3 scripts/smoke_check.py` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --run` 通过。最终运行包 `2.3.60 (260524.1837)`，PID `78736`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_18-38-41.jsonl` 显示 `history.store.loadStartupPage` 约 `5.66ms`、`history.store.initialize` 约 `6.32ms`、`preview.rebuild.background` 约 `3.25ms`、`preview.rebuild.apply` 约 `0.11ms`、`search.applyResults` 约 `0.008ms`，稳定后主线程 latency 约 `0.03ms`。
 - `2.3.59(260524.1828)`：修复打开预览后点击其他卡片时，预览窗口先被主窗口遮挡后才关闭的问题。根因是 `HistoryPreviewWindowController.close(allowDetached:)` 在关闭开始时立即 `parentWindow?.makeKey()`，点击卡片触发 close 时主窗口先成为 key 并被 AppKit 提到前面，而预览窗口尚在关闭动画中未 `orderOut`，因此出现主窗口盖住仍可见预览的视觉顺序错误。本轮将父窗口恢复 key 的时机后移：可见预览先淡出并 `orderOut`，之后才 `parentWindow?.makeKey()`；不可见分支也保持先 `orderOut` 再恢复父窗口 key。更新 `scripts/verify_preview_lifecycle_race_guards.py`，禁止 close 在预览隐藏前让父窗口成为 key，并要求 completion 中恢复父窗口 key 必须发生在 `orderOut` 之后。验证：新增 guard 先在旧实现下失败，修复后通过；全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`python3 scripts/smoke_check.py` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --run` 通过。最终运行包 `2.3.59 (260524.1828)`，PID `71635`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_18-28-59.jsonl` 显示 `history.store.loadStartupPage` 约 `8.49ms`、`history.store.initialize` 约 `9.29ms`、`preview.rebuild.background` 约 `3.35ms`、`preview.rebuild.apply` 约 `0.14ms`、`search.applyResults` 约 `0.011ms`，稳定后主线程 latency 约 `0.02ms - 0.07ms`。
 - `2.3.58(260524.1812)`：根据用户明确要求“删除缩小到卡片顶部毛点，不需要这个”，移除 attached 预览关闭时收缩到顶部锚点的小点动画。上一轮只是同步隐藏 layer opacity 来遮盖残影，但关闭路径仍调用 `prepareContentBloomLayer(panel, anchorX:isOpening:false)` 并将 layer transform 动到 `previewBloomCollapsedTransform`，产品效果上仍存在不需要的缩点逻辑。本轮保留打开时从卡片顶部绽开的动画；关闭时不再读取关闭锚点、不再调用 `prepareContentBloomLayer(... false)`、不再使用 `previewBloomCollapsedTransform`，而是先恢复正常 layer 状态，再只做 view alpha / layer opacity 淡出，completion 后 `orderOut` 并清空内容。更新 `scripts/verify_preview_bloom_animation_guards.py`、`scripts/verify_preview_lifecycle_race_guards.py` 和 `scripts/verify_preview_window_performance_guards.py`，明确禁止 close 路径回退到顶部缩点。验证：新增 guard 先在旧实现下失败，修复后通过；全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`python3 scripts/smoke_check.py` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --run` 通过。最终运行包 `2.3.58 (260524.1812)`，PID `59907`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_18-13-09.jsonl` 显示 `history.store.loadStartupPage` 约 `5.71ms`、`history.store.initialize` 约 `6.43ms`、`preview.rebuild.background` 约 `3.05ms`、`preview.rebuild.apply` 约 `0.095ms`、`search.applyResults` 约 `0.009ms`，新增文本后的 `history.store.upsert` 约 `0.72ms`、`preview.rebuild.apply` 约 `0.060ms`，稳定后主线程 latency 约 `0.03ms - 0.04ms`。
 - `2.3.57(260524.1756)`：修复关闭预览后顶部仍出现一张极小内容卡片并停留不到 1 秒的问题。根因是 attached 预览关闭动画会先把 `contentView` 从卡片顶部锚点缩到 `scaleX 0.12 / scaleY 0.04`，再等 AppKit animation completion 执行 `orderOut` 和清空内容；SwiftUI `NSHostingView` 的 layer-backed 内容在 completion 或 layer flush 轻微延迟时，可能以缩小后的旧内容残影裸露出来。本轮保留花式绽开 / 收回 transform 动画，不改 panel frame、不重构 UI；打开时恢复 `contentView.layer.opacity = 1`，关闭动画和 completion 中同时隐藏 `contentView.alphaValue` 与 `contentView.layer.opacity`，并继续在 `orderOut` 后清空旧 `contentView`。更新 `scripts/verify_preview_lifecycle_race_guards.py` 和 `scripts/verify_preview_bloom_animation_guards.py`，守卫关闭路径必须隐藏 layer opacity 且不能回退到整窗 alpha、frame 位移、Paste-like zoom 或浮层抬起动画。验证：新增 guard 先在旧实现下失败，修复后通过；全量 `scripts/verify_*guards.py` 通过，`swift build` 通过，`python3 scripts/smoke_check.py` 通过，`swift test` 已执行但项目当前无 Tests target，`./scripts/build-app.sh --run` 通过。最终运行包 `2.3.57 (260524.1756)`，PID `50816`；最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_17-56-59.jsonl` 显示 `history.store.loadStartupPage` 约 `6.20ms`、`history.store.initialize` 约 `6.72ms`、`preview.rebuild.background` 约 `2.35ms`、`preview.rebuild.apply` 约 `0.09ms`、`search.applyResults` 约 `0.010ms`，稳定后主线程 latency 约 `0.03ms - 0.06ms`。

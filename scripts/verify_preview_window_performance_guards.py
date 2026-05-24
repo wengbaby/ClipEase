@@ -118,6 +118,8 @@ def main() -> None:
             and "panel?.isVisible == true" in controller
             and "var isRecordingSuppressionActive: Bool" in controller,
             "controller must distinguish attached previews from detached windows")
+    require("panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)" in configure_attached,
+            "attached preview must sit one level above the history panel so card clicks cannot cover it before close")
     require("configureDetachedPanel(panel)" in complete_initial_drag
             and "panel.level = .normal" in controller
             and "panel.hasShadow = true" in controller

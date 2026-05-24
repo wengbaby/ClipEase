@@ -393,7 +393,7 @@ final class HistoryPreviewWindowController {
     }
 
     private func configureAttachedPanel(_ panel: NSPanel) {
-        panel.level = .screenSaver
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.hasShadow = false
         panel.isMovable = false
