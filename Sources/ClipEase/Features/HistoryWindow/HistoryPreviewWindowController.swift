@@ -26,7 +26,7 @@ final class HistoryPreviewWindowController {
     private let deferredContentLoadDelay: UInt64 = 50_000_000
     private let bloomOpenDuration: TimeInterval = 0.28
     private let bloomCloseDuration: TimeInterval = 0.18
-    private let previewLiftOffset: CGFloat = 12
+    private let previewZoomScale: CGFloat = 0.86
 
     var frame: CGRect? {
         panel?.frame
@@ -186,9 +186,7 @@ final class HistoryPreviewWindowController {
     }
 
     private var previewBloomCollapsedTransform: CATransform3D {
-        var transform = CATransform3DMakeTranslation(0, -previewLiftOffset, 0)
-        transform = CATransform3DScale(transform, 0.94, 0.90, 1)
-        return transform
+        CATransform3DMakeScale(previewZoomScale, previewZoomScale, 1)
     }
 
     private func updateLayerAnchorPoint(_ layer: CALayer, anchorPoint: CGPoint) {
