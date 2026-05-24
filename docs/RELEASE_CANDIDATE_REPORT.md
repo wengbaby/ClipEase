@@ -2,14 +2,14 @@
 
 ## 当前结论
 
-轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.3.63(260524.2103)`。
+轻贴 ClipEase 第二版已正式切到 `2.x` 版本线。此前 V2 开发和验收包曾沿用 `1.0.x` patch 线推进，现已按项目规则完成大版本开发 `+1` 收口：`2.3.63(260524.2132)`。
 
 当前结论：第二版大部分核心功能已完成并进入发布候选冻结。当前 RC 已纳入 SQLite-only 新基线、无收藏、无管理模式、备份导入安全修复、加入分组 picker、历史卡片 selection / focus / right-click / border 修复、Stage 8 主窗口体验收口、Stage 9 文件卡片 / Quick Look / 文件引用 pasteboard / 基础操作 / 拖出 / 粘贴 fallback，以及 2026-05-18 至 2026-05-19 的颜色与图标、分组重命名、App 图标和默认色板收口。用户已确认最终发布前人工 UI 验收项通过，包括颜色与图标入口、Finder / Dock 图标缓存刷新、搜索展开 / 收起、授权提示和 ESC 关闭顺序；当前也已移除主窗口更多菜单中的“开发测试”入口，并完成帮助文案与设置页保存期限选中态 polish。冻结后不再新增 V2 功能，只接受阻塞 bug、崩溃和发布包风险修复。
 
 ## 自动检查
 
 - `swift build`：通过；Stage 9 `.file` 最小编译 fallback 后已恢复通过
-- `scripts/smoke_check.py`：通过，已对齐 `2.3.63(260524.2103)`
+- `scripts/smoke_check.py`：通过，已对齐 `2.3.63(260524.2132)`
 - `python3 scripts/benchmark_history_search_performance.py`：PASS，1k / 10k 混合历史样本、中文查询、类型 / 来源过滤、分组排序和 10k source signature 构造均在阈值内
 - `python3 scripts/verify_help_and_retention_polish.py`：PASS，帮助文案保持简洁，设置页保存期限选中态为统一蓝色背景
 - `python3 scripts/verify_no_visible_debug_menu.py`：PASS，主窗口更多菜单不再暴露“开发测试”，设置页隐藏性能测试数据入口保留
@@ -21,14 +21,14 @@
 - `python3 scripts/verify_stage9_file_basic_actions.py`：PASS
 - `python3 scripts/verify_stage9_file_dragout_first_batch.py`：PASS
 - `python3 scripts/final_release_gate.py`：PASS，基于当前 `.build/ClipEase.app` 执行最终发布门禁，不重新编译、不递增版本；已覆盖 smoke、发布文档、帮助 / 设置、调试菜单、搜索性能、卡片点击 / 拖拽、预览、音效、Stage 9 文件卡片和 `git diff --check`
-- `./scripts/build-dmg.sh`：PASS，已生成 `dist/ClipEase-2.3.2-260523.0437.dmg`，SHA-256 `e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
-- DMG 挂载结构验收：PASS，根目录包含 `ClipEase.app` 和 `Applications` 快捷入口，`ClipEase.app` 版本为 `2.3.2 (260523.0437)`，可执行文件存在且有执行权限
-- DMG 内 App 启动验收：PASS，从只读挂载卷启动 `ClipEase.app --show-settings`，进程正常存活，System Events 可见进程 `ClipEase` 和 1 个设置窗口；验收后已关闭 release App、卸载 DMG，并恢复开发包运行
-- `scripts/build-app.sh --run`：通过；当前运行包为 `2.3.63 (260524.2103)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `64846`
+- `./scripts/build-dmg.sh`：PASS，已生成 `dist/ClipEase-2.3.63-260524.2132.dmg`，SHA-256 `212e5240349e6cd9cced77ae2e32bac345152d3eb9b94f1d0c225acd50cfc20b`
+- DMG 挂载结构验收：PASS，根目录包含 `ClipEase.app` 和 `Applications` 快捷入口，`ClipEase.app` 版本为 `2.3.63 (260524.2132)`，可执行文件存在且有执行权限
+- DMG 内 App 启动验收：PASS，从只读挂载卷启动 `ClipEase.app --show-settings`，进程正常存活，System Events 可见进程 `ClipEase`；验收后已关闭 release App 并卸载 DMG
+- `scripts/build-app.sh --run`：通过；当前运行包为 `2.3.63 (260524.2132)`，App bundle 启动方式已由 `scripts/build-app.sh --run` 固化；当前运行 PID `79949`
 - GitHub 推送：PASS，`origin/main` 已推送到 `717e760`
-- GitHub Tag：PASS，`v2.3.2-260523.0437` 已推送
-- GitHub Release：PASS，已创建 `https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`，并上传 `ClipEase-2.3.2-260523.0437.dmg`
-- Release 资产回验：PASS，通过 GitHub Release Asset API 下载资产 `427527274`，大小 `3487056` 字节，SHA-256 与本地 DMG 一致
+- GitHub Tag：待本轮发布后回填
+- GitHub Release：待本轮发布后回填
+- Release 资产回验：待本轮发布后回填
 
 ## 手动回归
 
@@ -50,18 +50,19 @@
 ## RC 包信息
 
 - 当前候选版本：`2.3.63`
-- 当前构建号：`260524.2103`
-- 当前 build/run：`2.3.63 (260524.2103)`
-- 当前运行进程：PID `64846`
-- 当前 DMG：`dist/ClipEase-2.3.2-260523.0437.dmg`
-- 当前 DMG SHA-256：`e1f773a68ded47ced6f5d0d834f3f0f374a2e13c470b199da750d6aa2e29e245`
-- 当前 GitHub Release：`https://github.com/wengbaby/ClipEase/releases/tag/v2.3.2-260523.0437`
-- 当前 GitHub Release Asset ID：`427527274`
+- 当前构建号：`260524.2132`
+- 当前 build/run：`2.3.63 (260524.2132)`
+- 当前运行进程：PID `79949`
+- 当前 DMG：`dist/ClipEase-2.3.63-260524.2132.dmg`
+- 当前 DMG SHA-256：`212e5240349e6cd9cced77ae2e32bac345152d3eb9b94f1d0c225acd50cfc20b`
+- 当前 GitHub Release：待本轮发布后回填
+- 当前 GitHub Release Asset ID：待本轮发布后回填
 - 冻结基线提交：`912cbb1 docs: freeze v2 release candidate`；后续文档提交和推送状态以 `git log -1 --oneline` 与远端 `main` 为准
 - 当前状态：V2 发布候选冻结；不再新增功能，只接受阻塞 bug、崩溃和发布包风险修复。后续如继续修复阻塞 bug，使用 patch 规则，并在本报告中追加记录。
 
 ## RC 修复记录
 
+- `2.3.63(260524.2132)`：发布前重新运行开发包以恢复本机测试环境，并对齐当前源码 `Info.plist` 与 `.build/ClipEase.app` 版本。验证：`python3 scripts/smoke_check.py`、`python3 scripts/verify_stage9_file_capture_first_batch.py` 和 `python3 scripts/final_release_gate.py` 通过；`./scripts/build-dmg.sh` 生成 `dist/ClipEase-2.3.63-260524.2132.dmg`，SHA-256 `212e5240349e6cd9cced77ae2e32bac345152d3eb9b94f1d0c225acd50cfc20b`；`hdiutil verify`、挂载结构、版本号、可执行权限和只读 DMG 启动验收通过。当前运行包 `2.3.63 (260524.2132)`，PID `79949`。最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_21-32-39.jsonl` 显示 `history.store.loadStartupPage` 约 `5.67ms`、`history.store.initialize` 约 `6.23ms`、`preview.rebuild.background` 约 `3.58ms`、`preview.rebuild.apply` 约 `0.068ms`、`search.applyResults` 约 `0.007ms`，稳定后主线程 latency 约 `0.03ms - 0.40ms`。
 - `2.3.63(260524.2103)`：修复卡片 hover 朦胧感和快速划过后旧卡片状态残留。根因是 `HistoryCardView` 内部仍有一层 `Color.white.opacity(...)` 覆盖层，悬浮 / 按住时会让卡片变白发雾；同时 `HistoryWindowView` 使用 `hoveredCardIDs` / `pressedCardIDs` 集合保存多个卡片状态，快速跨过多张卡片时如果某些 `mouseExited` 事件未及时回调，会留下多张仍处于放大 / 雾化状态的卡片。本轮删除卡片内部白色覆盖层，保留外层整体 `scale` 放大作为唯一 hover 反馈；将 hover / press 状态从 `Set` 改为单一 `hoveredCardID` / `pressedCardID`，新的进入事件会替换旧卡片，离开事件只清理当前匹配卡片，防止旧卡片残留。更新 `scripts/verify_card_click_performance_guards.py`，禁止回退到多 ID 集合和白色雾化覆盖层。验证：新增 guard 先在旧实现下失败，修复后通过；全量 `scripts/verify_*guards.py`、`python3 scripts/verify_card_drag_visuals.py`、`python3 scripts/verify_stage9_file_dragout_first_batch.py`、`swift build`、`python3 scripts/smoke_check.py` 通过；`swift test` 已执行但项目当前无 Tests target。`./scripts/build-app.sh --bump none --run` 通过并启动 `2.3.63 (260524.2103)`，PID `64846`。最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_21-04-26.jsonl` 显示 `history.store.loadStartupPage` 约 `9.32ms`、`history.store.initialize` 约 `10.02ms`、`preview.rebuild.background` 约 `3.52ms`、`preview.rebuild.apply` 约 `0.089ms`、`search.applyResults` 约 `0.008ms`，稳定后主线程 latency 约 `0.02ms - 2.40ms`。
 - `2.3.63(260524.2045)`：修复卡片交互反馈和记忆选中位置。第一，选中 / 悬浮 / 按住卡片不再使用外层 `.shadow`，彻底去掉卡片周围的一圈阴影；选中卡片改为 `scale 1.025`，悬浮 `scale 1.04`，按住 `scale 1.045`，保留边框、状态层和 zIndex 以形成更明显但不带阴影的差异化。第二，卡片 tracking area 改为 `.activeAlways + .mouseMoved + .enabledDuringMouseDrag`，并统一通过 `resetTransientInteractionState()` 清理 hover / press，避免鼠标快速划过后状态残留。第三，拖拽仍按上一轮思路分阶段：主窗口内只更新浮层卡片和待拖拽 payload，离开轻贴主窗口后才启动 native drag，避免触发后面的应用。第四，记住用户选中的卡片和位置时，不再允许隐藏窗口期间的预览重建把 fallback 第一张写回 `history.lastSelectedItemID`；选择 fallback 现在优先使用 `rememberedSelectionFallbackID()`，再回退到第一张。更新 `scripts/verify_card_click_performance_guards.py`、`scripts/verify_history_card_selection_clip_guards.py`、`scripts/verify_history_reopen_stability_guards.py`、`scripts/verify_card_drag_visuals.py` 和 `scripts/verify_stage9_file_dragout_first_batch.py`。验证：全量 `scripts/verify_*guards.py`、`python3 scripts/verify_card_drag_visuals.py`、`python3 scripts/verify_stage9_file_dragout_first_batch.py`、`swift build`、`python3 scripts/smoke_check.py` 通过；`swift test` 已执行但项目当前无 Tests target。`./scripts/build-app.sh --bump none --run` 通过并启动 `2.3.63 (260524.2045)`，PID `55760`。最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_20-46-39.jsonl` 显示 `history.store.loadStartupPage` 约 `8.76ms`、`history.store.initialize` 约 `9.44ms`、`preview.rebuild.background` 约 `3.50ms`、`preview.rebuild.apply` 约 `0.14ms`、`search.applyResults` 约 `0.010ms`，稳定后主线程 latency 约 `0.03ms - 0.77ms`。
 - `2.3.63(260524.2011)`：根据用户确认的方案，新增“拖拽中的浮层卡片”：原卡片继续留在 10 万条虚拟化列表中，拖动时额外用 `CardDragPreviewWindowController` 创建置顶、透明背景、忽略鼠标事件的独立 `NSPanel` 渲染卡片副本。根因是直接依赖 AppKit drag image 难以同时满足“卡片区域内放大、离开卡片区域缩小、离开主窗口后主窗口关闭但卡片继续跟随鼠标”的产品要求，也容易把视觉状态和列表本体绑定，影响滚动 / diff / 点击逻辑。本轮将真实拖拽数据和视觉反馈分离：AppKit 拖拽继续使用原 `NSDraggingItem`、文件 URL / 图片 / 文本 pasteboard writer 和拖出行为；系统 drag image 改为 `1x1` 透明图，视觉由独立浮层卡片负责。拖拽过程中 `draggingSession(_:movedTo:)` 持续按屏幕坐标更新浮层，鼠标在原卡片区域内使用 `scale 1.06`，离开卡片区域后使用 `scale 0.48`，同一状态内移动不做动画以保证跟手，大小状态切换只用 `0.08s` 动画；鼠标离开主窗口时调用 `closeWindowForCardDrag()` 关闭主窗口，但浮层保持到拖拽结束。更新并强制纳入本地提交 `scripts/verify_card_drag_visuals.py`，守卫浮层窗口、透明 AppKit drag image、窗口退出关闭和真实拖拽路径。验证：`python3 scripts/verify_card_drag_visuals.py`、`python3 scripts/verify_stage9_file_dragout_first_batch.py`、`python3 scripts/verify_card_click_performance_guards.py` 和 `swift build` 通过；`./scripts/build-app.sh --bump none --run` 通过并启动 `2.3.63 (260524.2011)`，PID `34006`。最新日志 `/Users/wpc/Library/Application Support/ClipEase/PerformanceLogs/2026-05-24_20-12-30.jsonl` 显示 `history.store.loadStartupPage` 约 `12.91ms`、`history.store.initialize` 约 `13.68ms`、`preview.rebuild.background` 约 `3.87ms`、`preview.rebuild.apply` 约 `0.16ms`、`search.applyResults` 约 `0.007ms`、`history.store.searchIndexWarmup` 约 `5.08ms`，稳定后主线程 latency 约 `0.02ms - 0.08ms`。
