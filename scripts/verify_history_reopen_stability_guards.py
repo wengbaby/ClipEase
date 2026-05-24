@@ -10,7 +10,7 @@ store_text = store.read_text(encoding="utf-8")
 
 
 required = [
-    "private let selectedCardTopContentInset: CGFloat = 0",
+    "private let selectedCardTopContentInset: CGFloat = 6",
     "private var focusedHistoryRailVisibleWindow: Range<Int>?",
     "pendingLatestFocusItemID ?? pendingProgrammaticJumpItemID ?? pendingItemScrollID ?? selectedItemID",
     "private func historyRailWindow(aroundFocusedIndex focusedIndex: Int, itemCount: Int) -> Range<Int>",

@@ -6,21 +6,24 @@ struct HistoryCardView: View, Equatable {
     let searchQuery: String
     let shortcutNumber: Int?
     let isShortcutOverlayVisible: Bool
+    let isHovered: Bool
+    let isPressed: Bool
     let entranceOffset: CGFloat
     let onClick: () -> Void
     let onDoubleClick: () -> Void
     let onRightMouseDown: () -> Void
     let onMenu: () -> NSMenu
     let onFileDragStatus: (String) -> Void
-
-    @State private var isHovered = false
-    @State private var isPressed = false
+    let onHoverChanged: (Bool) -> Void
+    let onPressChanged: (Bool) -> Void
 
     nonisolated static func == (lhs: HistoryCardView, rhs: HistoryCardView) -> Bool {
         lhs.item == rhs.item &&
             lhs.searchQuery == rhs.searchQuery &&
             lhs.shortcutNumber == rhs.shortcutNumber &&
             lhs.isShortcutOverlayVisible == rhs.isShortcutOverlayVisible &&
+            lhs.isHovered == rhs.isHovered &&
+            lhs.isPressed == rhs.isPressed &&
             lhs.entranceOffset == rhs.entranceOffset
     }
 
@@ -82,13 +85,7 @@ struct HistoryCardView: View, Equatable {
                 .fill(Color.white.opacity(isPressed ? 0.24 : (isHovered ? 0.14 : 0)))
                 .allowsHitTesting(false)
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.white.opacity(isPressed ? 0.46 : (isHovered ? 0.28 : 0)), lineWidth: isPressed ? 2 : 1)
-                .allowsHitTesting(false)
-        }
         .offset(y: entranceOffset)
-        .scaleEffect(isPressed ? 0.985 : (isHovered ? 1.012 : 1))
         .animation(.easeOut(duration: 0.10), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
         .overlay(
@@ -104,12 +101,8 @@ struct HistoryCardView: View, Equatable {
                 onPartial: {
                     onFileDragStatus("已拖出可用文件")
                 },
-                onHoverChanged: { isHovered in
-                    self.isHovered = isHovered
-                },
-                onPressChanged: { isPressed in
-                    self.isPressed = isPressed
-                }
+                onHoverChanged: onHoverChanged,
+                onPressChanged: onPressChanged
             )
         )
     }

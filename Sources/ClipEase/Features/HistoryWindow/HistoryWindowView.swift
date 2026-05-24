@@ -97,6 +97,8 @@ struct HistoryWindowView: View {
     @State private var enteringItemClearTask: Task<Void, Never>?
     @State private var didRestoreRememberedViewport = false
     @State private var itemScrollRequestID = UUID()
+    @State private var hoveredCardIDs: Set<HistoryPreviewItem.ID> = []
+    @State private var pressedCardIDs: Set<HistoryPreviewItem.ID> = []
     @State private var searchInteractionFrames: [CGRect] = []
     @State private var searchControlScreenFrame: CGRect?
     @State private var searchInteractionScreenFrames: [CGRect] = []
@@ -113,7 +115,7 @@ struct HistoryWindowView: View {
     private let allHistoryGroupColor = Color(red: 0.18, green: 0.55, blue: 1.0)
     private let groupAppearancePopoverWidth: CGFloat = 304
     private let groupAppearanceIconGridHeight: CGFloat = 178
-    private let selectedCardTopContentInset: CGFloat = 0
+    private let selectedCardTopContentInset: CGFloat = 6
     private let horizontalContentPadding: CGFloat = 28
     private let horizontalCardSpacing: CGFloat = 20
     private let historyCardWidth: CGFloat = 250
@@ -526,6 +528,8 @@ struct HistoryWindowView: View {
             latestFocusRetryTask?.cancel()
             hiddenResourceCheckpointTask?.cancel()
             enteringItemClearTask?.cancel()
+            hoveredCardIDs.removeAll()
+            pressedCardIDs.removeAll()
             HistoryScrollCoordinator.shared.onOffsetChange = nil
         }
         .onChange(of: store.items) { newItems in
@@ -676,12 +680,16 @@ struct HistoryWindowView: View {
     @ViewBuilder
     private func historyCard(_ item: HistoryPreviewItem) -> some View {
         let isSelected = selectedItemID == item.id
+        let isHovered = hoveredCardIDs.contains(item.id)
+        let isPressed = pressedCardIDs.contains(item.id)
 
         HistoryCardView(
             item: item,
             searchQuery: searchText,
             shortcutNumber: shortcutNumber(for: item.id),
             isShortcutOverlayVisible: isCommandKeyPressed || inputState.isCommandKeyPressed,
+            isHovered: isHovered,
+            isPressed: isPressed,
             entranceOffset: enteringItemIDs.contains(item.id) ? -10 : 0,
             onClick: {
                 selectCardForPrimaryClick(item)
@@ -696,28 +704,52 @@ struct HistoryWindowView: View {
             onMenu: {
                 cardMenu(for: item)
             },
-            onFileDragStatus: showStatus
+            onFileDragStatus: showStatus,
+            onHoverChanged: { isHovered in
+                setCardHover(item.id, isHovered: isHovered)
+            },
+            onPressChanged: { isPressed in
+                setCardPress(item.id, isPressed: isPressed)
+            }
         )
         .equatable()
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(
-                    isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.black.opacity(0.08),
+                    isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : (isHovered || isPressed ? Color.clear : Color.black.opacity(0.08)),
                     lineWidth: isSelected ? 4 : 1
                 )
                 .allowsHitTesting(false)
         }
         .shadow(
-            color: .black.opacity(isSelected ? 0.14 : 0),
-            radius: isSelected ? 12 : 0,
+            color: .black.opacity(isSelected ? 0.14 : ((isHovered || isPressed) ? 0.16 : 0)),
+            radius: isSelected ? 12 : ((isHovered || isPressed) ? 14 : 0),
             x: 0,
-            y: isSelected ? 5 : 0
+            y: isSelected ? 5 : ((isHovered || isPressed) ? 7 : 0)
         )
-        .scaleEffect(1)
+        .scaleEffect(isPressed ? 0.985 : (isHovered ? 1.012 : 1), anchor: .center)
         .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isSelected)
+        .animation(.easeOut(duration: 0.10), value: isHovered)
+        .animation(.easeOut(duration: 0.06), value: isPressed)
         .id(item.id)
         .contentShape(Rectangle())
-        .zIndex(isSelected ? 1 : 0)
+        .zIndex(isPressed ? 4 : (isHovered ? 3 : (isSelected ? 2 : 0)))
+    }
+
+    private func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
+        if isHovered {
+            hoveredCardIDs.insert(id)
+        } else {
+            hoveredCardIDs.remove(id)
+        }
+    }
+
+    private func setCardPress(_ id: HistoryPreviewItem.ID, isPressed: Bool) {
+        if isPressed {
+            pressedCardIDs.insert(id)
+        } else {
+            pressedCardIDs.remove(id)
+        }
     }
 
     private func playEntranceAnimation(for ids: Set<ClipboardItem.ID>) {
