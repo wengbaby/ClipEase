@@ -97,8 +97,8 @@ struct HistoryWindowView: View {
     @State private var enteringItemClearTask: Task<Void, Never>?
     @State private var didRestoreRememberedViewport = false
     @State private var itemScrollRequestID = UUID()
-    @State private var hoveredCardIDs: Set<HistoryPreviewItem.ID> = []
-    @State private var pressedCardIDs: Set<HistoryPreviewItem.ID> = []
+    @State private var hoveredCardID: HistoryPreviewItem.ID?
+    @State private var pressedCardID: HistoryPreviewItem.ID?
     @State private var searchInteractionFrames: [CGRect] = []
     @State private var searchControlScreenFrame: CGRect?
     @State private var searchInteractionScreenFrames: [CGRect] = []
@@ -528,8 +528,8 @@ struct HistoryWindowView: View {
             latestFocusRetryTask?.cancel()
             hiddenResourceCheckpointTask?.cancel()
             enteringItemClearTask?.cancel()
-            hoveredCardIDs.removeAll()
-            pressedCardIDs.removeAll()
+            hoveredCardID = nil
+            pressedCardID = nil
             HistoryScrollCoordinator.shared.onOffsetChange = nil
         }
         .onChange(of: store.items) { newItems in
@@ -680,8 +680,8 @@ struct HistoryWindowView: View {
     @ViewBuilder
     private func historyCard(_ item: HistoryPreviewItem) -> some View {
         let isSelected = selectedItemID == item.id
-        let isHovered = hoveredCardIDs.contains(item.id)
-        let isPressed = pressedCardIDs.contains(item.id)
+        let isHovered = hoveredCardID == item.id
+        let isPressed = pressedCardID == item.id
         let cardScale: CGFloat = isPressed ? 1.045 : (isHovered ? 1.04 : (isSelected ? 1.025 : 1))
 
         HistoryCardView(
@@ -740,17 +740,17 @@ struct HistoryWindowView: View {
 
     private func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
         if isHovered {
-            hoveredCardIDs.insert(id)
-        } else {
-            hoveredCardIDs.remove(id)
+            hoveredCardID = id
+        } else if hoveredCardID == id {
+            hoveredCardID = nil
         }
     }
 
     private func setCardPress(_ id: HistoryPreviewItem.ID, isPressed: Bool) {
         if isPressed {
-            pressedCardIDs.insert(id)
-        } else {
-            pressedCardIDs.remove(id)
+            pressedCardID = id
+        } else if pressedCardID == id {
+            pressedCardID = nil
         }
     }
 

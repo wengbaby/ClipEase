@@ -55,22 +55,25 @@ required = [
     ".equatable()",
     "private func historyCard(_ item: HistoryPreviewItem)",
     "let isSelected = selectedItemID == item.id",
-    "@State private var hoveredCardIDs: Set<HistoryPreviewItem.ID> = []",
-    "@State private var pressedCardIDs: Set<HistoryPreviewItem.ID> = []",
-    "let isHovered = hoveredCardIDs.contains(item.id)",
-    "let isPressed = pressedCardIDs.contains(item.id)",
+    "@State private var hoveredCardID: HistoryPreviewItem.ID?",
+    "@State private var pressedCardID: HistoryPreviewItem.ID?",
+    "let isHovered = hoveredCardID == item.id",
+    "let isPressed = pressedCardID == item.id",
     "isHovered: isHovered",
     "isPressed: isPressed",
     "setCardHover(item.id, isHovered: isHovered)",
     "setCardPress(item.id, isPressed: isPressed)",
     "private func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool)",
     "private func setCardPress(_ id: HistoryPreviewItem.ID, isPressed: Bool)",
+    "hoveredCardID = id",
+    "if hoveredCardID == id {\n            hoveredCardID = nil",
+    "pressedCardID = id",
+    "if pressedCardID == id {\n            pressedCardID = nil",
     "let isHovered: Bool",
     "let isPressed: Bool",
     "lhs.isHovered == rhs.isHovered",
     "lhs.isPressed == rhs.isPressed",
     "private let selectedCardTopContentInset: CGFloat = 6",
-    ".fill(Color.white.opacity(isPressed ? 0.24 : (isHovered ? 0.14 : 0)))",
     "isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : (isHovered || isPressed ? Color.clear : Color.black.opacity(0.08))",
     "let cardScale: CGFloat = isPressed ? 1.045 : (isHovered ? 1.04 : (isSelected ? 1.025 : 1))",
     "color: .black.opacity(0)",
@@ -210,6 +213,9 @@ forbidden = [
     "func makeNSView(context: Context) -> NSTextView",
     "textView.layoutManager?.ensureLayout",
     "lhs.isSelected == rhs.isSelected",
+    "hoveredCardIDs",
+    "pressedCardIDs",
+    ".fill(Color.white.opacity(isPressed ? 0.24 : (isHovered ? 0.14 : 0)))",
 ]
 
 missing = [snippet for snippet in required if snippet not in text]
@@ -229,6 +235,11 @@ for snippet in forbidden:
     }:
         search_text = controller_text
     elif snippet == ".focusable()":
+        search_text = view_text
+    elif snippet in {
+        "hoveredCardIDs",
+        "pressedCardIDs",
+    }:
         search_text = view_text
     else:
         search_text = card_text

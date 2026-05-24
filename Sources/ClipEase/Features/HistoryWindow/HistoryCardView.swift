@@ -81,11 +81,6 @@ struct HistoryCardView: View, Equatable {
                     .opacity(isShortcutOverlayVisible ? 1 : 0)
             }
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(isPressed ? 0.24 : (isHovered ? 0.14 : 0)))
-                .allowsHitTesting(false)
-        }
         .offset(y: entranceOffset)
         .animation(.easeOut(duration: 0.10), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
