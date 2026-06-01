@@ -13,5 +13,10 @@ let package = Package(
             name: "ClipEase",
             path: "Sources/ClipEase"
         ),
+        .testTarget(
+            name: "ClipEaseTests",
+            dependencies: ["ClipEase"],
+            path: "Tests/ClipEaseTests"
+        ),
     ]
 )

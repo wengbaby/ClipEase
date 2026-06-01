@@ -38,21 +38,22 @@ final class PasteExecutor {
 
         switch item.type {
         case .text, .link, .color:
+            let text = pasteboardString(for: item)
+            store.skipNextClipboardText(text)
             if let richTextData = store.richTextData(for: item) {
                 pasteboard.setData(richTextData, forType: .rtf)
             }
-            guard pasteboard.setString(pasteboardString(for: item), forType: .string) else {
+            guard pasteboard.setString(text, forType: .string) else {
                 return .failed("无法写入剪贴板")
             }
-            store.addText(pasteboardString(for: item), sourceApp: .clipease)
             return .copied
         case .file:
             let fileURLs = validLocalFileURLs(for: item)
             if !fileURLs.isEmpty {
+                store.skipNextClipboardFiles(fileURLs)
                 guard pasteboard.writeObjects(fileURLs.map { $0 as NSURL }) else {
                     return .failed("无法写入文件引用到剪贴板")
                 }
-                store.addFiles(fileURLs, sourceApp: .clipease)
                 return .copied
             }
 
@@ -60,10 +61,10 @@ final class PasteExecutor {
                 return .failed("未找到文件")
             }
 
+            store.skipNextClipboardText(fallbackText)
             guard pasteboard.setString(fallbackText, forType: .string) else {
                 return .failed("无法写入文件路径到剪贴板")
             }
-            store.addText(fallbackText, sourceApp: .clipease)
             return .copiedFallbackText
         case .image:
             guard let data = store.imageData(for: item) else {
@@ -74,10 +75,10 @@ final class PasteExecutor {
                 return .failed("图片文件无法读取")
             }
 
+            store.skipNextClipboardImage(item)
             guard pasteboard.writeObjects([image]) else {
                 return .failed("无法写入图片到剪贴板")
             }
-            store.addImage(image, sourceApp: .clipease)
             return .copied
         }
     }
@@ -142,10 +143,11 @@ final class PasteExecutor {
 
     func copyPlainTextToPasteboard(_ item: ClipboardItem) -> PasteboardCopyResult {
         pasteboard.clearContents()
-        guard pasteboard.setString(pasteboardString(for: item), forType: .string) else {
+        let text = pasteboardString(for: item)
+        store.skipNextClipboardText(text)
+        guard pasteboard.setString(text, forType: .string) else {
             return .failed("无法写入剪贴板")
         }
-        store.addText(pasteboardString(for: item), sourceApp: .clipease)
         return .copied
     }
 

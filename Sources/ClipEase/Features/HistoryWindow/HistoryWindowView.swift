@@ -66,9 +66,12 @@ struct HistoryWindowView: View {
     @State private var appliedPreviewItemsMutationGeneration: UInt64 = 0
     @State private var previewItemCache: [ClipboardItem.ID: CachedHistoryPreviewItem] = [:]
     @State private var searchTask: Task<Void, Never>?
+    @State private var searchLoadMoreTask: Task<Void, Never>?
     @State private var searchGeneration: UInt64 = 0
     @State private var searchVisibilityTask: Task<Void, Never>?
     @State private var lastSearchRequestSignature: HistorySearchRequestSignature?
+    @State private var loadedSearchRepositoryResultCount = 0
+    @State private var canLoadMoreSearchResults = false
     @State private var pendingSearchTrigger = "unknown"
     @State private var preheatTask: Task<Void, Never>?
     @State private var previewFollowTask: Task<Void, Never>?
@@ -121,9 +124,10 @@ struct HistoryWindowView: View {
     private let historyCardWidth: CGFloat = 250
     private let pendingItemScrollMaxRetryCount = 6
     private let largeHistoryAnimationThreshold = 2_000
-    private let historyRailWindowBufferItemCount = 36
-    private let previewItemCacheRetainedItemCount = 320
-    private let maxSearchResultCount = 500
+    private let historyRailWindowBufferItemCount = 6
+    private let historyRailRenderedItemLimit = 20
+    private let previewItemCacheRetainedItemCount = 20
+    private let searchResultPageSize = 50
     private let hiddenResourceCheckpointMinimumInterval: CFTimeInterval = 10
     private let latestInsertedCardLeadingInset: CGFloat = 28
 
@@ -252,7 +256,18 @@ struct HistoryWindowView: View {
         let rawEnd = Int(ceil(visibleMaxX / itemStride)) + bufferItemCount + 1
         let clampedStart = min(max(0, rawStart), max(itemCount - 1, 0))
         let clampedEnd = min(itemCount, max(clampedStart + 1, rawEnd))
-        return clampedStart..<clampedEnd
+        guard clampedEnd - clampedStart > historyRailRenderedItemLimit else {
+            return clampedStart..<clampedEnd
+        }
+
+        let visibleCenter = (visibleMinX + visibleMaxX) / 2
+        let centerIndex = min(max(Int(floor(visibleCenter / itemStride)), 0), itemCount - 1)
+        let limitedStart = min(
+            max(0, centerIndex - historyRailRenderedItemLimit / 2),
+            max(0, itemCount - historyRailRenderedItemLimit)
+        )
+        let limitedEnd = min(itemCount, limitedStart + historyRailRenderedItemLimit)
+        return limitedStart..<limitedEnd
     }
 
     private func historyRailWindow(aroundFocusedIndex focusedIndex: Int, itemCount: Int) -> Range<Int> {
@@ -261,8 +276,12 @@ struct HistoryWindowView: View {
         }
 
         let clampedIndex = min(max(focusedIndex, 0), itemCount - 1)
-        let start = max(0, clampedIndex - historyRailWindowBufferItemCount)
-        let end = min(itemCount, clampedIndex + historyRailWindowBufferItemCount + 1)
+        let halfWindow = historyRailRenderedItemLimit / 2
+        let start = min(
+            max(0, clampedIndex - halfWindow),
+            max(0, itemCount - historyRailRenderedItemLimit)
+        )
+        let end = min(itemCount, start + historyRailRenderedItemLimit)
         return start..<max(start + 1, end)
     }
 
@@ -276,7 +295,11 @@ struct HistoryWindowView: View {
     }
 
     private func requestNextHistoryPageIfNeeded() {
-        store.loadMoreItemsIfNeeded(visibleUpperBound: historyRailVisibleWindow.upperBound)
+        if isUsingUnfilteredPreviewResult {
+            store.loadMoreItemsIfNeeded(visibleUpperBound: historyRailVisibleWindow.upperBound, preloadMargin: 20)
+        } else {
+            loadMoreSearchResultsIfNeeded(visibleUpperBound: historyRailVisibleWindow.upperBound)
+        }
     }
 
     private var historyRailAnimationValue: [HistoryPreviewItem.ID] {
@@ -521,6 +544,7 @@ struct HistoryWindowView: View {
             previewBuildTask?.cancel()
             previewBuildGeneration &+= 1
             searchTask?.cancel()
+            searchLoadMoreTask?.cancel()
             searchVisibilityTask?.cancel()
             preheatTask?.cancel()
             previewFollowTask?.cancel()
@@ -4694,7 +4718,7 @@ struct HistoryWindowView: View {
             searchText: currentSearchText,
             criteria: currentSearchCriteria
         )
-        let maxResultCount = usesUnfilteredSource ? nil : maxSearchResultCount
+        let maxResultCount = usesUnfilteredSource ? nil : searchResultPageSize
         let requestSignature = HistorySearchRequestSignature(
             sourceIdentity: HistorySearchSourceIdentity(items: sourceItems),
             selectedGroup: currentGroup.storageValue,
@@ -4706,6 +4730,9 @@ struct HistoryWindowView: View {
             return
         }
         lastSearchRequestSignature = requestSignature
+        searchLoadMoreTask?.cancel()
+        loadedSearchRepositoryResultCount = 0
+        canLoadMoreSearchResults = false
         PerformanceDiagnosticsService.shared.record(
             "search.schedule",
             category: "search",
@@ -4721,7 +4748,10 @@ struct HistoryWindowView: View {
 
         if usesUnfilteredSource {
             searchTask = nil
+            searchLoadMoreTask = nil
             let applyStartedAt = CFAbsoluteTimeGetCurrent()
+            loadedSearchRepositoryResultCount = 0
+            canLoadMoreSearchResults = false
             applyUnfilteredPreviewResult()
             if pendingLatestFocusItemID == nil {
                 ensureSelectionInFilteredItems()
@@ -4778,7 +4808,7 @@ struct HistoryWindowView: View {
                 searchStore.searchItems(
                     ClipboardSearchQuery(
                         text: currentSearchText,
-                        limit: maxResultCount ?? maxSearchResultCount
+                        limit: maxResultCount ?? searchResultPageSize
                     )
                 )
             }
@@ -4809,7 +4839,11 @@ struct HistoryWindowView: View {
                         now: Date()
                     )
                 }
-                return HistorySearchFilterResult(items: filteredItems)
+                return HistorySearchFilterResult(
+                    items: filteredItems,
+                    repositoryResultCount: repositoryItems.count,
+                    canLoadMore: repositoryItems.count == searchResultPageSize
+                )
             }
 
             let result: HistorySearchFilterResult
@@ -4849,6 +4883,8 @@ struct HistoryWindowView: View {
                 }
                 withTransaction(transaction) {
                     applyFilteredPreviewResult(result)
+                    loadedSearchRepositoryResultCount = result.repositoryResultCount
+                    canLoadMoreSearchResults = result.canLoadMore
                     if pendingLatestFocusItemID == nil {
                         ensureSelectionInFilteredItems()
                     }
@@ -4900,6 +4936,81 @@ struct HistoryWindowView: View {
                     ]
                 )
                 PerformanceDiagnosticsService.shared.recordResourceCheckpoint("search.apply.complete")
+            }
+        }
+    }
+
+    private func loadMoreSearchResultsIfNeeded(visibleUpperBound: Int, preloadMargin: Int = 12) {
+        guard canLoadMoreSearchResults,
+              searchLoadMoreTask == nil,
+              visibleUpperBound + preloadMargin >= filteredPreviewItems.count else {
+            return
+        }
+
+        let currentSearchText = searchText
+        let currentSearchCriteria = searchCriteria
+        let currentGroup: HistoryGroupSelection = isSearchVisible ? .all : selectedGroup
+        guard !Self.usesUnfilteredSearchSource(
+            selectedGroup: currentGroup,
+            searchText: currentSearchText,
+            criteria: currentSearchCriteria
+        ) else {
+            return
+        }
+
+        let generation = searchGeneration
+        let offset = loadedSearchRepositoryResultCount
+        let existingItems = filteredPreviewItems
+        let searchStore = store
+        searchLoadMoreTask = Task(priority: .userInitiated) {
+            let repositoryItems = await Task.detached(priority: .userInitiated) {
+                searchStore.searchItems(
+                    ClipboardSearchQuery(
+                        text: currentSearchText,
+                        limit: searchResultPageSize,
+                        offset: offset
+                    )
+                )
+            }.value
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let repositoryPreviewItems = repositoryItems.map { HistoryPreviewItem(item: $0) }
+            let filteredPage: [HistoryPreviewItem]
+            do {
+                filteredPage = try Self.filterItems(
+                    repositoryPreviewItems,
+                    selectedGroup: currentGroup,
+                    searchText: currentSearchText,
+                    criteria: currentSearchCriteria,
+                    maxResultCount: searchResultPageSize,
+                    now: Date()
+                )
+            } catch {
+                await MainActor.run {
+                    searchLoadMoreTask = nil
+                }
+                return
+            }
+
+            await MainActor.run {
+                guard searchGeneration == generation else {
+                    return
+                }
+
+                let existingIDs = Set(existingItems.map(\.id))
+                let mergedItems = existingItems + filteredPage.filter { !existingIDs.contains($0.id) }
+                applyFilteredPreviewResult(HistorySearchFilterResult(
+                    items: mergedItems,
+                    repositoryResultCount: offset + repositoryItems.count,
+                    canLoadMore: repositoryItems.count == searchResultPageSize
+                ))
+                loadedSearchRepositoryResultCount = offset + repositoryItems.count
+                canLoadMoreSearchResults = repositoryItems.count == searchResultPageSize
+                searchLoadMoreTask = nil
+                schedulePreheatVisibleAssets()
             }
         }
     }
@@ -6179,11 +6290,15 @@ private struct HistorySearchRequestSignature: Equatable {
 
 private struct HistorySearchFilterResult: Sendable {
     let items: [HistoryPreviewItem]
+    let repositoryResultCount: Int
+    let canLoadMore: Bool
     let itemIDs: Set<HistoryPreviewItem.ID>
     let itemIndexByID: [HistoryPreviewItem.ID: Int]
 
-    init(items: [HistoryPreviewItem]) {
+    init(items: [HistoryPreviewItem], repositoryResultCount: Int? = nil, canLoadMore: Bool = false) {
         self.items = items
+        self.repositoryResultCount = repositoryResultCount ?? items.count
+        self.canLoadMore = canLoadMore
         self.itemIDs = Set(items.map(\.id))
         var itemIndexByID: [HistoryPreviewItem.ID: Int] = [:]
         itemIndexByID.reserveCapacity(items.count)

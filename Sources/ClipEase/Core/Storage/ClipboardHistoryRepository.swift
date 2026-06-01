@@ -8,10 +8,12 @@ struct ClipboardHistorySnapshot: Sendable {
 struct ClipboardSearchQuery: Sendable, Equatable {
     var text: String
     var limit: Int
+    var offset: Int
 
-    init(text: String, limit: Int = 500) {
+    init(text: String, limit: Int = 500, offset: Int = 0) {
         self.text = text
         self.limit = limit
+        self.offset = max(0, offset)
     }
 }
 
@@ -70,6 +72,7 @@ extension ClipboardHistoryRepository {
 
         var result: [ClipboardItem] = []
         result.reserveCapacity(min(max(query.limit, 0), 500))
+        var skippedMatches = 0
         for item in try loadSnapshot().items {
             let searchText = [
                 item.kind,
@@ -86,6 +89,11 @@ extension ClipboardHistoryRepository {
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
 
             guard searchText.contains(normalizedQuery) else {
+                continue
+            }
+
+            if skippedMatches < query.offset {
+                skippedMatches += 1
                 continue
             }
 

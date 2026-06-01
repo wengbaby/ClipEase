@@ -251,9 +251,9 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                      clipboard_items.is_pinned DESC,
                      clipboard_items.created_at DESC,
                      COALESCE(clipboard_items.pinned_at, clipboard_items.created_at) DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            values: [.text(matchQuery), .int(query.limit)]
+            values: [.text(matchQuery), .int(query.limit), .int(query.offset)]
         )
         let ids = rows.compactMap { UUID(uuidString: $0.requiredText("id")) }
         return try loadItems(withOrderedIDs: ids, in: database)
