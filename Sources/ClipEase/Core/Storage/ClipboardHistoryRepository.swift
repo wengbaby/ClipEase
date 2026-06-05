@@ -74,21 +74,7 @@ extension ClipboardHistoryRepository {
         result.reserveCapacity(min(max(query.limit, 0), 500))
         var skippedMatches = 0
         for item in try loadSnapshot().items {
-            let searchText = [
-                item.kind,
-                item.preview,
-                item.footer,
-                item.sourceAppName,
-                item.linkTitle,
-                item.linkSubtitle,
-                item.fileReferences.map(\.displayName).joined(separator: " "),
-                item.fileReferences.map(\.path).joined(separator: " ")
-            ]
-            .compactMap { $0 }
-            .joined(separator: " ")
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-
-            guard searchText.contains(normalizedQuery) else {
+            guard item.cardSearchText.contains(normalizedQuery) else {
                 continue
             }
 
@@ -140,5 +126,24 @@ extension ClipboardHistoryRepository {
 
     func deleteAllItemsAndGroups() throws {
         try saveSnapshot(ClipboardHistorySnapshot(items: [], groups: []))
+    }
+}
+
+extension ClipboardItem {
+    var cardSearchText: String {
+        [
+            preview,
+            linkTitle,
+            linkSubtitle,
+            fileReferences.map(\.displayName).joined(separator: " "),
+            fileReferences.map(\.path).joined(separator: " "),
+            ocrText,
+            ocrEmails.joined(separator: " "),
+            ocrPhoneNumbers.joined(separator: " "),
+            ocrURLs.joined(separator: " ")
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 }

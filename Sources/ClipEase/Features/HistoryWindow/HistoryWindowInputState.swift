@@ -21,6 +21,155 @@ enum HistoryKeyboardAction: Equatable {
     case toggleRecording
     case appendSearchText(String)
     case enterFirstSearchResult
+    case focusFirstSearchResult
+}
+
+enum HistoryKeyboardShortcutPolicy {
+    static func allowsHistoryCommand(
+        _ action: HistoryKeyboardAction,
+        isTextInputActive: Bool,
+        isPreviewContentActive: Bool
+    ) -> Bool {
+        if isPreviewContentActive {
+            return action == .close
+        }
+
+        if isTextInputActive {
+            switch action {
+            case .enterFirstSearchResult, .focusFirstSearchResult:
+                return true
+            case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .selectVisibleCard, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText:
+                return false
+            }
+        }
+
+        return true
+    }
+}
+
+enum HistoryCardFocusPolicy {
+    static func isCardFocusActive(
+        selectedItemID: ClipboardItem.ID?,
+        isSearchFieldFocused: Bool
+    ) -> Bool {
+        selectedItemID != nil && !isSearchFieldFocused
+    }
+}
+
+enum HistorySearchCancelPolicy {
+    enum Action: Equatable {
+        case clearSearch
+        case closeSearchAndFocusFirstResult
+    }
+
+    static func action(hasSearchContent: Bool) -> Action {
+        hasSearchContent ? .clearSearch : .closeSearchAndFocusFirstResult
+    }
+}
+
+enum HistoryRailRenderWindowPolicy {
+    static func focusedID(
+        pendingLatestFocusItemID: ClipboardItem.ID?,
+        pendingProgrammaticJumpItemID: ClipboardItem.ID?,
+        pendingItemScrollID: ClipboardItem.ID?,
+        selectedItemID: ClipboardItem.ID?,
+        visibleRect: CGRect
+    ) -> ClipboardItem.ID? {
+        if let pendingLatestFocusItemID {
+            return pendingLatestFocusItemID
+        }
+        if let pendingProgrammaticJumpItemID {
+            return pendingProgrammaticJumpItemID
+        }
+        if let pendingItemScrollID {
+            return pendingItemScrollID
+        }
+        return nil
+    }
+
+    static func visibleWindow(
+        itemCount: Int,
+        visibleRect: CGRect,
+        itemStride: CGFloat,
+        horizontalContentPadding: CGFloat,
+        bufferItemCount: Int,
+        renderedItemLimit: Int
+    ) -> Range<Int> {
+        guard itemCount > 0 else {
+            return 0..<0
+        }
+
+        guard visibleRect.width > 0, itemStride > 0 else {
+            return 0..<min(itemCount, renderedItemLimit)
+        }
+
+        let visibleMinX = max(visibleRect.minX - horizontalContentPadding, 0)
+        guard visibleRect.width >= itemStride else {
+            let centerIndex = min(max(Int(floor(visibleMinX / itemStride)), 0), itemCount - 1)
+            let start = min(
+                max(0, centerIndex - renderedItemLimit / 2),
+                max(0, itemCount - renderedItemLimit)
+            )
+            let end = min(itemCount, start + renderedItemLimit)
+            return start..<end
+        }
+
+        let visibleMaxX = max(visibleRect.maxX - horizontalContentPadding, visibleMinX)
+        let rawStart = Int(floor(visibleMinX / itemStride)) - bufferItemCount
+        let rawEnd = Int(ceil(visibleMaxX / itemStride)) + bufferItemCount + 1
+        let clampedStart = min(max(0, rawStart), max(itemCount - 1, 0))
+        let clampedEnd = min(itemCount, max(clampedStart + 1, rawEnd))
+        guard clampedEnd - clampedStart > renderedItemLimit else {
+            return clampedStart..<clampedEnd
+        }
+
+        let visibleCenter = (visibleMinX + visibleMaxX) / 2
+        let centerIndex = min(max(Int(floor(visibleCenter / itemStride)), 0), itemCount - 1)
+        let limitedStart = min(
+            max(0, centerIndex - renderedItemLimit / 2),
+            max(0, itemCount - renderedItemLimit)
+        )
+        let limitedEnd = min(itemCount, limitedStart + renderedItemLimit)
+        return limitedStart..<limitedEnd
+    }
+
+    static func focusedWindow(
+        focusedIndex: Int,
+        itemCount: Int,
+        renderedItemLimit: Int,
+        edgeBufferItemCount: Int
+    ) -> Range<Int> {
+        guard itemCount > 0 else {
+            return 0..<0
+        }
+
+        let clampedIndex = min(max(focusedIndex, 0), itemCount - 1)
+        let start = min(
+            max(0, clampedIndex - renderedItemLimit / 2 - edgeBufferItemCount),
+            max(0, itemCount - renderedItemLimit)
+        )
+        let end = min(itemCount, start + renderedItemLimit)
+        return start..<max(start + 1, end)
+    }
+}
+
+enum HistorySearchResultSelectionPolicy {
+    static func selectedID(
+        currentSelectedID: ClipboardItem.ID?,
+        resultIDs: [ClipboardItem.ID],
+        isSearchActive: Bool
+    ) -> ClipboardItem.ID? {
+        if isSearchActive {
+            return resultIDs.first
+        }
+
+        if let currentSelectedID,
+           resultIDs.contains(currentSelectedID) {
+            return currentSelectedID
+        }
+
+        return resultIDs.first
+    }
 }
 
 struct HistoryKeyboardRequest: Equatable {

@@ -237,8 +237,6 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try createSchema(in: database)
         try recordSchemaVersion(in: database)
 
-        try ensureSearchIndexReady(in: database)
-
         let matchQuery = Self.escapedFTS5Query(rawQuery)
         let rows = try database.query(
             """
@@ -1425,33 +1423,15 @@ private struct SQLiteOCRResultRow {
 
 private extension SQLiteClipboardStore {
     static func searchText(for item: ClipboardItem) -> String {
-        [
-            item.kind,
-            item.preview,
-            item.footer,
-            item.sourceAppName,
-            item.linkTitle,
-            item.linkSubtitle,
-            item.fileReferences.map(\.displayName).joined(separator: " "),
-            item.fileReferences.map(\.path).joined(separator: " "),
-            item.ocrText,
-            item.ocrEmails.joined(separator: " "),
-            item.ocrPhoneNumbers.joined(separator: " "),
-            item.ocrURLs.joined(separator: " ")
-        ]
-        .compactMap { $0 }
-        .joined(separator: " ")
-        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        item.cardSearchText
     }
 
     static func searchText(from row: SQLiteRow) -> String {
         [
-            row.requiredText("type"),
             row.requiredText("plain_text"),
             row.optionalText("url"),
             row.optionalText("link_title"),
-            row.optionalText("link_subtitle"),
-            row.requiredText("source_app_name")
+            row.optionalText("link_subtitle")
         ]
         .compactMap { $0 }
         .joined(separator: " ")
@@ -1468,7 +1448,7 @@ private extension SQLiteClipboardStore {
         }
 
         return tokens
-            .map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"" }
+            .map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"*" }
             .joined(separator: " ")
     }
 

@@ -41,10 +41,7 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
 
     var searchText: String {
         [
-            kind,
             preview,
-            footer,
-            sourceAppName,
             linkTitle,
             linkSubtitle,
             filePreviewReferences.map(\.displayName).joined(separator: " "),
@@ -83,10 +80,7 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
         self.groupID = item.groupID
         self.groupedAt = item.groupedAt
         let normalizedSearchText = Self.normalizedSearchText(
-            kind: item.kind,
             preview: item.preview,
-            footer: item.footer,
-            sourceAppName: item.sourceAppName,
             linkTitle: item.linkTitle,
             linkSubtitle: item.linkSubtitle,
             filePreviewReferences: self.filePreviewReferences
@@ -136,10 +130,7 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
         self.groupID = groupID
         self.groupedAt = groupedAt
         let normalizedSearchText = Self.normalizedSearchText(
-            kind: kind,
             preview: preview,
-            footer: footer,
-            sourceAppName: sourceAppName,
             linkTitle: linkTitle,
             linkSubtitle: linkSubtitle,
             filePreviewReferences: filePreviewReferences
@@ -149,19 +140,13 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
     }
 
     private static func normalizedSearchText(
-        kind: String,
         preview: String,
-        footer: String,
-        sourceAppName: String,
         linkTitle: String?,
         linkSubtitle: String?,
         filePreviewReferences: [HistoryFilePreviewReference]
     ) -> String {
         [
-            kind,
             preview,
-            footer,
-            sourceAppName,
             linkTitle,
             linkSubtitle,
             filePreviewReferences.map(\.displayName).joined(separator: " "),

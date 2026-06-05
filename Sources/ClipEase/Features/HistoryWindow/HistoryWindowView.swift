@@ -89,6 +89,8 @@ struct HistoryWindowView: View {
     @State private var pendingLatestFocusTimestamp: Date?
     @State private var pendingLatestFocusReason: ClipboardItemFocusRequest.Reason?
     @State private var pendingLatestFocusLockID: ClipboardItem.ID?
+    @State private var pendingKeyboardFocusItemID: ClipboardItem.ID?
+    @State private var pendingKeyboardFocusClearTask: Task<Void, Never>?
     @State private var latestClipboardFocusGeneration: UInt64 = 0
     @State private var pendingProgrammaticJumpItemID: ClipboardItem.ID?
     @State private var pendingItemScrollID: HistoryPreviewItem.ID?
@@ -102,6 +104,7 @@ struct HistoryWindowView: View {
     @State private var itemScrollRequestID = UUID()
     @State private var hoveredCardID: HistoryPreviewItem.ID?
     @State private var pressedCardID: HistoryPreviewItem.ID?
+    @State private var cardViewportFrames: [HistoryPreviewItem.ID: CGRect] = [:]
     @State private var searchInteractionFrames: [CGRect] = []
     @State private var searchControlScreenFrame: CGRect?
     @State private var searchInteractionScreenFrames: [CGRect] = []
@@ -223,15 +226,14 @@ struct HistoryWindowView: View {
     }
 
     private var focusedHistoryRailVisibleWindow: Range<Int>? {
-        guard let focusedID = pendingLatestFocusItemID ?? pendingProgrammaticJumpItemID ?? pendingItemScrollID ?? selectedItemID,
+        guard let focusedID = HistoryRailRenderWindowPolicy.focusedID(
+            pendingLatestFocusItemID: pendingLatestFocusItemID ?? pendingKeyboardFocusItemID,
+            pendingProgrammaticJumpItemID: pendingProgrammaticJumpItemID,
+            pendingItemScrollID: pendingItemScrollID,
+            selectedItemID: selectedItemID,
+            visibleRect: cardRailVisibleRect
+        ),
               let focusedIndex = filteredItemIndex(for: focusedID) else {
-            return nil
-        }
-
-        guard pendingLatestFocusItemID != nil ||
-                pendingProgrammaticJumpItemID != nil ||
-                pendingItemScrollID != nil ||
-                cardRailVisibleRect == .zero else {
             return nil
         }
 
@@ -246,43 +248,23 @@ struct HistoryWindowView: View {
         visibleRect: CGRect,
         bufferItemCount: Int
     ) -> Range<Int> {
-        guard itemCount > 0 else {
-            return 0..<0
-        }
-
-        let visibleMinX = max(visibleRect.minX - horizontalContentPadding, 0)
-        let visibleMaxX = max(visibleRect.maxX - horizontalContentPadding, visibleMinX)
-        let rawStart = Int(floor(visibleMinX / itemStride)) - bufferItemCount
-        let rawEnd = Int(ceil(visibleMaxX / itemStride)) + bufferItemCount + 1
-        let clampedStart = min(max(0, rawStart), max(itemCount - 1, 0))
-        let clampedEnd = min(itemCount, max(clampedStart + 1, rawEnd))
-        guard clampedEnd - clampedStart > historyRailRenderedItemLimit else {
-            return clampedStart..<clampedEnd
-        }
-
-        let visibleCenter = (visibleMinX + visibleMaxX) / 2
-        let centerIndex = min(max(Int(floor(visibleCenter / itemStride)), 0), itemCount - 1)
-        let limitedStart = min(
-            max(0, centerIndex - historyRailRenderedItemLimit / 2),
-            max(0, itemCount - historyRailRenderedItemLimit)
+        HistoryRailRenderWindowPolicy.visibleWindow(
+            itemCount: itemCount,
+            visibleRect: visibleRect,
+            itemStride: itemStride,
+            horizontalContentPadding: horizontalContentPadding,
+            bufferItemCount: bufferItemCount,
+            renderedItemLimit: historyRailRenderedItemLimit
         )
-        let limitedEnd = min(itemCount, limitedStart + historyRailRenderedItemLimit)
-        return limitedStart..<limitedEnd
     }
 
     private func historyRailWindow(aroundFocusedIndex focusedIndex: Int, itemCount: Int) -> Range<Int> {
-        guard itemCount > 0 else {
-            return 0..<0
-        }
-
-        let clampedIndex = min(max(focusedIndex, 0), itemCount - 1)
-        let halfWindow = historyRailRenderedItemLimit / 2
-        let start = min(
-            max(0, clampedIndex - halfWindow),
-            max(0, itemCount - historyRailRenderedItemLimit)
+        HistoryRailRenderWindowPolicy.focusedWindow(
+            focusedIndex: focusedIndex,
+            itemCount: itemCount,
+            renderedItemLimit: historyRailRenderedItemLimit,
+            edgeBufferItemCount: 3
         )
-        let end = min(itemCount, start + historyRailRenderedItemLimit)
-        return start..<max(start + 1, end)
     }
 
     private var renderedWindowItems: ArraySlice<HistoryPreviewItem> {
@@ -367,6 +349,14 @@ struct HistoryWindowView: View {
 
     private var shouldSuppressHistoryCommandShortcuts: Bool {
         isTextInputActiveForEditShortcut || inputState.isPreviewContentActive
+    }
+
+    private var canPerformDeleteCommand: Bool {
+        HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
+            .delete,
+            isTextInputActive: isTextInputActiveForEditShortcut || inputState.isTextInputFocusedSnapshot,
+            isPreviewContentActive: inputState.isPreviewContentActive
+        )
     }
 
     private var isTextInputActiveForEditShortcut: Bool {
@@ -497,6 +487,9 @@ struct HistoryWindowView: View {
         .onPreferenceChange(SearchInteractionFramePreferenceKey.self) { frames in
             searchInteractionFrames = frames
         }
+        .onPreferenceChange(CardViewportFramePreferenceKey.self) { frames in
+            cardViewportFrames = frames
+        }
         .onChange(of: searchInteractionFrames) { _ in
             refreshSearchInteractionScreenFrames()
         }
@@ -550,6 +543,7 @@ struct HistoryWindowView: View {
             previewFollowTask?.cancel()
             rememberSelectedItemTask?.cancel()
             latestFocusRetryTask?.cancel()
+            pendingKeyboardFocusClearTask?.cancel()
             hiddenResourceCheckpointTask?.cancel()
             enteringItemClearTask?.cancel()
             hoveredCardID = nil
@@ -643,6 +637,10 @@ struct HistoryWindowView: View {
         .onChange(of: selectedItemID) { _ in
             rememberSelectedItem()
         }
+        .onChange(of: historyRailVisibleWindow) { _ in
+            let visibleIDs = Set(renderedWindowItems.map(\.id))
+            cardViewportFrames = cardViewportFrames.filter { visibleIDs.contains($0.key) }
+        }
         .onChange(of: isSearchFocused) { isFocused in
             inputState.setTextInputFocused(isFocused)
         }
@@ -704,9 +702,13 @@ struct HistoryWindowView: View {
     @ViewBuilder
     private func historyCard(_ item: HistoryPreviewItem) -> some View {
         let isSelected = selectedItemID == item.id
+        let isCardFocused = isSelected && HistoryCardFocusPolicy.isCardFocusActive(
+            selectedItemID: selectedItemID,
+            isSearchFieldFocused: isSearchFocused || inputState.isTextInputFocusedSnapshot
+        )
         let isHovered = hoveredCardID == item.id
         let isPressed = pressedCardID == item.id
-        let cardScale: CGFloat = isPressed ? 1.045 : (isHovered ? 1.04 : (isSelected ? 1.025 : 1))
+        let cardScale: CGFloat = isPressed ? 1.045 : (isHovered ? 1.04 : (isCardFocused ? 1.025 : 1))
 
         HistoryCardView(
             item: item,
@@ -739,11 +741,20 @@ struct HistoryWindowView: View {
             onMouseExitedWindow: closeWindowForCardDrag
         )
         .equatable()
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(
+                        key: CardViewportFramePreferenceKey.self,
+                        value: [item.id: proxy.frame(in: .named("historyWindow"))]
+                    )
+            }
+        )
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(
-                    isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : (isHovered || isPressed ? Color.clear : Color.black.opacity(0.08)),
-                    lineWidth: isSelected ? 4 : 1
+                    isCardFocused ? Color(red: 0.18, green: 0.55, blue: 1.0) : (isHovered || isPressed ? Color.clear : Color.black.opacity(0.08)),
+                    lineWidth: isCardFocused ? 4 : 1
                 )
                 .allowsHitTesting(false)
         }
@@ -754,12 +765,12 @@ struct HistoryWindowView: View {
             y: 0
         )
         .scaleEffect(cardScale, anchor: .center)
-        .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isSelected)
+        .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isCardFocused)
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
         .id(item.id)
         .contentShape(Rectangle())
-        .zIndex(isPressed ? 4 : (isHovered ? 3 : (isSelected ? 2 : 0)))
+        .zIndex(isPressed ? 4 : (isHovered ? 3 : (isCardFocused ? 2 : 0)))
     }
 
     private func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
@@ -860,7 +871,7 @@ struct HistoryWindowView: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.delete, modifiers: [])
-            .disabled(shouldSuppressHistoryCommandShortcuts)
+            .disabled(!canPerformDeleteCommand)
             .frame(width: 0, height: 0)
             .opacity(0)
 
@@ -1548,12 +1559,8 @@ struct HistoryWindowView: View {
                             hasSearchResult: !filteredItems.isEmpty,
                             hasSearchTokens: !searchTokens.isEmpty,
                             onEnterFirstResult: enterFirstSearchResultFromSearchField,
-                            onReplaceSearch: replaceSearchText,
                             onDeleteLastToken: handleSearchTokenBackspace,
-                            onCancel: handleSearchCancel,
-                            onSubmit: {
-                                pasteItem(selectedItemID)
-                            }
+                            onCancel: handleSearchCancel
                         )
                         .font(.system(size: 13, weight: .medium))
                         .frame(minWidth: 160)
@@ -2474,6 +2481,7 @@ struct HistoryWindowView: View {
         }
 
         selectedItemID = nextID
+        keepKeyboardFocusedItemRendered(nextID)
         revealPartiallyVisibleCardIfNeeded(nextID, animated: false)
         if previewState.isVisible {
             showPreview(nextID)
@@ -2481,6 +2489,20 @@ struct HistoryWindowView: View {
                 await Task.yield()
                 followPreviewForCurrentScroll()
             }
+        }
+    }
+
+    private func keepKeyboardFocusedItemRendered(_ id: ClipboardItem.ID) {
+        pendingKeyboardFocusClearTask?.cancel()
+        pendingKeyboardFocusItemID = id
+        pendingKeyboardFocusClearTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled,
+                  pendingKeyboardFocusItemID == id else {
+                return
+            }
+            pendingKeyboardFocusItemID = nil
+            pendingKeyboardFocusClearTask = nil
         }
     }
 
@@ -2801,6 +2823,10 @@ struct HistoryWindowView: View {
     }
 
     private func deleteItem(_ id: ClipboardItem.ID?) {
+        guard canPerformDeleteCommand else {
+            return
+        }
+
         let nextID = nextSelectionID(afterDeleting: id)
         store.deleteItem(with: id)
         selectedItemID = nextID
@@ -3829,6 +3855,10 @@ struct HistoryWindowView: View {
     }
 
     private func cardViewportFrame(for id: HistoryPreviewItem.ID) -> CGRect? {
+        if let measuredFrame = cardViewportFrames[id] {
+            return measuredFrame
+        }
+
         guard let documentFrame = cardDocumentFrame(for: id) else {
             return nil
         }
@@ -4711,6 +4741,8 @@ struct HistoryWindowView: View {
         let currentGroup: HistoryGroupSelection = isSearchVisible ? .all : selectedGroup
         let currentSearchText = searchText
         let currentSearchCriteria = searchCriteria
+        let currentSearchIsActive = !currentSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            currentSearchCriteria.hasActiveFilters
         let currentSearchTrigger = pendingSearchTrigger
         pendingSearchTrigger = "stateChange"
         let usesUnfilteredSource = Self.usesUnfilteredSearchSource(
@@ -4754,7 +4786,7 @@ struct HistoryWindowView: View {
             canLoadMoreSearchResults = false
             applyUnfilteredPreviewResult()
             if pendingLatestFocusItemID == nil {
-                ensureSelectionInFilteredItems()
+                applySearchSelectionAndViewport(isSearchActive: currentSearchIsActive)
             }
             PerformanceDiagnosticsService.shared.record(
                 "search.applyResults",
@@ -4886,7 +4918,7 @@ struct HistoryWindowView: View {
                     loadedSearchRepositoryResultCount = result.repositoryResultCount
                     canLoadMoreSearchResults = result.canLoadMore
                     if pendingLatestFocusItemID == nil {
-                        ensureSelectionInFilteredItems()
+                        applySearchSelectionAndViewport(isSearchActive: currentSearchIsActive)
                     }
                 }
                 PerformanceDiagnosticsService.shared.record(
@@ -5263,26 +5295,43 @@ struct HistoryWindowView: View {
     }
 
     private func ensureSelectionInFilteredItems() {
-        if filteredItems.isEmpty {
-            selectedItemID = nil
+        applySearchSelectionAndViewport(isSearchActive: isSearchActive)
+    }
+
+    private func applySearchSelectionAndViewport(isSearchActive: Bool) {
+        let nextSelectedID = HistorySearchResultSelectionPolicy.selectedID(
+            currentSelectedID: selectedItemID,
+            resultIDs: filteredItems.map(\.id),
+            isSearchActive: isSearchActive
+        )
+        selectedItemID = nextSelectedID
+
+        if isSearchActive {
+            resetSearchResultsViewport()
+        }
+
+        guard let nextSelectedID else {
             closePreview()
             return
         }
 
-        if let selectedItemID,
-           containsFilteredItem(selectedItemID) {
-            if previewState.isVisible,
-               previewState.itemID != selectedItemID {
-                showPreview(selectedItemID)
-            }
-            return
+        if previewState.isVisible,
+           previewState.itemID != nextSelectedID {
+            showPreview(nextSelectedID)
         }
+    }
 
-        let fallbackID = filteredItems.first?.id
-        selectedItemID = fallbackID
-        if previewState.isVisible {
-            showPreview(fallbackID)
-        }
+    private func resetSearchResultsViewport() {
+        pendingKeyboardFocusClearTask?.cancel()
+        pendingKeyboardFocusItemID = nil
+        let measuredVisibleRect = HistoryScrollCoordinator.shared.visibleDocumentRect
+        cardRailVisibleRect = CGRect(
+            x: 0,
+            y: measuredVisibleRect?.minY ?? cardRailVisibleRect.minY,
+            width: measuredVisibleRect?.width ?? cardRailVisibleRect.width,
+            height: measuredVisibleRect?.height ?? cardRailVisibleRect.height
+        )
+        HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
     }
 
     private func syncLatestItemFocusIfNeeded(sourceItems: [ClipboardItem]) {
@@ -5896,6 +5945,8 @@ struct HistoryWindowView: View {
             appendSearchText(text)
         case .enterFirstSearchResult:
             enterFirstSearchResultFromSearchField()
+        case .focusFirstSearchResult:
+            focusFirstSearchResultCard()
         }
     }
 
@@ -5905,7 +5956,7 @@ struct HistoryWindowView: View {
             case .close:
                 handleRenameEscape()
                 return true
-            case .delete, .appendSearchText, .copy, .copyPlainText, .paste, .pastePlainText, .togglePinned, .edit, .createText, .openSearch, .showSettings, .closeWindow, .toggleRecording, .moveLeft, .moveRight, .togglePreview, .selectVisibleCard, .enterFirstSearchResult:
+            case .delete, .appendSearchText, .copy, .copyPlainText, .paste, .pastePlainText, .togglePinned, .edit, .createText, .openSearch, .showSettings, .closeWindow, .toggleRecording, .moveLeft, .moveRight, .togglePreview, .selectVisibleCard, .enterFirstSearchResult, .focusFirstSearchResult:
                 return true
             }
         }
@@ -5922,7 +5973,7 @@ struct HistoryWindowView: View {
             return isGroupIconSearchFocused
         case .appendSearchText, .copy, .copyPlainText, .paste, .pastePlainText, .togglePinned, .edit, .createText, .openSearch, .showSettings, .closeWindow, .toggleRecording:
             return true
-        case .moveLeft, .moveRight, .togglePreview, .selectVisibleCard, .enterFirstSearchResult:
+        case .moveLeft, .moveRight, .togglePreview, .selectVisibleCard, .enterFirstSearchResult, .focusFirstSearchResult:
             return isGroupIconSearchFocused
         }
     }
@@ -5942,18 +5993,26 @@ struct HistoryWindowView: View {
         focusSearchField()
     }
 
-    private func replaceSearchText(_ text: String) {
-        searchText = text
-        focusSearchField()
-    }
-
     private func handleSearchCancel() {
-        handleEscapeClose()
+        switch HistorySearchCancelPolicy.action(hasSearchContent: hasSearchContent) {
+        case .clearSearch:
+            clearSearchTextAndFilters()
+            focusSearchField()
+        case .closeSearchAndFocusFirstResult:
+            closeSearch()
+            focusFirstSearchResultCard()
+        }
     }
 
     private func enterFirstSearchResultFromSearchField() {
+        focusFirstSearchResultCard()
+    }
+
+    private func focusFirstSearchResultCard() {
         guard let firstID = filteredItems.first?.id else {
-            focusSearchField()
+            if isSearchVisible {
+                focusSearchField()
+            }
             return
         }
 
@@ -6506,10 +6565,8 @@ private struct SearchTextField: NSViewRepresentable {
     let hasSearchResult: Bool
     let hasSearchTokens: Bool
     let onEnterFirstResult: () -> Void
-    let onReplaceSearch: (String) -> Void
     let onDeleteLastToken: () -> Void
     let onCancel: () -> Void
-    let onSubmit: () -> Void
 
     func makeNSView(context: Context) -> SearchNSTextField {
         let textField = SearchNSTextField()
@@ -6545,6 +6602,7 @@ private struct SearchTextField: NSViewRepresentable {
             if nsView.window?.firstResponder !== nsView.currentEditor() {
                 nsView.window?.makeFirstResponder(nsView)
             }
+            context.coordinator.configureEditor(in: nsView)
             if !hasMarkedText, context.coordinator.handledFocusRequestID != focusRequestID {
                 context.coordinator.handledFocusRequestID = focusRequestID
                 context.coordinator.moveInsertionPointToEndSoon(in: nsView)
@@ -6562,11 +6620,23 @@ private struct SearchTextField: NSViewRepresentable {
     final class SearchNSTextField: NSTextField {
         weak var coordinator: Coordinator?
 
+        override func keyDown(with event: NSEvent) {
+            if let inputState = HistoryWindowInputState.currentForTextEditing {
+                inputState.setTextInputFocused(true)
+            }
+            coordinator?.parent.isFocused = true
+            super.keyDown(with: event)
+        }
+
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            if let inputState = HistoryWindowInputState.currentForTextEditing {
+                inputState.setTextInputFocused(true)
+            }
+            coordinator?.parent.isFocused = true
+
             guard event.modifierFlags.contains(.command),
                   let characters = event.charactersIgnoringModifiers?.lowercased(),
                   characters.count == 1,
-                  let coordinator,
                   let editor = currentEditor() as? NSTextView else {
                 return super.performKeyEquivalent(with: event)
             }
@@ -6574,6 +6644,7 @@ private struct SearchTextField: NSViewRepresentable {
             switch characters {
             case "a":
                 editor.selectAll(nil)
+                editor.setNeedsDisplay(editor.visibleRect)
                 return true
             case "c":
                 editor.copy(nil)
@@ -6591,11 +6662,8 @@ private struct SearchTextField: NSViewRepresentable {
                     editor.undoManager?.undo()
                 }
                 return true
-            case "w":
-                coordinator.parent.onCancel()
-                return true
             default:
-                return super.performKeyEquivalent(with: event)
+                return true
             }
         }
     }
@@ -6620,6 +6688,9 @@ private struct SearchTextField: NSViewRepresentable {
 
         func controlTextDidBeginEditing(_ notification: Notification) {
             parent.isFocused = true
+            if let textField = notification.object as? NSTextField {
+                configureEditor(in: textField)
+            }
             if let inputState = HistoryWindowInputState.currentForTextEditing {
                 inputState.setTextInputFocused(true)
             }
@@ -6633,16 +6704,24 @@ private struct SearchTextField: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.insertNewline(_:)):
-                if isCursorAtEnd(in: textView), parent.hasSearchResult {
+                if parent.hasSearchResult {
                     parent.onEnterFirstResult()
-                } else {
-                    parent.onSubmit()
                 }
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
                 parent.onCancel()
                 return true
-            case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveDown(_:)):
+            case #selector(NSResponder.insertTab(_:)):
+                if parent.hasSearchResult {
+                    parent.onEnterFirstResult()
+                }
+                return true
+            case #selector(NSResponder.moveDown(_:)):
+                if parent.hasSearchResult {
+                    parent.onEnterFirstResult()
+                }
+                return true
+            case #selector(NSResponder.moveRight(_:)):
                 guard isCursorAtEnd(in: textView), parent.hasSearchResult else {
                     return false
                 }
@@ -6664,19 +6743,6 @@ private struct SearchTextField: NSViewRepresentable {
             }
         }
 
-        func control(_ control: NSControl, textView: NSTextView, shouldChangeCharactersIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
-            guard let replacementString,
-                  replacementString.isEmpty == false,
-                  !textView.hasMarkedText(),
-                  isCursorAtEnd(in: textView),
-                  parent.hasSearchResult else {
-                return true
-            }
-
-            parent.onReplaceSearch(replacementString)
-            return false
-        }
-
         func moveInsertionPointToEnd(in textField: NSTextField) {
             guard let editor = textField.currentEditor() else {
                 return
@@ -6686,6 +6752,18 @@ private struct SearchTextField: NSViewRepresentable {
             if editor.selectedRange.location != endLocation || editor.selectedRange.length != 0 {
                 editor.selectedRange = NSRange(location: endLocation, length: 0)
             }
+        }
+
+        func configureEditor(in textField: NSTextField) {
+            guard let editor = textField.currentEditor() as? NSTextView else {
+                return
+            }
+
+            editor.insertionPointColor = .labelColor
+            editor.selectedTextAttributes = [
+                .backgroundColor: NSColor.selectedTextBackgroundColor,
+                .foregroundColor: NSColor.selectedTextColor
+            ]
         }
 
         func moveInsertionPointToEndSoon(in textField: NSTextField) {
@@ -8499,5 +8577,13 @@ private struct SearchInteractionFramePreferenceKey: PreferenceKey {
 
     static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
         value.append(contentsOf: nextValue())
+    }
+}
+
+private struct CardViewportFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [HistoryPreviewItem.ID: CGRect] = [:]
+
+    static func reduce(value: inout [HistoryPreviewItem.ID: CGRect], nextValue: () -> [HistoryPreviewItem.ID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }

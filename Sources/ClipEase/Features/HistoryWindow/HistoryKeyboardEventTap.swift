@@ -72,22 +72,22 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
 
         case .keyDown:
-            guard let action = Self.action(for: event) else {
+            let isTextInputActive = inputState?.isTextInputFocusedSnapshot == true
+            let isPreviewActive = inputState?.isPreviewActiveSnapshot == true
+            guard let action = Self.action(for: event, isTextInputActive: isTextInputActive) else {
                 return Unmanaged.passUnretained(event)
             }
 
-            if inputState?.isPreviewActiveSnapshot == true,
-               !Self.shouldHandleWhilePreviewContentFocused(action) {
+            if !HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
+                action,
+                isTextInputActive: isTextInputActive,
+                isPreviewContentActive: isPreviewActive
+            ) {
                 return Unmanaged.passUnretained(event)
             }
 
             if inputState?.shouldSuppressHistoryCommandShortcutsSnapshot == true,
                Self.shouldSuppressForPresentedInputLayer(action) {
-                return Unmanaged.passUnretained(event)
-            }
-
-            if inputState?.isTextInputFocusedSnapshot == true,
-               !Self.shouldHandleWhileSearchFieldFocused(action) {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -106,11 +106,25 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         }
     }
 
-    private static func action(for event: CGEvent) -> HistoryKeyboardAction? {
+    private static func action(for event: CGEvent, isTextInputActive: Bool) -> HistoryKeyboardAction? {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
         let isCommandPressed = flags.contains(.maskCommand)
         let isShiftPressed = flags.contains(.maskShift)
+        let hasTextEditingModifier = flags.contains(.maskCommand) ||
+            flags.contains(.maskControl) ||
+            flags.contains(.maskAlternate)
+
+        if isTextInputActive, !hasTextEditingModifier {
+            switch keyCode {
+            case KeyCode.downArrow, KeyCode.tab:
+                return .focusFirstSearchResult
+            case KeyCode.returnKey, KeyCode.enter:
+                return .enterFirstSearchResult
+            default:
+                break
+            }
+        }
 
         if isCommandPressed {
             if let number = numberShortcut(for: keyCode) {
@@ -185,29 +199,11 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         }
     }
 
-    private static func shouldHandleWhileSearchFieldFocused(_ action: HistoryKeyboardAction) -> Bool {
-        switch action {
-        case .selectVisibleCard:
-            return true
-        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText, .enterFirstSearchResult:
-            return false
-        }
-    }
-
-    private static func shouldHandleWhilePreviewContentFocused(_ action: HistoryKeyboardAction) -> Bool {
-        switch action {
-        case .close:
-            return true
-        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .selectVisibleCard, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText, .enterFirstSearchResult:
-            return false
-        }
-    }
-
     private static func shouldSuppressForPresentedInputLayer(_ action: HistoryKeyboardAction) -> Bool {
         switch action {
         case .edit, .toggleRecording, .copy, .copyPlainText, .paste, .pastePlainText, .togglePreview:
             return true
-        case .moveLeft, .moveRight, .close, .selectVisibleCard, .openSearch, .showSettings, .delete, .togglePinned, .closeWindow, .createText, .enterFirstSearchResult:
+        case .moveLeft, .moveRight, .close, .selectVisibleCard, .openSearch, .showSettings, .delete, .togglePinned, .closeWindow, .createText, .enterFirstSearchResult, .focusFirstSearchResult:
             return false
         case .appendSearchText:
             return true
@@ -218,7 +214,7 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         switch action {
         case .copy, .copyPlainText, .selectVisibleCard, .openSearch, .showSettings, .edit, .togglePinned, .createText, .toggleRecording, .appendSearchText:
             return true
-        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .delete, .closeWindow, .enterFirstSearchResult:
+        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .delete, .closeWindow, .enterFirstSearchResult, .focusFirstSearchResult:
             return false
         }
     }

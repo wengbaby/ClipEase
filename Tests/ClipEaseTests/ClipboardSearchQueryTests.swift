@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ClipEase
 
@@ -34,4 +35,30 @@ private struct TestClipboardHistoryRepository: ClipboardHistoryRepository {
     let result = try repository.searchItems(ClipboardSearchQuery(text: "match", limit: 2, offset: 1))
 
     #expect(result.map(\.text) == ["match two", "match three"])
+}
+
+@Test func defaultRepositorySearchMatchesCardContentOnly() throws {
+    let footerOnlyMatch = ClipboardItem.text(String(repeating: "x", count: 88), sourceApp: .clipease)
+    let contentMatch = ClipboardItem.richText(plainText: "8899", fileName: "sample.rtfd", sourceApp: .clipease)
+    let repository = TestClipboardHistoryRepository(items: [footerOnlyMatch, contentMatch])
+
+    let result = try repository.searchItems(ClipboardSearchQuery(text: "88", limit: 10))
+
+    #expect(result.map(\.id) == [contentMatch.id])
+}
+
+@Test func sqliteRepositorySearchMatchesCardContentOnly() throws {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("ClipEaseTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let store = SQLiteClipboardStore(databaseURL: directory.appendingPathComponent("ClipEase.sqlite"))
+    let footerOnlyMatch = ClipboardItem.text(String(repeating: "x", count: 88), sourceApp: .clipease)
+    let contentMatch = ClipboardItem.richText(plainText: "8899", fileName: "sample.rtfd", sourceApp: .clipease)
+    try store.insertItems([footerOnlyMatch, contentMatch])
+
+    let result = try store.searchItems(ClipboardSearchQuery(text: "88", limit: 10))
+
+    #expect(result.map(\.id) == [contentMatch.id])
 }

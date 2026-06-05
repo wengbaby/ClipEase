@@ -40,8 +40,8 @@ final class ClipboardHistoryStore: ObservableObject {
     nonisolated private static let debugTextPrefix = "轻贴性能测试文本 "
     nonisolated private static let deferredSaveDelay: UInt64 = 350_000_000
     nonisolated private static let debugBatchSize = 500
-    nonisolated private static let startupItemPageSize = 20
-    nonisolated private static let incrementalItemPageSize = 20
+    nonisolated static let startupItemPageSize = 1_000
+    nonisolated static let incrementalItemPageSize = 1_000
     private let persistence: ClipboardHistoryPersistence
     private let saveWriter: ClipboardHistorySaveWriter
     private let userDefaults: UserDefaults
