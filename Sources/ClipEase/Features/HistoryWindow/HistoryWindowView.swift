@@ -565,6 +565,7 @@ struct HistoryWindowView: View {
                     return store.groups.contains(where: { $0.id == groupID })
                 }
             }
+            pruneSearchTokenOrder()
             rememberSelectedGroup()
             scheduleSearchUpdate(immediate: true)
         }
@@ -819,15 +820,6 @@ struct HistoryWindowView: View {
             .frame(width: 0, height: 0)
             .opacity(0)
 
-            Button(action: togglePreviewForSelectedItem) {
-                EmptyView()
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.space, modifiers: [])
-            .disabled(shouldSuppressHistoryCommandShortcuts)
-            .frame(width: 0, height: 0)
-            .opacity(0)
-
             Button(action: handleCommandFSearch) {
                 EmptyView()
             }
@@ -852,15 +844,6 @@ struct HistoryWindowView: View {
             .buttonStyle(.plain)
             .keyboardShortcut("c", modifiers: [.shift, .command])
             .disabled(shouldSuppressHistoryCommandShortcuts)
-            .frame(width: 0, height: 0)
-            .opacity(0)
-
-            Button(action: { deleteItem(selectedItemID) }) {
-                EmptyView()
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.delete, modifiers: [])
-            .disabled(!canPerformDeleteCommand)
             .frame(width: 0, height: 0)
             .opacity(0)
 
@@ -1548,6 +1531,7 @@ struct HistoryWindowView: View {
                             searchHasHandedOffFocusToCard: searchHasHandedOffFocusToCard,
                             hasSearchResult: !filteredItems.isEmpty,
                             hasSearchTokens: !searchTokens.isEmpty,
+                            onFocusChanged: synchronizeSearchTextFieldFocus,
                             onEnterFirstResult: enterFirstSearchResultFromSearchField,
                             onDeleteLastToken: handleSearchTokenBackspace,
                             onCancel: handleSearchCancel
@@ -1635,6 +1619,9 @@ struct HistoryWindowView: View {
 
     private func searchTokenView(_ token: HistorySearchToken) -> some View {
         let isSelected = selectedSearchTokenKind == token.kind
+        let selectedBackground = Color(red: 0.18, green: 0.55, blue: 1.0)
+        let addedBackground = Color(red: 0.82, green: 0.91, blue: 1.0)
+        let addedStroke = Color(red: 0.45, green: 0.68, blue: 0.92)
 
         return HStack(spacing: 4) {
             Text(token.title)
@@ -1654,9 +1641,13 @@ struct HistoryWindowView: View {
         .padding(.leading, 7)
         .padding(.trailing, 5)
         .frame(height: 20)
-        .foregroundStyle(isSelected ? .white : .primary)
-        .background(isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.white.opacity(0.75))
+        .foregroundStyle(isSelected ? .white : Color(red: 0.08, green: 0.22, blue: 0.38))
+        .background(isSelected ? selectedBackground : addedBackground)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(isSelected ? selectedBackground : addedStroke.opacity(0.7), lineWidth: 1)
+        }
         .fixedSize()
         .contentShape(Rectangle())
         .onTapGesture {
@@ -2831,7 +2822,8 @@ struct HistoryWindowView: View {
     }
 
     private func deleteItem(_ id: ClipboardItem.ID?) {
-        guard canPerformDeleteCommand else {
+        guard !inputState.isAnyTextInputActiveSnapshot,
+              canPerformDeleteCommand else {
             return
         }
 
@@ -4379,8 +4371,10 @@ struct HistoryWindowView: View {
         pendingSearchTrigger = "filter.type.toggle"
         if searchCriteria.types.contains(type) {
             searchCriteria.types.remove(type)
+            removeSearchTokenOrder(.type(type))
         } else {
             searchCriteria.types.insert(type)
+            appendSearchTokenOrder(.type(type))
         }
         recordHistoryInteraction("filter.type.toggle", startedAt: startedAt, metadata: ["type": "\(type)"])
     }
@@ -4390,8 +4384,10 @@ struct HistoryWindowView: View {
         pendingSearchTrigger = "filter.sourceApp.toggle"
         if searchCriteria.sourceAppNames.contains(appName) {
             searchCriteria.sourceAppNames.remove(appName)
+            removeSearchTokenOrder(.sourceApp(appName))
         } else {
             searchCriteria.sourceAppNames.insert(appName)
+            appendSearchTokenOrder(.sourceApp(appName))
         }
         recordHistoryInteraction("filter.sourceApp.toggle", startedAt: startedAt, metadata: ["appName": appName])
     }
@@ -4401,8 +4397,10 @@ struct HistoryWindowView: View {
         pendingSearchTrigger = "filter.date.toggle"
         if searchCriteria.dateRanges.contains(range) {
             searchCriteria.dateRanges.remove(range)
+            removeSearchTokenOrder(.date(range))
         } else {
             searchCriteria.dateRanges.insert(range)
+            appendSearchTokenOrder(.date(range))
         }
         recordHistoryInteraction("filter.date.toggle", startedAt: startedAt, metadata: ["range": "\(range)"])
     }
@@ -4412,8 +4410,10 @@ struct HistoryWindowView: View {
         pendingSearchTrigger = "filter.group.toggle"
         if searchCriteria.groups.contains(group) {
             searchCriteria.groups.remove(group)
+            removeSearchTokenOrder(.group(group))
         } else {
             searchCriteria.groups.insert(group)
+            appendSearchTokenOrder(.group(group))
         }
         recordHistoryInteraction("filter.group.toggle", startedAt: startedAt, metadata: ["group": "\(group)"])
     }
@@ -4431,10 +4431,28 @@ struct HistoryWindowView: View {
         case .group(let group):
             searchCriteria.groups.remove(group)
         }
+        removeSearchTokenOrder(token.kind)
 
         selectedSearchTokenKind = nil
         focusSearchField()
         recordHistoryInteraction("search.token.remove", startedAt: startedAt, metadata: ["token": token.title])
+    }
+
+    private func appendSearchTokenOrder(_ kind: HistorySearchTokenKind) {
+        guard !searchCriteria.tokenOrder.contains(kind) else {
+            return
+        }
+
+        searchCriteria.tokenOrder.append(kind)
+    }
+
+    private func removeSearchTokenOrder(_ kind: HistorySearchTokenKind) {
+        searchCriteria.tokenOrder.removeAll { $0 == kind }
+    }
+
+    private func pruneSearchTokenOrder() {
+        let activeKinds = Set(searchTokens.map(\.kind))
+        searchCriteria.tokenOrder.removeAll { !activeKinds.contains($0) }
     }
 
     private func handleSearchTokenBackspace() {
@@ -5949,6 +5967,18 @@ struct HistoryWindowView: View {
         focusFirstSearchResultCard()
     }
 
+    private func synchronizeSearchTextFieldFocus(_ isFocused: Bool) {
+        if isFocused {
+            searchHasHandedOffFocusToCard = false
+            inputState.setSearchHasHandedOffFocusToCard(false)
+            isSearchFocused = true
+            inputState.setTextInputFocused(true)
+        } else {
+            isSearchFocused = false
+            inputState.setTextInputFocused(false)
+        }
+    }
+
     private func focusFirstSearchResultCard() {
         guard let firstID = filteredItems.first?.id else {
             if isSearchVisible {
@@ -6250,6 +6280,7 @@ private struct SearchTextField: NSViewRepresentable {
     let searchHasHandedOffFocusToCard: Bool
     let hasSearchResult: Bool
     let hasSearchTokens: Bool
+    let onFocusChanged: (Bool) -> Void
     let onEnterFirstResult: () -> Void
     let onDeleteLastToken: () -> Void
     let onCancel: () -> Void
@@ -6322,10 +6353,7 @@ private struct SearchTextField: NSViewRepresentable {
                 return
             }
 
-            if let inputState = HistoryWindowInputState.currentForTextEditing {
-                inputState.setTextInputFocused(true)
-            }
-            coordinator?.parent.isFocused = true
+            coordinator?.parent.onFocusChanged(true)
             super.keyDown(with: event)
         }
 
@@ -6336,10 +6364,7 @@ private struct SearchTextField: NSViewRepresentable {
                 return super.performKeyEquivalent(with: event)
             }
 
-            if let inputState = HistoryWindowInputState.currentForTextEditing {
-                inputState.setTextInputFocused(true)
-            }
-            coordinator?.parent.isFocused = true
+            coordinator?.parent.onFocusChanged(true)
 
             guard event.modifierFlags.contains(.command),
                   let characters = event.charactersIgnoringModifiers?.lowercased(),
@@ -6394,18 +6419,15 @@ private struct SearchTextField: NSViewRepresentable {
         }
 
         func controlTextDidBeginEditing(_ notification: Notification) {
-            parent.isFocused = true
+            parent.onFocusChanged(true)
             if let textField = notification.object as? NSTextField {
                 configureEditor(in: textField)
-            }
-            if let inputState = HistoryWindowInputState.currentForTextEditing {
-                inputState.setTextInputFocused(true)
             }
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
             parent.isComposing = false
-            parent.isFocused = false
+            parent.onFocusChanged(false)
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

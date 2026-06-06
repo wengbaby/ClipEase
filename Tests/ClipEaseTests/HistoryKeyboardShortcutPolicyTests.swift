@@ -166,6 +166,61 @@ import Testing
     ))
 }
 
+@Test func actualTextFirstResponderKeepsHistoryCommandsInTextInputMode() {
+    #expect(HistoryTextInputActivityPolicy.isTextInputActive(
+        stateSnapshot: false,
+        appTextFirstResponderActive: true
+    ))
+    #expect(HistoryTextInputActivityPolicy.isTextInputActive(
+        stateSnapshot: false,
+        appTextFirstResponderActive: true
+    ))
+    #expect(!HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
+        .delete,
+        isTextInputActive: HistoryTextInputActivityPolicy.isTextInputActive(
+            stateSnapshot: false,
+            appTextFirstResponderActive: true
+        ),
+        isPreviewContentActive: false
+    ))
+}
+
+@Test @MainActor func searchFieldRefocusClearsCardHandoffForDeleteRouting() {
+    let inputState = HistoryWindowInputState()
+    inputState.setTextInputFocused(true)
+    inputState.setSearchHasHandedOffFocusToCard(true)
+
+    #expect(!inputState.isHistoryTextInputActiveSnapshot)
+
+    inputState.setTextInputFocused(true)
+
+    #expect(inputState.isHistoryTextInputActiveSnapshot)
+    #expect(!HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
+        .delete,
+        isTextInputActive: inputState.isHistoryTextInputActiveSnapshot,
+        isPreviewContentActive: false
+    ))
+}
+
+@Test @MainActor func anyTextInputSnapshotBlocksDeleteFallbackActions() {
+    let inputState = HistoryWindowInputState()
+    inputState.setAppTextFirstResponderActive(true)
+
+    #expect(inputState.isAnyTextInputActiveSnapshot)
+
+    inputState.setAppTextFirstResponderActive(false)
+    inputState.setPresentedInputLayerActive(true)
+
+    #expect(inputState.isAnyTextInputActiveSnapshot)
+}
+
+@Test func printableCharactersCanOpenSearchFromPanelFallback() {
+    #expect(HistoryKeyboardCharacterPolicy.searchText(from: "a") == "a")
+    #expect(HistoryKeyboardCharacterPolicy.searchText(from: "中") == "中")
+    #expect(HistoryKeyboardCharacterPolicy.searchText(from: "\t") == nil)
+    #expect(HistoryKeyboardCharacterPolicy.searchText(from: " ") == nil)
+}
+
 @Test func escapeClearsSearchBeforeClosingWhenTextExists() {
     #expect(HistorySearchCancelPolicy.action(
         hasSearchContent: true

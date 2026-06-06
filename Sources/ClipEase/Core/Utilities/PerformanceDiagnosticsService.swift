@@ -102,14 +102,22 @@ final class PerformanceDiagnosticsService: ObservableObject {
     @Published private(set) var currentLogFileURL: URL?
     @Published var retentionDays: Int {
         didSet {
-            retentionDays = max(1, retentionDays)
+            let clampedRetentionDays = max(1, retentionDays)
+            guard retentionDays == clampedRetentionDays else {
+                retentionDays = clampedRetentionDays
+                return
+            }
             userDefaults.set(retentionDays, forKey: Self.retentionDaysKey)
             cleanupOldLogs()
         }
     }
     @Published var maxLogSizeMB: Int {
         didSet {
-            maxLogSizeMB = max(1, maxLogSizeMB)
+            let clampedMaxLogSizeMB = max(1, maxLogSizeMB)
+            guard maxLogSizeMB == clampedMaxLogSizeMB else {
+                maxLogSizeMB = clampedMaxLogSizeMB
+                return
+            }
             userDefaults.set(maxLogSizeMB, forKey: Self.maxLogSizeMBKey)
             cleanupOldLogs()
         }

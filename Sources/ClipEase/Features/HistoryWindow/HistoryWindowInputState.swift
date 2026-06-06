@@ -96,6 +96,28 @@ enum HistoryPanelSpaceKeyPolicy {
     }
 }
 
+enum HistoryTextInputActivityPolicy {
+    static func isTextInputActive(
+        stateSnapshot: Bool,
+        appTextFirstResponderActive: Bool
+    ) -> Bool {
+        stateSnapshot || appTextFirstResponderActive
+    }
+}
+
+enum HistoryKeyboardCharacterPolicy {
+    static func searchText(from text: String?) -> String? {
+        guard let text,
+              text.rangeOfCharacter(from: .newlines) == nil,
+              text.rangeOfCharacter(from: .controlCharacters) == nil,
+              text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return nil
+        }
+
+        return text
+    }
+}
+
 enum HistorySearchCancelPolicy {
     enum Action: Equatable {
         case clearSearch
@@ -164,6 +186,7 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     private var windowPresented = false
     private var windowPinnedOpen = false
     private var presentedInputLayerActive = false
+    private var appTextFirstResponderActive = false
     private var previewActive = false
     private var previewKeyWindowActive = false
     private var searchHasHandedOffFocusToCard = false
@@ -177,7 +200,16 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     var isHistoryTextInputActiveSnapshot: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return textInputFocused && !searchHasHandedOffFocusToCard
+        return HistoryTextInputActivityPolicy.isTextInputActive(
+            stateSnapshot: textInputFocused && !searchHasHandedOffFocusToCard,
+            appTextFirstResponderActive: appTextFirstResponderActive
+        )
+    }
+
+    var isAnyTextInputActiveSnapshot: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return textInputFocused || appTextFirstResponderActive || presentedInputLayerActive
     }
 
     var isSearchVisibleSnapshot: Bool {
@@ -299,6 +331,12 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
         lock.unlock()
     }
 
+    func setAppTextFirstResponderActive(_ isActive: Bool) {
+        lock.lock()
+        appTextFirstResponderActive = isActive
+        lock.unlock()
+    }
+
     func setPreviewActive(_ isActive: Bool) {
         lock.lock()
         previewActive = isActive
@@ -324,6 +362,7 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
         setWindowPresented(false)
         setWindowPinnedOpen(false)
         setPresentedInputLayerActive(false)
+        setAppTextFirstResponderActive(false)
         setPreviewActive(false)
         setPreviewKeyWindowActive(false)
         if isPreviewContentActive {

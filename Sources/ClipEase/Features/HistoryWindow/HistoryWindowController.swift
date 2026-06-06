@@ -215,6 +215,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
 
+        keyboardEventTap.setKeyWindow(panel)
         panel.delegate = self
         panel.onEscape = { [weak self] in
             self?.inputState.dispatch(.close)
@@ -230,6 +231,15 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
             self.inputState.dispatch(.togglePreview)
             return true
+        }
+        panel.onDelete = { [weak self] in
+            self?.inputState.dispatch(.delete)
+        }
+        panel.onSearchText = { [weak self] text in
+            self?.inputState.dispatch(.appendSearchText(text))
+        }
+        panel.onTextFirstResponderChanged = { [weak self] isActive in
+            self?.inputState.setAppTextFirstResponderActive(isActive)
         }
         panel.level = .screenSaver
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]

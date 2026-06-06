@@ -91,6 +91,26 @@ private struct TestClipboardHistoryRepository: ClipboardHistoryRepository {
     #expect(result.map(\.id) == [newer.id, older.id])
 }
 
+@Test func historySearchTokensFollowUserAddedOrder() {
+    var criteria = HistorySearchCriteria()
+    criteria.sourceAppNames.insert("Safari")
+    criteria.types.insert(.image)
+    criteria.dateRanges.insert(.last7Days)
+    criteria.tokenOrder = [
+        .sourceApp("Safari"),
+        .date(.last7Days),
+        .type(.image)
+    ]
+
+    let tokens = HistorySearchToken.tokens(criteria: criteria, groups: [])
+
+    #expect(tokens.map(\.kind) == [
+        .sourceApp("Safari"),
+        .date(.last7Days),
+        .type(.image)
+    ])
+}
+
 @Test func searchPaginationRequestsAnotherPageWhenFilteredPageIsShort() {
     #expect(HistorySearchPaginationPolicy.shouldLoadMore(
         filteredCount: 8,

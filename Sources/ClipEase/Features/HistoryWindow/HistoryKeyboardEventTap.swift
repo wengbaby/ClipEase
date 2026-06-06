@@ -5,9 +5,15 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
     private weak var inputState: HistoryWindowInputState?
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    @MainActor private weak var keyWindow: NSWindow?
 
     init(inputState: HistoryWindowInputState) {
         self.inputState = inputState
+    }
+
+    @MainActor
+    func setKeyWindow(_ window: NSWindow?) {
+        keyWindow = window
     }
 
     func start() {
@@ -72,7 +78,10 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
 
         case .keyDown:
-            let isTextInputActive = inputState?.isHistoryTextInputActiveSnapshot == true
+            let isTextInputActive = HistoryTextInputActivityPolicy.isTextInputActive(
+                stateSnapshot: inputState?.isHistoryTextInputActiveSnapshot == true,
+                appTextFirstResponderActive: isTextFirstResponderActive()
+            )
             let isPreviewActive = inputState?.isPreviewActiveSnapshot == true
             guard let action = Self.action(for: event, isTextInputActive: isTextInputActive) else {
                 return Unmanaged.passUnretained(event)
@@ -219,6 +228,24 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
 
     private static let commaKeyCode: UInt16 = 43
 
+    private func isTextFirstResponderActive() -> Bool {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                keyWindow?.firstResponder is NSTextView ||
+                    NSApp.keyWindow?.firstResponder is NSTextView
+            }
+        }
+
+        var isActive = false
+        DispatchQueue.main.sync {
+            isActive = MainActor.assumeIsolated {
+                keyWindow?.firstResponder is NSTextView ||
+                    NSApp.keyWindow?.firstResponder is NSTextView
+            }
+        }
+        return isActive
+    }
+
     private static func printableCharacters(from event: CGEvent) -> String? {
         var actualLength = 0
         var buffer = [UniChar](repeating: 0, count: 8)
@@ -233,13 +260,7 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         }
 
         let text = String(utf16CodeUnits: buffer, count: actualLength)
-        guard text.rangeOfCharacter(from: .newlines) == nil,
-              text.rangeOfCharacter(from: .controlCharacters) == nil,
-              text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            return nil
-        }
-
-        return text
+        return HistoryKeyboardCharacterPolicy.searchText(from: text)
     }
 
     private static let eventCallback: CGEventTapCallBack = { _, type, event, userInfo in

@@ -1429,16 +1429,22 @@ struct SettingsView: View {
     }
 
     private var historySubtitle: String {
-        let typeSummaries = [
+        let primarySummaries = [
             historyStorageSummary(for: .text, label: "文字"),
             historyStorageSummary(for: .link, label: "链接"),
-            historyStorageSummary(for: .image, label: "图片"),
+            historyStorageSummary(for: .image, label: "图片")
+        ]
+        let secondarySummaries = [
             historyStorageSummary(for: .file, label: "文件"),
             historyStorageSummary(for: .color, label: "颜色"),
             historyPinnedStorageSummary()
         ]
 
-        return "共 \(store.items.count) 条，占用 \(storageUsageText)\n\(typeSummaries.joined(separator: "，"))"
+        return """
+        共 \(store.items.count) 条，占用 \(storageUsageText)
+        \(primarySummaries.joined(separator: "，"))
+        \(secondarySummaries.joined(separator: "，"))
+        """
     }
 
     private func historyStorageSummary(for type: ClipboardItemType, label: String) -> String {
@@ -1501,7 +1507,13 @@ struct SettingsView: View {
     }
 
     private func formatHistoryCategorySize(_ bytes: UInt64) -> String {
-        String(format: "%.2fMB", Double(bytes) / 1_048_576)
+        if bytes >= 1_048_576 {
+            return String(format: "%.2fMB", Double(bytes) / 1_048_576)
+        }
+        if bytes >= 1_024 {
+            return String(format: "%.1fKB", Double(bytes) / 1_024)
+        }
+        return "\(bytes)b"
     }
 
     private var groupsSubtitle: String {
@@ -1594,6 +1606,7 @@ struct SettingsView: View {
                 Text(subtitle)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.secondary)
+                    .lineSpacing(4)
             }
 
             content()

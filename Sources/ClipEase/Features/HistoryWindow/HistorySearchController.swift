@@ -51,6 +51,7 @@ struct HistorySearchCriteria: Equatable, Sendable {
     var sourceAppNames: Set<String> = []
     var dateRanges: Set<HistorySearchDateRange> = []
     var groups: Set<HistorySearchGroup> = []
+    var tokenOrder: [HistorySearchTokenKind] = []
 
     var hasActiveFilters: Bool {
         !types.isEmpty || !sourceAppNames.isEmpty || !dateRanges.isEmpty || !groups.isEmpty
@@ -171,30 +172,74 @@ struct HistorySearchToken: Identifiable, Equatable, Sendable {
         criteria: HistorySearchCriteria,
         groups: [ClipboardGroup]
     ) -> [HistorySearchToken] {
+        var tokenByKind: [HistorySearchTokenKind: HistorySearchToken] = [:]
         var tokens: [HistorySearchToken] = []
 
         for type in HistorySearchItemType.allCases where criteria.types.contains(type) {
-            tokens.append(HistorySearchToken(kind: .type(type), title: type.title))
+            let token = HistorySearchToken(kind: .type(type), title: type.title)
+            tokenByKind[token.kind] = token
         }
 
         for sourceAppName in criteria.sourceAppNames.sorted() {
-            tokens.append(HistorySearchToken(kind: .sourceApp(sourceAppName), title: sourceAppName))
+            let token = HistorySearchToken(kind: .sourceApp(sourceAppName), title: sourceAppName)
+            tokenByKind[token.kind] = token
         }
 
         for dateRange in HistorySearchDateRange.allCases where criteria.dateRanges.contains(dateRange) {
-            tokens.append(HistorySearchToken(kind: .date(dateRange), title: dateRange.title))
+            let token = HistorySearchToken(kind: .date(dateRange), title: dateRange.title)
+            tokenByKind[token.kind] = token
         }
 
         let systemGroups: [HistorySearchGroup] = [.pinned]
         for group in systemGroups where criteria.groups.contains(group) {
-            tokens.append(HistorySearchToken(kind: .group(group), title: group.title(groups: groups)))
+            let token = HistorySearchToken(kind: .group(group), title: group.title(groups: groups))
+            tokenByKind[token.kind] = token
         }
         for group in groups where criteria.groups.contains(.group(group.id)) {
             let searchGroup = HistorySearchGroup.group(group.id)
-            tokens.append(HistorySearchToken(kind: .group(searchGroup), title: searchGroup.title(groups: groups)))
+            let token = HistorySearchToken(kind: .group(searchGroup), title: searchGroup.title(groups: groups))
+            tokenByKind[token.kind] = token
+        }
+
+        var emittedKinds = Set<HistorySearchTokenKind>()
+        for kind in criteria.tokenOrder {
+            guard let token = tokenByKind[kind],
+                  emittedKinds.insert(kind).inserted else {
+                continue
+            }
+            tokens.append(token)
+        }
+
+        for type in HistorySearchItemType.allCases {
+            appendRemainingToken(.type(type), from: tokenByKind, emittedKinds: &emittedKinds, to: &tokens)
+        }
+        for sourceAppName in criteria.sourceAppNames.sorted() {
+            appendRemainingToken(.sourceApp(sourceAppName), from: tokenByKind, emittedKinds: &emittedKinds, to: &tokens)
+        }
+        for dateRange in HistorySearchDateRange.allCases {
+            appendRemainingToken(.date(dateRange), from: tokenByKind, emittedKinds: &emittedKinds, to: &tokens)
+        }
+        for group in systemGroups {
+            appendRemainingToken(.group(group), from: tokenByKind, emittedKinds: &emittedKinds, to: &tokens)
+        }
+        for group in groups {
+            appendRemainingToken(.group(.group(group.id)), from: tokenByKind, emittedKinds: &emittedKinds, to: &tokens)
         }
 
         return tokens
+    }
+
+    private static func appendRemainingToken(
+        _ kind: HistorySearchTokenKind,
+        from tokenByKind: [HistorySearchTokenKind: HistorySearchToken],
+        emittedKinds: inout Set<HistorySearchTokenKind>,
+        to tokens: inout [HistorySearchToken]
+    ) {
+        guard let token = tokenByKind[kind],
+              emittedKinds.insert(kind).inserted else {
+            return
+        }
+        tokens.append(token)
     }
 }
 
