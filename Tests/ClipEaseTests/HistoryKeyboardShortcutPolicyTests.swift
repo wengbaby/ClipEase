@@ -177,6 +177,21 @@ import Testing
     ) == 37..<57)
 }
 
+@Test func railViewportContextUsesFocusedWindowBeforeVisibleRect() {
+    let context = HistoryRailViewportContext(
+        itemCount: 100,
+        visibleRect: CGRect(x: 0, y: 0, width: 1080, height: 300),
+        hasReliableVisibleRect: true,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        bufferItemCount: 6,
+        renderedItemLimit: 20,
+        edgeBufferItemCount: 3
+    )
+
+    #expect(context.visibleWindow(focusedIndex: 50) == 37..<57)
+}
+
 @Test func activeSearchSelectsFirstResult() {
     let firstID = UUID()
     let previousID = UUID()

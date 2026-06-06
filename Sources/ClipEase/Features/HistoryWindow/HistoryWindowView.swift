@@ -214,18 +214,10 @@ struct HistoryWindowView: View {
     }
 
     private var historyRailVisibleWindow: Range<Int> {
-        if let focusedWindow = focusedHistoryRailVisibleWindow {
-            return focusedWindow
-        }
-
-        return clampedHistoryRailWindow(
-            itemCount: renderedItems.count,
-            visibleRect: cardRailVisibleRect,
-            bufferItemCount: historyRailWindowBufferItemCount
-        )
+        historyRailViewportContext.visibleWindow(focusedIndex: focusedHistoryRailIndex)
     }
 
-    private var focusedHistoryRailVisibleWindow: Range<Int>? {
+    private var focusedHistoryRailIndex: Int? {
         guard let focusedID = HistoryRailRenderWindowPolicy.focusedID(
             pendingLatestFocusItemID: pendingLatestFocusItemID ?? pendingKeyboardFocusItemID,
             pendingProgrammaticJumpItemID: pendingProgrammaticJumpItemID,
@@ -237,32 +229,17 @@ struct HistoryWindowView: View {
             return nil
         }
 
-        return historyRailWindow(
-            aroundFocusedIndex: focusedIndex,
-            itemCount: renderedItems.count
-        )
+        return focusedIndex
     }
 
-    private func clampedHistoryRailWindow(
-        itemCount: Int,
-        visibleRect: CGRect,
-        bufferItemCount: Int
-    ) -> Range<Int> {
-        HistoryRailRenderWindowPolicy.visibleWindow(
-            itemCount: itemCount,
-            visibleRect: visibleRect,
+    private var historyRailViewportContext: HistoryRailViewportContext {
+        HistoryRailViewportContext(
+            itemCount: renderedItems.count,
+            visibleRect: cardRailVisibleRect,
             hasReliableVisibleRect: HistoryScrollCoordinator.shared.hasBoundScrollView,
             itemStride: itemStride,
             horizontalContentPadding: horizontalContentPadding,
-            bufferItemCount: bufferItemCount,
-            renderedItemLimit: historyRailRenderedItemLimit
-        )
-    }
-
-    private func historyRailWindow(aroundFocusedIndex focusedIndex: Int, itemCount: Int) -> Range<Int> {
-        HistoryRailRenderWindowPolicy.focusedWindow(
-            focusedIndex: focusedIndex,
-            itemCount: itemCount,
+            bufferItemCount: historyRailWindowBufferItemCount,
             renderedItemLimit: historyRailRenderedItemLimit,
             edgeBufferItemCount: 3
         )
@@ -4033,11 +4010,16 @@ struct HistoryWindowView: View {
         if cardRailVisibleRect == .zero {
             visibleRange = 0..<min(sourceItems.count, previewItemCacheRetainedItemCount)
         } else {
-            visibleRange = clampedHistoryRailWindow(
+            visibleRange = HistoryRailViewportContext(
                 itemCount: sourceItems.count,
                 visibleRect: cardRailVisibleRect,
-                bufferItemCount: previewItemCacheRetainedItemCount / 2
-            )
+                hasReliableVisibleRect: HistoryScrollCoordinator.shared.hasBoundScrollView,
+                itemStride: itemStride,
+                horizontalContentPadding: horizontalContentPadding,
+                bufferItemCount: previewItemCacheRetainedItemCount / 2,
+                renderedItemLimit: historyRailRenderedItemLimit,
+                edgeBufferItemCount: 3
+            ).visibleWindow(focusedIndex: nil)
         }
 
         if !visibleRange.isEmpty {
@@ -4757,7 +4739,7 @@ struct HistoryWindowView: View {
             currentSearchCriteria.hasActiveFilters
         let currentSearchTrigger = pendingSearchTrigger
         pendingSearchTrigger = "stateChange"
-        let usesUnfilteredSource = Self.usesUnfilteredSearchSource(
+        let usesUnfilteredSource = HistorySearchController.usesUnfilteredSearchSource(
             selectedGroup: currentGroup,
             searchText: currentSearchText,
             criteria: currentSearchCriteria
@@ -4865,7 +4847,7 @@ struct HistoryWindowView: View {
                 let mergedSourceItems = repositoryPreviewItems.map { sourceByID[$0.id] ?? $0 }
                 let filteredItems: [HistoryPreviewItem]
                 if mergedSourceItems.isEmpty {
-                    filteredItems = try Self.filterItems(
+                    filteredItems = try HistorySearchController.filterItems(
                         sourceItems,
                         selectedGroup: currentGroup,
                         searchText: currentSearchText,
@@ -4874,7 +4856,7 @@ struct HistoryWindowView: View {
                         now: Date()
                     )
                 } else {
-                    filteredItems = try Self.filterItems(
+                    filteredItems = try HistorySearchController.filterItems(
                         mergedSourceItems,
                         selectedGroup: currentGroup,
                         searchText: currentSearchText,
@@ -4994,7 +4976,7 @@ struct HistoryWindowView: View {
         let currentSearchText = searchText
         let currentSearchCriteria = searchCriteria
         let currentGroup: HistoryGroupSelection = isSearchVisible ? .all : selectedGroup
-        guard !Self.usesUnfilteredSearchSource(
+        guard !HistorySearchController.usesUnfilteredSearchSource(
             selectedGroup: currentGroup,
             searchText: currentSearchText,
             criteria: currentSearchCriteria
@@ -5024,7 +5006,7 @@ struct HistoryWindowView: View {
             let repositoryPreviewItems = repositoryItems.map { HistoryPreviewItem(item: $0) }
             let filteredPage: [HistoryPreviewItem]
             do {
-                filteredPage = try Self.filterItems(
+                filteredPage = try HistorySearchController.filterItems(
                     repositoryPreviewItems,
                     selectedGroup: currentGroup,
                     searchText: currentSearchText,
@@ -5197,113 +5179,6 @@ struct HistoryWindowView: View {
             options: options,
             iconFileNameByName: iconFileNameByName
         )
-    }
-
-    nonisolated private static func filterItems(
-        _ items: [HistoryPreviewItem],
-        selectedGroup: HistoryGroupSelection,
-        searchText: String,
-        criteria: HistorySearchCriteria,
-        maxResultCount: Int? = nil,
-        now: Date
-    ) throws -> [HistoryPreviewItem] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedQuery = query.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-
-        if selectedGroup == .all,
-           normalizedQuery.isEmpty,
-           !criteria.hasActiveFilters {
-            try Task.checkCancellation()
-            return items
-        }
-
-        var result: [HistoryPreviewItem] = []
-        result.reserveCapacity(min(items.count, maxResultCount ?? items.count))
-
-        for item in items {
-            try Task.checkCancellation()
-
-            switch selectedGroup {
-            case .all:
-                break
-            case .pinned:
-                if !item.isPinned {
-                    continue
-                }
-            case .group(let selectedGroupID):
-                if item.groupID != selectedGroupID {
-                    continue
-                }
-            }
-
-            if !criteria.types.isEmpty,
-               !criteria.types.contains(where: { item.type == $0.previewType }) {
-                continue
-            }
-
-            if !criteria.sourceAppNames.isEmpty,
-               !criteria.sourceAppNames.contains(item.sourceAppName) {
-                continue
-            }
-
-            if !criteria.dateRanges.isEmpty,
-               !criteria.dateRanges.contains(where: { $0.contains(item.createdAt, now: now) }) {
-                continue
-            }
-
-            if !criteria.groups.isEmpty,
-               !criteria.groups.contains(where: { itemMatchesSearchGroup(item, group: $0) }) {
-                continue
-            }
-
-            guard !normalizedQuery.isEmpty else {
-                result.append(item)
-                if let maxResultCount, result.count >= maxResultCount {
-                    break
-                }
-                continue
-            }
-
-            if item.normalizedSearchText.contains(normalizedQuery) {
-                result.append(item)
-                if let maxResultCount, result.count >= maxResultCount {
-                    break
-                }
-            }
-        }
-
-        try Task.checkCancellation()
-
-        if case .group = selectedGroup {
-            result.sort(by: {
-                ($0.groupedAt ?? .distantPast) > ($1.groupedAt ?? .distantPast)
-            })
-        }
-
-        try Task.checkCancellation()
-        return result
-    }
-
-    nonisolated private static func usesUnfilteredSearchSource(
-        selectedGroup: HistoryGroupSelection,
-        searchText: String,
-        criteria: HistorySearchCriteria
-    ) -> Bool {
-        selectedGroup == .all &&
-            searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !criteria.hasActiveFilters
-    }
-
-    nonisolated private static func itemMatchesSearchGroup(
-        _ item: HistoryPreviewItem,
-        group: HistorySearchGroup
-    ) -> Bool {
-        switch group {
-        case .pinned:
-            item.isPinned
-        case .group(let groupID):
-            item.groupID == groupID
-        }
     }
 
     private func ensureSelectionInFilteredItems() {
@@ -6141,107 +6016,6 @@ struct HistoryWindowView: View {
 
 }
 
-private struct HistorySearchCriteria: Equatable, Sendable {
-    var types: Set<HistorySearchItemType> = []
-    var sourceAppNames: Set<String> = []
-    var dateRanges: Set<HistorySearchDateRange> = []
-    var groups: Set<HistorySearchGroup> = []
-
-    var hasActiveFilters: Bool {
-        !types.isEmpty || !sourceAppNames.isEmpty || !dateRanges.isEmpty || !groups.isEmpty
-    }
-}
-
-private enum HistorySearchItemType: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case text
-    case link
-    case image
-    case color
-    case file
-
-    var id: String {
-        rawValue
-    }
-
-    var title: String {
-        switch self {
-        case .text:
-            "文字"
-        case .link:
-            "链接"
-        case .image:
-            "图片"
-        case .color:
-            "颜色"
-        case .file:
-            "文件"
-        }
-    }
-
-    var iconName: String {
-        switch self {
-        case .text:
-            "text.alignleft"
-        case .link:
-            "link"
-        case .image:
-            "photo"
-        case .color:
-            "paintpalette"
-        case .file:
-            "doc"
-        }
-    }
-
-    var previewType: HistoryPreviewType {
-        switch self {
-        case .text:
-            .text
-        case .link:
-            .link
-        case .image:
-            .image
-        case .color:
-            .color
-        case .file:
-            .file
-        }
-    }
-}
-
-private enum HistorySearchDateRange: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case today
-    case last7Days
-    case last30Days
-
-    var id: String {
-        rawValue
-    }
-
-    var title: String {
-        switch self {
-        case .today:
-            "今天"
-        case .last7Days:
-            "最近 7 天"
-        case .last30Days:
-            "最近 30 天"
-        }
-    }
-
-    func contains(_ date: Date, now: Date) -> Bool {
-        let calendar = Calendar.current
-        switch self {
-        case .today:
-            return calendar.isDate(date, inSameDayAs: now)
-        case .last7Days:
-            return date >= calendar.date(byAdding: .day, value: -7, to: now) ?? now
-        case .last30Days:
-            return date >= calendar.date(byAdding: .day, value: -30, to: now) ?? now
-        }
-    }
-}
-
 private struct HistoryPreviewSourceSignature: Equatable {
     let id: ClipboardItem.ID
     let type: ClipboardItemType
@@ -6330,56 +6104,6 @@ private struct SourceAppFilterOption: Identifiable, Equatable, Sendable {
     }
 }
 
-private struct HistorySearchSourceIdentity: Equatable {
-    let count: Int
-    let firstID: HistoryPreviewItem.ID?
-    let lastID: HistoryPreviewItem.ID?
-    let searchFingerprint: Int
-    let firstSearchFingerprint: Int?
-    let lastSearchFingerprint: Int?
-
-    init(items: [HistoryPreviewItem]) {
-        count = items.count
-        firstID = items.first?.id
-        lastID = items.last?.id
-        if let item = items.first {
-            searchFingerprint = item.searchFingerprint
-        } else {
-            searchFingerprint = 0
-        }
-        firstSearchFingerprint = items.first?.searchFingerprint
-        lastSearchFingerprint = items.last?.searchFingerprint
-    }
-}
-
-private struct HistorySearchRequestSignature: Equatable {
-    let sourceIdentity: HistorySearchSourceIdentity
-    let selectedGroup: String
-    let searchText: String
-    let criteria: HistorySearchCriteria
-}
-
-private struct HistorySearchFilterResult: Sendable {
-    let items: [HistoryPreviewItem]
-    let repositoryResultCount: Int
-    let canLoadMore: Bool
-    let itemIDs: Set<HistoryPreviewItem.ID>
-    let itemIndexByID: [HistoryPreviewItem.ID: Int]
-
-    init(items: [HistoryPreviewItem], repositoryResultCount: Int? = nil, canLoadMore: Bool = false) {
-        self.items = items
-        self.repositoryResultCount = repositoryResultCount ?? items.count
-        self.canLoadMore = canLoadMore
-        self.itemIDs = Set(items.map(\.id))
-        var itemIndexByID: [HistoryPreviewItem.ID: Int] = [:]
-        itemIndexByID.reserveCapacity(items.count)
-        for (index, item) in items.enumerated() {
-            itemIndexByID[item.id] = index
-        }
-        self.itemIndexByID = itemIndexByID
-    }
-}
-
 private struct LatestItemObservation: Equatable {
     let id: ClipboardItem.ID
     let createdAt: Date
@@ -6416,114 +6140,6 @@ private struct LatestItemObservation: Equatable {
             (item.id, item.createdAt, .refreshed)
         }
     }
-}
-
-private enum HistorySearchGroup: Hashable, Sendable {
-    case pinned
-    case group(ClipboardGroup.ID)
-}
-
-private enum HistorySearchTokenKind: Hashable, Sendable {
-    case type(HistorySearchItemType)
-    case sourceApp(String)
-    case date(HistorySearchDateRange)
-    case group(HistorySearchGroup)
-}
-
-private struct HistorySearchToken: Identifiable, Equatable, Sendable {
-    let kind: HistorySearchTokenKind
-    let title: String
-
-    var id: HistorySearchTokenKind {
-        kind
-    }
-
-    static func tokens(
-        criteria: HistorySearchCriteria,
-        groups: [ClipboardGroup]
-    ) -> [HistorySearchToken] {
-        var tokens: [HistorySearchToken] = []
-
-        for type in HistorySearchItemType.allCases where criteria.types.contains(type) {
-            tokens.append(HistorySearchToken(kind: .type(type), title: type.title))
-        }
-
-        for sourceAppName in criteria.sourceAppNames.sorted() {
-            tokens.append(HistorySearchToken(kind: .sourceApp(sourceAppName), title: sourceAppName))
-        }
-
-        for dateRange in HistorySearchDateRange.allCases where criteria.dateRanges.contains(dateRange) {
-            tokens.append(HistorySearchToken(kind: .date(dateRange), title: dateRange.title))
-        }
-
-        let systemGroups: [HistorySearchGroup] = [.pinned]
-        for group in systemGroups where criteria.groups.contains(group) {
-            tokens.append(HistorySearchToken(kind: .group(group), title: group.title(groups: groups)))
-        }
-        for group in groups where criteria.groups.contains(.group(group.id)) {
-            let searchGroup = HistorySearchGroup.group(group.id)
-            tokens.append(HistorySearchToken(kind: .group(searchGroup), title: searchGroup.title(groups: groups)))
-        }
-
-        return tokens
-    }
-}
-
-private extension HistorySearchGroup {
-    func title(groups: [ClipboardGroup]) -> String {
-        switch self {
-        case .pinned:
-            "置顶"
-        case .group(let groupID):
-            groups.first(where: { $0.id == groupID })?.name ?? "分组"
-        }
-    }
-}
-
-private enum HistoryGroupSelection: Equatable, Sendable {
-    case all
-    case pinned
-    case group(ClipboardGroup.ID)
-
-    var groupID: ClipboardGroup.ID? {
-        switch self {
-        case .all, .pinned:
-            nil
-        case .group(let id):
-            id
-        }
-    }
-
-    init(storageValue: String) {
-        switch storageValue {
-        case Self.pinned.storageValue:
-            self = .pinned
-        default:
-            if storageValue.hasPrefix(Self.groupStoragePrefix),
-               let id = ClipboardGroup.ID(uuidString: String(storageValue.dropFirst(Self.groupStoragePrefix.count))) {
-                self = .group(id)
-            } else {
-                self = .all
-            }
-        }
-    }
-
-    var storageValue: String {
-        switch self {
-        case .all:
-            "all"
-        case .pinned:
-            "pinned"
-        case .group(let id):
-            "\(Self.groupStoragePrefix)\(id.uuidString)"
-        }
-    }
-
-    var scrollID: String {
-        "group-selection-\(storageValue)"
-    }
-
-    private static let groupStoragePrefix = "group:"
 }
 
 private enum SystemHistoryGroup: CaseIterable, Identifiable, Equatable, Sendable {

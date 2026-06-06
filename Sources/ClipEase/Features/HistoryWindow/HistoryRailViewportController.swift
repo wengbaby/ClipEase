@@ -1,0 +1,124 @@
+import Foundation
+
+struct HistoryRailViewportContext {
+    let itemCount: Int
+    let visibleRect: CGRect
+    let hasReliableVisibleRect: Bool
+    let itemStride: CGFloat
+    let horizontalContentPadding: CGFloat
+    let bufferItemCount: Int
+    let renderedItemLimit: Int
+    let edgeBufferItemCount: Int
+
+    func visibleWindow(focusedIndex: Int?) -> Range<Int> {
+        if let focusedIndex {
+            return HistoryRailRenderWindowPolicy.focusedWindow(
+                focusedIndex: focusedIndex,
+                itemCount: itemCount,
+                renderedItemLimit: renderedItemLimit,
+                edgeBufferItemCount: edgeBufferItemCount
+            )
+        }
+
+        return HistoryRailRenderWindowPolicy.visibleWindow(
+            itemCount: itemCount,
+            visibleRect: visibleRect,
+            hasReliableVisibleRect: hasReliableVisibleRect,
+            itemStride: itemStride,
+            horizontalContentPadding: horizontalContentPadding,
+            bufferItemCount: bufferItemCount,
+            renderedItemLimit: renderedItemLimit
+        )
+    }
+}
+
+enum HistoryRailRenderWindowPolicy {
+    static func focusedID(
+        pendingLatestFocusItemID: ClipboardItem.ID?,
+        pendingProgrammaticJumpItemID: ClipboardItem.ID?,
+        pendingItemScrollID: ClipboardItem.ID?,
+        selectedItemID: ClipboardItem.ID?,
+        visibleRect: CGRect
+    ) -> ClipboardItem.ID? {
+        if let pendingLatestFocusItemID {
+            return pendingLatestFocusItemID
+        }
+        if let pendingProgrammaticJumpItemID {
+            return pendingProgrammaticJumpItemID
+        }
+        if let pendingItemScrollID {
+            return pendingItemScrollID
+        }
+        return nil
+    }
+
+    static func visibleWindow(
+        itemCount: Int,
+        visibleRect: CGRect,
+        hasReliableVisibleRect: Bool = true,
+        itemStride: CGFloat,
+        horizontalContentPadding: CGFloat,
+        bufferItemCount: Int,
+        renderedItemLimit: Int
+    ) -> Range<Int> {
+        guard itemCount > 0 else {
+            return 0..<0
+        }
+
+        guard hasReliableVisibleRect else {
+            return 0..<min(itemCount, renderedItemLimit)
+        }
+
+        guard visibleRect.width > 0, itemStride > 0 else {
+            return 0..<min(itemCount, renderedItemLimit)
+        }
+
+        let visibleMinX = max(visibleRect.minX - horizontalContentPadding, 0)
+        guard visibleRect.width >= itemStride else {
+            let centerIndex = min(max(Int(floor(visibleMinX / itemStride)), 0), itemCount - 1)
+            let start = min(
+                max(0, centerIndex - renderedItemLimit / 2),
+                max(0, itemCount - renderedItemLimit)
+            )
+            let end = min(itemCount, start + renderedItemLimit)
+            return start..<end
+        }
+
+        let visibleMaxX = max(visibleRect.maxX - horizontalContentPadding, visibleMinX)
+        let rawStart = Int(floor(visibleMinX / itemStride)) - bufferItemCount
+        let rawEnd = Int(ceil(visibleMaxX / itemStride)) + bufferItemCount + 1
+        let clampedStart = min(max(0, rawStart), max(itemCount - 1, 0))
+        let clampedEnd = min(itemCount, max(clampedStart + 1, rawEnd))
+        guard clampedEnd - clampedStart > renderedItemLimit else {
+            return clampedStart..<clampedEnd
+        }
+
+        let visibleCenter = (visibleMinX + visibleMaxX) / 2
+        let centerIndex = min(max(Int(floor(visibleCenter / itemStride)), 0), itemCount - 1)
+        let limitedStart = min(
+            max(0, centerIndex - renderedItemLimit / 2),
+            max(0, itemCount - renderedItemLimit)
+        )
+        let limitedEnd = min(itemCount, limitedStart + renderedItemLimit)
+        return limitedStart..<limitedEnd
+    }
+
+    static func focusedWindow(
+        focusedIndex: Int,
+        itemCount: Int,
+        renderedItemLimit: Int,
+        edgeBufferItemCount: Int
+    ) -> Range<Int> {
+        guard itemCount > 0 else {
+            return 0..<0
+        }
+
+        let clampedIndex = min(max(focusedIndex, 0), itemCount - 1)
+        let start = min(
+            max(0, clampedIndex - renderedItemLimit / 2 - edgeBufferItemCount),
+            max(0, itemCount - renderedItemLimit)
+        )
+        let end = min(itemCount, start + renderedItemLimit)
+        return start..<max(start + 1, end)
+    }
+}

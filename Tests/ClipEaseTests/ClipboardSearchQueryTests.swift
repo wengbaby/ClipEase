@@ -62,3 +62,31 @@ private struct TestClipboardHistoryRepository: ClipboardHistoryRepository {
 
     #expect(result.map(\.id) == [contentMatch.id])
 }
+
+@Test func historySearchControllerUsesUnfilteredSourceWhenSearchIsEmpty() {
+    #expect(HistorySearchController.usesUnfilteredSearchSource(
+        selectedGroup: .all,
+        searchText: " ",
+        criteria: HistorySearchCriteria()
+    ))
+}
+
+@Test func historySearchControllerSortsSelectedGroupByGroupedAt() throws {
+    let groupID = UUID()
+    var older = ClipboardItem.text("older", sourceApp: .clipease)
+    older.groupID = groupID
+    older.groupedAt = Date(timeIntervalSince1970: 100)
+    var newer = ClipboardItem.text("newer", sourceApp: .clipease)
+    newer.groupID = groupID
+    newer.groupedAt = Date(timeIntervalSince1970: 200)
+
+    let result = try HistorySearchController.filterItems(
+        [HistoryPreviewItem(item: older), HistoryPreviewItem(item: newer)],
+        selectedGroup: .group(groupID),
+        searchText: "",
+        criteria: HistorySearchCriteria(),
+        now: Date(timeIntervalSince1970: 300)
+    )
+
+    #expect(result.map(\.id) == [newer.id, older.id])
+}
