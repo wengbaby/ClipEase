@@ -67,6 +67,14 @@ enum HistorySearchCancelPolicy {
     }
 }
 
+enum HistoryPreviewFollowPolicy {
+    static let retryDelaysNanoseconds: [UInt64] = [
+        16_000_000,
+        33_000_000,
+        66_000_000
+    ]
+}
+
 enum HistoryRailRenderWindowPolicy {
     static func focusedID(
         pendingLatestFocusItemID: ClipboardItem.ID?,
@@ -90,6 +98,7 @@ enum HistoryRailRenderWindowPolicy {
     static func visibleWindow(
         itemCount: Int,
         visibleRect: CGRect,
+        hasReliableVisibleRect: Bool = true,
         itemStride: CGFloat,
         horizontalContentPadding: CGFloat,
         bufferItemCount: Int,
@@ -97,6 +106,10 @@ enum HistoryRailRenderWindowPolicy {
     ) -> Range<Int> {
         guard itemCount > 0 else {
             return 0..<0
+        }
+
+        guard hasReliableVisibleRect else {
+            return 0..<min(itemCount, renderedItemLimit)
         }
 
         guard visibleRect.width > 0, itemStride > 0 else {

@@ -251,6 +251,7 @@ struct HistoryWindowView: View {
         HistoryRailRenderWindowPolicy.visibleWindow(
             itemCount: itemCount,
             visibleRect: visibleRect,
+            hasReliableVisibleRect: HistoryScrollCoordinator.shared.hasBoundScrollView,
             itemStride: itemStride,
             horizontalContentPadding: horizontalContentPadding,
             bufferItemCount: bufferItemCount,
@@ -489,6 +490,7 @@ struct HistoryWindowView: View {
         }
         .onPreferenceChange(CardViewportFramePreferenceKey.self) { frames in
             cardViewportFrames = frames
+            followPreviewForCurrentScroll()
         }
         .onChange(of: searchInteractionFrames) { _ in
             refreshSearchInteractionScreenFrames()
@@ -676,7 +678,10 @@ struct HistoryWindowView: View {
     private var historyRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             ZStack(alignment: .topLeading) {
-                CardRailScrollViewBinder()
+                CardRailScrollViewBinder {
+                    updateCardRailVisibleRect()
+                    requestNextHistoryPageIfNeeded()
+                }
                     .frame(width: 0, height: 0)
 
                 ForEach(renderedWindowItems) { item in
@@ -2742,18 +2747,25 @@ struct HistoryWindowView: View {
         }
 
         previewFollowTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 33_000_000)
-            let targetID = pendingPreviewFollowItemID
-            pendingPreviewFollowItemID = nil
-            previewFollowTask = nil
-            guard previewState.isVisible,
-                  previewState.itemID == targetID,
-                  let targetID,
-                  let refreshedFrame = cardViewportFrame(for: targetID) else {
-                return
+            var targetID = previewedID
+            for delay in HistoryPreviewFollowPolicy.retryDelaysNanoseconds {
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                targetID = pendingPreviewFollowItemID ?? targetID
+                guard previewState.isVisible,
+                      previewState.itemID == targetID,
+                      let refreshedFrame = cardViewportFrame(for: targetID) else {
+                    continue
+                }
+
+                onMovePreview(refreshedFrame)
             }
 
-            onMovePreview(refreshedFrame)
+            pendingPreviewFollowItemID = nil
+            previewFollowTask = nil
         }
     }
 
@@ -8101,8 +8113,11 @@ private struct HorizontalScrollWheelRedirector: NSViewRepresentable {
 }
 
 private struct CardRailScrollViewBinder: NSViewRepresentable {
+    let onBind: () -> Void
+
     func makeNSView(context: Context) -> BindingView {
         let view = BindingView()
+        view.onBind = onBind
         DispatchQueue.main.async {
             view.bindScrollViewIfNeeded()
         }
@@ -8110,12 +8125,15 @@ private struct CardRailScrollViewBinder: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: BindingView, context: Context) {
+        nsView.onBind = onBind
         DispatchQueue.main.async {
             nsView.bindScrollViewIfNeeded()
         }
     }
 
     final class BindingView: NSView {
+        var onBind: (() -> Void)?
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             DispatchQueue.main.async {
@@ -8136,13 +8154,12 @@ private struct CardRailScrollViewBinder: NSViewRepresentable {
         }
 
         func bindScrollViewIfNeeded() {
-            guard let scrollView = enclosingScrollView,
-                  let documentView = scrollView.documentView,
-                  documentView.bounds.width > scrollView.contentView.bounds.width + 2 else {
+            guard let scrollView = enclosingScrollView else {
                 return
             }
 
             HistoryScrollCoordinator.shared.update(scrollView: scrollView)
+            onBind?()
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
@@ -8363,6 +8380,10 @@ final class HistoryScrollCoordinator {
         }
 
         return scrollView.contentView.bounds
+    }
+
+    var hasBoundScrollView: Bool {
+        scrollView?.window != nil
     }
 
     func scrollToOffset(_ offsetX: CGFloat, animated: Bool, suppressUserOffsetSave: Bool = false) {

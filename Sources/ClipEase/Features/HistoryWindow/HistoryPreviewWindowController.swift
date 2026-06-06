@@ -66,21 +66,13 @@ final class HistoryPreviewWindowController {
         onDetach: @escaping () -> Void
     ) -> Bool {
         let size = previewSize(for: item, screenFrame: screenFrame)
-        let originY = min(
-            max(anchorScreenPoint.y + arrowGap, screenFrame.minY + 8),
-            screenFrame.maxY - size.height - arrowHeight - 8
+        let placement = HistoryPreviewPlacementPolicy.placement(
+            anchorScreenPoint: anchorScreenPoint,
+            screenFrame: screenFrame,
+            size: size
         )
-        let originX = min(
-            max(anchorScreenPoint.x - size.width / 2, screenFrame.minX + horizontalMargin),
-            screenFrame.maxX - horizontalMargin - size.width
-        )
-        let arrowX = min(max(anchorScreenPoint.x - originX, 28), size.width - 28)
-        let attachedFrame = CGRect(
-            x: originX,
-            y: originY,
-            width: size.width,
-            height: size.height + arrowHeight
-        )
+        let attachedFrame = placement.frame
+        let arrowX = placement.arrowX
 
         let panel = panel ?? makePanel()
         let isAlreadyVisible = panel.isVisible
@@ -283,27 +275,24 @@ final class HistoryPreviewWindowController {
         }
 
         let size = CGSize(width: panel.frame.width, height: max(1, panel.frame.height - arrowHeight))
-        let originY = min(
-            max(anchorScreenPoint.y + arrowGap, screenFrame.minY + 8),
-            screenFrame.maxY - size.height - arrowHeight - 8
+        let placement = HistoryPreviewPlacementPolicy.placement(
+            anchorScreenPoint: anchorScreenPoint,
+            screenFrame: screenFrame,
+            size: size
         )
-        let originX = min(
-            max(anchorScreenPoint.x - size.width / 2, screenFrame.minX + horizontalMargin),
-            screenFrame.maxX - horizontalMargin - size.width
-        )
-        let frame = CGRect(
-            x: originX,
-            y: originY,
-            width: panel.frame.width,
-            height: panel.frame.height
-        )
+        let frame = placement.frame
+        let shouldUpdateArrow = updateAttachedArrowXIfNeeded(placement.arrowX)
 
-        guard abs(panel.frame.minX - frame.minX) > 0.5 ||
+        guard shouldUpdateArrow ||
+              abs(panel.frame.minX - frame.minX) > 0.5 ||
               abs(panel.frame.minY - frame.minY) > 0.5 else {
             return
         }
 
         panel.setFrame(frame, display: true, animate: false)
+        if shouldUpdateArrow {
+            renderPreviewContent(panel: panel)
+        }
     }
 
     func contains(screenPoint: CGPoint) -> Bool {
@@ -439,6 +428,16 @@ final class HistoryPreviewWindowController {
                 return self.detachCurrentPreview()
             }
         )
+    }
+
+    private func updateAttachedArrowXIfNeeded(_ arrowX: CGFloat) -> Bool {
+        guard let configuration = contentConfiguration,
+              abs(configuration.arrowX - arrowX) > 0.5 else {
+            return false
+        }
+
+        contentConfiguration = configuration.withArrowX(arrowX)
+        return true
     }
 
     private func renderPreviewContent(
@@ -844,6 +843,59 @@ private struct PreviewContentConfiguration {
     let onCopyRGB: () -> Void
     let onClose: () -> Void
     let onDetach: () -> Void
+
+    func withArrowX(_ arrowX: CGFloat) -> PreviewContentConfiguration {
+        PreviewContentConfiguration(
+            item: item,
+            ocrResult: ocrResult,
+            arrowX: arrowX,
+            size: size,
+            onCopy: onCopy,
+            onOpen: onOpen,
+            onReveal: onReveal,
+            onCopyURL: onCopyURL,
+            onCopyMarkdown: onCopyMarkdown,
+            onCopyPath: onCopyPath,
+            onCopyRGB: onCopyRGB,
+            onClose: onClose,
+            onDetach: onDetach
+        )
+    }
+}
+
+struct HistoryPreviewPlacementPolicy {
+    struct Placement: Equatable {
+        let frame: CGRect
+        let arrowX: CGFloat
+    }
+
+    static func placement(
+        anchorScreenPoint: CGPoint,
+        screenFrame: CGRect,
+        size: CGSize,
+        arrowHeight: CGFloat = 14,
+        arrowGap: CGFloat = 18,
+        horizontalMargin: CGFloat = 12
+    ) -> Placement {
+        let originY = min(
+            max(anchorScreenPoint.y + arrowGap, screenFrame.minY + 8),
+            screenFrame.maxY - size.height - arrowHeight - 8
+        )
+        let originX = min(
+            max(anchorScreenPoint.x - size.width / 2, screenFrame.minX + horizontalMargin),
+            screenFrame.maxX - horizontalMargin - size.width
+        )
+        let arrowX = min(max(anchorScreenPoint.x - originX, 28), size.width - 28)
+        return Placement(
+            frame: CGRect(
+                x: originX,
+                y: originY,
+                width: size.width,
+                height: size.height + arrowHeight
+            ),
+            arrowX: arrowX
+        )
+    }
 }
 
 private final class HistoryPreviewPanel: NSPanel {

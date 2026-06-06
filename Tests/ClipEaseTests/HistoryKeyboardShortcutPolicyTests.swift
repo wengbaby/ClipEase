@@ -146,6 +146,18 @@ import Testing
     #expect(window.contains(20))
 }
 
+@Test func staleUnboundRailWindowRendersFirstPage() {
+    #expect(HistoryRailRenderWindowPolicy.visibleWindow(
+        itemCount: 100,
+        visibleRect: CGRect(x: 5400, y: 0, width: 1080, height: 300),
+        hasReliableVisibleRect: false,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        bufferItemCount: 6,
+        renderedItemLimit: 20
+    ) == 0..<20)
+}
+
 @Test func ordinarySelectionDoesNotOverrideVisibleWindow() {
     #expect(HistoryRailRenderWindowPolicy.focusedID(
         pendingLatestFocusItemID: nil,
@@ -193,4 +205,28 @@ import Testing
         resultIDs: [firstID, selectedID],
         isSearchActive: false
     ) == selectedID)
+}
+
+@Test func previewFollowRetriesAcrossMultipleLayoutPasses() {
+    #expect(HistoryPreviewFollowPolicy.retryDelaysNanoseconds.count >= 3)
+    #expect(HistoryPreviewFollowPolicy.retryDelaysNanoseconds.allSatisfy { $0 > 0 })
+}
+
+@Test func previewPlacementUpdatesArrowWhenWindowIsPinnedByScreenEdge() {
+    let screenFrame = CGRect(x: 0, y: 0, width: 900, height: 700)
+    let size = CGSize(width: 390, height: 260)
+    let first = HistoryPreviewPlacementPolicy.placement(
+        anchorScreenPoint: CGPoint(x: 760, y: 250),
+        screenFrame: screenFrame,
+        size: size
+    )
+    let second = HistoryPreviewPlacementPolicy.placement(
+        anchorScreenPoint: CGPoint(x: 820, y: 250),
+        screenFrame: screenFrame,
+        size: size
+    )
+
+    #expect(first.frame.minX == second.frame.minX)
+    #expect(first.arrowX != second.arrowX)
+    #expect(second.arrowX > first.arrowX)
 }
