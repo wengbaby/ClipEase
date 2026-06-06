@@ -219,6 +219,18 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.onEscape = { [weak self] in
             self?.inputState.dispatch(.close)
         }
+        panel.onSpace = { [weak self] in
+            guard let self,
+                  HistoryPanelSpaceKeyPolicy.shouldTogglePreview(
+                    isHistoryTextInputActive: self.inputState.isHistoryTextInputActiveSnapshot,
+                    isPreviewActive: self.inputState.isPreviewActiveSnapshot
+                  ) else {
+                return false
+            }
+
+            self.inputState.dispatch(.togglePreview)
+            return true
+        }
         panel.level = .screenSaver
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.isReleasedWhenClosed = false
@@ -468,10 +480,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        store.skipNextClipboardText(text)
-        store.addText(text, sourceApp: .clipease)
+        PasteboardWriter.writeText(text, skipRecording: store.skipNextClipboardText)
         ClipEaseSoundPlayer.shared.playCopyFeedback()
     }
 
@@ -502,10 +511,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         let pathsText = paths.joined(separator: "\n")
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(pathsText, forType: .string)
-        store.skipNextClipboardText(pathsText)
-        store.addText(pathsText, sourceApp: .clipease)
+        PasteboardWriter.writeText(pathsText, skipRecording: store.skipNextClipboardText)
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")
     }

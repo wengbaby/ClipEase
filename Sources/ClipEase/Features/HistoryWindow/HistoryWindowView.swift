@@ -73,6 +73,7 @@ struct HistoryWindowView: View {
     @State private var loadedSearchRepositoryResultCount = 0
     @State private var canLoadMoreSearchResults = false
     @State private var pendingSearchTrigger = "unknown"
+    @State private var searchHasHandedOffFocusToCard = false
     @State private var preheatTask: Task<Void, Never>?
     @State private var previewFollowTask: Task<Void, Never>?
     @State private var rememberSelectedItemTask: Task<Void, Never>?
@@ -110,6 +111,7 @@ struct HistoryWindowView: View {
     @State private var searchInteractionScreenFrames: [CGRect] = []
     @State private var cardRailTopInWindow: CGFloat = 68
     @State private var cardRailVisibleRect: CGRect = .zero
+    @State private var railViewportMode: HistoryRailViewportMode = .automatic
     @AppStorage("history.systemGroup.pinned.iconName") private var pinnedGroupIconName = "pin.fill"
     @AppStorage("history.systemGroup.pinned.colorHex") private var pinnedGroupColorHex = "#2E8CFF"
     @AppStorage("history.lastSelectedGroup") private var rememberedSelectedGroup = HistoryGroupSelection.all.storageValue
@@ -241,7 +243,8 @@ struct HistoryWindowView: View {
             horizontalContentPadding: horizontalContentPadding,
             bufferItemCount: historyRailWindowBufferItemCount,
             renderedItemLimit: historyRailRenderedItemLimit,
-            edgeBufferItemCount: 3
+            edgeBufferItemCount: 3,
+            mode: railViewportMode
         )
     }
 
@@ -623,6 +626,9 @@ struct HistoryWindowView: View {
         .onChange(of: isSearchFocused) { isFocused in
             inputState.setTextInputFocused(isFocused)
         }
+        .onChange(of: searchHasHandedOffFocusToCard) { hasHandedOff in
+            inputState.setSearchHasHandedOffFocusToCard(hasHandedOff)
+        }
         .onChange(of: isGroupIconSearchFocused) { isFocused in
             inputState.setTextInputFocused(isFocused || groupRenameTargetID != nil)
         }
@@ -686,7 +692,8 @@ struct HistoryWindowView: View {
         let isSelected = selectedItemID == item.id
         let isCardFocused = isSelected && HistoryCardFocusPolicy.isCardFocusActive(
             selectedItemID: selectedItemID,
-            isSearchFieldFocused: isSearchFocused || inputState.isTextInputFocusedSnapshot
+            isSearchFieldFocused: isSearchFocused || inputState.isTextInputFocusedSnapshot,
+            searchHasHandedOffFocusToCard: searchHasHandedOffFocusToCard
         )
         let isHovered = hoveredCardID == item.id
         let isPressed = pressedCardID == item.id
@@ -1538,6 +1545,7 @@ struct HistoryWindowView: View {
                             isFocused: $isSearchFocused,
                             isComposing: $isSearchTextComposing,
                             focusRequestID: searchFocusRequestID,
+                            searchHasHandedOffFocusToCard: searchHasHandedOffFocusToCard,
                             hasSearchResult: !filteredItems.isEmpty,
                             hasSearchTokens: !searchTokens.isEmpty,
                             onEnterFirstResult: enterFirstSearchResultFromSearchField,
@@ -2466,6 +2474,7 @@ struct HistoryWindowView: View {
         keepKeyboardFocusedItemRendered(nextID)
         revealPartiallyVisibleCardIfNeeded(nextID, animated: false)
         if previewState.isVisible {
+            pendingPreviewFollowItemID = nextID
             showPreview(nextID)
             Task { @MainActor in
                 await Task.yield()
@@ -2569,9 +2578,10 @@ struct HistoryWindowView: View {
             ?? item.url?.host(percentEncoded: false)
             ?? item.text
         let markdown = "[\(title)](\(item.text))"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(markdown, forType: .string)
-        addClipEaseTextCard(markdown)
+        guard case .copied = pasteExecutor.copyTextToPasteboard(markdown) else {
+            showStatus("无法写入剪贴板")
+            return
+        }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制 Markdown 链接")
         closeAfterContextMenuCommand()
@@ -2583,9 +2593,10 @@ struct HistoryWindowView: View {
             return
         }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(item.text, forType: .string)
-        addClipEaseTextCard(item.text)
+        guard case .copied = pasteExecutor.copyTextToPasteboard(item.text) else {
+            showStatus("无法写入剪贴板")
+            return
+        }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制链接地址")
         closeAfterContextMenuCommand()
@@ -2610,9 +2621,10 @@ struct HistoryWindowView: View {
             return
         }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(item.text, forType: .string)
-        addClipEaseTextCard(item.text)
+        guard case .copied = pasteExecutor.copyTextToPasteboard(item.text) else {
+            showStatus("无法写入剪贴板")
+            return
+        }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制 HEX")
         closeAfterContextMenuCommand()
@@ -2626,9 +2638,10 @@ struct HistoryWindowView: View {
             return
         }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(rgb, forType: .string)
-        addClipEaseTextCard(rgb)
+        guard case .copied = pasteExecutor.copyTextToPasteboard(rgb) else {
+            showStatus("无法写入剪贴板")
+            return
+        }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制 RGB")
         closeAfterContextMenuCommand()
@@ -2702,7 +2715,15 @@ struct HistoryWindowView: View {
             return
         }
 
-        onPreview(item, cardViewportFrame(for: item.id) ?? CGRect(x: 28, y: 60, width: 250, height: 270))
+        guard let cardFrame = cardViewportFrame(for: item.id) else {
+            pendingPreviewFollowItemID = item.id
+            keepKeyboardFocusedItemRendered(item.id)
+            scrollToItemWhenRendered(item.id, animated: false)
+            followPreviewForCurrentScroll()
+            return
+        }
+
+        onPreview(item, cardFrame)
         PerformanceDiagnosticsService.shared.record(
             "preview.show",
             category: "preview",
@@ -2787,9 +2808,7 @@ struct HistoryWindowView: View {
         appMenuController.editItem(item) { updatedItem in
             selectedItemID = updatedItem.id
             if updatedItem.type == .link {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(updatedItem.text, forType: .string)
-                addClipEaseTextCard(updatedItem.text)
+                _ = pasteExecutor.copyTextToPasteboard(updatedItem.text)
                 ClipEaseSoundPlayer.shared.playCopyFeedback()
                 showStatus("已保存并复制新链接")
             } else {
@@ -3236,9 +3255,10 @@ struct HistoryWindowView: View {
             return
         }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(item.sourceAppName, forType: .string)
-        addClipEaseTextCard(item.sourceAppName)
+        guard case .copied = pasteExecutor.copyTextToPasteboard(item.sourceAppName) else {
+            showStatus("无法写入剪贴板")
+            return
+        }
         showStatus("已复制来源名称")
         closeAfterContextMenuCommand()
     }
@@ -3250,9 +3270,10 @@ struct HistoryWindowView: View {
             return
         }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(bundleID, forType: .string)
-        addClipEaseTextCard(bundleID)
+        guard case .copied = pasteExecutor.copyTextToPasteboard(bundleID) else {
+            showStatus("无法写入剪贴板")
+            return
+        }
         showStatus("已复制 Bundle ID")
         closeAfterContextMenuCommand()
     }
@@ -3289,9 +3310,13 @@ struct HistoryWindowView: View {
             return
         }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([image])
-        addClipEaseTextCard(item.preview.isEmpty ? imageURL.lastPathComponent : item.preview)
+        guard case .copied = pasteExecutor.copyImageToPasteboard(
+            image,
+            skipText: item.preview.isEmpty ? imageURL.lastPathComponent : item.preview
+        ) else {
+            showStatus("无法写入图片到剪贴板")
+            return
+        }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制图像")
         closeAfterContextMenuCommand()
@@ -3305,9 +3330,10 @@ struct HistoryWindowView: View {
         }
 
         let path = imageURL.path
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(path, forType: .string)
-        addClipEaseTextCard(path)
+        guard case .copied = pasteExecutor.copyTextToPasteboard(path) else {
+            showStatus("无法写入剪贴板")
+            return
+        }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制图片路径")
         closeAfterContextMenuCommand()
@@ -3330,9 +3356,10 @@ struct HistoryWindowView: View {
         }
 
         let pathsText = paths.joined(separator: "\n")
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(pathsText, forType: .string)
-        addClipEaseTextCard(pathsText)
+        guard case .copied = pasteExecutor.copyTextToPasteboard(pathsText) else {
+            showStatus("无法写入剪贴板")
+            return
+        }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")
         closeAfterContextMenuCommand()
@@ -3351,9 +3378,10 @@ struct HistoryWindowView: View {
             return
         }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([firstURL as NSURL])
-        addClipEaseTextCard(firstURL.path)
+        guard case .copied = pasteExecutor.copyFileURLToPasteboard(firstURL) else {
+            showStatus("无法写入文件引用到剪贴板")
+            return
+        }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus("已复制文件")
         closeAfterContextMenuCommand()
@@ -3852,9 +3880,11 @@ struct HistoryWindowView: View {
             return nil
         }
 
-        return documentFrame.offsetBy(
-            dx: -HistoryScrollCoordinator.shared.currentOffset,
-            dy: cardRailTopInWindow + selectedCardTopContentInset
+        return HistoryPreviewFramePolicy.fallbackViewportFrame(
+            documentFrame: documentFrame,
+            currentOffset: HistoryScrollCoordinator.shared.currentOffset,
+            cardRailTopInWindow: cardRailTopInWindow,
+            selectedCardTopContentInset: selectedCardTopContentInset
         )
     }
 
@@ -3965,6 +3995,9 @@ struct HistoryWindowView: View {
             abs(cardRailVisibleRect.width - visibleRect.width) > 0.5 ||
             cardRailVisibleRect == .zero {
             cardRailVisibleRect = visibleRect
+            if railViewportMode == .visibleArea {
+                railViewportMode = .automatic
+            }
             requestNextHistoryPageIfNeeded()
         }
     }
@@ -4068,11 +4101,6 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func addClipEaseTextCard(_ text: String) {
-        store.skipNextClipboardText(text)
-        store.addText(text, sourceApp: .clipease)
-    }
-
     private func copyFallbackTextStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .file:
@@ -4148,6 +4176,7 @@ struct HistoryWindowView: View {
 
     private func clearSearchText() {
         let fallbackID = selectedItemID
+        searchHasHandedOffFocusToCard = false
         searchText = ""
         selectedSearchTokenKind = nil
         isSearchFocused = isSearchVisible
@@ -4159,6 +4188,7 @@ struct HistoryWindowView: View {
         let startedAt = CFAbsoluteTimeGetCurrent()
         pendingSearchTrigger = "search.clearButton"
         let fallbackID = selectedItemID
+        searchHasHandedOffFocusToCard = false
         searchText = ""
         searchCriteria = HistorySearchCriteria()
         selectedSearchTokenKind = nil
@@ -4173,9 +4203,11 @@ struct HistoryWindowView: View {
     }
 
     private func closeSearch() {
+        searchHasHandedOffFocusToCard = false
         isSearchVisible = false
         isSearchFocused = false
         inputState.setTextInputFocused(false)
+        inputState.setSearchHasHandedOffFocusToCard(false)
         inputState.setSearchVisible(false)
     }
 
@@ -4949,6 +4981,15 @@ struct HistoryWindowView: View {
                 convergeLatestClipboardFocusIfNeeded()
                 applyPendingProgrammaticJumpIfPossible()
                 schedulePreheatVisibleAssets()
+                if HistorySearchPaginationPolicy.shouldLoadMore(
+                    filteredCount: result.items.count,
+                    targetCount: historyRailRenderedItemLimit,
+                    repositoryResultCount: result.repositoryResultCount,
+                    pageSize: searchResultPageSize,
+                    canLoadMore: result.canLoadMore
+                ) {
+                    loadMoreSearchResultsIfNeeded(visibleUpperBound: result.items.count, preloadMargin: historyRailRenderedItemLimit)
+                }
                 PerformanceDiagnosticsService.shared.record(
                     "search.postApply",
                     category: "search",
@@ -5211,6 +5252,13 @@ struct HistoryWindowView: View {
     private func resetSearchResultsViewport() {
         pendingKeyboardFocusClearTask?.cancel()
         pendingKeyboardFocusItemID = nil
+        pendingProgrammaticJumpItemID = nil
+        pendingItemScrollID = nil
+        pendingItemScrollRetryCount = 0
+        shouldResetHorizontalOffsetForPendingItemScroll = false
+        shouldAnimatePendingItemScroll = false
+        isPreparingPendingItemScrollMeasurement = false
+        railViewportMode = .firstPage
         let measuredVisibleRect = HistoryScrollCoordinator.shared.visibleDocumentRect
         cardRailVisibleRect = CGRect(
             x: 0,
@@ -5219,6 +5267,12 @@ struct HistoryWindowView: View {
             height: measuredVisibleRect?.height ?? cardRailVisibleRect.height
         )
         HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
+        Task { @MainActor in
+            await Task.yield()
+            if railViewportMode == .firstPage {
+                railViewportMode = .automatic
+            }
+        }
     }
 
     private func syncLatestItemFocusIfNeeded(sourceItems: [ClipboardItem]) {
@@ -5904,6 +5958,8 @@ struct HistoryWindowView: View {
         }
 
         selectedItemID = firstID
+        searchHasHandedOffFocusToCard = true
+        inputState.setSearchHasHandedOffFocusToCard(true)
         isSearchFocused = false
         inputState.setTextInputFocused(false)
         if previewState.isVisible {
@@ -5912,6 +5968,7 @@ struct HistoryWindowView: View {
     }
 
     private func focusSearchField() {
+        searchHasHandedOffFocusToCard = false
         isSearchFocused = true
         searchFocusRequestID += 1
         inputState.setTextInputFocused(true)
@@ -6190,6 +6247,7 @@ private struct SearchTextField: NSViewRepresentable {
     @Binding var isFocused: Bool
     @Binding var isComposing: Bool
     let focusRequestID: Int
+    let searchHasHandedOffFocusToCard: Bool
     let hasSearchResult: Bool
     let hasSearchTokens: Bool
     let onEnterFirstResult: () -> Void
@@ -6226,7 +6284,11 @@ private struct SearchTextField: NSViewRepresentable {
             nsView.font = .systemFont(ofSize: 13, weight: .medium)
         }
 
-        if isFocused {
+        if searchHasHandedOffFocusToCard {
+            if nsView.window?.firstResponder === nsView.currentEditor() {
+                nsView.window?.makeFirstResponder(nil)
+            }
+        } else if isFocused {
             if nsView.window?.firstResponder !== nsView.currentEditor() {
                 nsView.window?.makeFirstResponder(nsView)
             }
@@ -6249,6 +6311,17 @@ private struct SearchTextField: NSViewRepresentable {
         weak var coordinator: Coordinator?
 
         override func keyDown(with event: NSEvent) {
+            guard HistorySearchTextFieldFocusPolicy.shouldRestoreFocusOnKeyEvent(
+                searchHasHandedOffFocusToCard: coordinator?.parent.searchHasHandedOffFocusToCard ?? false
+            ) else {
+                if event.keyCode == KeyCode.space {
+                    HistoryWindowInputState.currentForTextEditing?.dispatch(.togglePreview)
+                    return
+                }
+                super.keyDown(with: event)
+                return
+            }
+
             if let inputState = HistoryWindowInputState.currentForTextEditing {
                 inputState.setTextInputFocused(true)
             }
@@ -6257,6 +6330,12 @@ private struct SearchTextField: NSViewRepresentable {
         }
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            guard HistorySearchTextFieldFocusPolicy.shouldRestoreFocusOnKeyEvent(
+                searchHasHandedOffFocusToCard: coordinator?.parent.searchHasHandedOffFocusToCard ?? false
+            ) else {
+                return super.performKeyEquivalent(with: event)
+            }
+
             if let inputState = HistoryWindowInputState.currentForTextEditing {
                 inputState.setTextInputFocused(true)
             }

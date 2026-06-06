@@ -44,6 +44,11 @@ def main() -> None:
         default="none",
         help="Marketing version bump. CFBundleVersion timestamp is always updated.",
     )
+    parser.add_argument(
+        "--preserve-build",
+        action="store_true",
+        help="Keep the existing CFBundleVersion instead of writing a new timestamp.",
+    )
     args = parser.parse_args()
 
     with INFO_PLIST.open("rb") as file:
@@ -53,7 +58,8 @@ def main() -> None:
     current_build = plist["CFBundleVersion"]
 
     plist["CFBundleShortVersionString"] = next_version(current_version, args.bump)
-    plist["CFBundleVersion"] = datetime.now().strftime("%y%m%d.%H%M")
+    if not args.preserve_build:
+        plist["CFBundleVersion"] = datetime.now().strftime("%y%m%d.%H%M")
 
     with INFO_PLIST.open("wb") as file:
         plistlib.dump(plist, file, sort_keys=False)

@@ -72,7 +72,7 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
 
         case .keyDown:
-            let isTextInputActive = inputState?.isTextInputFocusedSnapshot == true
+            let isTextInputActive = inputState?.isHistoryTextInputActiveSnapshot == true
             let isPreviewActive = inputState?.isPreviewActiveSnapshot == true
             guard let action = Self.action(for: event, isTextInputActive: isTextInputActive) else {
                 return Unmanaged.passUnretained(event)
@@ -115,15 +115,13 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             flags.contains(.maskControl) ||
             flags.contains(.maskAlternate)
 
-        if isTextInputActive, !hasTextEditingModifier {
-            switch keyCode {
-            case KeyCode.downArrow, KeyCode.tab:
-                return .focusFirstSearchResult
-            case KeyCode.returnKey, KeyCode.enter:
-                return .enterFirstSearchResult
-            default:
-                break
-            }
+        if isTextInputActive {
+            return HistoryKeyboardInputPolicy.actionForTextInput(
+                keyCode: keyCode,
+                hasTextEditingModifier: hasTextEditingModifier,
+                isShiftPressed: isShiftPressed,
+                cursorIsAtEnd: false
+            )
         }
 
         if isCommandPressed {

@@ -60,6 +60,66 @@ import Testing
     ))
 }
 
+@Test func copyCommandsAreBlockedWhileSearchFieldIsFocused() {
+    #expect(!HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
+        .copy,
+        isTextInputActive: true,
+        isPreviewContentActive: false
+    ))
+    #expect(!HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
+        .copyPlainText,
+        isTextInputActive: true,
+        isPreviewContentActive: false
+    ))
+}
+
+@Test func searchFieldCommandShortcutsStayInTextField() {
+    for keyCode in [KeyCode.a, KeyCode.c, KeyCode.v, KeyCode.x] {
+        #expect(HistoryKeyboardInputPolicy.actionForTextInput(
+            keyCode: keyCode,
+            hasTextEditingModifier: true,
+            isShiftPressed: false,
+            cursorIsAtEnd: true
+        ) == nil)
+    }
+}
+
+@Test func searchFieldExitKeysCanFocusFirstResult() {
+    #expect(HistoryKeyboardInputPolicy.actionForTextInput(
+        keyCode: KeyCode.downArrow,
+        hasTextEditingModifier: false,
+        isShiftPressed: false,
+        cursorIsAtEnd: false
+    ) == .focusFirstSearchResult)
+    #expect(HistoryKeyboardInputPolicy.actionForTextInput(
+        keyCode: KeyCode.returnKey,
+        hasTextEditingModifier: false,
+        isShiftPressed: false,
+        cursorIsAtEnd: false
+    ) == .enterFirstSearchResult)
+    #expect(HistoryKeyboardInputPolicy.actionForTextInput(
+        keyCode: KeyCode.tab,
+        hasTextEditingModifier: false,
+        isShiftPressed: false,
+        cursorIsAtEnd: false
+    ) == .focusFirstSearchResult)
+}
+
+@Test func searchFieldRightArrowOnlyExitsAtEnd() {
+    #expect(HistoryKeyboardInputPolicy.actionForTextInput(
+        keyCode: KeyCode.rightArrow,
+        hasTextEditingModifier: false,
+        isShiftPressed: false,
+        cursorIsAtEnd: false
+    ) == nil)
+    #expect(HistoryKeyboardInputPolicy.actionForTextInput(
+        keyCode: KeyCode.rightArrow,
+        hasTextEditingModifier: false,
+        isShiftPressed: false,
+        cursorIsAtEnd: true
+    ) == .focusFirstSearchResult)
+}
+
 @Test func selectedSearchResultIsNotFocusedWhileSearchFieldIsFocused() {
     #expect(!HistoryCardFocusPolicy.isCardFocusActive(
         selectedItemID: UUID(),
@@ -71,6 +131,38 @@ import Testing
     #expect(HistoryCardFocusPolicy.isCardFocusActive(
         selectedItemID: UUID(),
         isSearchFieldFocused: false
+    ))
+}
+
+@Test func selectedSearchResultIsFocusedAfterSearchFieldHandsOffToCard() {
+    #expect(HistoryCardFocusPolicy.isCardFocusActive(
+        selectedItemID: UUID(),
+        isSearchFieldFocused: true,
+        searchHasHandedOffFocusToCard: true
+    ))
+}
+
+@Test func searchTextFieldDoesNotRestoreFocusAfterHandingOffToCard() {
+    #expect(!HistorySearchTextFieldFocusPolicy.shouldRestoreFocusOnKeyEvent(
+        searchHasHandedOffFocusToCard: true
+    ))
+    #expect(HistorySearchTextFieldFocusPolicy.shouldRestoreFocusOnKeyEvent(
+        searchHasHandedOffFocusToCard: false
+    ))
+}
+
+@Test func panelSpaceKeyTogglesPreviewAfterSearchHandsOffToCard() {
+    #expect(HistoryPanelSpaceKeyPolicy.shouldTogglePreview(
+        isHistoryTextInputActive: false,
+        isPreviewActive: false
+    ))
+    #expect(!HistoryPanelSpaceKeyPolicy.shouldTogglePreview(
+        isHistoryTextInputActive: true,
+        isPreviewActive: false
+    ))
+    #expect(!HistoryPanelSpaceKeyPolicy.shouldTogglePreview(
+        isHistoryTextInputActive: false,
+        isPreviewActive: true
     ))
 }
 
@@ -192,6 +284,41 @@ import Testing
     #expect(context.visibleWindow(focusedIndex: 50) == 37..<57)
 }
 
+@Test func railViewportContextCanForceFirstPageForSearchReset() {
+    let context = HistoryRailViewportContext(
+        itemCount: 100,
+        visibleRect: CGRect(x: 5400, y: 0, width: 1080, height: 300),
+        hasReliableVisibleRect: true,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        bufferItemCount: 6,
+        renderedItemLimit: 20,
+        edgeBufferItemCount: 3,
+        mode: .firstPage
+    )
+
+    #expect(context.visibleWindow(focusedIndex: 50) == 0..<20)
+}
+
+@Test func railViewportContextUsesVisibleRectAfterFocusedJumpSettles() {
+    let context = HistoryRailViewportContext(
+        itemCount: 100,
+        visibleRect: CGRect(x: 5400, y: 0, width: 1080, height: 300),
+        hasReliableVisibleRect: true,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        bufferItemCount: 6,
+        renderedItemLimit: 20,
+        edgeBufferItemCount: 3,
+        mode: .visibleArea
+    )
+
+    let window = context.visibleWindow(focusedIndex: 50)
+
+    #expect(window.count <= 20)
+    #expect(window.contains(20))
+}
+
 @Test func activeSearchSelectsFirstResult() {
     let firstID = UUID()
     let previousID = UUID()
@@ -244,4 +371,15 @@ import Testing
     #expect(first.frame.minX == second.frame.minX)
     #expect(first.arrowX != second.arrowX)
     #expect(second.arrowX > first.arrowX)
+}
+
+@Test func previewFallbackFrameTracksDocumentPositionAndScrollOffset() {
+    let frame = HistoryPreviewFramePolicy.fallbackViewportFrame(
+        documentFrame: CGRect(x: 540, y: 0, width: 250, height: 270),
+        currentOffset: 270,
+        cardRailTopInWindow: 68,
+        selectedCardTopContentInset: 6
+    )
+
+    #expect(frame == CGRect(x: 270, y: 74, width: 250, height: 270))
 }

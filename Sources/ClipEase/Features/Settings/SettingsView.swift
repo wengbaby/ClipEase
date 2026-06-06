@@ -1297,8 +1297,7 @@ struct SettingsView: View {
                     .buttonStyle(.bordered)
 
                     Button("复制版本号") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(AppVersionInfo.displayVersion, forType: .string)
+                        PasteboardWriter.writeText(AppVersionInfo.displayVersion)
                         showStatus("已复制版本号")
                     }
                     .buttonStyle(.bordered)

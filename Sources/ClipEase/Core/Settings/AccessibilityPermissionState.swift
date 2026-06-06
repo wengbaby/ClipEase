@@ -44,7 +44,6 @@ final class AccessibilityPermissionState: ObservableObject {
     }
 
     func copyCurrentAppPath() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(currentAppPath, forType: .string)
+        PasteboardWriter.writeText(currentAppPath)
     }
 }

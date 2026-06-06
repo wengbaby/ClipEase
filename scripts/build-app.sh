@@ -10,6 +10,7 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BUMP_TYPE="patch"
 RUN_APP="false"
 SIGN_IDENTITY="${CLIPEASE_CODESIGN_IDENTITY:-}"
+PRESERVE_BUILD="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
       BUMP_TYPE="${1#*=}"
       shift
       ;;
+    --preserve-build)
+      PRESERVE_BUILD="true"
+      shift
+      ;;
     *)
       echo "Unknown argument: $1" >&2
       exit 1
@@ -32,7 +37,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-python3 "$ROOT_DIR/scripts/bump_version.py" --bump "$BUMP_TYPE"
+BUMP_ARGS=(--bump "$BUMP_TYPE")
+if [[ "$PRESERVE_BUILD" == "true" ]]; then
+  BUMP_ARGS+=(--preserve-build)
+fi
+
+python3 "$ROOT_DIR/scripts/bump_version.py" "${BUMP_ARGS[@]}"
 
 swift build -c release --product ClipEase
 

@@ -47,12 +47,52 @@ enum HistoryKeyboardShortcutPolicy {
     }
 }
 
+enum HistoryKeyboardInputPolicy {
+    static func actionForTextInput(
+        keyCode: UInt16,
+        hasTextEditingModifier: Bool,
+        isShiftPressed: Bool,
+        cursorIsAtEnd: Bool
+    ) -> HistoryKeyboardAction? {
+        guard !hasTextEditingModifier else {
+            return nil
+        }
+
+        switch keyCode {
+        case KeyCode.downArrow, KeyCode.tab:
+            return .focusFirstSearchResult
+        case KeyCode.rightArrow:
+            return cursorIsAtEnd ? .focusFirstSearchResult : nil
+        case KeyCode.returnKey, KeyCode.enter:
+            return .enterFirstSearchResult
+        default:
+            return nil
+        }
+    }
+}
+
 enum HistoryCardFocusPolicy {
     static func isCardFocusActive(
         selectedItemID: ClipboardItem.ID?,
-        isSearchFieldFocused: Bool
+        isSearchFieldFocused: Bool,
+        searchHasHandedOffFocusToCard: Bool = false
     ) -> Bool {
-        selectedItemID != nil && !isSearchFieldFocused
+        selectedItemID != nil && (!isSearchFieldFocused || searchHasHandedOffFocusToCard)
+    }
+}
+
+enum HistorySearchTextFieldFocusPolicy {
+    static func shouldRestoreFocusOnKeyEvent(searchHasHandedOffFocusToCard: Bool) -> Bool {
+        !searchHasHandedOffFocusToCard
+    }
+}
+
+enum HistoryPanelSpaceKeyPolicy {
+    static func shouldTogglePreview(
+        isHistoryTextInputActive: Bool,
+        isPreviewActive: Bool
+    ) -> Bool {
+        !isHistoryTextInputActive && !isPreviewActive
     }
 }
 
@@ -126,11 +166,18 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     private var presentedInputLayerActive = false
     private var previewActive = false
     private var previewKeyWindowActive = false
+    private var searchHasHandedOffFocusToCard = false
 
     var isTextInputFocusedSnapshot: Bool {
         lock.lock()
         defer { lock.unlock() }
         return textInputFocused
+    }
+
+    var isHistoryTextInputActiveSnapshot: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return textInputFocused && !searchHasHandedOffFocusToCard
     }
 
     var isSearchVisibleSnapshot: Bool {
@@ -160,7 +207,7 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     var shouldSuppressHistoryCommandShortcutsSnapshot: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return textInputFocused || presentedInputLayerActive
+        return (textInputFocused && !searchHasHandedOffFocusToCard) || presentedInputLayerActive
     }
 
     var isPreviewActiveSnapshot: Bool {
@@ -194,6 +241,15 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     func setTextInputFocused(_ isFocused: Bool) {
         lock.lock()
         textInputFocused = isFocused
+        if isFocused {
+            searchHasHandedOffFocusToCard = false
+        }
+        lock.unlock()
+    }
+
+    func setSearchHasHandedOffFocusToCard(_ hasHandedOff: Bool) {
+        lock.lock()
+        searchHasHandedOffFocusToCard = hasHandedOff
         lock.unlock()
     }
 

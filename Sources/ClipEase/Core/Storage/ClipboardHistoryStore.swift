@@ -141,7 +141,7 @@ final class ClipboardHistoryStore: ObservableObject {
             return
         }
 
-        if skippedClipboardTexts.remove(normalizedText) != nil {
+        if consumeSkippedClipboardText(normalizedText) {
             return
         }
 
@@ -910,6 +910,15 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         skippedClipboardTexts.insert(normalizedText)
+    }
+
+    func consumeSkippedClipboardText(_ text: String) -> Bool {
+        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedText.isEmpty else {
+            return false
+        }
+
+        return skippedClipboardTexts.remove(normalizedText) != nil
     }
 
     func skipNextClipboardImage(_ item: ClipboardItem) {

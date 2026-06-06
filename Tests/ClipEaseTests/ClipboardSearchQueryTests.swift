@@ -90,3 +90,33 @@ private struct TestClipboardHistoryRepository: ClipboardHistoryRepository {
 
     #expect(result.map(\.id) == [newer.id, older.id])
 }
+
+@Test func searchPaginationRequestsAnotherPageWhenFilteredPageIsShort() {
+    #expect(HistorySearchPaginationPolicy.shouldLoadMore(
+        filteredCount: 8,
+        targetCount: 20,
+        repositoryResultCount: 50,
+        pageSize: 50,
+        canLoadMore: true
+    ))
+}
+
+@Test func searchPaginationStopsWhenFilteredPageReachesTarget() {
+    #expect(!HistorySearchPaginationPolicy.shouldLoadMore(
+        filteredCount: 20,
+        targetCount: 20,
+        repositoryResultCount: 50,
+        pageSize: 50,
+        canLoadMore: true
+    ))
+}
+
+@Test func searchPaginationStopsWhenRepositoryHasNoMoreResults() {
+    #expect(!HistorySearchPaginationPolicy.shouldLoadMore(
+        filteredCount: 8,
+        targetCount: 20,
+        repositoryResultCount: 12,
+        pageSize: 50,
+        canLoadMore: false
+    ))
+}

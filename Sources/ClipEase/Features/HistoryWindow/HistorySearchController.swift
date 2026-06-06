@@ -359,6 +359,25 @@ enum HistorySearchController {
     }
 }
 
+enum HistorySearchPaginationPolicy {
+    static func shouldLoadMore(
+        filteredCount: Int,
+        targetCount: Int,
+        repositoryResultCount: Int,
+        pageSize: Int,
+        canLoadMore: Bool
+    ) -> Bool {
+        guard canLoadMore,
+              targetCount > 0,
+              pageSize > 0,
+              filteredCount < targetCount else {
+            return false
+        }
+
+        return repositoryResultCount >= pageSize
+    }
+}
+
 private extension HistorySearchGroup {
     func title(groups: [ClipboardGroup]) -> String {
         switch self {

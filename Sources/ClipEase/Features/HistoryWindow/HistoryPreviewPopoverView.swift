@@ -77,8 +77,7 @@ struct HistoryPreviewPopoverView: View {
                     HStack(spacing: 8) {
                         ForEach(badges, id: \.self) { badge in
                             Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(badge, forType: .string)
+                                PasteboardWriter.writeText(badge)
                                 ClipEaseSoundPlayer.shared.playCopyFeedback()
                             } label: {
                                 Text(badge)
@@ -91,13 +90,11 @@ struct HistoryPreviewPopoverView: View {
                             .buttonStyle(PreviewBadgeButtonStyle())
                             .contextMenu {
                                 Button("复制") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(badge, forType: .string)
+                                    PasteboardWriter.writeText(badge)
                                     ClipEaseSoundPlayer.shared.playCopyFeedback()
                                 }
                                 Button("分享") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(badge, forType: .string)
+                                    PasteboardWriter.writeText(badge)
                                     ClipEaseSoundPlayer.shared.playCopyFeedback()
                                 }
                             }

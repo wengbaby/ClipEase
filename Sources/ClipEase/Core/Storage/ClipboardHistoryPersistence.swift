@@ -28,6 +28,14 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         self.repository = SQLiteClipboardStore(databaseURL: sqliteURL, fileManager: fileManager)
     }
 
+    init(
+        fileManager: FileManager = .default,
+        repository: any ClipboardHistoryRepository
+    ) {
+        self.fileManager = fileManager
+        self.repository = repository
+    }
+
     func loadSnapshot() -> ClipboardHistorySnapshot {
         do {
             return try repository.loadSnapshot()

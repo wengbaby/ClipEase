@@ -1,5 +1,11 @@
 import Foundation
 
+enum HistoryRailViewportMode: Sendable {
+    case automatic
+    case firstPage
+    case visibleArea
+}
+
 struct HistoryRailViewportContext {
     let itemCount: Int
     let visibleRect: CGRect
@@ -9,8 +15,25 @@ struct HistoryRailViewportContext {
     let bufferItemCount: Int
     let renderedItemLimit: Int
     let edgeBufferItemCount: Int
+    var mode: HistoryRailViewportMode = .automatic
 
     func visibleWindow(focusedIndex: Int?) -> Range<Int> {
+        if mode == .firstPage {
+            return 0..<min(itemCount, renderedItemLimit)
+        }
+
+        if mode == .visibleArea {
+            return HistoryRailRenderWindowPolicy.visibleWindow(
+                itemCount: itemCount,
+                visibleRect: visibleRect,
+                hasReliableVisibleRect: hasReliableVisibleRect,
+                itemStride: itemStride,
+                horizontalContentPadding: horizontalContentPadding,
+                bufferItemCount: bufferItemCount,
+                renderedItemLimit: renderedItemLimit
+            )
+        }
+
         if let focusedIndex {
             return HistoryRailRenderWindowPolicy.focusedWindow(
                 focusedIndex: focusedIndex,
@@ -120,5 +143,19 @@ enum HistoryRailRenderWindowPolicy {
         )
         let end = min(itemCount, start + renderedItemLimit)
         return start..<max(start + 1, end)
+    }
+}
+
+enum HistoryPreviewFramePolicy {
+    static func fallbackViewportFrame(
+        documentFrame: CGRect,
+        currentOffset: CGFloat,
+        cardRailTopInWindow: CGFloat,
+        selectedCardTopContentInset: CGFloat
+    ) -> CGRect {
+        documentFrame.offsetBy(
+            dx: -currentOffset,
+            dy: cardRailTopInWindow + selectedCardTopContentInset
+        )
     }
 }
