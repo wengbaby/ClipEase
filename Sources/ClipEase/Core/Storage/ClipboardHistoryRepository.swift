@@ -29,9 +29,14 @@ protocol ClipboardHistoryRepository {
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws
     func deleteItems(with ids: Set<ClipboardItem.ID>, deletingGroups groupIDs: Set<ClipboardGroup.ID>) throws
     func deleteAllItemsAndGroups() throws
+    func compactIfNeeded(policy: ClipboardDatabaseCompactionPolicy) throws -> ClipboardDatabaseCompactionResult
 }
 
 extension ClipboardHistoryRepository {
+    func compactIfNeeded(policy: ClipboardDatabaseCompactionPolicy) throws -> ClipboardDatabaseCompactionResult {
+        .skipped
+    }
+
     func loadItems() throws -> [ClipboardItem] {
         try loadSnapshot().items
     }

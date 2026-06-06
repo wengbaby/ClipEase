@@ -37,6 +37,11 @@ enum ClipEaseStoragePaths {
             .appendingPathComponent("ClipEase.sqlite")
     }
 
+    static func diagnosticsStoreURL(fileManager: FileManager = .default) throws -> URL {
+        try applicationSupportDirectory(fileManager: fileManager)
+            .appendingPathComponent("ClipEaseDiagnostics.sqlite")
+    }
+
     static func imagesDirectory(fileManager: FileManager = .default) throws -> URL {
         try liveAttachmentDirectory(named: "Images", fileManager: fileManager)
     }

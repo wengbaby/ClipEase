@@ -76,26 +76,12 @@ struct PerformanceResourceSnapshot: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
-private actor PerformanceLogWriter {
-    func append(_ line: String, to targetURL: URL?) {
-        let fileManager = FileManager.default
-        guard let url = targetURL ?? (try? PerformanceDiagnosticsService.makeLogFileURL(fileManager: fileManager)) else {
+private actor PerformanceDiagnosticsWriter {
+    func append(_ event: PerformanceDiagnosticEvent, to databaseURL: URL) {
+        guard let store = try? PerformanceDiagnosticsStore(databaseURL: databaseURL) else {
             return
         }
-
-        try? fileManager.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let data = Data((line + "\n").utf8)
-        if fileManager.fileExists(atPath: url.path),
-           let handle = try? FileHandle(forWritingTo: url) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: url)
-        }
+        try? store.append(event)
     }
 }
 
@@ -114,18 +100,33 @@ final class PerformanceDiagnosticsService: ObservableObject {
     @Published private(set) var recentResourceSnapshots: [PerformanceResourceSnapshot] = []
     @Published private(set) var latestResourceSnapshot: PerformanceResourceSnapshot?
     @Published private(set) var currentLogFileURL: URL?
+    @Published var retentionDays: Int {
+        didSet {
+            retentionDays = max(1, retentionDays)
+            userDefaults.set(retentionDays, forKey: Self.retentionDaysKey)
+            cleanupOldLogs()
+        }
+    }
+    @Published var maxLogSizeMB: Int {
+        didSet {
+            maxLogSizeMB = max(1, maxLogSizeMB)
+            userDefaults.set(maxLogSizeMB, forKey: Self.maxLogSizeMBKey)
+            cleanupOldLogs()
+        }
+    }
 
     nonisolated private static let enabledKey = "performanceDiagnostics.enabled"
-    nonisolated private static let retentionDays = 3
+    nonisolated private static let retentionDaysKey = "performanceDiagnostics.retentionDays"
+    nonisolated private static let maxLogSizeMBKey = "performanceDiagnostics.maxLogSizeMB"
     nonisolated private static let maxRecentEvents = 200
     nonisolated private static let maxResourceSnapshots = 120
     nonisolated private static let slowEventThresholdMS = 16.0
     nonisolated private static let resourceSamplingNanoseconds: UInt64 = 5_000_000_000
     nonisolated private static let diagnosticsUIPublishNanoseconds: UInt64 = 750_000_000
-    nonisolated private static let logWriter = PerformanceLogWriter()
+    nonisolated private static let diagnosticsWriter = PerformanceDiagnosticsWriter()
     private let userDefaults: UserDefaults
     private let fileManager: FileManager
-    private let encoder = JSONEncoder()
+    private let diagnosticsStoreURL: URL?
     private var cleanupTask: Task<Void, Never>?
     private var resourceSamplingTask: Task<Void, Never>?
     private var diagnosticsUIPublishTask: Task<Void, Never>?
@@ -137,8 +138,13 @@ final class PerformanceDiagnosticsService: ObservableObject {
         self.userDefaults = userDefaults
         self.fileManager = fileManager
         self.isEnabled = userDefaults.object(forKey: Self.enabledKey) as? Bool ?? true
-        encoder.dateEncodingStrategy = .iso8601
-        currentLogFileURL = try? Self.makeLogFileURL(fileManager: fileManager)
+        self.retentionDays = userDefaults.object(forKey: Self.retentionDaysKey) as? Int
+            ?? PerformanceDiagnosticsRetentionPolicy.defaultPolicy.retentionDays
+        self.maxLogSizeMB = userDefaults.object(forKey: Self.maxLogSizeMBKey) as? Int
+            ?? (PerformanceDiagnosticsRetentionPolicy.defaultPolicy.maxBytes / 1_024 / 1_024)
+        self.diagnosticsStoreURL = try? ClipEaseStoragePaths.diagnosticsStoreURL(fileManager: fileManager)
+        currentLogFileURL = diagnosticsStoreURL
+        removeLegacyJSONLogs()
         cleanupOldLogs()
         updateResourceSamplingState()
     }
@@ -242,7 +248,7 @@ final class PerformanceDiagnosticsService: ObservableObject {
     }
 
     func openLogsDirectory() {
-        guard let directory = try? Self.logsDirectory(fileManager: fileManager) else {
+        guard let directory = diagnosticsStoreURL?.deletingLastPathComponent() else {
             return
         }
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -251,24 +257,17 @@ final class PerformanceDiagnosticsService: ObservableObject {
 
     func cleanupOldLogs() {
         cleanupTask?.cancel()
+        let policy = PerformanceDiagnosticsRetentionPolicy(
+            retentionDays: retentionDays,
+            maxBytes: maxLogSizeMB * 1_024 * 1_024
+        )
+        let diagnosticsStoreURL = diagnosticsStoreURL
         cleanupTask = Task.detached(priority: .utility) {
-            let fileManager = FileManager.default
-            guard let directory = try? Self.logsDirectory(fileManager: fileManager),
-                  let urls = try? fileManager.contentsOfDirectory(
-                    at: directory,
-                    includingPropertiesForKeys: [.contentModificationDateKey],
-                    options: [.skipsHiddenFiles]
-                  ) else {
+            guard let diagnosticsStoreURL,
+                  let store = try? PerformanceDiagnosticsStore(databaseURL: diagnosticsStoreURL) else {
                 return
             }
-
-            let cutoff = Date().addingTimeInterval(TimeInterval(-Self.retentionDays * 24 * 60 * 60))
-            for url in urls where url.pathExtension == "jsonl" {
-                let modifiedAt = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                if modifiedAt < cutoff {
-                    try? fileManager.removeItem(at: url)
-                }
-            }
+            try? store.cleanup(policy: policy)
         }
     }
 
@@ -390,28 +389,22 @@ final class PerformanceDiagnosticsService: ObservableObject {
     }
 
     private func write(_ event: PerformanceDiagnosticEvent) {
-        guard let data = try? encoder.encode(event),
-              let line = String(data: data, encoding: .utf8) else {
+        guard let diagnosticsStoreURL else {
             return
         }
 
-        let targetURL = currentLogFileURL
         Task.detached(priority: .utility) {
-            await Self.logWriter.append(line, to: targetURL)
+            await Self.diagnosticsWriter.append(event, to: diagnosticsStoreURL)
         }
     }
 
-    nonisolated private static func logsDirectory(fileManager: FileManager) throws -> URL {
-        try ClipEaseStoragePaths.applicationSupportDirectory(fileManager: fileManager)
-            .appendingPathComponent("PerformanceLogs", isDirectory: true)
-    }
-
-    nonisolated static func makeLogFileURL(fileManager: FileManager) throws -> URL {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        return try logsDirectory(fileManager: fileManager)
-            .appendingPathComponent("\(formatter.string(from: Date())).jsonl")
+    private func removeLegacyJSONLogs() {
+        guard let directory = try? ClipEaseStoragePaths.applicationSupportDirectory(fileManager: fileManager)
+            .appendingPathComponent("PerformanceLogs", isDirectory: true),
+              fileManager.fileExists(atPath: directory.path) else {
+            return
+        }
+        try? fileManager.removeItem(at: directory)
     }
 
     nonisolated private static func measureMainThreadLatencyMS() async -> Double {

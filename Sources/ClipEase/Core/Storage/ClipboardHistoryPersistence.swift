@@ -121,6 +121,12 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         try repository.deleteAllItemsAndGroups()
     }
 
+    func compactDatabaseIfNeededOrThrow(
+        policy: ClipboardDatabaseCompactionPolicy = .automatic
+    ) throws -> ClipboardDatabaseCompactionResult {
+        try repository.compactIfNeeded(policy: policy)
+    }
+
     func saveItems(_ items: [ClipboardItem]) {
         saveSnapshot(ClipboardHistorySnapshot(items: items, groups: []))
     }

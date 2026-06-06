@@ -2060,8 +2060,10 @@ private actor ClipboardOCRConcurrencyLimiter {
 
 private final class ClipboardHistorySaveWriter: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.clipease.history-save", qos: .utility)
+    private static let compactionCheckMinimumInterval: TimeInterval = 10 * 60
     private let persistence: ClipboardHistoryPersistence
     private var latestRevision = 0
+    private var lastCompactionCheckAt: Date?
 
     init(persistence: ClipboardHistoryPersistence) {
         self.persistence = persistence
@@ -2134,6 +2136,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
 
         latestRevision = revision
         try persistence.saveSnapshotOrThrow(snapshot)
+        compactDatabaseIfNeeded()
     }
 
     private func upsertIfCurrent(
@@ -2149,6 +2152,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
         latestRevision = revision
         let startedAt = CFAbsoluteTimeGetCurrent()
         try persistence.upsertItemOrThrow(item, deleting: deletedIDs, groups: groups)
+        compactDatabaseIfNeeded()
         let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
         Task { @MainActor in
             PerformanceDiagnosticsService.shared.record(
@@ -2171,6 +2175,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
         latestRevision = revision
         let startedAt = CFAbsoluteTimeGetCurrent()
         try persistence.insertItemsOrThrow(items)
+        compactDatabaseIfNeeded()
         let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
         Task { @MainActor in
             PerformanceDiagnosticsService.shared.record(
@@ -2195,6 +2200,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
         latestRevision = revision
         let startedAt = CFAbsoluteTimeGetCurrent()
         try persistence.deleteItemsOrThrow(with: itemIDs, deletingGroups: groupIDs)
+        compactDatabaseIfNeeded()
         let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
         Task { @MainActor in
             PerformanceDiagnosticsService.shared.record(
@@ -2216,6 +2222,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
         latestRevision = revision
         let startedAt = CFAbsoluteTimeGetCurrent()
         try persistence.deleteAllItemsAndGroupsOrThrow()
+        compactDatabaseIfNeeded(force: true)
         let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
         Task { @MainActor in
             PerformanceDiagnosticsService.shared.record(
@@ -2223,6 +2230,40 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 category: "storage",
                 durationMS: durationMS,
                 metadata: ["revision": "\(revision)"]
+            )
+        }
+    }
+
+    private func compactDatabaseIfNeeded(force: Bool = false) {
+        let now = Date()
+        if !force,
+           let lastCompactionCheckAt,
+           now.timeIntervalSince(lastCompactionCheckAt) < Self.compactionCheckMinimumInterval {
+            return
+        }
+
+        lastCompactionCheckAt = now
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        let result: ClipboardDatabaseCompactionResult
+        do {
+            result = try persistence.compactDatabaseIfNeededOrThrow()
+        } catch {
+            NSLog("ClipEase failed to compact clipboard history database: \(error.localizedDescription)")
+            return
+        }
+
+        guard case .compacted = result else {
+            return
+        }
+
+        let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+        Task { @MainActor in
+            PerformanceDiagnosticsService.shared.record(
+                "history.persistence.compact",
+                category: "storage",
+                durationMS: durationMS,
+                resultCount: result.reclaimedBytes,
+                metadata: ["reclaimedBytes": "\(result.reclaimedBytes)"]
             )
         }
     }
