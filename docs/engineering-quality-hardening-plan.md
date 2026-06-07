@@ -205,3 +205,17 @@
   - 2026-06-08：执行 `./scripts/build-app.sh`，版本从 `2.3.127 (260608.0126)` 递增到 `2.3.128 (260608.0147)`。
   - 2026-06-08：已结束旧进程并启动新版 `.build/ClipEase.app`，进程路径为 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app/Contents/MacOS/ClipEase`。
   - 阶段 5-C 入口条件：阶段 5-B 本地提交完成，并由用户确认继续后，按顺序只允许进入 `ClipboardHistoryStore` 保存与异步副作用拆分。
+
+### 阶段 5-C：ClipboardHistoryStore 保存与异步副作用拆分
+
+- 状态：阶段 5-C-1 已完成，保存队列已拆出；OCR/link metadata 暂未迁移
+- 计划开始：2026-06-08
+- 本阶段当前小步不改 UI，不改 SQLite schema，不改剪贴板入库、去重、OCR 或链接标题更新行为。
+- 完成记录：
+  - 2026-06-08：新增 `Sources/ClipEase/Core/Storage/ClipboardHistorySaveWriter.swift`。
+  - 2026-06-08：将 `ClipboardHistorySaveWriter` 从 `ClipboardHistoryStore.swift` 移到独立文件，保持 `saveAsync`、`upsertAsync`、`insertItemsAsync`、`deleteAsync`、`deleteAllAsync`、`saveSync`、压缩调度和诊断记录逻辑不变。
+  - 2026-06-08：`ClipboardHistoryStore.swift` 继续保留 Store 协调入口、OCR task、link metadata task、导入清洗和文件副作用，避免一次性扩大拆分范围。
+  - 2026-06-08：验证 `swift build` 通过；验证 `swift test` 通过，176 个测试全部通过。
+  - 2026-06-08：执行 `./scripts/build-app.sh`，版本从 `2.3.128 (260608.0147)` 递增到 `2.3.129 (260608.0205)`。
+  - 2026-06-08：已结束旧进程并启动新版 `.build/ClipEase.app`，进程路径为 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app/Contents/MacOS/ClipEase`。
+  - 阶段 5-C-2 入口条件：本次本地提交完成，并由用户确认继续后，按顺序只允许进入 `HistoryOCRCoordinator` 或 `HistoryLinkMetadataCoordinator` 的最小拆分。
