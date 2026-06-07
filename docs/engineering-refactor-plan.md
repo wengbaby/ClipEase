@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 3-A，旧库 fixture 与 migration 安全测试已完成，等待本地提交
+- 当前执行阶段：阶段 3-B，SQLiteRowMapper 拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 3-A；提交后按顺序进入阶段 3-B SQLiteRowMapper 拆分
+- 当前优先目标：提交阶段 3-B；提交后按顺序进入阶段 3-C SQLiteItemDAO 拆分
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1066,7 +1066,17 @@
     - 目标：先补旧库 fixture 和迁移安全基线，确认旧 `user_version` 数据库初始化后不会清库，旧表数据仍保留，`user_version` 会提升到 `SQLiteClipboardStore.currentSchemaVersion`。
     - 验证：`swift build` 通过；`swift test` 通过，132 个测试全部通过。
     - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.109 (260607.2059)` 更新到 `2.3.110 (260607.2107)`，新版 `.build/ClipEase.app` 已启动。
+    - 本地提交：`a66ece9 test: add sqlite legacy migration fixture`。
     - 阶段 3-B 入口条件：阶段 3-A 本地提交完成后，按顺序只允许进入 `SQLiteRowMapper` 拆分；拆分时不得改变查询 SQL、排序、schema 或迁移行为。
+  - 2026-06-07 阶段 3-B SQLiteRowMapper 拆分：
+    - 新增 `Sources/ClipEase/Core/Storage/SQLite/SQLiteRowMapper.swift`。
+    - 新增 `Tests/ClipEaseTests/SQLiteRowMapperTests.swift`。
+    - `SQLiteClipboardStore.swift` 不再直接维护 `SQLiteAssetRow`、`SQLiteOCRResultRow`、`SQLiteGroupItemRow`、row 到 `ClipboardItem` 的映射、FTS 文本生成、FTS 查询转义、OCR list/region JSON 编解码。
+    - `SQLiteRowMapper` 接管纯 row mapping 和编码转换逻辑。
+    - 本轮未改变查询 SQL、排序、SQLite schema、迁移、写入事务、FTS 表结构或压缩策略。
+    - 验证：`swift build` 通过；`swift test` 通过，136 个测试全部通过。
+    - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.110 (260607.2107)` 更新到 `2.3.111 (260607.2113)`，新版 `.build/ClipEase.app` 已启动。
+    - 阶段 3-C 入口条件：阶段 3-B 本地提交完成后，按顺序只允许进入 `SQLiteItemDAO` 拆分；第一轮只迁移 item 读取/写入 SQL，不改变 SQL 语义、排序、schema 或事务边界。
 
 ### 阶段 4：设置页、诊断页、发布流程优化
 
