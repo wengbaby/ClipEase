@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 4-F，发布前测试 gate 已完成，等待本地提交
+- 当前执行阶段：阶段 4-G，DMG 校验增强已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 4-F；提交后按顺序进入阶段 4-G DMG 校验增强
+- 当前优先目标：提交阶段 4-G；提交后按顺序进入阶段 4-H 版本一致性校验增强
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1200,3 +1200,12 @@
     - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，生成 `ClipEase-2.3.123-260608.0005.dmg`、release notes 和 SHA-256，未创建 tag、GitHub Release 或上传。
     - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.122 (260607.2358)` 递增到 `2.3.123 (260608.0005)`；已结束旧进程并启动 `.build/ClipEase.app`。
     - 阶段 4-G 入口条件：阶段 4-F 本地提交完成后，按顺序增强 DMG 校验；不得直接发布。
+  - 2026-06-08 阶段 4-G DMG 校验增强：
+    - `scripts/release.sh` 在 DMG 生成后、挂载前新增 `hdiutil verify "$DMG_PATH"`。
+    - 保留原有 DMG 挂载检查、DMG 内 App 存在性检查和 DMG 内版本一致性检查。
+    - 新增 `ReleaseScriptPolicyTests` 覆盖 `hdiutil verify` 必须发生在 `hdiutil attach` 之前。
+    - 本轮未改变 release notes 格式、DMG 布局、发布命令顺序、主窗口、搜索交互、SQLite、设置页视觉结构或快捷键行为。
+    - 验证：先运行 `swift test --filter releaseScriptVerifiesDmgBeforeMounting` 观察到缺少 `hdiutil verify` 的失败；实现后 `swift test --filter ReleaseScriptPolicy` 通过。
+    - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，输出 `hdiutil: verify ... is VALID`，未创建 tag、GitHub Release 或上传。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.123 (260608.0005)` 递增到 `2.3.124 (260608.0013)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 阶段 4-H 入口条件：阶段 4-G 本地提交完成后，按顺序增强版本一致性校验；不得直接发布。

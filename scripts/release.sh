@@ -189,6 +189,8 @@ create-dmg \
   "$DMG_PATH" \
   "$STAGING_DIR"
 
+hdiutil verify "$DMG_PATH"
+
 MOUNT_OUTPUT="$(hdiutil attach "$DMG_PATH" -nobrowse -readonly)"
 MOUNT_POINT="$(printf '%s\n' "$MOUNT_OUTPUT" | awk '/\/Volumes\// { sub(/^.*\/Volumes\//, "/Volumes/"); print; exit }')"
 

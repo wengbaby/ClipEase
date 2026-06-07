@@ -56,6 +56,14 @@ import Testing
     #expect(script.contains("if [[ \"$PUBLISH\" == \"true\" && \"$DRY_RUN\" != \"true\" && \"$SKIP_TESTS\" == \"true\" ]]; then"))
 }
 
+@Test func releaseScriptVerifiesDmgBeforeMounting() throws {
+    let script = try releaseScript()
+    let verifyRange = try #require(script.range(of: "hdiutil verify \"$DMG_PATH\""))
+    let attachRange = try #require(script.range(of: "MOUNT_OUTPUT=\"$(hdiutil attach \"$DMG_PATH\" -nobrowse -readonly)\""))
+
+    #expect(verifyRange.lowerBound < attachRange.lowerBound)
+}
+
 private func releaseScript() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("scripts/release.sh")
