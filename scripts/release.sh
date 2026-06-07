@@ -8,6 +8,7 @@ TEMPLATE_FILE="$ROOT_DIR/docs/releases/release-notes-template.md"
 BUMP_TYPE="patch"
 PUBLISH="false"
 SKIP_TESTS="false"
+CREATED_TAG="false"
 
 usage() {
   cat <<'EOF'
@@ -150,8 +151,6 @@ DMG_PATH="$DIST_DIR/$DMG_NAME"
 BODY_PATH="$DIST_DIR/release-${TAG}.md"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clipease-release.XXXXXX")"
 MOUNT_POINT=""
-PUBLISH_BRANCH=""
-CREATED_TAG="false"
 
 cleanup() {
   if [[ -n "$MOUNT_POINT" && -d "$MOUNT_POINT" ]]; then

@@ -26,6 +26,12 @@ import Testing
     #expect(script.contains("git tag -d \"$TAG\""))
 }
 
+@Test func releaseScriptDoesNotClearPublishBranchAfterRemoteVerification() throws {
+    let script = try releaseScript()
+
+    #expect(!script.contains("PUBLISH_BRANCH=\"\""))
+}
+
 private func releaseScript() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("scripts/release.sh")
