@@ -70,6 +70,42 @@ require_command() {
   fi
 }
 
+ensure_clean_worktree_for_publish() {
+  if [[ "$BUMP_TYPE" != "none" ]]; then
+    echo "Release publishing requires a committed version. Re-run with --bump none after committing the version bump." >&2
+    exit 1
+  fi
+
+  if [[ -n "$(git status --porcelain)" ]]; then
+    echo "Release publishing requires a clean git worktree." >&2
+    exit 1
+  fi
+}
+
+verify_remote_state_before_publish() {
+  git fetch origin main
+
+  local current_branch
+  current_branch="$(git branch --show-current)"
+  if [[ -z "$current_branch" ]]; then
+    echo "Cannot publish from detached HEAD." >&2
+    exit 1
+  fi
+
+  if ! git merge-base --is-ancestor origin/main HEAD; then
+    echo "Remote main has commits not present locally. Rebase or merge origin/main before publishing." >&2
+    exit 1
+  fi
+
+  PUBLISH_BRANCH="$current_branch"
+}
+
+cleanup_created_tag() {
+  if [[ "${CREATED_TAG:-false}" == "true" ]]; then
+    git tag -d "$TAG" >/dev/null 2>&1 || true
+  fi
+}
+
 plist_value() {
   /usr/libexec/PlistBuddy -c "Print :$2" "$1"
 }
@@ -80,7 +116,10 @@ require_command hdiutil
 require_command shasum
 
 if [[ "$PUBLISH" == "true" ]]; then
+  require_command git
   require_command gh
+  ensure_clean_worktree_for_publish
+  verify_remote_state_before_publish
 fi
 
 if [[ "$SKIP_TESTS" != "true" ]]; then
@@ -111,6 +150,8 @@ DMG_PATH="$DIST_DIR/$DMG_NAME"
 BODY_PATH="$DIST_DIR/release-${TAG}.md"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clipease-release.XXXXXX")"
 MOUNT_POINT=""
+PUBLISH_BRANCH=""
+CREATED_TAG="false"
 
 cleanup() {
   if [[ -n "$MOUNT_POINT" && -d "$MOUNT_POINT" ]]; then
@@ -194,8 +235,12 @@ if [[ "$PUBLISH" == "true" ]]; then
     exit 1
   fi
 
+  git push origin "HEAD:${PUBLISH_BRANCH}"
   git tag "$TAG"
-  git push origin HEAD
+  CREATED_TAG="true"
+  trap 'cleanup_created_tag; cleanup' EXIT
+
   git push origin "$TAG"
   gh release create "$TAG" "$DMG_PATH" --title "$TITLE" --notes-file "$BODY_PATH"
+  CREATED_TAG="false"
 fi
