@@ -238,3 +238,17 @@
   - 2026-06-08：复核确认 Store 仍保留剪贴板入库编排、导入/备份清洗、文件引用构造、外部资源删除、分页加载和状态协调职责；这些职责不属于本阶段已承诺的三个拆分目标，继续硬拆会扩大风险。
   - 2026-06-08：阶段 5-C 到此关闭。剩余 Store 职责作为后续可选优化记录，不在本轮继续拆分。
   - 阶段 5-D 入口条件：阶段 5-C 收尾提交完成，并由用户确认继续后，只允许进入 SQLite schema/connection 收口。
+
+### 阶段 5-D：SQLite schema/connection 收口
+
+- 状态：阶段 5-D-1 / 5-D-2 已完成，SQLite connection 和 schema manager 已拆出
+- 计划开始：2026-06-08
+- 本阶段不改 SQLite schema，不改 migration 行为，不改搜索排序和分页。
+- 完成记录：
+  - 2026-06-08：新增 `Sources/ClipEase/Core/Storage/SQLite/SQLiteConnection.swift`，将 SQLite open/close/execute/query/bind、`SQLiteValue`、`SQLiteRow`、`SQLiteCell` 和 `SQLiteStoreError` 从 `SQLiteClipboardStore.swift` 拆出。
+  - 2026-06-08：保留 `typealias SQLiteDatabase = SQLiteConnection`，避免一次性改动现有 DAO、迁移和测试调用面。
+  - 2026-06-08：新增 `Tests/ClipEaseTests/SQLiteConnectionTests.swift`，覆盖参数绑定、查询和关闭入口。
+  - 2026-06-08：新增 `Sources/ClipEase/Core/Storage/SQLite/SQLiteSchemaManager.swift`，将 schema 创建、索引创建、`user_version` 记录和补列逻辑从 `SQLiteClipboardStore.swift` 拆出。
+  - 2026-06-08：新增 `Tests/ClipEaseTests/SQLiteSchemaManagerTests.swift`，覆盖当前 schema 创建、版本记录、FTS 表和 OCR text_regions 列。
+  - 2026-06-08：`SQLiteClipboardStore.swift` 保留 schema manager 转发方法，用于兼容 `SQLiteSchemaMigrator` 的现有闭包接口；未改变任何 CREATE TABLE / CREATE INDEX SQL。
+  - 2026-06-08：定向验证 `swift test --filter SQLiteConnection` 通过，1 个测试通过；`swift test --filter SQLiteSchemaManager` 通过，1 个测试通过；`swift test --filter SQLite` 通过，23 个测试全部通过。
