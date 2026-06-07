@@ -491,7 +491,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        PasteboardWriter.writeText(text, skipRecording: store.skipNextClipboardText)
+        ClipboardWriteCoordinator.generalTextWriter(skipText: store.skipNextClipboardText)
+            .writeText(text)
         ClipEaseSoundPlayer.shared.playCopyFeedback()
     }
 
@@ -522,7 +523,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         let pathsText = paths.joined(separator: "\n")
-        PasteboardWriter.writeText(pathsText, skipRecording: store.skipNextClipboardText)
+        ClipboardWriteCoordinator.generalTextWriter(skipText: store.skipNextClipboardText)
+            .writeText(pathsText)
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")
     }

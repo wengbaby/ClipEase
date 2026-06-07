@@ -44,6 +44,6 @@ final class AccessibilityPermissionState: ObservableObject {
     }
 
     func copyCurrentAppPath() {
-        PasteboardWriter.writeText(currentAppPath)
+        ClipboardWriteCoordinator.generalTextWriter().writeText(currentAppPath)
     }
 }

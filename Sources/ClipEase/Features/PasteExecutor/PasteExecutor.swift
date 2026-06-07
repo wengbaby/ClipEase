@@ -25,6 +25,15 @@ final class PasteExecutor {
         permissionState.isTrusted
     }
 
+    private var clipboardWriter: ClipboardWriteCoordinator {
+        ClipboardWriteCoordinator(
+            pasteboard: pasteboard,
+            skipText: store.skipNextClipboardText,
+            skipImage: store.skipNextClipboardImage,
+            skipFiles: store.skipNextClipboardFiles
+        )
+    }
+
     func refreshAccessibilityPermission(promptIfNeeded: Bool = false) -> Bool {
         permissionState.refresh(promptIfNeeded: promptIfNeeded)
     }
@@ -34,16 +43,12 @@ final class PasteExecutor {
     }
 
     func copyToPasteboard(_ item: ClipboardItem) -> PasteboardCopyResult {
-        pasteboard.clearContents()
-
         switch item.type {
         case .text, .link, .color:
             let text = pasteboardString(for: item)
-            guard PasteboardWriter.writeText(
+            guard clipboardWriter.writeText(
                 text,
-                to: pasteboard,
-                richTextData: store.richTextData(for: item),
-                skipRecording: store.skipNextClipboardText
+                richTextData: store.richTextData(for: item)
             ) else {
                 return .failed("无法写入剪贴板")
             }
@@ -51,8 +56,7 @@ final class PasteExecutor {
         case .file:
             let fileURLs = validLocalFileURLs(for: item)
             if !fileURLs.isEmpty {
-                store.skipNextClipboardFiles(fileURLs)
-                guard pasteboard.writeObjects(fileURLs.map { $0 as NSURL }) else {
+                guard clipboardWriter.writeFileURLs(fileURLs) else {
                     return .failed("无法写入文件引用到剪贴板")
                 }
                 return .copied
@@ -62,11 +66,7 @@ final class PasteExecutor {
                 return .failed("未找到文件")
             }
 
-            guard PasteboardWriter.writeText(
-                fallbackText,
-                to: pasteboard,
-                skipRecording: store.skipNextClipboardText
-            ) else {
+            guard clipboardWriter.writeText(fallbackText) else {
                 return .failed("无法写入文件路径到剪贴板")
             }
             return .copiedFallbackText
@@ -79,8 +79,7 @@ final class PasteExecutor {
                 return .failed("图片文件无法读取")
             }
 
-            store.skipNextClipboardImage(item)
-            guard pasteboard.writeObjects([image]) else {
+            guard clipboardWriter.writeImage(image, item: item) else {
                 return .failed("无法写入图片到剪贴板")
             }
             return .copied
@@ -147,11 +146,7 @@ final class PasteExecutor {
 
     func copyPlainTextToPasteboard(_ item: ClipboardItem) -> PasteboardCopyResult {
         let text = pasteboardString(for: item)
-        guard PasteboardWriter.writeText(
-            text,
-            to: pasteboard,
-            skipRecording: store.skipNextClipboardText
-        ) else {
+        guard clipboardWriter.writeText(text) else {
             return .failed("无法写入剪贴板")
         }
         return .copied
@@ -163,21 +158,17 @@ final class PasteExecutor {
             return .failed("没有可复制的文本")
         }
 
-        guard PasteboardWriter.writeText(
-            normalizedText,
-            to: pasteboard,
-            skipRecording: store.skipNextClipboardText
-        ) else {
+        guard clipboardWriter.writeText(normalizedText) else {
             return .failed("无法写入剪贴板")
         }
         return .copied
     }
 
     func copyImageToPasteboard(_ image: NSImage, skipText: String?) -> PasteboardCopyResult {
-        pasteboard.clearContents()
         if let skipText {
             store.skipNextClipboardText(skipText)
         }
+        pasteboard.clearContents()
         guard pasteboard.writeObjects([image]) else {
             return .failed("无法写入图片到剪贴板")
         }
@@ -185,9 +176,7 @@ final class PasteExecutor {
     }
 
     func copyFileURLToPasteboard(_ url: URL) -> PasteboardCopyResult {
-        pasteboard.clearContents()
-        store.skipNextClipboardFiles([url])
-        guard pasteboard.writeObjects([url as NSURL]) else {
+        guard clipboardWriter.writeFileURLs([url]) else {
             return .failed("无法写入文件引用到剪贴板")
         }
         return .copied

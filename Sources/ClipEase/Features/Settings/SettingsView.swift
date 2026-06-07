@@ -1344,7 +1344,7 @@ struct SettingsView: View {
                     .buttonStyle(.bordered)
 
                     Button("复制版本号") {
-                        PasteboardWriter.writeText(AppVersionInfo.displayVersion)
+                        ClipboardWriteCoordinator.generalTextWriter().writeText(AppVersionInfo.displayVersion)
                         showStatus("已复制版本号")
                     }
                     .buttonStyle(.bordered)
