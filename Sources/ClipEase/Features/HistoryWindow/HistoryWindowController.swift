@@ -16,6 +16,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let previewState = HistoryPreviewState()
     private let renderState = HistoryWindowRenderState()
     private let inputState = HistoryWindowInputState()
+    private let keyboardRouter = HistoryKeyboardActionRouter()
     private lazy var keyboardEventTap = HistoryKeyboardEventTap(inputState: inputState)
     private var panel: HistoryPanel?
     private var outsideClickMonitor: Any?
@@ -223,7 +224,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
         panel.onSpace = { [weak self] in
             guard let self,
-                  HistoryPanelSpaceKeyPolicy.shouldTogglePreview(
+                  keyboardRouter.shouldTogglePreviewFromPanelSpace(
                     isHistoryTextInputActive: self.inputState.isHistoryTextInputActiveSnapshot,
                     isPreviewActive: self.inputState.isPreviewActiveSnapshot
                   ) else {

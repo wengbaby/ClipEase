@@ -176,7 +176,7 @@
 
 ### 阶段 5-A：主窗口关键交互回归保护
 
-- 状态：执行中，已补充最小交互回归测试
+- 状态：已完成
 - 计划开始：2026-06-08
 - 入口条件：当前 release 已发布，工作区干净，`swift build` 和 `swift test` 已通过。
 - 本阶段不改 UI，不改 Store，不改 SQLite，不改 release 脚本。
@@ -188,3 +188,20 @@
   - 2026-06-08：执行 `./scripts/build-app.sh`，版本从 `2.3.126 (260608.0030)` 递增到 `2.3.127 (260608.0126)`。
   - 2026-06-08：已结束旧进程并启动新版 `.build/ClipEase.app`，进程路径为 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app/Contents/MacOS/ClipEase`。
   - 阶段 5-B 入口条件：阶段 5-A 本地提交完成，并由用户确认继续后，按顺序只允许进入主窗口输入与焦点路由拆分。
+
+### 阶段 5-B：主窗口输入与焦点路由拆分
+
+- 状态：已完成
+- 计划开始：2026-06-08
+- 本阶段不改 UI，不改 Store，不改 SQLite，不改设置页，不改发布脚本。
+- 完成记录：
+  - 2026-06-08：新增 `Sources/ClipEase/Features/HistoryWindow/HistoryInputFocusCoordinator.swift`，收口搜索框聚焦、搜索到卡片交接、搜索关闭和搜索文本框是否恢复焦点的决策入口。
+  - 2026-06-08：新增 `Sources/ClipEase/Features/HistoryWindow/HistoryKeyboardActionRouter.swift`，收口文本输入键盘路由、历史快捷键允许策略和主窗口 Space 预览判断入口。
+  - 2026-06-08：新增 `Tests/ClipEaseTests/HistoryInputFocusCoordinatorTests.swift`，覆盖搜索交接、无结果保持搜索聚焦、编辑快捷键留在输入框、交接后 Space 可预览。
+  - 2026-06-08：`HistoryWindowView.swift` 只做最小接入，搜索焦点 transition 改由 `HistoryInputFocusCoordinator` 生成；搜索文本框 AppKit bridge 改由协调器判断是否恢复焦点。
+  - 2026-06-08：`HistoryKeyboardEventTap.swift` 和 `HistoryWindowController.swift` 改由 `HistoryKeyboardActionRouter` 统一做键盘路由判断；未改变任何快捷键规则。
+  - 2026-06-08：定向验证 `swift test --filter HistoryInputFocusCoordinator` 通过，4 个测试全部通过；`swift test --filter HistoryInteractionRegression` 通过，5 个测试全部通过。
+  - 2026-06-08：验证 `swift build` 通过；验证 `swift test` 通过，176 个测试全部通过。
+  - 2026-06-08：执行 `./scripts/build-app.sh`，版本从 `2.3.127 (260608.0126)` 递增到 `2.3.128 (260608.0147)`。
+  - 2026-06-08：已结束旧进程并启动新版 `.build/ClipEase.app`，进程路径为 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app/Contents/MacOS/ClipEase`。
+  - 阶段 5-C 入口条件：阶段 5-B 本地提交完成，并由用户确认继续后，按顺序只允许进入 `ClipboardHistoryStore` 保存与异步副作用拆分。

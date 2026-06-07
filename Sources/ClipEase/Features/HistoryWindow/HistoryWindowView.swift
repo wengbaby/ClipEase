@@ -13,6 +13,7 @@ struct HistoryWindowView: View {
     @StateObject private var previewCoordinator = HistoryPreviewCoordinator()
     @StateObject private var viewportStore = HistoryViewportStore()
     @StateObject private var groupAppearanceCoordinator = GroupAppearanceCoordinator()
+    private let inputFocusCoordinator = HistoryInputFocusCoordinator()
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
     let onClose: () -> Void
@@ -351,7 +352,7 @@ struct HistoryWindowView: View {
     }
 
     private var canPerformDeleteCommand: Bool {
-        HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
+        HistoryKeyboardActionRouter().allowsHistoryCommand(
             .delete,
             isTextInputActive: isTextInputActiveForEditShortcut || inputState.isTextInputFocusedSnapshot,
             isPreviewContentActive: inputState.isPreviewContentActive
@@ -5776,11 +5777,24 @@ struct HistoryWindowView: View {
         hasSearchResult: Bool,
         isSearchVisible: Bool
     ) {
-        let transition = HistorySearchFocusTransitionPolicy.transition(
-            event: event,
-            hasSearchResult: hasSearchResult,
-            isSearchVisible: isSearchVisible
-        )
+        let transition: HistorySearchFocusTransition
+        switch event {
+        case .searchFieldFocused:
+            transition = inputFocusCoordinator.searchFieldFocused(
+                hasSearchResult: hasSearchResult,
+                isSearchVisible: isSearchVisible
+            )
+        case .focusFirstResult:
+            transition = inputFocusCoordinator.focusFirstSearchResult(
+                hasSearchResult: hasSearchResult,
+                isSearchVisible: isSearchVisible
+            )
+        case .searchClosed:
+            transition = inputFocusCoordinator.searchClosed(
+                hasSearchResult: hasSearchResult,
+                isSearchVisible: isSearchVisible
+            )
+        }
         searchHasHandedOffFocusToCard = transition.searchHasHandedOffFocusToCard
         inputState.setSearchHasHandedOffFocusToCard(transition.searchHasHandedOffFocusToCard)
         isSearchFocused = transition.isSearchFocused
@@ -6085,7 +6099,7 @@ private struct SearchTextField: NSViewRepresentable {
         weak var coordinator: Coordinator?
 
         override func keyDown(with event: NSEvent) {
-            guard HistorySearchTextFieldFocusPolicy.shouldRestoreFocusOnKeyEvent(
+            guard HistoryInputFocusCoordinator().shouldRestoreSearchTextFieldFocus(
                 searchHasHandedOffFocusToCard: coordinator?.parent.searchHasHandedOffFocusToCard ?? false
             ) else {
                 if event.keyCode == KeyCode.space {
@@ -6101,7 +6115,7 @@ private struct SearchTextField: NSViewRepresentable {
         }
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            guard HistorySearchTextFieldFocusPolicy.shouldRestoreFocusOnKeyEvent(
+            guard HistoryInputFocusCoordinator().shouldRestoreSearchTextFieldFocus(
                 searchHasHandedOffFocusToCard: coordinator?.parent.searchHasHandedOffFocusToCard ?? false
             ) else {
                 return super.performKeyEquivalent(with: event)

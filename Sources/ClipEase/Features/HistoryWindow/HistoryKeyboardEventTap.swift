@@ -3,6 +3,7 @@ import AppKit
 
 final class HistoryKeyboardEventTap: @unchecked Sendable {
     private weak var inputState: HistoryWindowInputState?
+    private let keyboardRouter = HistoryKeyboardActionRouter()
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     @MainActor private weak var keyWindow: NSWindow?
@@ -83,11 +84,15 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
                 appTextFirstResponderActive: isTextFirstResponderActive()
             )
             let isPreviewActive = inputState?.isPreviewActiveSnapshot == true
-            guard let action = Self.action(for: event, isTextInputActive: isTextInputActive) else {
+            guard let action = Self.action(
+                for: event,
+                isTextInputActive: isTextInputActive,
+                keyboardRouter: keyboardRouter
+            ) else {
                 return Unmanaged.passUnretained(event)
             }
 
-            if !HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
+            if !keyboardRouter.allowsHistoryCommand(
                 action,
                 isTextInputActive: isTextInputActive,
                 isPreviewContentActive: isPreviewActive
@@ -115,7 +120,11 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         }
     }
 
-    private static func action(for event: CGEvent, isTextInputActive: Bool) -> HistoryKeyboardAction? {
+    private static func action(
+        for event: CGEvent,
+        isTextInputActive: Bool,
+        keyboardRouter: HistoryKeyboardActionRouter
+    ) -> HistoryKeyboardAction? {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
         let isCommandPressed = flags.contains(.maskCommand)
@@ -125,7 +134,7 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             flags.contains(.maskAlternate)
 
         if isTextInputActive {
-            return HistoryKeyboardInputPolicy.actionForTextInput(
+            return keyboardRouter.actionForTextInput(
                 keyCode: keyCode,
                 hasTextEditingModifier: hasTextEditingModifier,
                 isShiftPressed: isShiftPressed,
