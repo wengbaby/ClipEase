@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 2-E，LinkMetadataService 纯逻辑拆分已完成，等待本地提交
+- 当前执行阶段：阶段 2 收尾，ClipboardHistoryDomainStore 纯状态拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 2-E；提交后进入阶段 2 收尾审查，确认 `ClipboardHistoryStore` 是否只保留协调入口
+- 当前优先目标：提交阶段 2 收尾；提交后由用户确认是否进入阶段 3 SQLite 存储层工程化拆分
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1040,12 +1040,23 @@
     - `ClipboardHistoryStore.swift` 暂时保留真实 `Task` 生命周期字典、`LinkTitleFetcher` 网络请求、预览图保存、数据库 upsert、旧图片删除和 `LinkMetadataFetchLimiter`，因为这些仍依赖 Store 当前状态、持久化入口和现有并发调度。
     - 验证：`swift build` 通过；`swift test` 通过，127 个测试全部通过。
     - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.106 (260607.2039)` 更新到 `2.3.108 (260607.2052)`，新版 `.build/ClipEase.app` 已启动。
+    - 本地提交：`f022f13 refactor: extract link metadata service`。
     - 遗留风险：需要重点手工验证复制链接后标题/预览图仍会更新、删除链接卡片不会留下异步更新、重复复制链接和快速删除链接没有回归。
     - 阶段 2 收尾入口条件：阶段 2-E 本地 Git 提交完成后，按顺序只允许做阶段 2 收尾审查，不得直接进入阶段 3。
+  - 2026-06-07 阶段 2 收尾 ClipboardHistoryDomainStore 纯状态拆分：
+    - 新增 `Sources/ClipEase/Core/History/ClipboardHistoryDomainStore.swift`。
+    - 新增 `Tests/ClipEaseTests/ClipboardHistoryDomainStoreTests.swift`。
+    - `ClipboardHistoryStore.swift` 不再直接持有和维护 `itemIndexByID`、`itemCountByGroupID`、`itemIDsByHash` 三组内存领域状态。
+    - `ClipboardHistoryDomainStore` 接管条目索引缓存、stale index 修复、分组条目计数、recent content hash 索引、插入后局部索引更新、移动分组后的计数更新。
+    - `ClipboardHistoryStore.swift` 仍保留真实业务协调入口、持久化调用、文件删除、OCR/link metadata Task 生命周期、调试数据生成、导入/导出相关状态拼装。这些属于 Store 协调职责或后续阶段拆分范围，不在阶段 2 收尾中强行迁移。
+    - 验证：`swift build` 通过；`swift test` 通过，131 个测试全部通过。
+    - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.108 (260607.2052)` 更新到 `2.3.109 (260607.2059)`，新版 `.build/ClipEase.app` 已启动。
+    - 阶段 2 结论：阶段 2 允许范围内的独立业务/内存状态边界已拆出；剩余大块职责主要是 OCR 协调、调试数据、导入备份清洗、文件引用构建、持久化调度和 SQLite 访问层，后续不得在阶段 2 继续无限拆分。
+    - 阶段 3 入口条件：本次收尾本地 Git 提交完成，并由用户明确确认进入阶段 3 后，才能开始 `SQLiteClipboardStore.swift` 工程化拆分；阶段 3 首轮必须先做旧库 fixture 和 migration/DAO 拆分前的安全验证。
 
 ### 阶段 3：SQLite 存储层工程化拆分
 
-- 状态：等待阶段 2 完成
+- 状态：等待阶段 2 收尾提交和用户确认
 - 完成记录：尚无
 
 ### 阶段 4：设置页、诊断页、发布流程优化

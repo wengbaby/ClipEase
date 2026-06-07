@@ -45,16 +45,14 @@ final class ClipboardHistoryStore: ObservableObject {
     private let persistence: ClipboardHistoryPersistence
     private let saveWriter: ClipboardHistorySaveWriter
     private let userDefaults: UserDefaults
-    private var itemIDsByHash: [String: Set<ClipboardItem.ID>] = [:]
+    private var domainStore = ClipboardHistoryDomainStore()
     private let selfWriteGuard = ClipboardSelfWriteGuard()
     private var ocrTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
     private var linkMetadataTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
     private var linkMetadataService = LinkMetadataService()
     private var deferredSaveTask: Task<Void, Never>?
     private var debugGenerationTask: Task<Void, Never>?
-    private var itemIndexByID: [ClipboardItem.ID: Int] = [:]
     private var groupIndexByID: [ClipboardGroup.ID: Int] = [:]
-    private var itemCountByGroupID: [ClipboardGroup.ID: Int] = [:]
     private var saveRevision = 0
     private var isLoadingNextPage = false
     private var didLoadAllPersistedItems = false
@@ -125,7 +123,7 @@ final class ClipboardHistoryStore: ObservableObject {
             category: "storage",
             durationMS: (CFAbsoluteTimeGetCurrent() - hashStartedAt) * 1_000,
             itemCount: items.count,
-            resultCount: itemIDsByHash.count
+            resultCount: domainStore.recentHashCount
         )
         PerformanceDiagnosticsService.shared.record(
             "history.store.initialize",
@@ -269,9 +267,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
     func cachedItemIndex(with id: ClipboardItem.ID?) -> Int? {
         guard let id,
-              let index = itemIndexByID[id],
-              items.indices.contains(index),
-              items[index].id == id else {
+              let index = domainStore.cachedItemIndex(for: id, in: items) else {
             return nil
         }
 
@@ -359,7 +355,7 @@ final class ClipboardHistoryStore: ObservableObject {
         cancelAllOCRTasks()
         cancelAllLinkMetadataTasks()
         deleteExternalFiles(for: removedItems)
-        itemIDsByHash.removeAll()
+        domainStore.removeAllRecentHashes()
         selfWriteGuard.removeAll()
         persistDeleteAll()
     }
@@ -614,7 +610,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     func itemCount(inGroup id: ClipboardGroup.ID) -> Int {
-        itemCountByGroupID[id] ?? 0
+        domainStore.itemCount(inGroup: id)
     }
 
     func markUsed(_ id: ClipboardItem.ID?) {
@@ -1185,9 +1181,7 @@ final class ClipboardHistoryStore: ObservableObject {
         let insertionIndex = sortedInsertionIndex(for: item)
         items.insert(item, at: insertionIndex)
         updateItemIndexes(startingAt: insertionIndex)
-        if let groupID = item.groupID {
-            itemCountByGroupID[groupID, default: 0] += 1
-        }
+        domainStore.incrementGroupCount(for: item.groupID)
     }
 
     private func sortedInsertionIndex(for item: ClipboardItem) -> Int {
@@ -1207,10 +1201,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func updateItemIndexes(startingAt startIndex: Int) {
-        let safeStartIndex = max(items.startIndex, min(startIndex, items.endIndex))
-        for index in safeStartIndex..<items.endIndex {
-            itemIndexByID[items[index].id] = index
-        }
+        domainStore.updateIndexes(startingAt: startIndex, in: items)
     }
 
     private static func shouldSortBefore(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
@@ -1238,20 +1229,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func itemIndex(for id: ClipboardItem.ID) -> Int? {
-        guard let index = itemIndexByID[id],
-              items.indices.contains(index),
-              items[index].id == id else {
-            rebuildItemIndexes()
-            guard let repairedIndex = itemIndexByID[id],
-                  items.indices.contains(repairedIndex),
-                  items[repairedIndex].id == id else {
-                return nil
-            }
-
-            return repairedIndex
-        }
-
-        return index
+        domainStore.itemIndex(for: id, in: items)
     }
 
     private func groupIndex(for id: ClipboardGroup.ID) -> Int? {
@@ -1259,17 +1237,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func rebuildItemIndexes() {
-        var indexByID: [ClipboardItem.ID: Int] = [:]
-        var countByGroupID: [ClipboardGroup.ID: Int] = [:]
-        indexByID.reserveCapacity(items.count)
-        for (index, item) in items.enumerated() {
-            indexByID[item.id] = index
-            if let groupID = item.groupID {
-                countByGroupID[groupID, default: 0] += 1
-            }
-        }
-        itemIndexByID = indexByID
-        itemCountByGroupID = countByGroupID
+        domainStore.rebuildIndexes(for: items)
     }
 
     private func sortGroups() {
@@ -1381,7 +1349,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func appendLoadedItems(_ page: [ClipboardItem]) {
-        let existingIDs = Set(itemIndexByID.keys)
+        let existingIDs = Set(items.map(\.id))
         let newItems = page.filter { !existingIDs.contains($0.id) }
         guard !newItems.isEmpty else {
             return
@@ -1488,36 +1456,19 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func rebuildRecentHashes() {
-        var idsByHash: [String: Set<ClipboardItem.ID>] = [:]
-        idsByHash.reserveCapacity(items.count)
-
-        for item in items {
-            idsByHash[DuplicateResolver.contentKey(for: item), default: []].insert(item.id)
-        }
-
-        itemIDsByHash = idsByHash
+        domainStore.rebuildRecentHashes(for: items)
     }
 
     private func addRecentHash(for item: ClipboardItem) {
-        itemIDsByHash[DuplicateResolver.contentKey(for: item), default: []].insert(item.id)
+        domainStore.addRecentHash(for: item)
     }
 
     private func removeRecentHashes(for removedItems: [ClipboardItem]) {
-        for item in removedItems {
-            let hash = DuplicateResolver.contentKey(for: item)
-            itemIDsByHash[hash]?.remove(item.id)
-            if itemIDsByHash[hash]?.isEmpty == true {
-                itemIDsByHash[hash] = nil
-            }
-        }
+        domainStore.removeRecentHashes(for: removedItems)
     }
 
     private func updateGroupCountOnMove(from oldGroupID: ClipboardGroup.ID?, to newGroupID: ClipboardGroup.ID?) {
-        GroupService.updateGroupCountOnMove(
-            from: oldGroupID,
-            to: newGroupID,
-            countByGroupID: &itemCountByGroupID
-        )
+        domainStore.updateGroupCountOnMove(from: oldGroupID, to: newGroupID)
     }
 
     @discardableResult
@@ -1527,7 +1478,7 @@ final class ClipboardHistoryStore: ObservableObject {
     ) -> ClipboardItem {
         let startedAt = CFAbsoluteTimeGetCurrent()
         let hash = DuplicateResolver.contentKey(for: item)
-        let cachedDuplicateIDs = itemIDsByHash[hash] ?? []
+        let cachedDuplicateIDs = domainStore.itemIDs(forContentKey: hash)
         let cachedDuplicateItems = cachedDuplicateIDs.compactMap { self.item(with: $0) }
         let persistedDuplicateItems = persistedDuplicateItems(for: item)
         let duplicateItems = DuplicateResolver.mergedDuplicateItems(
@@ -1535,10 +1486,6 @@ final class ClipboardHistoryStore: ObservableObject {
             persistedItems: persistedDuplicateItems
         )
         let duplicateIDs = Set(duplicateItems.map(\.id))
-        let resolvedDuplicateIDs = Set(duplicateItems.map(\.id))
-        if resolvedDuplicateIDs.count != cachedDuplicateIDs.count {
-            itemIDsByHash[hash] = resolvedDuplicateIDs.isEmpty ? nil : resolvedDuplicateIDs
-        }
         let firstDuplicate = duplicateItems.first
         var insertedItem = item
 
