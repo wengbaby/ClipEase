@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 4-H，版本一致性校验增强已完成，等待本地提交
+- 当前执行阶段：阶段 4-I，GitHub release asset hash 校验已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 4-H；提交后按顺序进入阶段 4-I GitHub release asset hash 校验
+- 当前优先目标：提交阶段 4-I；提交后按顺序进入阶段 4-J Apple notarization 预留选项
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1219,3 +1219,14 @@
     - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，生成 `ClipEase-2.3.124-260608.0013.dmg`、release notes 和 SHA-256，未创建 tag、GitHub Release 或上传。
     - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.124 (260608.0013)` 递增到 `2.3.125 (260608.0024)`；已结束旧进程并启动 `.build/ClipEase.app`。
     - 阶段 4-I 入口条件：阶段 4-H 本地提交完成后，按顺序增强 GitHub release asset hash 校验；不得直接发布。
+  - 2026-06-08 阶段 4-I GitHub release asset hash 校验：
+    - `scripts/release.sh` 新增 `verify_github_release_asset_hash`。
+    - 真实发布路径在 `gh release create` 成功后，会通过 `gh release download` 下载远端 DMG asset，并用 `shasum -a 256` 与本地 SHA-256 比对。
+    - 如果远端 asset SHA 与本地不一致，脚本会输出 `GitHub release asset SHA-256 mismatch` 并失败，避免静默发布错误产物。
+    - dry-run 路径不触发远端下载或发布校验。
+    - 新增 `ReleaseScriptPolicyTests` 覆盖发布后调用远端 asset hash 校验，且调用顺序必须在 `gh release create` 之后。
+    - 本轮未改变 release notes 格式、DMG 布局、版本策略、主窗口、搜索交互、SQLite、设置页视觉结构或快捷键行为。
+    - 验证：先运行 `swift test --filter releaseScriptVerifiesUploadedAssetHashAfterPublish` 观察到缺少发布后 asset hash 校验的失败；实现后 `swift test --filter ReleaseScriptPolicy` 通过。
+    - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，生成 `ClipEase-2.3.125-260608.0024.dmg`、release notes 和 SHA-256，未创建 tag、GitHub Release 或上传。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.125 (260608.0024)` 递增到 `2.3.126 (260608.0030)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 阶段 4-J 入口条件：阶段 4-I 本地提交完成后，按顺序预留 Apple notarization 选项；不得直接发布。

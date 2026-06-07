@@ -145,6 +145,29 @@ verify_release_notes_metadata() {
   fi
 }
 
+verify_github_release_asset_hash() {
+  local tag="$1"
+  local asset_name="$2"
+  local expected_sha256="$3"
+  local download_dir
+  local downloaded_asset
+  local actual_sha256
+
+  download_dir="$(mktemp -d "${TMPDIR:-/tmp}/clipease-release-asset.XXXXXX")"
+  gh release download "$tag" --pattern "$asset_name" --dir "$download_dir" --clobber
+  downloaded_asset="$download_dir/$asset_name"
+
+  actual_sha256="$(shasum -a 256 "$downloaded_asset" | awk '{ print $1 }')"
+  rm -rf "$download_dir"
+
+  if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+    echo "GitHub release asset SHA-256 mismatch: expected=$expected_sha256, actual=$actual_sha256" >&2
+    exit 1
+  fi
+
+  echo "Verified GitHub release asset SHA-256: $actual_sha256"
+}
+
 require_command swift
 require_command create-dmg
 require_command hdiutil
@@ -285,5 +308,6 @@ if [[ "$PUBLISH" == "true" ]]; then
 
   git push origin "$TAG"
   gh release create "$TAG" "$DMG_PATH" --title "$TITLE" --notes-file "$BODY_PATH"
+  verify_github_release_asset_hash "$TAG" "$DMG_NAME" "$SHA256"
   CREATED_TAG="false"
 fi

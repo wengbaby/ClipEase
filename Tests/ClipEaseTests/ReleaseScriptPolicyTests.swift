@@ -74,6 +74,17 @@ import Testing
     #expect(script.contains("verify_release_notes_metadata \"$BODY_PATH\" \"$VERSION\" \"$BUILD\" \"$DMG_NAME\" \"$SHA256\""))
 }
 
+@Test func releaseScriptVerifiesUploadedAssetHashAfterPublish() throws {
+    let script = try releaseScript()
+    let releaseCreateRange = try #require(script.range(of: "gh release create \"$TAG\" \"$DMG_PATH\" --title \"$TITLE\" --notes-file \"$BODY_PATH\""))
+    let assetHashRange = try #require(script.range(of: "verify_github_release_asset_hash \"$TAG\" \"$DMG_NAME\" \"$SHA256\""))
+
+    #expect(script.contains("gh release download \"$tag\" --pattern \"$asset_name\""))
+    #expect(script.contains("GitHub release asset SHA-256 mismatch"))
+    #expect(script.contains("Verified GitHub release asset SHA-256"))
+    #expect(releaseCreateRange.lowerBound < assetHashRange.lowerBound)
+}
+
 private func releaseScript() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("scripts/release.sh")
