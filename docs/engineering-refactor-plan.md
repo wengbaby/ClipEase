@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 3 收尾验证已完成，等待本地提交
+- 当前执行阶段：阶段 4-A，设置页历史数据区拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 3 收尾验证；提交后由用户确认是否进入阶段 4
+- 当前优先目标：提交阶段 4-A；提交后按顺序进入阶段 4-B 诊断页拆分
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1137,5 +1137,15 @@
 
 ### 阶段 4：设置页、诊断页、发布流程优化
 
-- 状态：等待阶段 3 完成
-- 完成记录：尚无
+- 状态：阶段 4-A 已完成，等待本地提交；不得直接跳到发布脚本优化
+- 完成记录：
+  - 2026-06-07 阶段 4-A 设置页历史数据区拆分：
+    - 新增 `Sources/ClipEase/Features/Settings/ViewModels/SettingsHistoryDataViewModel.swift`。
+    - 新增 `Sources/ClipEase/Features/Settings/Sections/SettingsHistoryDataSection.swift`。
+    - 新增 `Tests/ClipEaseTests/SettingsHistoryDataViewModelTests.swift`。
+    - `SettingsView.swift` 不再直接维护历史数据区的存储用量、压缩、孤立附件清理、数据检查/修复状态和历史数据摘要计算。
+    - `SettingsView.swift` 仍保留文件选择面板、确认弹窗、导入导出结果处理和状态 toast 入口，避免把 AppKit UI 入口提前搬进 ViewModel。
+    - 本轮未改变设置页视觉结构、按钮文案、历史数据业务流程、主窗口、搜索交互、SQLite 结构或发布脚本。
+    - 验证：先运行 `swift test --filter SettingsHistoryDataViewModel` 观察到缺少 ViewModel 的失败；实现后定向测试通过；`swift build` 通过；`swift test` 通过，152 个测试全部通过。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.117 (260607.2227)` 递增到 `2.3.118 (260607.2252)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 阶段 4-B 入口条件：阶段 4-A 本地提交完成后，按顺序拆 `SettingsDiagnosticsSection` 和对应 ViewModel；不得提前修改发布脚本。

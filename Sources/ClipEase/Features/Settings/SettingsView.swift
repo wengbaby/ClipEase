@@ -95,13 +95,7 @@ struct SettingsView: View {
     @State private var isCleanOrphanedAttachmentsConfirmationPresented = false
     @State private var statusText: String?
     @State private var isRecordingShortcut = false
-    @State private var storageUsageText = "计算中"
-    @State private var isStorageUsageRefreshing = false
-    @State private var isCompactingHistoryDatabase = false
-    @State private var isCleaningOrphanedAttachments = false
-    @State private var isCheckingHistoryData = false
     @State private var isHistoryTransferInProgress = false
-    @State private var includesAttachmentsInBackup = true
     @State private var isDebugToolsVisible = false
     @State private var versionTapCount = 0
     @State private var selectedCategory: SettingsCategory = .general
@@ -114,6 +108,7 @@ struct SettingsView: View {
     @State private var isGroupIconSearchFocused = false
     @State private var focusedSettingsGroupNameID: ClipboardGroup.ID?
     @State private var editingSettingsGroupNames: [ClipboardGroup.ID: String] = [:]
+    @StateObject private var historyDataViewModel = SettingsHistoryDataViewModel()
     private let groupAppearancePopoverWidth: CGFloat = 304
     private let groupAppearanceIconGridHeight: CGFloat = 178
 
@@ -144,7 +139,7 @@ struct SettingsView: View {
         .onAppear {
             accessibilityPermissionState.refresh()
             loginItemController.refresh()
-            refreshStorageUsage()
+            historyDataViewModel.refreshStorageUsage()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             accessibilityPermissionState.refresh()
@@ -169,7 +164,7 @@ struct SettingsView: View {
         ) {
             Button("清空历史", role: .destructive) {
                 store.clearAllItems()
-                refreshStorageUsage()
+                historyDataViewModel.refreshStorageUsage()
                 showStatus("已清空历史")
             }
 
@@ -184,7 +179,7 @@ struct SettingsView: View {
         ) {
             Button("清空图标缓存", role: .destructive) {
                 AppIconCache.clearCache()
-                refreshStorageUsage()
+                historyDataViewModel.refreshStorageUsage()
                 showStatus("已清空图标缓存")
             }
 
@@ -199,7 +194,7 @@ struct SettingsView: View {
         ) {
             Button("清空缩略图缓存", role: .destructive) {
                 ClipboardHistoryPersistence.clearThumbnailCache()
-                refreshStorageUsage()
+                historyDataViewModel.refreshStorageUsage()
                 showStatus("已清空缩略图缓存")
             }
 
@@ -810,125 +805,53 @@ struct SettingsView: View {
     }
 
     private var historySection: some View {
-        settingsSection(title: "历史数据", subtitle: historySubtitle) {
-            VStack(alignment: .leading, spacing: 12) {
-                historyActionGroup(title: "导入与导出") {
-                    historyButton("导出历史", prominent: true) {
-                        exportHistory()
-                    }
-                    .disabled(store.items.isEmpty || isHistoryTransferInProgress)
-
-                    historyButton("导入历史") {
-                        importHistory()
-                    }
-                    .disabled(isHistoryTransferInProgress)
-
-                    historyButton("导出备份包", minWidth: 104) {
-                        exportBackup()
-                    }
-                    .disabled(store.items.isEmpty || isHistoryTransferInProgress)
-
-                    historyButton("导入备份包", minWidth: 104) {
-                        importBackup()
-                    }
-                    .disabled(isHistoryTransferInProgress)
-                }
-
-                Toggle("导出备份包时包含图片和富文本附件", isOn: $includesAttachmentsInBackup)
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 12, weight: .regular))
-
-                Divider()
-
-                historyActionGroup(title: "目录与缓存", wrapsContent: true) {
-                    historyActionGrid {
-                        historyButton("打开数据目录", minWidth: 116) {
-                            openDirectory(try? ClipEaseStoragePaths.applicationSupportDirectory())
-                        }
-
-                        historyButton("打开图片目录", minWidth: 116) {
-                            openDirectory(try? ClipEaseStoragePaths.imagesDirectory())
-                        }
-
-                        historyButton("打开图标缓存", minWidth: 116) {
-                            openDirectory(try? ClipEaseStoragePaths.appIconsDirectory())
-                        }
-
-                        historyButton("打开缩略图缓存", minWidth: 116) {
-                            openDirectory(try? ClipEaseStoragePaths.thumbnailsDirectory())
-                        }
-
-                        historyButton("刷新用量", minWidth: 116) {
-                            refreshStorageUsage()
-                            showStatus("已刷新存储用量")
-                        }
-                        .disabled(isStorageUsageRefreshing)
-
-                        historyButton("压缩历史数据库", minWidth: 128) {
-                            compactHistoryDatabase()
-                        }
-                        .disabled(isCompactingHistoryDatabase)
-                    }
-                }
-
-                Divider()
-
-                historyActionGroup(title: "清理", wrapsContent: true) {
-                    historyActionGrid {
-                        historyButton("检查数据", minWidth: 116) {
-                            checkHistoryDataHealth()
-                        }
-                        .disabled(isCheckingHistoryData)
-
-                        historyButton("清空图标缓存", minWidth: 116) {
-                            isClearIconCacheConfirmationPresented = true
-                        }
-
-                        historyButton("清空缩略图缓存", minWidth: 116) {
-                            isClearThumbnailCacheConfirmationPresented = true
-                        }
-
-                        historyButton("清理孤立附件", minWidth: 116) {
-                            isCleanOrphanedAttachmentsConfirmationPresented = true
-                        }
-                        .disabled(isCleaningOrphanedAttachments)
-
-                        Button("清空历史", role: .destructive) {
-                            isClearConfirmationPresented = true
-                        }
-                        .buttonStyle(.bordered)
-                        .frame(minWidth: 116)
-                        .disabled(store.items.isEmpty)
-                    }
-                }
-
-                if isDebugToolsVisible {
-                    Divider()
-                    debugDataSection
-                }
-            }
-        }
-    }
-
-    private var debugDataSection: some View {
-        historyActionGroup(title: "性能测试数据") {
-            historyButton("生成 1,000 条", minWidth: 104) {
-                store.addDebugTextItems(count: 1_000)
-                showStatus("正在生成 1,000 条测试数据")
-            }
-
-            historyButton("生成 10,000 条", minWidth: 112) {
-                store.addDebugTextItems(count: 10_000)
-                showStatus("正在生成 10,000 条测试数据")
-            }
-
-            historyButton("清理测试数据", minWidth: 104) {
+        SettingsHistoryDataSection(
+            subtitle: historySubtitle,
+            hasItems: !store.items.isEmpty,
+            debugTextItemCount: store.debugTextItemCount,
+            isHistoryTransferInProgress: isHistoryTransferInProgress,
+            isDebugToolsVisible: isDebugToolsVisible,
+            viewModel: historyDataViewModel,
+            onExportHistory: exportHistory,
+            onImportHistory: importHistory,
+            onExportBackup: exportBackup,
+            onImportBackup: importBackup,
+            onOpenDataDirectory: {
+                openDirectory(try? ClipEaseStoragePaths.applicationSupportDirectory())
+            },
+            onOpenImagesDirectory: {
+                openDirectory(try? ClipEaseStoragePaths.imagesDirectory())
+            },
+            onOpenIconCacheDirectory: {
+                openDirectory(try? ClipEaseStoragePaths.appIconsDirectory())
+            },
+            onOpenThumbnailCacheDirectory: {
+                openDirectory(try? ClipEaseStoragePaths.thumbnailsDirectory())
+            },
+            onRequestClearIconCache: {
+                isClearIconCacheConfirmationPresented = true
+            },
+            onRequestClearThumbnailCache: {
+                isClearThumbnailCacheConfirmationPresented = true
+            },
+            onRequestCleanOrphanedAttachments: {
+                isCleanOrphanedAttachmentsConfirmationPresented = true
+            },
+            onRequestClearHistory: {
+                isClearConfirmationPresented = true
+            },
+            onCheckHistoryData: checkHistoryDataHealth,
+            onGenerateDebugItems: { count in
+                store.addDebugTextItems(count: count)
+                showStatus("正在生成 \(count.formatted()) 条测试数据")
+            },
+            onClearDebugItems: {
                 let removedCount = store.clearDebugTextItems()
-                refreshStorageUsage()
+                historyDataViewModel.refreshStorageUsage()
                 showStatus(removedCount > 0 ? "已清理 \(removedCount) 条测试数据" : "没有测试数据")
-            }
-            .disabled(store.debugTextItemCount == 0)
-        }
+            },
+            onShowStatus: showStatus
+        )
     }
 
     private var performanceSection: some View {
@@ -1285,91 +1208,10 @@ struct SettingsView: View {
     }
 
     private var historySubtitle: String {
-        let primarySummaries = [
-            historyStorageSummary(for: .text, label: "文字"),
-            historyStorageSummary(for: .link, label: "链接"),
-            historyStorageSummary(for: .image, label: "图片")
-        ]
-        let secondarySummaries = [
-            historyStorageSummary(for: .file, label: "文件"),
-            historyStorageSummary(for: .color, label: "颜色"),
-            historyPinnedStorageSummary()
-        ]
-
-        return """
-        共 \(store.items.count) 条，占用 \(storageUsageText)
-        \(primarySummaries.joined(separator: "，"))
-        \(secondarySummaries.joined(separator: "，"))
-        """
-    }
-
-    private func historyStorageSummary(for type: ClipboardItemType, label: String) -> String {
-        let items = store.items.filter { $0.type == type }
-        let bytes = items.reduce(UInt64(0)) { partialResult, item in
-            partialResult + estimatedStoredBytes(for: item)
-        }
-        return "\(label) \(formatHistoryCategorySize(bytes))/\(items.count)条"
-    }
-
-    private func historyPinnedStorageSummary() -> String {
-        let items = store.items.filter(\.isPinned)
-        let bytes = items.reduce(UInt64(0)) { partialResult, item in
-            partialResult + estimatedStoredBytes(for: item)
-        }
-        return "置顶 \(formatHistoryCategorySize(bytes))/\(items.count)条"
-    }
-
-    private func estimatedStoredBytes(for item: ClipboardItem) -> UInt64 {
-        var bytes = UInt64(item.text.utf8.count)
-        bytes += UInt64(item.url?.absoluteString.utf8.count ?? 0)
-        bytes += UInt64(item.linkTitle?.utf8.count ?? 0)
-        bytes += UInt64(item.linkSubtitle?.utf8.count ?? 0)
-        bytes += UInt64(item.sourceAppName.utf8.count)
-        bytes += UInt64(item.sourceBundleID?.utf8.count ?? 0)
-        bytes += UInt64(item.iconName.utf8.count)
-        bytes += UInt64(item.iconFileName?.utf8.count ?? 0)
-        bytes += UInt64(item.headerColorHex.utf8.count)
-        bytes += UInt64(item.ocrText.utf8.count)
-        bytes += item.ocrEmails.reduce(UInt64(0)) { $0 + UInt64($1.utf8.count) }
-        bytes += item.ocrPhoneNumbers.reduce(UInt64(0)) { $0 + UInt64($1.utf8.count) }
-        bytes += item.ocrURLs.reduce(UInt64(0)) { $0 + UInt64($1.utf8.count) }
-
-        if let imageFileName = item.imageFileName {
-            bytes += fileSize(try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName))
-            bytes += fileSize(try? ClipEaseStoragePaths.thumbnailFileURL(fileName: imageFileName))
-        }
-
-        if let richTextFileName = item.richTextFileName {
-            bytes += fileSize(try? ClipEaseStoragePaths.richTextFileURL(fileName: richTextFileName))
-        }
-
-        for fileReference in item.fileReferences {
-            bytes += UInt64(fileReference.path.utf8.count)
-            bytes += UInt64(fileReference.displayName.utf8.count)
-            bytes += UInt64(fileReference.fileExtension?.utf8.count ?? 0)
-            bytes += UInt64(fileReference.contentType?.utf8.count ?? 0)
-        }
-
-        return bytes
-    }
-
-    private func fileSize(_ url: URL?) -> UInt64 {
-        guard let url,
-              let values = try? url.resourceValues(forKeys: [.fileSizeKey, .totalFileAllocatedSizeKey]) else {
-            return 0
-        }
-
-        return UInt64(values.totalFileAllocatedSize ?? values.fileSize ?? 0)
-    }
-
-    private func formatHistoryCategorySize(_ bytes: UInt64) -> String {
-        if bytes >= 1_048_576 {
-            return String(format: "%.2fMB", Double(bytes) / 1_048_576)
-        }
-        if bytes >= 1_024 {
-            return String(format: "%.1fKB", Double(bytes) / 1_024)
-        }
-        return "\(bytes)b"
+        SettingsHistoryDataViewModel.historySubtitle(
+            items: store.items,
+            storageUsageText: historyDataViewModel.storageUsageText
+        )
     }
 
     private var groupsSubtitle: String {
@@ -1504,48 +1346,6 @@ struct SettingsView: View {
         }
     }
 
-    private func refreshStorageUsage() {
-        isStorageUsageRefreshing = true
-        Task {
-            let usageText = await Task.detached(priority: .utility) {
-                StorageUsageCalculator.formattedApplicationSupportSize()
-            }.value
-
-            await MainActor.run {
-                storageUsageText = usageText
-                isStorageUsageRefreshing = false
-            }
-        }
-    }
-
-    private func compactHistoryDatabase() {
-        isCompactingHistoryDatabase = true
-        Task {
-            let result = await Task.detached(priority: .utility) {
-                let persistence = ClipboardHistoryPersistence()
-                return (try? persistence.compactDatabaseIfNeededOrThrow(
-                    policy: ClipboardDatabaseCompactionPolicy(
-                        minimumFreeRatio: 0,
-                        minimumFreeBytes: 1
-                    )
-                )) ?? .skipped
-            }.value
-            let usageText = await Task.detached(priority: .utility) {
-                StorageUsageCalculator.formattedApplicationSupportSize()
-            }.value
-
-            await MainActor.run {
-                storageUsageText = usageText
-                isCompactingHistoryDatabase = false
-                if result.reclaimedBytes > 0 {
-                    showStatus("已压缩历史数据库，释放 \(ByteCountFormatter.string(fromByteCount: Int64(result.reclaimedBytes), countStyle: .file))")
-                } else {
-                    showStatus("历史数据库无需压缩")
-                }
-            }
-        }
-    }
-
     private func revealDebugToolsIfNeeded() {
         guard !isDebugToolsVisible else {
             return
@@ -1627,44 +1427,19 @@ struct SettingsView: View {
     }
 
     private func cleanOrphanedAttachments() {
-        isCleaningOrphanedAttachments = true
-        let items = store.items
-
-        Task {
-            let result = await Task.detached(priority: .utility) {
-                OrphanedAttachmentCleaner.clean(items: items)
-            }.value
-            let usageText = await Task.detached(priority: .utility) {
-                StorageUsageCalculator.formattedApplicationSupportSize()
-            }.value
-
-            await MainActor.run {
-                storageUsageText = usageText
-                isCleaningOrphanedAttachments = false
-                if result.removedFiles > 0 {
-                    showStatus("已清理 \(result.removedFiles) 个文件，释放 \(result.formattedRemovedSize)")
-                } else {
-                    showStatus("没有可清理的孤立附件")
-                }
-            }
-        }
+        historyDataViewModel.cleanOrphanedAttachments(
+            items: store.items,
+            showStatus: showStatus
+        )
     }
 
     private func checkHistoryDataHealth() {
-        isCheckingHistoryData = true
-        showProgress("正在检查数据...")
-        let items = store.items
-
-        Task {
-            let report = await Task.detached(priority: .utility) {
-                HistoryDataHealthChecker.check(items: items)
-            }.value
-
-            await MainActor.run {
-                isCheckingHistoryData = false
-                showStatus(report.summary)
-                showHistoryDataHealthReport(report)
-            }
+        historyDataViewModel.checkHistoryDataHealth(
+            items: store.items,
+            showProgress: showProgress
+        ) { report in
+            showStatus(report.summary)
+            showHistoryDataHealthReport(report)
         }
     }
 
@@ -1701,24 +1476,12 @@ struct SettingsView: View {
     }
 
     private func repairHistoryData() {
-        isCheckingHistoryData = true
-        showProgress("正在修复数据...")
-        let items = store.items
-
-        Task {
-            let report = await Task.detached(priority: .utility) {
-                HistoryDataHealthChecker.repair(items: items)
-            }.value
-            let usageText = await Task.detached(priority: .utility) {
-                StorageUsageCalculator.formattedApplicationSupportSize()
-            }.value
-
-            await MainActor.run {
-                storageUsageText = usageText
-                isCheckingHistoryData = false
-                showStatus(report.summary)
-                showHistoryDataRepairReport(report)
-            }
+        historyDataViewModel.repairHistoryData(
+            items: store.items,
+            showProgress: showProgress
+        ) { report in
+            showStatus(report.summary)
+            showHistoryDataRepairReport(report)
         }
     }
 
@@ -1811,7 +1574,7 @@ struct SettingsView: View {
                 switch result {
                 case .success(let importedItems):
                     let importedCount = store.importItems(importedItems)
-                    refreshStorageUsage()
+                    historyDataViewModel.refreshStorageUsage()
                     showStatus(importedCount > 0 ? "已导入 \(importedCount) 条历史" : "没有可导入的新历史")
                 case .failure(let error):
                     showOperationError("导入历史失败", error: error)
@@ -1836,7 +1599,7 @@ struct SettingsView: View {
         showProgress("正在导出备份包...")
         let items = store.items
         let groups = store.groups
-        let includesAttachments = includesAttachmentsInBackup
+        let includesAttachments = historyDataViewModel.includesAttachmentsInBackup
 
         Task {
             let result = await Task.detached(priority: .utility) {
@@ -1915,7 +1678,7 @@ struct SettingsView: View {
         }
 
         let importedCount = store.importBackupItems(importResult.items, groups: importResult.groups)
-        refreshStorageUsage()
+        historyDataViewModel.refreshStorageUsage()
         showStatus(backupImportStatusText(
             importedCount: importedCount,
             result: importResult
