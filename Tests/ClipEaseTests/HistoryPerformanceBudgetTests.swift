@@ -69,7 +69,27 @@ import Testing
     #expect(result.durationMS < 5)
 }
 
-private enum PerformanceBudget {
+@Test func sqliteSearchHandlesThreeThousandMixedItemsWithinBudgetUsingTemporaryStore() throws {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("ClipEasePerformanceTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEaseBenchmark.sqlite")
+    let store = SQLiteClipboardStore(databaseURL: databaseURL)
+    try store.insertItems(PerformanceFixture.mixedItems(count: 3_000))
+
+    let result = try PerformanceBudget.measure {
+        try store.searchItems(ClipboardSearchQuery(text: "性能测试 29", limit: 50))
+    }
+
+    #expect(databaseURL.path.hasPrefix(directory.path))
+    #expect(!result.value.isEmpty)
+    #expect(result.value.count <= 50)
+    #expect(result.durationMS < 250)
+}
+
+enum PerformanceBudget {
     struct Result<T> {
         let value: T
         let durationMS: Double
@@ -85,7 +105,7 @@ private enum PerformanceBudget {
     }
 }
 
-private enum PerformanceFixture {
+enum PerformanceFixture {
     static func textItems(count: Int) -> [ClipboardItem] {
         (0..<count).map { index in
             ClipboardItem.text(

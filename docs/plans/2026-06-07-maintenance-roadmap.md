@@ -179,12 +179,22 @@ Verification:
 - Dry-run local release path.
 - Publish path only when user explicitly asks for release.
 
+## Progress
+
+- Slice 1 completed in `de1c4b3`: search focus and render-window policies were isolated with tests.
+- Slice 2 completed in `35a0c7b`: clipboard writes were centralized through `ClipboardWriteCoordinator`.
+- Slice 3 completed in `2532166`: non-Sendable OCR/PDF preview work was contained.
+- Slice 4 completed in `9d61ee4`: database compaction scheduling was isolated.
+- Slice 5 completed in `db98074`: the about settings section was split from `SettingsView`.
+- Slice 6 completed in `34eed7e`: preview anchor frame selection was isolated and tested.
+
 ## Current Slice
 
-Start with slice 1: main window search, focus, and render-window policies.
+Continue with slice 7: performance benchmarks.
 
 Success for the current slice means:
-- Behavior is covered by tests.
+- The benchmark datasets are repeatable.
+- Main-window preview item build, search apply, render-window calculation, and storage search are covered.
+- Benchmark tests use temporary data only and do not write the user history database.
 - `swift test` passes.
 - The app builds and launches.
-- No UI, layout, or workflow changes are introduced.
