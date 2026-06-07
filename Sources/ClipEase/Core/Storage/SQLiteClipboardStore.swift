@@ -208,23 +208,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try createSchema(in: database)
         try recordSchemaVersion(in: database)
 
-        let matchQuery = SQLiteRowMapper.escapedFTS5Query(rawQuery)
-        let rows = try database.query(
-            """
-            SELECT clipboard_items.id
-            FROM clipboard_items_fts
-            INNER JOIN clipboard_items ON clipboard_items.id = clipboard_items_fts.item_id
-            WHERE clipboard_items.is_deleted = 0
-              AND clipboard_items_fts MATCH ?
-            ORDER BY rank,
-                     clipboard_items.is_pinned DESC,
-                     clipboard_items.created_at DESC,
-                     COALESCE(clipboard_items.pinned_at, clipboard_items.created_at) DESC
-            LIMIT ? OFFSET ?
-            """,
-            values: [.text(matchQuery), .int(query.limit), .int(query.offset)]
-        )
-        let ids = rows.compactMap { UUID(uuidString: $0.requiredText("id")) }
+        let ids = try SQLiteSearchIndexDAO.searchItemIDs(query, in: database)
         return try SQLiteItemDAO.loadItems(withOrderedIDs: ids, orderSQL: Self.defaultItemOrderSQL, in: database)
     }
 
@@ -237,7 +221,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try database.execute("PRAGMA foreign_keys = ON")
         try createSchema(in: database)
         try recordSchemaVersion(in: database)
-        try ensureSearchIndexReady(in: database)
+        try SQLiteSearchIndexDAO.ensureReady(in: database)
     }
 
     func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) throws {
@@ -646,103 +630,12 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try database.execute("ALTER TABLE \(table) ADD COLUMN \(column) \(definition)")
     }
 
-    private func ensureSearchIndexReady(in database: SQLiteDatabase) throws {
-        try database.execute(
-            """
-            DELETE FROM clipboard_items_fts
-            WHERE item_id NOT IN (
-                SELECT id FROM clipboard_items WHERE is_deleted = 0
-            )
-            """
-        )
-
-        let itemCount = try database.queryInt("SELECT COUNT(*) FROM clipboard_items WHERE is_deleted = 0")
-        let indexedCount = try database.queryInt("SELECT COUNT(*) FROM clipboard_items_fts")
-        guard indexedCount < itemCount else {
-            return
-        }
-
-        let batchLimit = 1_000
-        while true {
-            let rows = try database.query(
-                """
-                SELECT
-                    id, type, plain_text, url, link_title, link_subtitle,
-                    source_app_name, created_at
-                FROM clipboard_items
-                WHERE is_deleted = 0
-                  AND id NOT IN (SELECT item_id FROM clipboard_items_fts)
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                values: [.int(batchLimit)]
-            )
-            guard !rows.isEmpty else {
-                break
-            }
-
-            try database.execute("BEGIN IMMEDIATE TRANSACTION")
-            do {
-                for row in rows {
-                    guard let id = UUID(uuidString: row.requiredText("id")) else {
-                        continue
-                    }
-
-                    try insertSearchIndexText(
-                        SQLiteRowMapper.searchText(from: row),
-                        for: id,
-                        in: database
-                    )
-                }
-                try database.execute("COMMIT")
-            } catch {
-                try? database.execute("ROLLBACK")
-                throw error
-            }
-        }
-
-        try database.execute(
-            """
-            INSERT OR REPLACE INTO clipboard_search_index_state (key, value, updated_at)
-            VALUES ('last_rebuild_count', ?, ?)
-            """,
-            values: [.text("\(itemCount)"), .double(Date().timeIntervalSince1970)]
-        )
-    }
-
-    private func insertSearchIndex(for item: ClipboardItem, in database: SQLiteDatabase) throws {
-        try insertSearchIndexText(SQLiteRowMapper.searchText(for: item), for: item.id, in: database)
-    }
-
-    private func insertSearchIndexText(_ text: String, for id: ClipboardItem.ID, in database: SQLiteDatabase) throws {
-        try deleteSearchIndex(with: [id], in: database)
-        try database.execute(
-            "INSERT INTO clipboard_items_fts (item_id, search_text) VALUES (?, ?)",
-            values: [
-                .text(id.uuidString),
-                .text(text)
-            ]
-        )
-    }
-
-    private func deleteSearchIndex(with ids: Set<ClipboardItem.ID>, in database: SQLiteDatabase) throws {
-        guard !ids.isEmpty else {
-            return
-        }
-
-        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
-        try database.execute(
-            "DELETE FROM clipboard_items_fts WHERE item_id IN (\(placeholders))",
-            values: ids.map { .text($0.uuidString) }
-        )
-    }
-
     private func deleteItems(with ids: Set<ClipboardItem.ID>, in database: SQLiteDatabase) throws {
         guard !ids.isEmpty else {
             return
         }
 
-        try deleteSearchIndex(with: ids, in: database)
+        try SQLiteSearchIndexDAO.delete(with: ids, in: database)
         try SQLiteItemDAO.deleteItems(with: ids, in: database)
     }
 
@@ -752,13 +645,13 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         }
 
         let itemIDs = try SQLiteItemDAO.loadItemIDs(inGroups: ids, in: database)
-        try deleteSearchIndex(with: itemIDs, in: database)
+        try SQLiteSearchIndexDAO.delete(with: itemIDs, in: database)
         try SQLiteItemDAO.deleteItems(inGroups: ids, in: database)
     }
 
     private func insertItem(_ item: ClipboardItem, in database: SQLiteDatabase) throws {
         try SQLiteItemDAO.insert(item, in: database)
-        try insertSearchIndex(for: item, in: database)
+        try SQLiteSearchIndexDAO.insert(item, in: database)
     }
 }
 
