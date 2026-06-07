@@ -12,6 +12,7 @@ struct HistoryWindowView: View {
     @StateObject private var searchCoordinator = HistorySearchCoordinator()
     @StateObject private var previewCoordinator = HistoryPreviewCoordinator()
     @StateObject private var viewportStore = HistoryViewportStore()
+    @StateObject private var groupAppearanceCoordinator = GroupAppearanceCoordinator()
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
     let onClose: () -> Void
@@ -40,15 +41,7 @@ struct HistoryWindowView: View {
     @State private var isGroupRenameCancelPending = false
     @State private var groupRenameFocusRequestID = 0
     @State private var groupRenameInputScreenFrame: CGRect?
-    @State private var groupAppearanceTarget: ClipboardGroup?
-    @State private var systemGroupAppearanceTarget: SystemHistoryGroup?
-    @State private var groupAppearanceColor = Color(red: 0.18, green: 0.55, blue: 1.0)
-    @State private var groupAppearanceOriginalColor = Color(red: 0.18, green: 0.55, blue: 1.0)
-    @State private var groupAppearanceIconName = "tray.full"
-    @State private var groupAppearanceOriginalIconName = "tray.full"
-    @State private var groupIconSearchText = ""
     @State private var isGroupIconSearchFocused = false
-    @State private var groupAppearancePopoverWindow: NSWindow?
     @State private var moveToGroupMenuSnapshot: [MoveToGroupMenuEntry] = []
     @State private var moveToGroupPickerTarget: MoveToGroupPickerTarget?
     @State private var pendingGroupTrackScrollID: String?
@@ -272,7 +265,7 @@ struct HistoryWindowView: View {
     }
 
     private var filteredGroupIcons: [String] {
-        let query = groupIconSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = groupAppearanceCoordinator.iconSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             return ClipboardGroup.defaultIcons
         }
@@ -283,6 +276,38 @@ struct HistoryWindowView: View {
                 .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
                 .contains(normalizedQuery)
         }
+    }
+
+    private var groupAppearanceColor: Color {
+        get {
+            Color.clipeaseHex(groupAppearanceCoordinator.colorHex)
+        }
+        nonmutating set {
+            groupAppearanceCoordinator.colorHex = newValue.clipeaseHexString
+        }
+    }
+
+    private var groupAppearanceIconName: String {
+        get {
+            groupAppearanceCoordinator.iconName
+        }
+        nonmutating set {
+            groupAppearanceCoordinator.iconName = newValue
+        }
+    }
+
+    private var groupIconSearchTextBinding: Binding<String> {
+        Binding(
+            get: { groupAppearanceCoordinator.iconSearchText },
+            set: { groupAppearanceCoordinator.iconSearchText = $0 }
+        )
+    }
+
+    private var groupAppearancePopoverWindowBinding: Binding<NSWindow?> {
+        Binding(
+            get: { groupAppearanceCoordinator.popoverWindow },
+            set: { groupAppearanceCoordinator.setPopoverWindow($0) }
+        )
     }
 
     private var selectedGroupID: ClipboardGroup.ID? {
@@ -338,8 +363,8 @@ struct HistoryWindowView: View {
             isGroupIconSearchFocused ||
             isSearchFilterPanelPresented ||
             groupRenameTargetID != nil ||
-            groupAppearanceTarget != nil ||
-            systemGroupAppearanceTarget != nil ||
+            groupAppearanceCoordinator.regularGroupTarget != nil ||
+            groupAppearanceCoordinator.systemGroupTarget != nil ||
             moveToGroupPickerTarget != nil ||
             NSApp.keyWindow?.firstResponder is NSTextView
     }
@@ -446,9 +471,9 @@ struct HistoryWindowView: View {
         )
         .background(
             GroupAppearanceOutsideMouseDownObserver(
-                isEnabled: groupAppearanceTarget != nil || systemGroupAppearanceTarget != nil,
+                isEnabled: groupAppearanceCoordinator.regularGroupTarget != nil || groupAppearanceCoordinator.systemGroupTarget != nil,
                 hostWindow: hostWindow,
-                popoverWindow: groupAppearancePopoverWindow,
+                popoverWindow: groupAppearanceCoordinator.popoverWindow,
                 onMouseDown: closeGroupAppearanceLayer
             )
         )
@@ -1144,9 +1169,9 @@ struct HistoryWindowView: View {
         .background(
             PersistentPopoverPresenter(
                 isPresented: Binding(
-                    get: { systemGroupAppearanceTarget == group },
+                    get: { groupAppearanceCoordinator.systemGroupTarget == group },
                     set: { isPresented in
-                        if !isPresented, systemGroupAppearanceTarget == group {
+                        if !isPresented, groupAppearanceCoordinator.systemGroupTarget == group {
                             closeSystemGroupAppearancePopover()
                         }
                     }
@@ -1155,7 +1180,7 @@ struct HistoryWindowView: View {
                 onDismiss: closeSystemGroupAppearancePopover
             ) {
                 systemGroupAppearancePopover(group)
-                    .background(GroupAppearancePopoverWindowReader(window: $groupAppearancePopoverWindow))
+                    .background(GroupAppearancePopoverWindowReader(window: groupAppearancePopoverWindowBinding))
                     .fixedSize()
             }
         )
@@ -1194,7 +1219,7 @@ struct HistoryWindowView: View {
             }
 
             GroupInlineTextField(
-                text: $groupIconSearchText,
+                text: groupIconSearchTextBinding,
                 isFocused: $isGroupIconSearchFocused,
                 placeholder: "搜索图标",
                 onEscape: handleGroupIconSearchEscape
@@ -1263,7 +1288,7 @@ struct HistoryWindowView: View {
             }
 
             GroupInlineTextField(
-                text: $groupIconSearchText,
+                text: groupIconSearchTextBinding,
                 isFocused: $isGroupIconSearchFocused,
                 placeholder: "搜索图标",
                 onEscape: handleGroupIconSearchEscape
@@ -1453,9 +1478,9 @@ struct HistoryWindowView: View {
                 .background(
                     PersistentPopoverPresenter(
                         isPresented: Binding(
-                            get: { groupAppearanceTarget?.id == group.id },
+                            get: { groupAppearanceCoordinator.regularGroupTarget?.id == group.id },
                             set: { isPresented in
-                                if !isPresented, groupAppearanceTarget?.id == group.id {
+                                if !isPresented, groupAppearanceCoordinator.regularGroupTarget?.id == group.id {
                                     closeGroupAppearancePopover()
                                 }
                             }
@@ -1464,7 +1489,7 @@ struct HistoryWindowView: View {
                         onDismiss: closeGroupAppearancePopover
                     ) {
                         groupAppearancePopover(group)
-                            .background(GroupAppearancePopoverWindowReader(window: $groupAppearancePopoverWindow))
+                            .background(GroupAppearancePopoverWindowReader(window: groupAppearancePopoverWindowBinding))
                             .fixedSize()
                     }
                 )
@@ -3022,14 +3047,7 @@ struct HistoryWindowView: View {
         commitPendingRenameIfNeeded()
         closeGroupColorPanel()
         isGroupIconSearchFocused = false
-        systemGroupAppearanceTarget = nil
-        let color = Color.clipeaseHex(group.colorHex)
-        groupAppearanceColor = color
-        groupAppearanceOriginalColor = color
-        groupAppearanceIconName = group.iconName
-        groupAppearanceOriginalIconName = group.iconName
-        groupIconSearchText = ""
-        groupAppearanceTarget = group
+        groupAppearanceCoordinator.beginEditing(group)
         inputState.setPresentedInputLayerActive(true)
     }
 
@@ -3038,14 +3056,11 @@ struct HistoryWindowView: View {
         commitPendingRenameIfNeeded()
         closeGroupColorPanel()
         isGroupIconSearchFocused = false
-        groupAppearanceTarget = nil
-        let color = systemGroupColor(group)
-        groupAppearanceColor = color
-        groupAppearanceOriginalColor = color
-        groupAppearanceIconName = systemGroupIconName(group)
-        groupAppearanceOriginalIconName = systemGroupIconName(group)
-        groupIconSearchText = ""
-        systemGroupAppearanceTarget = group
+        groupAppearanceCoordinator.beginEditingSystemGroup(
+            group,
+            colorHex: systemGroupColor(group).clipeaseHexString,
+            iconName: systemGroupIconName(group)
+        )
         inputState.setPresentedInputLayerActive(true)
     }
 
@@ -3057,20 +3072,16 @@ struct HistoryWindowView: View {
     }
 
     private func closeGroupAppearancePopover() {
-        groupAppearanceTarget = nil
-        groupAppearancePopoverWindow = nil
+        groupAppearanceCoordinator.closeRegularPopover()
         isGroupIconSearchFocused = false
-        groupIconSearchText = ""
         closeGroupColorPanel()
         inputState.setTextInputFocused(false)
         inputState.setPresentedInputLayerActive(false)
     }
 
     private func closeSystemGroupAppearancePopover() {
-        systemGroupAppearanceTarget = nil
-        groupAppearancePopoverWindow = nil
+        groupAppearanceCoordinator.closeSystemPopover()
         isGroupIconSearchFocused = false
-        groupIconSearchText = ""
         closeGroupColorPanel()
         inputState.setTextInputFocused(false)
         inputState.setPresentedInputLayerActive(false)
@@ -3079,8 +3090,8 @@ struct HistoryWindowView: View {
     private func commitGroupAppearancePopover(_ group: ClipboardGroup) {
         store.updateGroupAppearance(
             group.id,
-            colorHex: groupAppearanceColor.clipeaseHexString,
-            iconName: groupAppearanceIconName
+            colorHex: groupAppearanceCoordinator.colorHex,
+            iconName: groupAppearanceCoordinator.iconName
         )
         closeGroupAppearancePopover()
     }
@@ -3088,31 +3099,33 @@ struct HistoryWindowView: View {
     private func commitSystemGroupAppearancePopover(_ group: SystemHistoryGroup) {
         updateSystemGroupAppearance(
             group,
-            colorHex: groupAppearanceColor.clipeaseHexString,
-            iconName: groupAppearanceIconName
+            colorHex: groupAppearanceCoordinator.colorHex,
+            iconName: groupAppearanceCoordinator.iconName
         )
         closeSystemGroupAppearancePopover()
     }
 
     private func handleGroupIconSearchEscape() {
-        if !groupIconSearchText.isEmpty {
-            groupIconSearchText = ""
+        switch groupAppearanceCoordinator.handleIconSearchEscape() {
+        case .clearedSearch, .none:
             return
-        }
-
-        if groupAppearanceTarget != nil {
-            closeGroupAppearancePopover()
-        } else if systemGroupAppearanceTarget != nil {
-            closeSystemGroupAppearancePopover()
+        case .closedPopover:
+            isGroupIconSearchFocused = false
+            closeGroupColorPanel()
+            inputState.setTextInputFocused(false)
+            inputState.setPresentedInputLayerActive(false)
         }
     }
 
     private func closeGroupAppearanceLayer() {
-        if groupAppearanceTarget != nil {
+        let hadRegularTarget = groupAppearanceCoordinator.regularGroupTarget != nil
+        let hadSystemTarget = groupAppearanceCoordinator.systemGroupTarget != nil
+        groupAppearanceCoordinator.closeLayer()
+        if hadRegularTarget {
             closeGroupAppearancePopover()
         }
 
-        if systemGroupAppearanceTarget != nil {
+        if hadSystemTarget {
             closeSystemGroupAppearancePopover()
         }
     }
@@ -5667,7 +5680,7 @@ struct HistoryWindowView: View {
             }
         }
 
-        guard groupAppearanceTarget != nil || systemGroupAppearanceTarget != nil else {
+        guard groupAppearanceCoordinator.regularGroupTarget != nil || groupAppearanceCoordinator.systemGroupTarget != nil else {
             return false
         }
 
@@ -5787,7 +5800,7 @@ struct HistoryWindowView: View {
     }
 
     private func handleEscapeClose() {
-        if (groupAppearanceTarget != nil || systemGroupAppearanceTarget != nil),
+        if (groupAppearanceCoordinator.regularGroupTarget != nil || groupAppearanceCoordinator.systemGroupTarget != nil),
            NSColorPanel.shared.isVisible {
             closeGroupColorPanel()
             return
@@ -5824,12 +5837,12 @@ struct HistoryWindowView: View {
             didClose = true
         }
 
-        if groupAppearanceTarget != nil {
+        if groupAppearanceCoordinator.regularGroupTarget != nil {
             closeGroupAppearancePopover()
             didClose = true
         }
 
-        if systemGroupAppearanceTarget != nil {
+        if groupAppearanceCoordinator.systemGroupTarget != nil {
             closeSystemGroupAppearancePopover()
             didClose = true
         }
@@ -5995,49 +6008,6 @@ private struct LatestItemObservation: Equatable {
             item.createdAt > previous.createdAt.addingTimeInterval(0.001)
         }.map { item in
             (item.id, item.createdAt, .refreshed)
-        }
-    }
-}
-
-private enum SystemHistoryGroup: CaseIterable, Identifiable, Equatable, Sendable {
-    case pinned
-
-    var id: String {
-        title
-    }
-
-    var selection: HistoryGroupSelection {
-        switch self {
-        case .pinned:
-            .pinned
-        }
-    }
-
-    var searchGroup: HistorySearchGroup {
-        switch self {
-        case .pinned:
-            .pinned
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .pinned:
-            "置顶"
-        }
-    }
-
-    var selectedStatus: String {
-        switch self {
-        case .pinned:
-            "只看置顶"
-        }
-    }
-
-    var help: String {
-        switch self {
-        case .pinned:
-            "显示置顶内容"
         }
     }
 }

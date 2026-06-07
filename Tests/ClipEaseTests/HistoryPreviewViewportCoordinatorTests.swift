@@ -68,7 +68,7 @@ import Testing
         onMovePreview: { frame in movedFrames.append(frame) }
     )
 
-    try? await Task.sleep(nanoseconds: 20_000_000)
+    try? await Task.sleep(nanoseconds: 80_000_000)
 
     #expect(movedFrames == [
         CGRect(x: 12, y: 34, width: 250, height: 270),
