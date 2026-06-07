@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 4-A，设置页历史数据区拆分已完成，等待本地提交
+- 当前执行阶段：阶段 4-B，设置页性能/日志区拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 4-A；提交后按顺序进入阶段 4-B 诊断页拆分
+- 当前优先目标：提交阶段 4-B；提交后按顺序进入阶段 4-C 分组设置区拆分
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1149,3 +1149,13 @@
     - 验证：先运行 `swift test --filter SettingsHistoryDataViewModel` 观察到缺少 ViewModel 的失败；实现后定向测试通过；`swift build` 通过；`swift test` 通过，152 个测试全部通过。
     - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.117 (260607.2227)` 递增到 `2.3.118 (260607.2252)`；已结束旧进程并启动 `.build/ClipEase.app`。
     - 阶段 4-B 入口条件：阶段 4-A 本地提交完成后，按顺序拆 `SettingsDiagnosticsSection` 和对应 ViewModel；不得提前修改发布脚本。
+  - 2026-06-07 阶段 4-B 设置页性能/日志区拆分：
+    - 新增 `Sources/ClipEase/Features/Settings/ViewModels/SettingsDiagnosticsViewModel.swift`。
+    - 新增 `Sources/ClipEase/Features/Settings/Sections/SettingsDiagnosticsSection.swift`。
+    - 新增 `Tests/ClipEaseTests/SettingsDiagnosticsViewModelTests.swift`。
+    - `SettingsView.swift` 不再直接拼装性能采样、实时概览、最近日志、指标卡、柱状图、事件行和事件详情文本。
+    - `SettingsView.swift` 仍保留打开诊断目录、清理诊断日志后的状态提示入口；`PerformanceDiagnosticsService` 的采样、保留天数、最大日志大小、清理策略和日志写入行为未改变。
+    - 本轮未改变设置页视觉结构、性能/日志按钮文案、日志保留默认值、诊断数据库、主窗口、搜索交互、SQLite 结构或发布脚本。
+    - 验证：先运行 `swift test --filter SettingsDiagnosticsViewModel` 观察到缺少 ViewModel 的失败；实现后定向测试通过；`swift build` 通过；`swift test` 通过，155 个测试全部通过。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.118 (260607.2252)` 递增到 `2.3.119 (260607.2311)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 阶段 4-C 入口条件：阶段 4-B 本地提交完成后，按顺序拆 `SettingsGroupsSection`；不得提前修改发布脚本。
