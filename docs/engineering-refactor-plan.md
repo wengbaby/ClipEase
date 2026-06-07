@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 2 收尾，ClipboardHistoryDomainStore 纯状态拆分已完成，等待本地提交
+- 当前执行阶段：阶段 3-A，旧库 fixture 与 migration 安全测试已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 2 收尾；提交后由用户确认是否进入阶段 3 SQLite 存储层工程化拆分
+- 当前优先目标：提交阶段 3-A；提交后按顺序进入阶段 3-B SQLiteRowMapper 拆分
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1051,13 +1051,22 @@
     - `ClipboardHistoryStore.swift` 仍保留真实业务协调入口、持久化调用、文件删除、OCR/link metadata Task 生命周期、调试数据生成、导入/导出相关状态拼装。这些属于 Store 协调职责或后续阶段拆分范围，不在阶段 2 收尾中强行迁移。
     - 验证：`swift build` 通过；`swift test` 通过，131 个测试全部通过。
     - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.108 (260607.2052)` 更新到 `2.3.109 (260607.2059)`，新版 `.build/ClipEase.app` 已启动。
+    - 本地提交：`2ad990e refactor: extract clipboard history domain store`。
     - 阶段 2 结论：阶段 2 允许范围内的独立业务/内存状态边界已拆出；剩余大块职责主要是 OCR 协调、调试数据、导入备份清洗、文件引用构建、持久化调度和 SQLite 访问层，后续不得在阶段 2 继续无限拆分。
     - 阶段 3 入口条件：本次收尾本地 Git 提交完成，并由用户明确确认进入阶段 3 后，才能开始 `SQLiteClipboardStore.swift` 工程化拆分；阶段 3 首轮必须先做旧库 fixture 和 migration/DAO 拆分前的安全验证。
 
 ### 阶段 3：SQLite 存储层工程化拆分
 
-- 状态：等待阶段 2 收尾提交和用户确认
-- 完成记录：尚无
+- 状态：阶段 3-A 已完成，等待本地提交；不得直接跳到 DAO 拆分以外的大范围改动。
+- 完成记录：
+  - 2026-06-07 阶段 3-A 旧库 fixture 与 migration 安全测试：
+    - 新增 `Tests/ClipEaseTests/SQLiteLegacyStoreFixture.swift`。
+    - 修改 `Tests/ClipEaseTests/SQLiteMigrationSafetyTests.swift`，新增 `legacySQLiteMigrationPreservesUnknownLegacyTables`。
+    - 本轮未修改 `SQLiteClipboardStore.swift`，未改变 SQLite schema，未拆 DAO，未改变迁移实现。
+    - 目标：先补旧库 fixture 和迁移安全基线，确认旧 `user_version` 数据库初始化后不会清库，旧表数据仍保留，`user_version` 会提升到 `SQLiteClipboardStore.currentSchemaVersion`。
+    - 验证：`swift build` 通过；`swift test` 通过，132 个测试全部通过。
+    - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.109 (260607.2059)` 更新到 `2.3.110 (260607.2107)`，新版 `.build/ClipEase.app` 已启动。
+    - 阶段 3-B 入口条件：阶段 3-A 本地提交完成后，按顺序只允许进入 `SQLiteRowMapper` 拆分；拆分时不得改变查询 SQL、排序、schema 或迁移行为。
 
 ### 阶段 4：设置页、诊断页、发布流程优化
 

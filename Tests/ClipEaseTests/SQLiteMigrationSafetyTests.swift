@@ -42,6 +42,18 @@ import Testing
     #expect(FileManager.default.fileExists(atPath: backupDirectory.appendingPathComponent("ClipEase.sqlite-shm").path))
 }
 
+@Test func legacySQLiteMigrationPreservesUnknownLegacyTables() throws {
+    let fixture = try SQLiteLegacyStoreFixture.make(userVersion: 1)
+    defer { fixture.remove() }
+
+    let store = SQLiteClipboardStore(databaseURL: fixture.databaseURL)
+
+    try store.initialize()
+
+    #expect(try fixture.legacyMarkerValue() == "keep")
+    #expect(try fixture.userVersion() == SQLiteClipboardStore.currentSchemaVersion)
+}
+
 private func makeSQLiteMigrationTestDirectory() throws -> URL {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("clipease-migration-\(UUID().uuidString)", isDirectory: true)
