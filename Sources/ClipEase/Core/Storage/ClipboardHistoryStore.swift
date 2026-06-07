@@ -1805,29 +1805,20 @@ final class ClipboardHistoryStore: ObservableObject {
 
     @discardableResult
     private func pruneExpiredItems(now: Date = Date()) -> Bool {
-        guard let days = retentionPolicy.days else {
-            return false
-        }
-
-        let cutoffDate = Calendar.current.date(
-            byAdding: .day,
-            value: -days,
-            to: now
-        ) ?? now
         let validGroupIDs = Set(groups.map(\.id))
-
-        func shouldPrune(_ item: ClipboardItem) -> Bool {
-            let hasValidGroup = item.groupID.map(validGroupIDs.contains) ?? false
-            return !item.isPinned && !hasValidGroup && item.createdAt < cutoffDate
-        }
-
-        let removedItems = items.filter(shouldPrune)
+        let removedItems = HistoryRetentionService.expiredItems(
+            in: items,
+            policy: retentionPolicy,
+            validGroupIDs: validGroupIDs,
+            now: now
+        )
 
         guard !removedItems.isEmpty else {
             return false
         }
 
-        items.removeAll(where: shouldPrune)
+        let removedIDs = Set(removedItems.map(\.id))
+        items.removeAll { removedIDs.contains($0.id) }
         rebuildItemIndexes()
         cancelOCRTasks(for: removedItems)
         cancelLinkMetadataTasks(for: removedItems)

@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 2-C，HistoryPagingService 纯逻辑拆分已完成，等待本地提交
+- 当前执行阶段：阶段 2-D，HistoryRetentionService 纯逻辑拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 2-C；提交后继续按顺序进入阶段 2-D HistoryRetentionService
+- 当前优先目标：提交阶段 2-D；提交后继续按顺序进入阶段 2-E LinkMetadataService
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -975,7 +975,7 @@
 
 ### 阶段 2：ClipboardHistoryStore 职责拆分
 
-- 状态：阶段 2-C 已完成，等待本地提交；不得直接进入阶段 2-D 以外的后续任务。
+- 状态：阶段 2-D 已完成，等待本地提交；不得直接进入阶段 2-E 以外的后续任务。
 - 完成记录：
   - 2026-06-07 阶段 2-A DuplicateResolver 纯逻辑拆分：
     - 新增 `Sources/ClipEase/Core/History/DuplicateResolver.swift`。
@@ -1018,8 +1018,19 @@
     - `ClipboardHistoryStore.swift` 暂时保留真实 `persistence.loadItems`、`appendLoadedItems`、`sortItems`、hash 更新、`Task` 生命周期、性能日志和 full-save 前全量加载循环，因为这些仍依赖 Store 当前状态和持久化入口。
     - 验证：`swift build` 通过；`swift test` 通过，120 个测试全部通过。
     - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.104 (260607.2010)` 更新到 `2.3.105 (260607.2028)`，新版 `.build/ClipEase.app` 已启动。
+    - 本地提交：`6616f31 refactor: extract history paging service`。
     - 遗留风险：需要重点手工验证首次打开历史列表、滚动接近末尾加载更多、搜索后滚动、复制新内容后列表焦点和排序没有回归。
     - 阶段 2-D 入口条件：阶段 2-C 本地 Git 提交完成后，按顺序只允许进入 `HistoryRetentionService` 拆分。
+  - 2026-06-07 阶段 2-D HistoryRetentionService 纯逻辑拆分：
+    - 新增 `Sources/ClipEase/Core/History/HistoryRetentionService.swift`。
+    - 新增 `Tests/ClipEaseTests/HistoryRetentionServiceTests.swift`。
+    - `ClipboardHistoryStore.swift` 不再直接维护保留策略 cutoff 计算、永久保留判断、过期项目筛选、置顶和有效分组保护的纯判断逻辑。
+    - `HistoryRetentionService` 接管按 `HistoryRetentionPolicy`、有效分组集合和当前时间筛选过期项目。
+    - `ClipboardHistoryStore.swift` 暂时保留真实删除项目、重建索引、取消 OCR/链接任务、删除外部文件、重建 hash、保存调度等副作用逻辑，因为这些仍依赖 Store 当前状态和持久化入口。
+    - 验证：`swift build` 通过；`swift test` 通过，123 个测试全部通过。
+    - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.105 (260607.2028)` 更新到 `2.3.106 (260607.2039)`，新版 `.build/ClipEase.app` 已启动。
+    - 遗留风险：需要重点手工验证设置历史保留时间、启动后历史保留、置顶内容不被清理、分组内内容不被清理、普通过期内容可被清理。
+    - 阶段 2-E 入口条件：阶段 2-D 本地 Git 提交完成后，按顺序只允许进入 `LinkMetadataService` 拆分。
 
 ### 阶段 3：SQLite 存储层工程化拆分
 
