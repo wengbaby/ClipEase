@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 4-D，诊断日志可观测性增强已完成，等待本地提交
+- 当前执行阶段：阶段 4-E，release.sh dry-run 已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 4-D；提交后按顺序进入阶段 4-E release.sh dry-run
+- 当前优先目标：提交阶段 4-E；提交后按顺序进入阶段 4-F 发布前测试 gate
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1179,3 +1179,13 @@
     - 验证：先运行 `swift test --filter SettingsDiagnosticsViewModel` 观察到缺少错误可观测性 API 的失败；实现后定向测试通过；`swift build` 通过；`swift test` 通过，161 个测试全部通过。
     - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.120 (260607.2332)` 递增到 `2.3.121 (260607.2346)`；已结束旧进程并启动 `.build/ClipEase.app`。
     - 阶段 4-E 入口条件：阶段 4-D 本地提交完成后，按顺序为 `release.sh` 增加 dry-run；不得直接发布。
+  - 2026-06-07 阶段 4-E release.sh dry-run：
+    - `scripts/release.sh` 新增 `--dry-run` 参数。
+    - dry-run 仍执行测试（除非显式 `--skip-tests`）、App 构建、DMG 生成、DMG 挂载校验、版本一致性校验、release notes 生成和 SHA-256 计算。
+    - dry-run 会在 git tag、分支 push、GitHub Release 创建和 DMG 上传前退出；即使与 `--publish` 组合，也不会执行发布命令。
+    - 新增 `ReleaseScriptPolicyTests` 覆盖 dry-run 参数存在、提示文案存在，以及 dry-run 出口位于发布命令之前。
+    - 本轮未改变发布 notes 既有格式、真实发布命令顺序、主窗口、搜索交互、SQLite、设置页视觉结构或快捷键行为。
+    - 验证：先运行 `swift test --filter ReleaseScriptPolicy` 观察到缺少 dry-run 支持的失败；实现后定向测试通过；`swift build` 通过；`swift test` 通过，163 个测试全部通过。
+    - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，生成 `ClipEase-2.3.121-260607.2346.dmg`、release notes 和 SHA-256，未创建 git tag、GitHub Release 或上传。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.121 (260607.2346)` 递增到 `2.3.122 (260607.2358)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 阶段 4-F 入口条件：阶段 4-E 本地提交完成后，按顺序增强发布前测试 gate；不得直接发布。

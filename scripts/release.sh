@@ -7,6 +7,7 @@ APP_DIR="$ROOT_DIR/.build/ClipEase.app"
 TEMPLATE_FILE="$ROOT_DIR/docs/releases/release-notes-template.md"
 BUMP_TYPE="patch"
 PUBLISH="false"
+DRY_RUN="false"
 SKIP_TESTS="false"
 CREATED_TAG="false"
 
@@ -17,6 +18,7 @@ Usage: scripts/release.sh [options]
 Options:
   --bump <none|patch|minor|major>  Version bump passed to scripts/build-app.sh. Default: patch.
   --publish                       Create git tag, GitHub Release, and upload the DMG.
+  --dry-run                       Build and verify release artifacts without git tag, GitHub Release, or upload.
   --skip-tests                    Skip swift test. Use only when tests were already run.
   -h, --help                      Show this help.
 
@@ -38,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --publish)
       PUBLISH="true"
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN="true"
       shift
       ;;
     --skip-tests)
@@ -116,7 +122,7 @@ require_command create-dmg
 require_command hdiutil
 require_command shasum
 
-if [[ "$PUBLISH" == "true" ]]; then
+if [[ "$PUBLISH" == "true" && "$DRY_RUN" != "true" ]]; then
   require_command git
   require_command gh
   ensure_clean_worktree_for_publish
@@ -223,6 +229,11 @@ echo "Release tag:   $TAG"
 echo "DMG:           $DMG_PATH"
 echo "SHA-256:       $SHA256"
 echo "Body:          $BODY_PATH"
+
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "Dry run complete. No git tag, GitHub Release, or upload was created."
+  exit 0
+fi
 
 if [[ "$PUBLISH" == "true" ]]; then
   if git rev-parse "$TAG" >/dev/null 2>&1; then
