@@ -51,6 +51,47 @@ import Testing
     #expect(SettingsDiagnosticsViewModel.barEvents(from: events).count == 40)
 }
 
+@Test func settingsDiagnosticsViewModelSurfacesRecentErrorEvents() {
+    let events = (0..<8).map { index in
+        PerformanceDiagnosticEvent(
+            name: "error.\(index)",
+            category: "storage",
+            durationMS: 0,
+            metadata: [
+                "error": "failed \(index)",
+                "operation": "save"
+            ]
+        )
+    } + [
+        PerformanceDiagnosticEvent(name: "normal", category: "search", durationMS: 4)
+    ]
+
+    let errors = SettingsDiagnosticsViewModel.visibleErrorEvents(from: events)
+
+    #expect(errors.count == 6)
+    #expect(errors.first?.name == "error.0")
+    #expect(errors.allSatisfy { SettingsDiagnosticsViewModel.isErrorEvent($0) })
+}
+
+@Test func settingsDiagnosticsSummaryIncludesErrorCount() {
+    let events = [
+        PerformanceDiagnosticEvent(name: "normal", category: "search", durationMS: 4),
+        PerformanceDiagnosticEvent(
+            name: "persist.failure",
+            category: "storage",
+            durationMS: 0,
+            metadata: ["error": "disk full"]
+        )
+    ]
+
+    let summary = SettingsDiagnosticsViewModel.summaryText(
+        recentEvents: events,
+        fallback: "最近 2 条，平均 2.0 ms，最高 4.0 ms"
+    )
+
+    #expect(summary == "最近 2 条，平均 2.0 ms，最高 4.0 ms，错误 1 条")
+}
+
 @Test func settingsDiagnosticsSeverityLevelsMatchExistingThresholds() {
     #expect(SettingsDiagnosticsViewModel.durationSeverity(for: 8) == .normal)
     #expect(SettingsDiagnosticsViewModel.durationSeverity(for: 16) == .warning)

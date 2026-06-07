@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 4-C，设置页分组管理区拆分已完成，等待本地提交
+- 当前执行阶段：阶段 4-D，诊断日志可观测性增强已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 4-C；提交后按顺序进入阶段 4-D 诊断日志可观测性增强
+- 当前优先目标：提交阶段 4-D；提交后按顺序进入阶段 4-E release.sh dry-run
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1170,3 +1170,12 @@
     - 验证：先运行 `swift test --filter SettingsGroupsViewModel` 观察到缺少 ViewModel 的失败；实现后定向测试通过；`swift build` 通过；`swift test` 通过，159 个测试全部通过。
     - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.119 (260607.2311)` 递增到 `2.3.120 (260607.2332)`；已结束旧进程并启动 `.build/ClipEase.app`。
     - 阶段 4-D 入口条件：阶段 4-C 本地提交完成后，按顺序增强诊断日志可观测性；不得提前修改发布脚本。
+  - 2026-06-07 阶段 4-D 诊断日志可观测性增强：
+    - `SettingsDiagnosticsViewModel` 新增错误事件识别、最近错误截断和摘要错误数量拼接逻辑。
+    - `SettingsDiagnosticsSection` 在实时概览中新增“最近错误”区，并在性能采样摘要中显示当前 recent events 内的错误数量。
+    - 新增测试覆盖错误事件识别、最近错误最多 6 条、错误数量摘要。
+    - 本轮未改变 `PerformanceDiagnosticsService` 的日志写入、采样、清理、保留策略、数据库 schema 或默认配置。
+    - 本轮未改变主窗口、搜索交互、SQLite 结构或发布脚本。
+    - 验证：先运行 `swift test --filter SettingsDiagnosticsViewModel` 观察到缺少错误可观测性 API 的失败；实现后定向测试通过；`swift build` 通过；`swift test` 通过，161 个测试全部通过。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.120 (260607.2332)` 递增到 `2.3.121 (260607.2346)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 阶段 4-E 入口条件：阶段 4-D 本地提交完成后，按顺序为 `release.sh` 增加 dry-run；不得直接发布。

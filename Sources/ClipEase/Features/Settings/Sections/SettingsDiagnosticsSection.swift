@@ -7,7 +7,7 @@ struct SettingsDiagnosticsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SettingsSection(title: "性能采样", subtitle: diagnostics.summaryText) {
+            SettingsSection(title: "性能采样", subtitle: diagnosticsSummaryText) {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle("启用性能采样和日志记录", isOn: $diagnostics.isEnabled)
                         .toggleStyle(.switch)
@@ -68,6 +68,25 @@ struct SettingsDiagnosticsSection: View {
                             }
                         }
                     }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("最近错误")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        let errorEvents = SettingsDiagnosticsViewModel.visibleErrorEvents(from: diagnostics.recentEvents)
+                        if errorEvents.isEmpty {
+                            Text("暂无错误事件。")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(errorEvents) { event in
+                                performanceEventRow(event)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -120,6 +139,13 @@ struct SettingsDiagnosticsSection: View {
                 color: color(for: SettingsDiagnosticsViewModel.durationSeverity(for: snapshot?.mainThreadLatencyMS ?? 0))
             )
         }
+    }
+
+    private var diagnosticsSummaryText: String {
+        SettingsDiagnosticsViewModel.summaryText(
+            recentEvents: diagnostics.recentEvents,
+            fallback: diagnostics.summaryText
+        )
     }
 
     private func performanceMetricTile(

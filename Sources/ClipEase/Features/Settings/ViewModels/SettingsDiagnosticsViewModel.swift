@@ -16,8 +16,32 @@ enum SettingsDiagnosticsViewModel {
         events.prefix(30)
     }
 
+    nonisolated static func visibleErrorEvents(from events: [PerformanceDiagnosticEvent]) -> ArraySlice<PerformanceDiagnosticEvent> {
+        events.filter(isErrorEvent).prefix(6)
+    }
+
     nonisolated static func barEvents(from events: [PerformanceDiagnosticEvent]) -> [PerformanceDiagnosticEvent] {
         Array(events.prefix(40).reversed())
+    }
+
+    nonisolated static func summaryText(
+        recentEvents: [PerformanceDiagnosticEvent],
+        fallback: String
+    ) -> String {
+        let errorCount = recentEvents.filter(isErrorEvent).count
+        guard errorCount > 0 else {
+            return fallback
+        }
+        return "\(fallback)，错误 \(errorCount) 条"
+    }
+
+    nonisolated static func isErrorEvent(_ event: PerformanceDiagnosticEvent) -> Bool {
+        if event.metadata["error"] != nil || event.metadata["errorType"] != nil {
+            return true
+        }
+        return event.category.localizedCaseInsensitiveContains("error")
+            || event.name.localizedCaseInsensitiveContains("error")
+            || event.name.localizedCaseInsensitiveContains("failure")
     }
 
     nonisolated static func detailText(for event: PerformanceDiagnosticEvent) -> String {
