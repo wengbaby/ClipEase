@@ -187,14 +187,13 @@ Verification:
 - Slice 4 completed in `9d61ee4`: database compaction scheduling was isolated.
 - Slice 5 completed in `db98074`: the about settings section was split from `SettingsView`.
 - Slice 6 completed in `34eed7e`: preview anchor frame selection was isolated and tested.
+- Slice 7 completed in `19239ab`: repeatable performance benchmarks and a benchmark script were added.
+- Slice 8 completed in `ea71b9c`: release publication guardrails were added.
 
 ## Current Slice
 
-Continue with slice 7: performance benchmarks.
+All planned maintenance slices in this roadmap are complete.
 
 Success for the current slice means:
-- The benchmark datasets are repeatable.
-- Main-window preview item build, search apply, render-window calculation, and storage search are covered.
-- Benchmark tests use temporary data only and do not write the user history database.
-- `swift test` passes.
-- The app builds and launches.
+- Any future maintenance starts from a new, focused slice.
+- Release publication still requires explicit user approval.
