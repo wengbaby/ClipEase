@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 3-E，SQLiteSearchIndexDAO 拆分已完成，等待本地提交
+- 当前执行阶段：阶段 3-F，SQLiteDatabaseCompactor 拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 3-E；提交后按顺序进入阶段 3-F SQLiteDatabaseCompactor 拆分
+- 当前优先目标：提交阶段 3-F；提交后按顺序进入阶段 3-G SQLiteBackupManager 职责复核与收口
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1103,7 +1103,16 @@
     - `SQLiteClipboardStore.swift` 仍保留 schema 初始化、`clipboard_items_fts` 建表、全库替换事务中的 FTS 清空语句和完整 item 加载编排。
     - 本轮未改变搜索排序、分页语义、FTS 表结构、SQLite schema、迁移、事务边界或压缩策略。
     - 验证：`swift build` 通过；`swift test --filter SQLiteSearchIndexDAO` 通过，3 个 DAO 专项测试全部通过。
+    - 本地提交：`b07b01f refactor: extract sqlite search index dao`。
     - 阶段 3-F 入口条件：阶段 3-E 本地提交完成后，按顺序只允许进入 `SQLiteDatabaseCompactor` 拆分；第一轮只迁移 `compactIfNeeded` 的 PRAGMA/VACUUM 逻辑，不改变压缩策略或触发条件。
+  - 2026-06-07 阶段 3-F SQLiteDatabaseCompactor 拆分：
+    - 新增 `Sources/ClipEase/Core/Storage/SQLite/SQLiteDatabaseCompactor.swift`。
+    - 新增 `Tests/ClipEaseTests/SQLiteDatabaseCompactorTests.swift`。
+    - `SQLiteClipboardStore.swift` 不再直接维护 `compactIfNeeded` 中的 WAL checkpoint、page/free page 查询、VACUUM 和回收字节计算逻辑。
+    - `SQLiteClipboardStore.swift` 仍保留 repository 接口、数据库打开关闭和压缩触发入口。
+    - 本轮未改变压缩策略、触发条件、SQLite schema、迁移、事务边界或用户设置。
+    - 验证：`swift build` 通过；`swift test --filter SQLiteDatabaseCompactor` 通过，2 个 compactor 专项测试全部通过。
+    - 阶段 3-G 入口条件：阶段 3-F 本地提交完成后，按顺序只允许复核和收口 `SQLiteBackupManager` 的完整职责；不得改变备份目录格式、迁移策略或用户数据处理方式。
 
 ### 阶段 4：设置页、诊断页、发布流程优化
 
