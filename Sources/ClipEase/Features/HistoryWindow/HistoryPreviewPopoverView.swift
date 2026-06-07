@@ -1131,10 +1131,6 @@ private struct FilePDFPreviewView: NSViewRepresentable {
         func loadDocument(from url: URL, into view: PDFView) {
             loadTask?.cancel()
             loadTask = Task { @MainActor [weak self, weak view] in
-                let document = await Task.detached(priority: .utility) {
-                    PDFDocument(url: url)
-                }.value
-
                 guard let self,
                       let view,
                       !Task.isCancelled,
@@ -1142,7 +1138,7 @@ private struct FilePDFPreviewView: NSViewRepresentable {
                     return
                 }
 
-                view.document = document
+                view.document = PDFDocument(url: url)
             }
         }
     }

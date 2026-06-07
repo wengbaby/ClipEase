@@ -80,44 +80,44 @@ actor ClipboardOCRService {
 
     private func recognize(cgImage: CGImage, orientation: CGImagePropertyOrientation) async -> ClipboardOCRMatch? {
         await withCheckedContinuation { (continuation: CheckedContinuation<ClipboardOCRMatch?, Never>) in
-            let request = VNRecognizeTextRequest { request, error in
-                guard error == nil,
-                      let observations = request.results as? [VNRecognizedTextObservation] else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                let recognized = observations.compactMap { observation -> (String, CGRect)? in
-                    guard let text = observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines),
-                          !text.isEmpty else {
-                        return nil
-                    }
-
-                    return (text, observation.boundingBox)
-                }
-                let texts = recognized.map(\.0)
-                let combinedText = texts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                let matches = Self.extractMatches(
-                    from: combinedText,
-                    textRegions: recognized.map { text, box in
-                    ClipboardOCRTextRegion(
-                        text: text,
-                        x: box.minX,
-                        y: box.minY,
-                        width: box.width,
-                        height: box.height
-                    )
-                    }
-                )
-                continuation.resume(returning: matches.text.isEmpty && matches.emails.isEmpty && matches.phoneNumbers.isEmpty && matches.urls.isEmpty ? nil : matches)
-            }
-
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = false
-            request.recognitionLanguages = ["zh-Hans", "en-US"]
-
-            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
             DispatchQueue.global(qos: .userInitiated).async {
+                let request = VNRecognizeTextRequest { request, error in
+                    guard error == nil,
+                          let observations = request.results as? [VNRecognizedTextObservation] else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+
+                    let recognized = observations.compactMap { observation -> (String, CGRect)? in
+                        guard let text = observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines),
+                              !text.isEmpty else {
+                            return nil
+                        }
+
+                        return (text, observation.boundingBox)
+                    }
+                    let texts = recognized.map(\.0)
+                    let combinedText = texts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let matches = Self.extractMatches(
+                        from: combinedText,
+                        textRegions: recognized.map { text, box in
+                        ClipboardOCRTextRegion(
+                            text: text,
+                            x: box.minX,
+                            y: box.minY,
+                            width: box.width,
+                            height: box.height
+                        )
+                        }
+                    )
+                    continuation.resume(returning: matches.text.isEmpty && matches.emails.isEmpty && matches.phoneNumbers.isEmpty && matches.urls.isEmpty ? nil : matches)
+                }
+
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = false
+                request.recognitionLanguages = ["zh-Hans", "en-US"]
+
+                let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
                 do {
                     try handler.perform([request])
                 } catch {
