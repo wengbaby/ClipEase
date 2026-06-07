@@ -208,7 +208,7 @@
 
 ### 阶段 5-C：ClipboardHistoryStore 保存与异步副作用拆分
 
-- 状态：阶段 5-C-1 已完成，保存队列已拆出；OCR/link metadata 暂未迁移
+- 状态：阶段 5-C-2 已完成，保存队列和链接元数据协调器已拆出；OCR 暂未迁移
 - 计划开始：2026-06-08
 - 本阶段当前小步不改 UI，不改 SQLite schema，不改剪贴板入库、去重、OCR 或链接标题更新行为。
 - 完成记录：
@@ -218,4 +218,12 @@
   - 2026-06-08：验证 `swift build` 通过；验证 `swift test` 通过，176 个测试全部通过。
   - 2026-06-08：执行 `./scripts/build-app.sh`，版本从 `2.3.128 (260608.0147)` 递增到 `2.3.129 (260608.0205)`。
   - 2026-06-08：已结束旧进程并启动新版 `.build/ClipEase.app`，进程路径为 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app/Contents/MacOS/ClipEase`。
-  - 阶段 5-C-2 入口条件：本次本地提交完成，并由用户确认继续后，按顺序只允许进入 `HistoryOCRCoordinator` 或 `HistoryLinkMetadataCoordinator` 的最小拆分。
+  - 2026-06-08：新增 `Sources/ClipEase/Core/History/HistoryLinkMetadataCoordinator.swift`，收口链接元数据 Task 字典、generation、取消任务、清空任务和并发 limiter。
+  - 2026-06-08：新增 `Tests/ClipEaseTests/HistoryLinkMetadataCoordinatorTests.swift`，覆盖按条目取消和全部取消时 in-flight 状态会正确清理。
+  - 2026-06-08：`ClipboardHistoryStore.swift` 不再直接持有 `linkMetadataTaskByItemID`、`LinkMetadataService` 和 `LinkMetadataFetchLimiter`；Store 继续保留真实元数据应用、旧图片删除和持久化 upsert 入口。
+  - 2026-06-08：本轮未改变链接标题/预览图抓取顺序、并发限制、图片保存、元数据应用条件或持久化行为。
+  - 2026-06-08：定向验证 `swift test --filter HistoryLinkMetadataCoordinator` 通过，1 个测试通过；`swift test --filter LinkMetadataService` 通过，4 个测试通过。
+  - 2026-06-08：验证 `swift build` 通过；验证 `swift test` 通过，177 个测试全部通过。
+  - 2026-06-08：执行 `./scripts/build-app.sh`，版本从 `2.3.129 (260608.0205)` 递增到 `2.3.130 (260608.0218)`。
+  - 2026-06-08：已结束旧进程并启动新版 `.build/ClipEase.app`，进程路径为 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app/Contents/MacOS/ClipEase`。
+  - 阶段 5-C-3 入口条件：本次本地提交完成，并由用户确认继续后，按顺序只允许进入 `HistoryOCRCoordinator` 的最小拆分。
