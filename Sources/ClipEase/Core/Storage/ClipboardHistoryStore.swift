@@ -40,8 +40,8 @@ final class ClipboardHistoryStore: ObservableObject {
     nonisolated private static let debugTextPrefix = "轻贴性能测试文本 "
     nonisolated private static let deferredSaveDelay: UInt64 = 350_000_000
     nonisolated private static let debugBatchSize = 500
-    nonisolated static let startupItemPageSize = 1_000
-    nonisolated static let incrementalItemPageSize = 1_000
+    nonisolated static let startupItemPageSize = HistoryPagingService.startupItemPageSize
+    nonisolated static let incrementalItemPageSize = HistoryPagingService.incrementalItemPageSize
     private let persistence: ClipboardHistoryPersistence
     private let saveWriter: ClipboardHistorySaveWriter
     private let userDefaults: UserDefaults
@@ -67,6 +67,13 @@ final class ClipboardHistoryStore: ObservableObject {
 
     var hasLoadedAllPersistedItems: Bool {
         didLoadAllPersistedItems
+    }
+
+    private var pagingState: HistoryPagingService.State {
+        HistoryPagingService.State(
+            didLoadAll: didLoadAllPersistedItems,
+            isLoadingNextPage: isLoadingNextPage
+        )
     }
 
     init(
@@ -95,7 +102,7 @@ final class ClipboardHistoryStore: ObservableObject {
         )
         self.items = snapshot.items
         self.groups = snapshot.groups
-        self.didLoadAllPersistedItems = snapshot.items.count < Self.startupItemPageSize
+        self.didLoadAllPersistedItems = HistoryPagingService.didLoadAllAfterStartup(itemCount: snapshot.items.count)
         let sortStartedAt = CFAbsoluteTimeGetCurrent()
         rebuildItemIndexes()
         sortGroups()
@@ -272,9 +279,12 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     func loadMoreItemsIfNeeded(visibleUpperBound: Int, preloadMargin: Int = 160) {
-        guard !didLoadAllPersistedItems,
-              !isLoadingNextPage,
-              visibleUpperBound + preloadMargin >= items.count else {
+        guard HistoryPagingService.shouldLoadMoreItems(
+            state: pagingState,
+            visibleUpperBound: visibleUpperBound,
+            itemCount: items.count,
+            preloadMargin: preloadMargin
+        ) else {
             return
         }
 
@@ -1316,19 +1326,18 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         isLoadingNextPage = true
-        let offset = items.count
-        let limit = Self.incrementalItemPageSize
+        let request = HistoryPagingService.nextPageRequest(itemCount: items.count)
         let persistence = persistence
         pagedLoadTask = Task(priority: .utility) {
             let startedAt = CFAbsoluteTimeGetCurrent()
             let page = await Task.detached(priority: .utility) {
-                persistence.loadItems(limit: limit, offset: offset)
+                persistence.loadItems(limit: request.limit, offset: request.offset)
             }.value
             let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
             mergeLoadedPage(
                 page,
-                offset: offset,
-                limit: limit,
+                offset: request.offset,
+                limit: request.limit,
                 durationMS: durationMS,
                 reason: reason
             )
@@ -1347,15 +1356,17 @@ final class ClipboardHistoryStore: ObservableObject {
             pagedLoadTask = nil
         }
 
-        guard offset == items.count else {
+        switch HistoryPagingService.mergeResult(
+            pageCount: page.count,
+            requestedOffset: offset,
+            currentItemCount: items.count,
+            limit: limit
+        ) {
+        case .stale:
             return
-        }
-
-        if page.isEmpty {
-            didLoadAllPersistedItems = true
-        } else {
+        case .append(let didLoadAll):
             appendLoadedItems(page)
-            didLoadAllPersistedItems = page.count < limit
+            didLoadAllPersistedItems = didLoadAll
         }
 
         PerformanceDiagnosticsService.shared.record(

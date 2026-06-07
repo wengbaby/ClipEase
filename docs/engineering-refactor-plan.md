@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 2-B，GroupService 纯逻辑拆分后回归修复已完成，等待本地提交
+- 当前执行阶段：阶段 2-C，HistoryPagingService 纯逻辑拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 2-B 回归修复；提交后继续按顺序进入阶段 2-C HistoryPagingService
+- 当前优先目标：提交阶段 2-C；提交后继续按顺序进入阶段 2-D HistoryRetentionService
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -975,7 +975,7 @@
 
 ### 阶段 2：ClipboardHistoryStore 职责拆分
 
-- 状态：阶段 2-B 已完成，等待本地提交；不得直接进入阶段 2-C 以外的后续任务。
+- 状态：阶段 2-C 已完成，等待本地提交；不得直接进入阶段 2-D 以外的后续任务。
 - 完成记录：
   - 2026-06-07 阶段 2-A DuplicateResolver 纯逻辑拆分：
     - 新增 `Sources/ClipEase/Core/History/DuplicateResolver.swift`。
@@ -1008,7 +1008,18 @@
     - 新增测试：`groupRenameActionPolicySubmitsWhenGlobalEnterActionArrives`。
     - 验证：`swift build` 通过；`swift test` 通过，116 个测试全部通过。
     - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.103 (260607.1959)` 更新到 `2.3.104 (260607.2010)`，新版 `.build/ClipEase.app` 已启动。
+    - 本地提交：`36bd5fb fix: submit group rename on enter`。
     - 阶段 2-C 入口条件：本次回归修复本地 Git 提交完成后，再继续 `HistoryPagingService` 拆分。
+  - 2026-06-07 阶段 2-C HistoryPagingService 纯逻辑拆分：
+    - 新增 `Sources/ClipEase/Core/History/HistoryPagingService.swift`。
+    - 新增 `Tests/ClipEaseTests/HistoryPagingServiceTests.swift`。
+    - `ClipboardHistoryStore.swift` 不再直接维护启动页是否已全量、可见范围是否触发加载更多、下一页 offset/limit 计算、分页合并后是否已加载完的纯判断逻辑。
+    - `HistoryPagingService` 接管分页常量、分页状态快照、加载更多触发判断、下一页请求构造、分页合并结果判断。
+    - `ClipboardHistoryStore.swift` 暂时保留真实 `persistence.loadItems`、`appendLoadedItems`、`sortItems`、hash 更新、`Task` 生命周期、性能日志和 full-save 前全量加载循环，因为这些仍依赖 Store 当前状态和持久化入口。
+    - 验证：`swift build` 通过；`swift test` 通过，120 个测试全部通过。
+    - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.104 (260607.2010)` 更新到 `2.3.105 (260607.2028)`，新版 `.build/ClipEase.app` 已启动。
+    - 遗留风险：需要重点手工验证首次打开历史列表、滚动接近末尾加载更多、搜索后滚动、复制新内容后列表焦点和排序没有回归。
+    - 阶段 2-D 入口条件：阶段 2-C 本地 Git 提交完成后，按顺序只允许进入 `HistoryRetentionService` 拆分。
 
 ### 阶段 3：SQLite 存储层工程化拆分
 
