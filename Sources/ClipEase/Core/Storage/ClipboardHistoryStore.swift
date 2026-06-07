@@ -2060,10 +2060,9 @@ private actor ClipboardOCRConcurrencyLimiter {
 
 private final class ClipboardHistorySaveWriter: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.clipease.history-save", qos: .utility)
-    private static let compactionCheckMinimumInterval: TimeInterval = 10 * 60
     private let persistence: ClipboardHistoryPersistence
+    private let compactionScheduler = ClipboardDatabaseCompactionScheduler()
     private var latestRevision = 0
-    private var lastCompactionCheckAt: Date?
 
     init(persistence: ClipboardHistoryPersistence) {
         self.persistence = persistence
@@ -2236,13 +2235,11 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
 
     private func compactDatabaseIfNeeded(force: Bool = false) {
         let now = Date()
-        if !force,
-           let lastCompactionCheckAt,
-           now.timeIntervalSince(lastCompactionCheckAt) < Self.compactionCheckMinimumInterval {
+        guard compactionScheduler.shouldRun(now: now, force: force) else {
             return
         }
 
-        lastCompactionCheckAt = now
+        compactionScheduler.markRun(at: now)
         let startedAt = CFAbsoluteTimeGetCurrent()
         let result: ClipboardDatabaseCompactionResult
         do {

@@ -35,3 +35,30 @@ enum ClipboardDatabaseCompactionResult: Equatable, Sendable {
         }
     }
 }
+
+final class ClipboardDatabaseCompactionScheduler {
+    private static let defaultMinimumInterval: TimeInterval = 10 * 60
+
+    private let minimumInterval: TimeInterval
+    private var lastCheckAt: Date?
+
+    init(minimumInterval: TimeInterval = ClipboardDatabaseCompactionScheduler.defaultMinimumInterval) {
+        self.minimumInterval = minimumInterval
+    }
+
+    func shouldRun(now: Date = Date(), force: Bool = false) -> Bool {
+        if force {
+            return true
+        }
+
+        guard let lastCheckAt else {
+            return true
+        }
+
+        return now.timeIntervalSince(lastCheckAt) >= minimumInterval
+    }
+
+    func markRun(at date: Date = Date()) {
+        lastCheckAt = date
+    }
+}
