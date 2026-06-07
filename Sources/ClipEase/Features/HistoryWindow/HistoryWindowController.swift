@@ -240,6 +240,9 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.onSearchText = { [weak self] text in
             self?.inputState.dispatch(.appendSearchText(text))
         }
+        panel.onBeginComposedSearchInput = { [weak self] pendingEvent in
+            self?.inputState.dispatch(.beginComposedSearchInput(pendingEvent))
+        }
         panel.onTextFirstResponderChanged = { [weak self] isActive in
             self?.inputState.setAppTextFirstResponderActive(isActive)
         }

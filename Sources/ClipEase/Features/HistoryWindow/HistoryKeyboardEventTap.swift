@@ -1,5 +1,5 @@
-import ApplicationServices
 import AppKit
+import ApplicationServices
 
 final class HistoryKeyboardEventTap: @unchecked Sendable {
     private weak var inputState: HistoryWindowInputState?
@@ -183,10 +183,14 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         case KeyCode.delete:
             return .delete
         default:
-            guard let text = printableCharacters(from: event) else {
+            guard let pendingTextInput = pendingTextInputEvent(from: event) else {
                 return nil
             }
-            return .appendSearchText(text)
+            return HistoryKeyboardTextEntryPolicy.action(
+                for: pendingTextInput.characters,
+                pendingEvent: pendingTextInput,
+                usesMarkedTextInputSource: HistoryKeyboardInputSourcePolicy.usesMarkedTextInputSource()
+            )
         }
     }
 
@@ -221,14 +225,14 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             return true
         case .moveLeft, .moveRight, .close, .selectVisibleCard, .openSearch, .showSettings, .delete, .togglePinned, .closeWindow, .createText, .enterFirstSearchResult, .focusFirstSearchResult:
             return false
-        case .appendSearchText:
+        case .appendSearchText, .beginComposedSearchInput:
             return true
         }
     }
 
     private static func shouldPassThroughWhileWindowPinned(_ action: HistoryKeyboardAction) -> Bool {
         switch action {
-        case .copy, .copyPlainText, .selectVisibleCard, .openSearch, .showSettings, .edit, .togglePinned, .createText, .toggleRecording, .appendSearchText:
+        case .copy, .copyPlainText, .selectVisibleCard, .openSearch, .showSettings, .edit, .togglePinned, .createText, .toggleRecording, .appendSearchText, .beginComposedSearchInput:
             return true
         case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .delete, .closeWindow, .enterFirstSearchResult, .focusFirstSearchResult:
             return false
@@ -255,7 +259,7 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         return isActive
     }
 
-    private static func printableCharacters(from event: CGEvent) -> String? {
+    private static func pendingTextInputEvent(from event: CGEvent) -> HistoryKeyboardPendingTextInputEvent? {
         var actualLength = 0
         var buffer = [UniChar](repeating: 0, count: 8)
         event.keyboardGetUnicodeString(
@@ -269,7 +273,15 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         }
 
         let text = String(utf16CodeUnits: buffer, count: actualLength)
-        return HistoryKeyboardCharacterPolicy.searchText(from: text)
+        guard let searchText = HistoryKeyboardCharacterPolicy.searchText(from: text) else {
+            return nil
+        }
+
+        return HistoryKeyboardPendingTextInputEvent(
+            keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
+            modifierFlags: UInt(event.flags.rawValue),
+            characters: searchText
+        )
     }
 
     private static let eventCallback: CGEventTapCallBack = { _, type, event, userInfo in

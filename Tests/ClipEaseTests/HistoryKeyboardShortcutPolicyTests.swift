@@ -280,6 +280,21 @@ import Testing
     #expect(HistoryKeyboardCharacterPolicy.searchText(from: "\u{F703}") == nil)
 }
 
+@Test func markedTextInputSourceOpensSearchWithoutAppendingFirstRomanKey() {
+    #expect(HistoryKeyboardTextEntryPolicy.action(
+        for: "w",
+        usesMarkedTextInputSource: true
+    ) == .beginComposedSearchInput(HistoryKeyboardPendingTextInputEvent(
+        keyCode: 0,
+        modifierFlags: 0,
+        characters: "w"
+    )))
+    #expect(HistoryKeyboardTextEntryPolicy.action(
+        for: "w",
+        usesMarkedTextInputSource: false
+    ) == .appendSearchText("w"))
+}
+
 @Test func escapeClearsSearchBeforeClosingWhenTextExists() {
     #expect(HistorySearchCancelPolicy.action(
         hasSearchContent: true

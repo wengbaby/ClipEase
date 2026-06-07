@@ -50,6 +50,7 @@ struct HistoryWindowView: View {
     @State private var isSearchFocused = false
     @State private var isSearchTextComposing = false
     @State private var searchFocusRequestID = 0
+    @State private var pendingComposedSearchInputEvent: HistoryKeyboardPendingTextInputEvent?
     @State private var allPreviewItems: [HistoryPreviewItem] = []
     @State private var filteredPreviewItems: [HistoryPreviewItem] = []
     @State private var filteredPreviewItemIDs: Set<HistoryPreviewItem.ID> = []
@@ -1555,6 +1556,7 @@ struct HistoryWindowView: View {
                             text: $searchText,
                             isFocused: $isSearchFocused,
                             isComposing: $isSearchTextComposing,
+                            pendingComposedInputEvent: $pendingComposedSearchInputEvent,
                             focusRequestID: searchFocusRequestID,
                             searchHasHandedOffFocusToCard: searchHasHandedOffFocusToCard,
                             hasSearchResult: !filteredItems.isEmpty,
@@ -5663,6 +5665,8 @@ struct HistoryWindowView: View {
             toggleRecordingFromShortcut()
         case .appendSearchText(let text):
             appendSearchText(text)
+        case .beginComposedSearchInput(let pendingEvent):
+            beginComposedSearchInput(pendingEvent)
         case .enterFirstSearchResult:
             enterFirstSearchResultFromSearchField()
         case .focusFirstSearchResult:
@@ -5694,7 +5698,7 @@ struct HistoryWindowView: View {
             return true
         case .delete:
             return isGroupIconSearchFocused
-        case .appendSearchText, .copy, .copyPlainText, .paste, .pastePlainText, .togglePinned, .edit, .createText, .openSearch, .showSettings, .closeWindow, .toggleRecording:
+        case .appendSearchText, .beginComposedSearchInput, .copy, .copyPlainText, .paste, .pastePlainText, .togglePinned, .edit, .createText, .openSearch, .showSettings, .closeWindow, .toggleRecording:
             return true
         case .moveLeft, .moveRight, .togglePreview, .selectVisibleCard, .enterFirstSearchResult, .focusFirstSearchResult:
             return isGroupIconSearchFocused
@@ -5713,6 +5717,21 @@ struct HistoryWindowView: View {
         }
 
         searchText += text
+        focusSearchField()
+    }
+
+    private func beginComposedSearchInput(_ pendingEvent: HistoryKeyboardPendingTextInputEvent) {
+        if previewState.isVisible {
+            closePreview()
+        }
+
+        if !isSearchVisible {
+            selectedGroup = .all
+            isSearchVisible = true
+            inputState.setSearchVisible(true)
+        }
+
+        pendingComposedSearchInputEvent = pendingEvent
         focusSearchField()
     }
 
@@ -6033,6 +6052,7 @@ private struct SearchTextField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     @Binding var isComposing: Bool
+    @Binding var pendingComposedInputEvent: HistoryKeyboardPendingTextInputEvent?
     let focusRequestID: Int
     let searchHasHandedOffFocusToCard: Bool
     let hasSearchResult: Bool
@@ -6085,6 +6105,7 @@ private struct SearchTextField: NSViewRepresentable {
                 context.coordinator.handledFocusRequestID = focusRequestID
                 context.coordinator.moveInsertionPointToEndSoon(in: nsView)
             }
+            context.coordinator.consumePendingComposedInputEventSoon(in: nsView)
         } else if nsView.window?.firstResponder === nsView.currentEditor() {
             nsView.window?.makeFirstResponder(nil)
         }
@@ -6262,6 +6283,43 @@ private struct SearchTextField: NSViewRepresentable {
                     textField.window?.makeFirstResponder(textField)
                 }
                 self.moveInsertionPointToEnd(in: textField)
+            }
+        }
+
+        func consumePendingComposedInputEventSoon(in textField: SearchNSTextField) {
+            guard parent.pendingComposedInputEvent != nil else {
+                return
+            }
+
+            DispatchQueue.main.async { [weak self, weak textField] in
+                guard let self,
+                      let textField,
+                      let event = self.parent.pendingComposedInputEvent else {
+                    return
+                }
+
+                if textField.window?.firstResponder !== textField.currentEditor() {
+                    textField.window?.makeFirstResponder(textField)
+                }
+
+                guard let editor = textField.currentEditor() as? NSTextView,
+                      let nsEvent = NSEvent.keyEvent(
+                        with: .keyDown,
+                        location: .zero,
+                        modifierFlags: NSEvent.ModifierFlags(rawValue: event.modifierFlags),
+                        timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: textField.window?.windowNumber ?? 0,
+                        context: nil,
+                        characters: event.characters,
+                        charactersIgnoringModifiers: event.characters,
+                        isARepeat: false,
+                        keyCode: event.keyCode
+                      ) else {
+                    return
+                }
+
+                self.parent.pendingComposedInputEvent = nil
+                editor.keyDown(with: nsEvent)
             }
         }
 

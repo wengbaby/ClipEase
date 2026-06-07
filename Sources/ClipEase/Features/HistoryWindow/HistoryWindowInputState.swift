@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Carbon
 
 enum HistoryKeyboardAction: Equatable {
     case moveLeft
@@ -20,8 +21,15 @@ enum HistoryKeyboardAction: Equatable {
     case createText
     case toggleRecording
     case appendSearchText(String)
+    case beginComposedSearchInput(HistoryKeyboardPendingTextInputEvent)
     case enterFirstSearchResult
     case focusFirstSearchResult
+}
+
+struct HistoryKeyboardPendingTextInputEvent: Equatable {
+    let keyCode: UInt16
+    let modifierFlags: UInt
+    let characters: String
 }
 
 enum HistoryKeyboardShortcutPolicy {
@@ -38,7 +46,7 @@ enum HistoryKeyboardShortcutPolicy {
             switch action {
             case .enterFirstSearchResult, .focusFirstSearchResult:
                 return true
-            case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .selectVisibleCard, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText:
+            case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .selectVisibleCard, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText, .beginComposedSearchInput:
                 return false
             }
         }
@@ -177,6 +185,57 @@ enum HistoryKeyboardCharacterPolicy {
     }
 }
 
+enum HistoryKeyboardTextEntryPolicy {
+    static func action(
+        for text: String,
+        usesMarkedTextInputSource: Bool
+    ) -> HistoryKeyboardAction? {
+        action(
+            for: text,
+            pendingEvent: HistoryKeyboardPendingTextInputEvent(
+                keyCode: 0,
+                modifierFlags: 0,
+                characters: text
+            ),
+            usesMarkedTextInputSource: usesMarkedTextInputSource
+        )
+    }
+
+    static func action(
+        for text: String,
+        pendingEvent: HistoryKeyboardPendingTextInputEvent,
+        usesMarkedTextInputSource: Bool
+    ) -> HistoryKeyboardAction? {
+        guard let searchText = HistoryKeyboardCharacterPolicy.searchText(from: text) else {
+            return nil
+        }
+
+        if usesMarkedTextInputSource {
+            return .beginComposedSearchInput(pendingEvent)
+        }
+
+        return .appendSearchText(searchText)
+    }
+}
+
+enum HistoryKeyboardInputSourcePolicy {
+    static func usesMarkedTextInputSource() -> Bool {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let languagesPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages) else {
+            return false
+        }
+
+        let languages = Unmanaged<CFArray>
+            .fromOpaque(languagesPointer)
+            .takeUnretainedValue() as? [String]
+        return languages?.contains(where: isMarkedTextLanguage) == true
+    }
+
+    private static func isMarkedTextLanguage(_ language: String) -> Bool {
+        language.hasPrefix("zh") || language.hasPrefix("ja") || language.hasPrefix("ko")
+    }
+}
+
 enum HistoryGroupRenameKeyAction: Equatable {
     case submit
     case cancel
@@ -208,7 +267,7 @@ enum HistoryGroupRenameActionPolicy {
             .submit
         case .close:
             .cancel
-        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .selectVisibleCard, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText, .focusFirstSearchResult:
+        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .selectVisibleCard, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText, .beginComposedSearchInput, .focusFirstSearchResult:
             .consume
         }
     }

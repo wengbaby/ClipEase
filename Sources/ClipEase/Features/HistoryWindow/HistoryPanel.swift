@@ -6,6 +6,7 @@ final class HistoryPanel: NSPanel {
     var onSpace: (() -> Bool)?
     var onDelete: (() -> Void)?
     var onSearchText: ((String) -> Void)?
+    var onBeginComposedSearchInput: ((HistoryKeyboardPendingTextInputEvent) -> Void)?
     var onTextFirstResponderChanged: ((Bool) -> Void)?
 
     override var canBecomeKey: Bool {
@@ -41,7 +42,25 @@ final class HistoryPanel: NSPanel {
         }
 
         if let searchText = HistoryKeyboardCharacterPolicy.searchText(from: event.characters) {
-            onSearchText?(searchText)
+            let pendingEvent = HistoryKeyboardPendingTextInputEvent(
+                keyCode: event.keyCode,
+                modifierFlags: event.modifierFlags.rawValue,
+                characters: searchText
+            )
+            switch HistoryKeyboardTextEntryPolicy.action(
+                for: searchText,
+                pendingEvent: pendingEvent,
+                usesMarkedTextInputSource: HistoryKeyboardInputSourcePolicy.usesMarkedTextInputSource()
+            ) {
+            case .some(.appendSearchText(let text)):
+                onSearchText?(text)
+            case .some(.beginComposedSearchInput(let pendingEvent)):
+                onBeginComposedSearchInput?(pendingEvent)
+            case nil:
+                break
+            default:
+                break
+            }
             return
         }
 
