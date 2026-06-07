@@ -1301,13 +1301,13 @@ struct SettingsView: View {
 
     private func importBackupResult(_ importResult: BackupImportResult) {
         let duplicateCount = store.duplicateCount(for: importResult.items)
-        if duplicateCount > 0 {
+        if let prompt = SettingsHistoryDataActionCoordinator.backupImportDuplicatePrompt(duplicateCount: duplicateCount) {
             let alert = NSAlert()
-            alert.messageText = "发现重复历史"
-            alert.informativeText = "备份包中有 \(duplicateCount) 条历史已存在。"
+            alert.messageText = prompt.title
+            alert.informativeText = prompt.message
             alert.alertStyle = .informational
-            alert.addButton(withTitle: "跳过重复")
-            alert.addButton(withTitle: "取消导入")
+            alert.addButton(withTitle: prompt.confirmTitle)
+            alert.addButton(withTitle: prompt.cancelTitle)
 
             guard alert.runModal() == .alertFirstButtonReturn else {
                 showStatus("已取消导入备份包")
@@ -1327,21 +1327,10 @@ struct SettingsView: View {
         importedCount: Int,
         result: BackupImportResult
     ) -> String {
-        if importedCount == 0, result.items.isEmpty {
-            return result.missingAttachmentCount > 0
-                ? "没有可导入的新历史，缺失附件 \(result.missingAttachmentCount) 个"
-                : "没有可导入的新历史"
-        }
-
-        let duplicateOrSkippedCount = max(0, result.totalItems - importedCount)
-        var parts = ["已导入 \(importedCount) 条"]
-        if duplicateOrSkippedCount > 0 {
-            parts.append("跳过 \(duplicateOrSkippedCount) 条")
-        }
-        if result.missingAttachmentCount > 0 {
-            parts.append("缺失附件 \(result.missingAttachmentCount) 个")
-        }
-        return parts.joined(separator: "，")
+        SettingsHistoryDataActionCoordinator.backupImportStatusText(
+            importedCount: importedCount,
+            result: result
+        )
     }
 
     private func showOperationError(_ title: String, error: Error) {

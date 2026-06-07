@@ -256,3 +256,14 @@
   - 2026-06-08：复核确认连接包装、schema 创建和版本记录已迁出，继续拆分会进入 repository 编排层重构，不属于本阶段目标。
   - 2026-06-08：阶段 5-D 到此关闭。剩余 SQLite repository 编排职责作为后续可选优化记录，不在本轮继续拆分。
   - 阶段 5-E 入口条件：阶段 5-D 收尾提交完成，并由用户确认继续后，只允许进入设置页动作协调器拆分。
+
+### 阶段 5-E：设置页动作协调器拆分
+
+- 状态：阶段 5-E-1 已完成，历史数据动作协调器已开始拆分
+- 计划开始：2026-06-08
+- 本阶段不改设置页视觉结构，不改按钮文案，不改导入、导出、恢复、清理流程。
+- 完成记录：
+  - 2026-06-08：新增 `Sources/ClipEase/Features/Settings/SettingsHistoryDataActionCoordinator.swift`，先收口备份导入重复提示文案和导入结果状态文案。
+  - 2026-06-08：新增 `Tests/ClipEaseTests/SettingsHistoryDataActionCoordinatorTests.swift`，覆盖重复备份提示、跳过/缺失附件状态文本。
+  - 2026-06-08：`SettingsView.swift` 最小接入协调器，保留原有 `NSAlert`、按钮顺序、状态文案和导入流程。
+  - 2026-06-08：定向验证 `swift test --filter SettingsHistoryDataActionCoordinator` 通过，2 个测试全部通过；`swift test --filter Settings` 通过，13 个测试全部通过。
