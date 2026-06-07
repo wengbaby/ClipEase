@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 2-D，HistoryRetentionService 纯逻辑拆分已完成，等待本地提交
+- 当前执行阶段：阶段 2-E，LinkMetadataService 纯逻辑拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 2-D；提交后继续按顺序进入阶段 2-E LinkMetadataService
+- 当前优先目标：提交阶段 2-E；提交后进入阶段 2 收尾审查，确认 `ClipboardHistoryStore` 是否只保留协调入口
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1029,8 +1029,19 @@
     - `ClipboardHistoryStore.swift` 暂时保留真实删除项目、重建索引、取消 OCR/链接任务、删除外部文件、重建 hash、保存调度等副作用逻辑，因为这些仍依赖 Store 当前状态和持久化入口。
     - 验证：`swift build` 通过；`swift test` 通过，123 个测试全部通过。
     - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.105 (260607.2028)` 更新到 `2.3.106 (260607.2039)`，新版 `.build/ClipEase.app` 已启动。
+    - 本地提交：`c77b92d refactor: extract history retention service`。
     - 遗留风险：需要重点手工验证设置历史保留时间、启动后历史保留、置顶内容不被清理、分组内内容不被清理、普通过期内容可被清理。
     - 阶段 2-E 入口条件：阶段 2-D 本地 Git 提交完成后，按顺序只允许进入 `LinkMetadataService` 拆分。
+  - 2026-06-07 阶段 2-E LinkMetadataService 纯逻辑拆分：
+    - 新增 `Sources/ClipEase/Core/History/LinkMetadataService.swift`。
+    - 新增 `Tests/ClipEaseTests/LinkMetadataServiceTests.swift`。
+    - `ClipboardHistoryStore.swift` 不再直接维护链接元数据请求 generation 字典、过期请求完成判断、删除/清空时的 generation 清理、链接元数据是否可应用的纯判断逻辑。
+    - `LinkMetadataService` 接管链接元数据 generation 分配、当前/过期任务完成判断、指定条目和全部条目的请求状态清理、链接条目 URL 匹配判断、标题和预览图是否需要应用的判断。
+    - `ClipboardHistoryStore.swift` 暂时保留真实 `Task` 生命周期字典、`LinkTitleFetcher` 网络请求、预览图保存、数据库 upsert、旧图片删除和 `LinkMetadataFetchLimiter`，因为这些仍依赖 Store 当前状态、持久化入口和现有并发调度。
+    - 验证：`swift build` 通过；`swift test` 通过，127 个测试全部通过。
+    - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.106 (260607.2039)` 更新到 `2.3.108 (260607.2052)`，新版 `.build/ClipEase.app` 已启动。
+    - 遗留风险：需要重点手工验证复制链接后标题/预览图仍会更新、删除链接卡片不会留下异步更新、重复复制链接和快速删除链接没有回归。
+    - 阶段 2 收尾入口条件：阶段 2-E 本地 Git 提交完成后，按顺序只允许做阶段 2 收尾审查，不得直接进入阶段 3。
 
 ### 阶段 3：SQLite 存储层工程化拆分
 

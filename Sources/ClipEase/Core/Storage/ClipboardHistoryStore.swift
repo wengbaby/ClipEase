@@ -49,7 +49,7 @@ final class ClipboardHistoryStore: ObservableObject {
     private let selfWriteGuard = ClipboardSelfWriteGuard()
     private var ocrTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
     private var linkMetadataTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
-    private var linkMetadataGenerationByItemID: [ClipboardItem.ID: Int] = [:]
+    private var linkMetadataService = LinkMetadataService()
     private var deferredSaveTask: Task<Void, Never>?
     private var debugGenerationTask: Task<Void, Never>?
     private var itemIndexByID: [ClipboardItem.ID: Int] = [:]
@@ -698,7 +698,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
     private func fetchLinkMetadata(for id: ClipboardItem.ID, url: URL) {
         linkMetadataTaskByItemID[id]?.cancel()
-        let generation = nextLinkMetadataGeneration(for: id)
+        let generation = linkMetadataService.nextGeneration(for: id)
         let persistence = persistence
         linkMetadataTaskByItemID[id] = Task.detached(priority: .utility) { [weak self] in
             var didEnterLimiter = false
@@ -771,19 +771,12 @@ final class ClipboardHistoryStore: ObservableObject {
         }
     }
 
-    private func nextLinkMetadataGeneration(for id: ClipboardItem.ID) -> Int {
-        let generation = (linkMetadataGenerationByItemID[id] ?? 0) + 1
-        linkMetadataGenerationByItemID[id] = generation
-        return generation
-    }
-
     private func finishLinkMetadataTask(for id: ClipboardItem.ID, generation: Int) {
-        guard linkMetadataGenerationByItemID[id] == generation else {
+        guard linkMetadataService.finishTask(for: id, generation: generation) else {
             return
         }
 
         linkMetadataTaskByItemID[id] = nil
-        linkMetadataGenerationByItemID[id] = nil
     }
 
     private func cancelLinkMetadataTasks(for removedItems: [ClipboardItem]) {
@@ -794,8 +787,8 @@ final class ClipboardHistoryStore: ObservableObject {
         for id in ids {
             linkMetadataTaskByItemID[id]?.cancel()
             linkMetadataTaskByItemID[id] = nil
-            linkMetadataGenerationByItemID[id] = nil
         }
+        linkMetadataService.cancelTasks(for: ids)
     }
 
     private func cancelAllLinkMetadataTasks() {
@@ -803,7 +796,7 @@ final class ClipboardHistoryStore: ObservableObject {
             task.cancel()
         }
         linkMetadataTaskByItemID.removeAll()
-        linkMetadataGenerationByItemID.removeAll()
+        linkMetadataService.cancelAllTasks()
     }
 
     private func updateLinkTitle(_ title: String, for id: ClipboardItem.ID, url: URL) {
@@ -817,13 +810,16 @@ final class ClipboardHistoryStore: ObservableObject {
         url: URL
     ) {
         guard let index = itemIndex(for: id),
-              items[index].type == .link,
-              items[index].url == url else {
+              LinkMetadataService.canApplyMetadata(to: items[index], expectedURL: url) else {
             return
         }
 
         let existingItem = items[index]
-        guard existingItem.linkTitle != title || storedImage != nil else {
+        guard LinkMetadataService.shouldApplyMetadata(
+            title: title,
+            storedImage: storedImage,
+            to: existingItem
+        ) else {
             return
         }
 
