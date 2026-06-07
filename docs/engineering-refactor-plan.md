@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 3-G，SQLiteBackupManager 职责复核与收口已完成，等待本地提交
+- 当前执行阶段：阶段 3 收尾验证已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 3-G；提交后按顺序执行阶段 3 收尾验证
+- 当前优先目标：提交阶段 3 收尾验证；提交后由用户确认是否进入阶段 4
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1120,7 +1120,20 @@
     - 复核结论：`SQLiteClipboardStore.swift` 中旧 schema 迁移入口会在 migration 前调用 `SQLiteBackupManager`；备份失败会抛错并阻止继续迁移。
     - 本轮未改变备份目录格式、备份文件名、迁移策略、用户数据处理方式、SQLite schema 或生产代码。
     - 验证：`swift build` 通过；`swift test --filter SQLiteBackupManager` 通过，3 个备份管理器专项测试全部通过。
+    - 本地提交：`c0d3707 test: cover sqlite backup manager`。
     - 阶段 3 收尾入口条件：阶段 3-G 本地提交完成后，按顺序执行阶段 3 收尾验证；重点验证旧库迁移、FTS 搜索、分组加载、图片/富文本/文件附件引用、数据库压缩和备份文件生成。
+  - 2026-06-07 阶段 3 收尾验证：
+    - 验证旧库迁移：`swift test --filter SQLiteMigrationSafetyTests` 通过，旧 schema 初始化、备份 sidecar、未知 legacy 表保留均覆盖。
+    - 验证 FTS 搜索：`swift test --filter SQLiteSearchIndexDAO` 通过，搜索索引读写、重建和删除覆盖。
+    - 验证分组加载：`swift test --filter SQLiteGroupDAO` 通过，分组、外观和排序覆盖。
+    - 验证剪贴板 item 与附件：`swift test --filter SQLiteItemDAO` 通过，文本、文件路径、图片/富文本附件引用覆盖。
+    - 验证数据库压缩：`swift test --filter SQLiteDatabaseCompactor` 与 `swift test --filter sqliteCompactionShrinksDatabaseWhenFreePagesExceedPolicy` 通过。
+    - 验证备份文件生成：`swift test --filter SQLiteBackupManager` 通过，主库、`-wal`、`-shm`、`-journal` sidecar 覆盖。
+    - 验证大数据搜索基准：`swift test --filter sqliteSearchHandlesThreeThousandMixedItemsWithinBudgetUsingTemporaryStore` 通过。
+    - 全量验证：`swift build` 通过；`swift test` 通过，150 个测试全部通过。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.116 (260607.2218)` 递增到 `2.3.117 (260607.2227)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 本轮未修改生产 Swift 代码、SQLite schema、主窗口 UI、搜索交互、快捷键、设置页或发布脚本。
+    - 阶段 4 入口条件：阶段 3 收尾验证本地提交完成，并由用户明确确认进入阶段 4 后，才能开始设置页、诊断页、发布流程优化。
 
 ### 阶段 4：设置页、诊断页、发布流程优化
 
