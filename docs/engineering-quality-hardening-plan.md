@@ -267,3 +267,7 @@
   - 2026-06-08：新增 `Tests/ClipEaseTests/SettingsHistoryDataActionCoordinatorTests.swift`，覆盖重复备份提示、跳过/缺失附件状态文本。
   - 2026-06-08：`SettingsView.swift` 最小接入协调器，保留原有 `NSAlert`、按钮顺序、状态文案和导入流程。
   - 2026-06-08：定向验证 `swift test --filter SettingsHistoryDataActionCoordinator` 通过，2 个测试全部通过；`swift test --filter Settings` 通过，13 个测试全部通过。
+  - 2026-06-08：新增 `Sources/ClipEase/Features/Settings/SettingsImportExportCoordinator.swift`，收口历史导入/导出、备份包导入/导出的面板配置。
+  - 2026-06-08：新增 `Tests/ClipEaseTests/SettingsImportExportCoordinatorTests.swift`，覆盖导入/导出面板标题、按钮、默认文件名、允许类型和文件/目录选择规则。
+  - 2026-06-08：`SettingsView.swift` 最小接入面板配置协调器，保留原有 `NSSavePanel` / `NSOpenPanel` 展示方式、异步导入导出服务调用、状态文案和错误处理。
+  - 2026-06-08：定向验证 `swift test --filter SettingsImportExportCoordinator` 通过，2 个测试全部通过；`swift test --filter Settings` 通过，15 个测试全部通过。

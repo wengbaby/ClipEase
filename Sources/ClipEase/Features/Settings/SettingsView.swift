@@ -1148,10 +1148,10 @@ struct SettingsView: View {
 
     private func exportHistory() {
         let panel = NSSavePanel()
-        panel.title = "导出轻贴历史"
-        panel.prompt = "导出"
-        panel.nameFieldStringValue = "ClipEase-History-\(exportDateString()).json"
-        panel.allowedContentTypes = [.json]
+        SettingsImportExportCoordinator.configure(
+            panel,
+            with: SettingsImportExportCoordinator.exportHistoryPanelConfiguration(dateString: exportDateString())
+        )
 
         guard panel.runModal() == .OK,
               let url = panel.url else {
@@ -1185,12 +1185,10 @@ struct SettingsView: View {
 
     private func importHistory() {
         let panel = NSOpenPanel()
-        panel.title = "导入轻贴历史"
-        panel.prompt = "导入"
-        panel.allowedContentTypes = [.json]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
+        SettingsImportExportCoordinator.configure(
+            panel,
+            with: SettingsImportExportCoordinator.importHistoryPanelConfiguration()
+        )
 
         guard panel.runModal() == .OK,
               let url = panel.url else {
@@ -1223,10 +1221,10 @@ struct SettingsView: View {
 
     private func exportBackup() {
         let panel = NSSavePanel()
-        panel.title = "导出轻贴备份包"
-        panel.prompt = "导出"
-        panel.nameFieldStringValue = "ClipEase-Backup-\(exportDateString()).clipeasebackup"
-        panel.canCreateDirectories = true
+        SettingsImportExportCoordinator.configure(
+            panel,
+            with: SettingsImportExportCoordinator.exportBackupPanelConfiguration(dateString: exportDateString())
+        )
 
         guard panel.runModal() == .OK,
               let url = panel.url else {
@@ -1266,11 +1264,10 @@ struct SettingsView: View {
 
     private func importBackup() {
         let panel = NSOpenPanel()
-        panel.title = "导入轻贴备份包"
-        panel.prompt = "导入"
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        SettingsImportExportCoordinator.configure(
+            panel,
+            with: SettingsImportExportCoordinator.importBackupPanelConfiguration()
+        )
 
         guard panel.runModal() == .OK,
               let url = panel.url else {
