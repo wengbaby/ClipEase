@@ -48,6 +48,14 @@ import Testing
     #expect(dryRunRange.lowerBound < branchPushRange.lowerBound)
 }
 
+@Test func releaseScriptBlocksPublishingWhenTestsAreSkipped() throws {
+    let script = try releaseScript()
+
+    #expect(script.contains("ensure_tests_run_before_publish"))
+    #expect(script.contains("Release publishing cannot use --skip-tests"))
+    #expect(script.contains("if [[ \"$PUBLISH\" == \"true\" && \"$DRY_RUN\" != \"true\" && \"$SKIP_TESTS\" == \"true\" ]]; then"))
+}
+
 private func releaseScript() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("scripts/release.sh")

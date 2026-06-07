@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 4-E，release.sh dry-run 已完成，等待本地提交
+- 当前执行阶段：阶段 4-F，发布前测试 gate 已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 4-E；提交后按顺序进入阶段 4-F 发布前测试 gate
+- 当前优先目标：提交阶段 4-F；提交后按顺序进入阶段 4-G DMG 校验增强
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1189,3 +1189,14 @@
     - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，生成 `ClipEase-2.3.121-260607.2346.dmg`、release notes 和 SHA-256，未创建 git tag、GitHub Release 或上传。
     - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.121 (260607.2346)` 递增到 `2.3.122 (260607.2358)`；已结束旧进程并启动 `.build/ClipEase.app`。
     - 阶段 4-F 入口条件：阶段 4-E 本地提交完成后，按顺序增强发布前测试 gate；不得直接发布。
+  - 2026-06-08 阶段 4-F 发布前测试 gate：
+    - `scripts/release.sh` 新增 `ensure_tests_run_before_publish`。
+    - 真实发布路径 `--publish` 禁止与 `--skip-tests` 组合，避免未跑完整测试时创建 tag、GitHub Release 或上传 DMG。
+    - dry-run 仍允许 `--skip-tests`，用于快速演练构建、DMG、release notes 和 SHA-256 生成流程。
+    - 新增 `ReleaseScriptPolicyTests` 覆盖真实发布跳过测试会被 gate 阻断。
+    - 本轮未改变 release notes 格式、DMG 布局、版本策略、主窗口、搜索交互、SQLite、设置页视觉结构或快捷键行为。
+    - 验证：先运行 `swift test --filter releaseScriptBlocksPublishingWhenTestsAreSkipped` 观察到缺少 gate 的失败；实现后 `swift test --filter ReleaseScriptPolicy` 通过。
+    - 发布阻断验证：`./scripts/release.sh --publish --skip-tests --bump none` 按预期提前退出并提示 `Release publishing cannot use --skip-tests...`，未创建 tag、GitHub Release 或上传。
+    - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，生成 `ClipEase-2.3.123-260608.0005.dmg`、release notes 和 SHA-256，未创建 tag、GitHub Release 或上传。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.122 (260607.2358)` 递增到 `2.3.123 (260608.0005)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 阶段 4-G 入口条件：阶段 4-F 本地提交完成后，按顺序增强 DMG 校验；不得直接发布。

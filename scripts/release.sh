@@ -107,6 +107,13 @@ verify_remote_state_before_publish() {
   PUBLISH_BRANCH="$current_branch"
 }
 
+ensure_tests_run_before_publish() {
+  if [[ "$PUBLISH" == "true" && "$DRY_RUN" != "true" && "$SKIP_TESTS" == "true" ]]; then
+    echo "Release publishing cannot use --skip-tests. Run full tests before creating a release." >&2
+    exit 1
+  fi
+}
+
 cleanup_created_tag() {
   if [[ "${CREATED_TAG:-false}" == "true" ]]; then
     git tag -d "$TAG" >/dev/null 2>&1 || true
@@ -125,6 +132,7 @@ require_command shasum
 if [[ "$PUBLISH" == "true" && "$DRY_RUN" != "true" ]]; then
   require_command git
   require_command gh
+  ensure_tests_run_before_publish
   ensure_clean_worktree_for_publish
   verify_remote_state_before_publish
 fi
