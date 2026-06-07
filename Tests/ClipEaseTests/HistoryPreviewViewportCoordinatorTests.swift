@@ -68,7 +68,10 @@ import Testing
         onMovePreview: { frame in movedFrames.append(frame) }
     )
 
-    try? await Task.sleep(nanoseconds: 80_000_000)
+    let deadline = Date().addingTimeInterval(1)
+    while (movedFrames.count < 2 || coordinator.pendingFollowItemID != nil) && Date() < deadline {
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
 
     #expect(movedFrames == [
         CGRect(x: 12, y: 34, width: 250, height: 270),

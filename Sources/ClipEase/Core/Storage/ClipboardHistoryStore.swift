@@ -1227,23 +1227,6 @@ final class ClipboardHistoryStore: ObservableObject {
         )
     }
 
-    private func mergeDuplicateItems(
-        _ cachedItems: [ClipboardItem],
-        _ persistedItems: [ClipboardItem]
-    ) -> [ClipboardItem] {
-        guard !persistedItems.isEmpty else {
-            return cachedItems
-        }
-
-        var seenIDs = Set<ClipboardItem.ID>()
-        var mergedItems: [ClipboardItem] = []
-        mergedItems.reserveCapacity(cachedItems.count + persistedItems.count)
-        for item in cachedItems + persistedItems where seenIDs.insert(item.id).inserted {
-            mergedItems.append(item)
-        }
-        return mergedItems
-    }
-
     private func itemIndex(for id: ClipboardItem.ID) -> Int? {
         guard let index = itemIndexByID[id],
               items.indices.contains(index),
@@ -1522,19 +1505,19 @@ final class ClipboardHistoryStore: ObservableObject {
         idsByHash.reserveCapacity(items.count)
 
         for item in items {
-            idsByHash[textHash(for: item), default: []].insert(item.id)
+            idsByHash[DuplicateResolver.contentKey(for: item), default: []].insert(item.id)
         }
 
         itemIDsByHash = idsByHash
     }
 
     private func addRecentHash(for item: ClipboardItem) {
-        itemIDsByHash[textHash(for: item), default: []].insert(item.id)
+        itemIDsByHash[DuplicateResolver.contentKey(for: item), default: []].insert(item.id)
     }
 
     private func removeRecentHashes(for removedItems: [ClipboardItem]) {
         for item in removedItems {
-            let hash = textHash(for: item)
+            let hash = DuplicateResolver.contentKey(for: item)
             itemIDsByHash[hash]?.remove(item.id)
             if itemIDsByHash[hash]?.isEmpty == true {
                 itemIDsByHash[hash] = nil
@@ -1568,11 +1551,14 @@ final class ClipboardHistoryStore: ObservableObject {
         replacingRichTextFileName newRichTextFileName: String? = nil
     ) -> ClipboardItem {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        let hash = Self.textHash(for: item)
+        let hash = DuplicateResolver.contentKey(for: item)
         let cachedDuplicateIDs = itemIDsByHash[hash] ?? []
         let cachedDuplicateItems = cachedDuplicateIDs.compactMap { self.item(with: $0) }
         let persistedDuplicateItems = persistedDuplicateItems(for: item)
-        let duplicateItems = mergeDuplicateItems(cachedDuplicateItems, persistedDuplicateItems)
+        let duplicateItems = DuplicateResolver.mergedDuplicateItems(
+            cachedItems: cachedDuplicateItems,
+            persistedItems: persistedDuplicateItems
+        )
         let duplicateIDs = Set(duplicateItems.map(\.id))
         let resolvedDuplicateIDs = Set(duplicateItems.map(\.id))
         if resolvedDuplicateIDs.count != cachedDuplicateIDs.count {
@@ -1637,28 +1623,6 @@ final class ClipboardHistoryStore: ObservableObject {
         ClipEaseSoundPlayer.shared.playCopyFeedback()
     }
 
-    private func textHash(for item: ClipboardItem) -> String {
-        Self.textHash(for: item)
-    }
-
-    nonisolated private static func textHash(for item: ClipboardItem) -> String {
-        switch item.type {
-        case .image:
-            "\(item.sourceBundleID ?? "unknown"):\(item.imageHash ?? item.id.uuidString)"
-        case .file:
-            Self.fileHash(for: item.fileReferences, sourceBundleID: item.sourceBundleID)
-        case .text, .link, .color:
-            "\(item.sourceBundleID ?? "unknown"):\(item.text)"
-        }
-    }
-
-    nonisolated private static func fileHash(for references: [ClipboardFileReference], sourceBundleID: String?) -> String {
-        let paths = references.map { reference in
-            "\(reference.orderIndex):\(reference.path)"
-        }.joined(separator: "\u{1F}")
-        return "\(sourceBundleID ?? "unknown"):files:\(paths)"
-    }
-
     private func clipboardFilePathSetKey(for urls: [URL]) -> String {
         urls
             .filter(\.isFileURL)
@@ -1668,11 +1632,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func nonDuplicateItems(from importedItems: [ClipboardItem]) -> [ClipboardItem] {
-        let existingIDs = Set(items.map(\.id))
-        let existingTextHashes = Set(items.map(textHash))
-        return importedItems.filter { item in
-            !existingIDs.contains(item.id) && !existingTextHashes.contains(textHash(for: item))
-        }
+        DuplicateResolver.nonDuplicateItems(importedItems: importedItems, existingItems: items)
     }
 
     private func sanitizedImportedItems(_ importedItems: [ClipboardItem]) -> [ClipboardItem] {

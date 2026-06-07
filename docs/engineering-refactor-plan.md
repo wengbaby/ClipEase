@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 1-D，分组外观弹窗协调器拆分已完成，用户手工验证通过，等待本地提交
+- 当前执行阶段：阶段 2-A，DuplicateResolver 纯逻辑拆分已完成，用户手工验证通过，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 1-D；提交后等待用户确认是否进行阶段 1 收尾
+- 当前优先目标：提交阶段 2-A；提交后等待用户确认是否继续阶段 2-B
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -975,8 +975,20 @@
 
 ### 阶段 2：ClipboardHistoryStore 职责拆分
 
-- 状态：等待阶段 1 完成
-- 完成记录：尚无
+- 状态：阶段 2-A 已完成，等待用户手工验证和本地提交确认；不得直接进入阶段 2-B。
+- 完成记录：
+  - 2026-06-07 阶段 2-A DuplicateResolver 纯逻辑拆分：
+    - 新增 `Sources/ClipEase/Core/History/DuplicateResolver.swift`。
+    - 新增 `Tests/ClipEaseTests/DuplicateResolverTests.swift`。
+    - `ClipboardHistoryStore.swift` 不再直接维护内容去重 key 计算、重复项合并、导入非重复过滤的纯逻辑。
+    - `DuplicateResolver` 接管文本/链接/颜色、图片、文件的内容 key 生成；接管缓存重复项与持久化重复项合并；接管导入数据按 ID 和内容去重。
+    - `ClipboardHistoryStore.swift` 暂时保留 `upsertClipboardItem` 中删除旧 rich text/image 文件、取消 OCR/链接任务、写入数据库、更新焦点和性能日志的副作用逻辑，因为这些仍依赖 Store 当前状态和持久化入口。
+    - 测试稳定性：将 `historyPreviewCoordinatorClearsPendingFollowAfterRetries` 从固定 sleep 改为条件等待，避免完整并发测试中 MainActor 调度慢导致误报失败；未修改生产逻辑。
+    - 验证：`swift build` 通过；`swift test` 通过，110 个测试全部通过。
+    - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.101 (260607.1934)` 更新到 `2.3.102 (260607.1949)`，新版 `.build/ClipEase.app` 已启动。
+    - 手工验证：用户已确认阶段 2-A 验证无问题。
+    - 遗留风险：阶段 2-A 暂未发现已知回归；后续拆分 Store 仍需逐步迁移，避免改变入库、去重和持久化副作用。
+    - 阶段 2-B 入口条件：阶段 2-A 手工验证正常，并完成本地 Git 提交后，再由用户明确确认继续。
 
 ### 阶段 3：SQLite 存储层工程化拆分
 
