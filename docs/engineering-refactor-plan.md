@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 2-A，DuplicateResolver 纯逻辑拆分已完成，用户手工验证通过，等待本地提交
+- 当前执行阶段：阶段 2-B，GroupService 纯逻辑拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 2-A；提交后等待用户确认是否继续阶段 2-B
+- 当前优先目标：提交阶段 2-B；提交后继续按顺序进入阶段 2-C HistoryPagingService
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -975,7 +975,7 @@
 
 ### 阶段 2：ClipboardHistoryStore 职责拆分
 
-- 状态：阶段 2-A 已完成，等待用户手工验证和本地提交确认；不得直接进入阶段 2-B。
+- 状态：阶段 2-B 已完成，等待本地提交；不得直接进入阶段 2-C 以外的后续任务。
 - 完成记录：
   - 2026-06-07 阶段 2-A DuplicateResolver 纯逻辑拆分：
     - 新增 `Sources/ClipEase/Core/History/DuplicateResolver.swift`。
@@ -987,8 +987,19 @@
     - 验证：`swift build` 通过；`swift test` 通过，110 个测试全部通过。
     - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.101 (260607.1934)` 更新到 `2.3.102 (260607.1949)`，新版 `.build/ClipEase.app` 已启动。
     - 手工验证：用户已确认阶段 2-A 验证无问题。
+    - 本地提交：`28ae796 refactor: extract duplicate resolver`。
     - 遗留风险：阶段 2-A 暂未发现已知回归；后续拆分 Store 仍需逐步迁移，避免改变入库、去重和持久化副作用。
     - 阶段 2-B 入口条件：阶段 2-A 手工验证正常，并完成本地 Git 提交后，再由用户明确确认继续。
+  - 2026-06-07 阶段 2-B GroupService 纯逻辑拆分：
+    - 新增 `Sources/ClipEase/Core/History/GroupService.swift`。
+    - 新增 `Tests/ClipEaseTests/GroupServiceTests.swift`。
+    - `ClipboardHistoryStore.swift` 不再直接维护分组排序重编号、分组索引修复、重命名校验、唯一默认分组名、分组计数移动等纯逻辑。
+    - `GroupService` 接管分组排序和 index 重建、stale index 修复、重命名结果判断、分组外观字段更新、唯一分组名生成、分组条目计数移动。
+    - `ClipboardHistoryStore.swift` 暂时保留删除分组时移除条目、取消 OCR/链接任务、删除外部文件、增量持久化、条目移入移出分组和排序等副作用逻辑，因为这些仍依赖 Store 当前状态和持久化入口。
+    - 验证：`swift build` 通过；`swift test` 通过，115 个测试全部通过。
+    - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.102 (260607.1949)` 更新到 `2.3.103 (260607.1959)`，新版 `.build/ClipEase.app` 已启动。
+    - 遗留风险：需要重点手工验证新建分组、重命名分组、重复名称提示、分组排序、修改分组颜色与图标、移动卡片进出分组、删除分组后条目清理没有回归。
+    - 阶段 2-C 入口条件：阶段 2-B 本地 Git 提交完成后，按顺序只允许进入 `HistoryPagingService` 拆分。
 
 ### 阶段 3：SQLite 存储层工程化拆分
 

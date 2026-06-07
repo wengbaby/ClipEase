@@ -420,12 +420,27 @@ final class ClipboardHistoryStore: ObservableObject {
         case empty
         case duplicate
         case notFound
+
+        init(_ result: GroupService.RenameResult) {
+            switch result {
+            case .renamed:
+                self = .renamed
+            case .unchanged:
+                self = .unchanged
+            case .empty:
+                self = .empty
+            case .duplicate:
+                self = .duplicate
+            case .notFound:
+                self = .notFound
+            }
+        }
     }
 
     @discardableResult
     func createGroup() -> ClipboardGroup {
         let group = ClipboardGroup.makeDefault(
-            name: uniqueGroupName(baseName: ClipboardGroup.defaultName),
+            name: GroupService.uniqueGroupName(baseName: ClipboardGroup.defaultName, groups: groups),
             sortOrder: groups.count
         )
         groups.append(group)
@@ -436,41 +451,30 @@ final class ClipboardHistoryStore: ObservableObject {
 
     @discardableResult
     func renameGroup(_ id: ClipboardGroup.ID, name: String) -> GroupRenameResult {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
-            return .empty
+        let result = GroupService.renameGroup(
+            id,
+            name: name,
+            groups: &groups,
+            indexByID: &groupIndexByID
+        )
+        if result == .renamed {
+            scheduleSave()
         }
-
-        guard let index = groupIndex(for: id) else {
-            return .notFound
-        }
-
-        if normalizedGroupName(groups[index].name) == normalizedGroupName(trimmedName) {
-            return .unchanged
-        }
-
-        guard isGroupNameAvailable(trimmedName, excluding: id) else {
-            return .duplicate
-        }
-
-        groups[index].name = trimmedName
-        groups[index].updatedAt = Date()
-        scheduleSave()
-        return .renamed
+        return GroupRenameResult(result)
     }
 
     func updateGroupAppearance(_ id: ClipboardGroup.ID, colorHex: String? = nil, iconName: String? = nil) {
-        guard let index = groupIndex(for: id) else {
+        let didUpdate = GroupService.updateGroupAppearance(
+            id,
+            colorHex: colorHex,
+            iconName: iconName,
+            groups: &groups,
+            indexByID: &groupIndexByID
+        )
+        guard didUpdate else {
             return
         }
 
-        if let colorHex {
-            groups[index].colorHex = colorHex
-        }
-        if let iconName {
-            groups[index].iconName = iconName
-        }
-        groups[index].updatedAt = Date()
         scheduleSave()
     }
 
@@ -1245,20 +1249,7 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func groupIndex(for id: ClipboardGroup.ID) -> Int? {
-        guard let index = groupIndexByID[id],
-              groups.indices.contains(index),
-              groups[index].id == id else {
-            rebuildGroupIndex()
-            guard let repairedIndex = groupIndexByID[id],
-                  groups.indices.contains(repairedIndex),
-                  groups[repairedIndex].id == id else {
-                return nil
-            }
-
-            return repairedIndex
-        }
-
-        return index
+        GroupService.groupIndex(for: id, groups: groups, indexByID: &groupIndexByID)
     }
 
     private func rebuildItemIndexes() {
@@ -1276,22 +1267,11 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func sortGroups() {
-        groups.sort { lhs, rhs in
-            lhs.sortOrder == rhs.sortOrder ? lhs.createdAt < rhs.createdAt : lhs.sortOrder < rhs.sortOrder
-        }
-        for index in groups.indices {
-            groups[index].sortOrder = index
-        }
-        rebuildGroupIndex()
+        groupIndexByID = GroupService.sortGroupsAndBuildIndex(&groups)
     }
 
     private func rebuildGroupIndex() {
-        var indexByID: [ClipboardGroup.ID: Int] = [:]
-        indexByID.reserveCapacity(groups.count)
-        for (index, group) in groups.enumerated() {
-            indexByID[group.id] = index
-        }
-        groupIndexByID = indexByID
+        groupIndexByID = GroupService.rebuildGroupIndex(groups)
     }
 
     private func scheduleSave() {
@@ -1526,23 +1506,11 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func updateGroupCountOnMove(from oldGroupID: ClipboardGroup.ID?, to newGroupID: ClipboardGroup.ID?) {
-        if oldGroupID == newGroupID {
-            return
-        }
-
-        if let oldGroupID,
-           let count = itemCountByGroupID[oldGroupID] {
-            let nextCount = max(0, count - 1)
-            if nextCount == 0 {
-                itemCountByGroupID[oldGroupID] = nil
-            } else {
-                itemCountByGroupID[oldGroupID] = nextCount
-            }
-        }
-
-        if let newGroupID {
-            itemCountByGroupID[newGroupID, default: 0] += 1
-        }
+        GroupService.updateGroupCountOnMove(
+            from: oldGroupID,
+            to: newGroupID,
+            countByGroupID: &itemCountByGroupID
+        )
     }
 
     @discardableResult
@@ -1666,14 +1634,14 @@ final class ClipboardHistoryStore: ObservableObject {
 
         var mapping: [ClipboardGroup.ID: ClipboardGroup.ID] = [:]
         var knownIDs = Set(groups.map(\.id))
-        var knownNames = Set(groups.map { normalizedGroupName($0.name) })
+        var knownNames = Set(groups.map { GroupService.normalizedGroupName($0.name) })
         var groupsToAppend: [ClipboardGroup] = []
 
         for importedGroup in importedGroups {
-            let normalizedName = normalizedGroupName(importedGroup.name)
+            let normalizedName = GroupService.normalizedGroupName(importedGroup.name)
             if knownIDs.contains(importedGroup.id) {
                 if let existingGroup = groups.first(where: { $0.id == importedGroup.id }),
-                   normalizedGroupName(existingGroup.name) == normalizedName {
+                   GroupService.normalizedGroupName(existingGroup.name) == normalizedName {
                     mapping[importedGroup.id] = importedGroup.id
                 }
                 continue
@@ -1724,39 +1692,6 @@ final class ClipboardHistoryStore: ObservableObject {
             sanitizedItem.groupedAt = nil
         }
         return sanitizedItem
-    }
-
-    private func normalizedGroupName(_ name: String) -> String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
-    }
-
-    private func isGroupNameAvailable(_ name: String, excluding id: ClipboardGroup.ID? = nil) -> Bool {
-        let normalizedName = normalizedGroupName(name)
-        return !groups.contains { group in
-            if group.id == id {
-                return false
-            }
-
-            return normalizedGroupName(group.name) == normalizedName
-        }
-    }
-
-    private func uniqueGroupName(baseName: String) -> String {
-        let trimmedBaseName = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedBaseName = trimmedBaseName.isEmpty ? ClipboardGroup.defaultName : trimmedBaseName
-
-        if isGroupNameAvailable(resolvedBaseName) {
-            return resolvedBaseName
-        }
-
-        var index = 2
-        while true {
-            let candidate = "\(resolvedBaseName) \(index)"
-            if isGroupNameAvailable(candidate) {
-                return candidate
-            }
-            index += 1
-        }
     }
 
     private static func fallbackLinkTitle(for url: URL) -> String {
