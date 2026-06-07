@@ -208,7 +208,7 @@
 
 ### 阶段 5-C：ClipboardHistoryStore 保存与异步副作用拆分
 
-- 状态：阶段 5-C-2 已完成，保存队列和链接元数据协调器已拆出；OCR 暂未迁移
+- 状态：阶段 5-C-3 已完成，保存队列、链接元数据协调器和 OCR 协调器已拆出
 - 计划开始：2026-06-08
 - 本阶段当前小步不改 UI，不改 SQLite schema，不改剪贴板入库、去重、OCR 或链接标题更新行为。
 - 完成记录：
@@ -226,4 +226,12 @@
   - 2026-06-08：验证 `swift build` 通过；验证 `swift test` 通过，177 个测试全部通过。
   - 2026-06-08：执行 `./scripts/build-app.sh`，版本从 `2.3.129 (260608.0205)` 递增到 `2.3.130 (260608.0218)`。
   - 2026-06-08：已结束旧进程并启动新版 `.build/ClipEase.app`，进程路径为 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app/Contents/MacOS/ClipEase`。
-  - 阶段 5-C-3 入口条件：本次本地提交完成，并由用户确认继续后，按顺序只允许进入 `HistoryOCRCoordinator` 的最小拆分。
+  - 2026-06-08：新增 `Sources/ClipEase/Core/History/HistoryOCRCoordinator.swift`，收口 OCR Task 字典、取消任务、交互节流、并发 limiter 和识别调度生命周期。
+  - 2026-06-08：新增 `Tests/ClipEaseTests/HistoryOCRCoordinatorTests.swift`，覆盖 OCR 任务按条目/全部取消、缺失源文件时失败结果回写和 in-flight 状态清理。
+  - 2026-06-08：`ClipboardHistoryStore.swift` 不再直接持有 OCR task 字典和 `ClipboardOCRConcurrencyLimiter`；Store 继续保留 OCR 源文件路径解析、状态应用、OCR 结果写回和持久化 upsert 入口。
+  - 2026-06-08：本轮未改变 OCR 识别逻辑、OCR 状态语义、源文件查找顺序、持久化行为、UI、SQLite schema 或发布脚本。
+  - 2026-06-08：定向验证 `swift test --filter HistoryOCRCoordinator` 通过，2 个测试全部通过。
+  - 2026-06-08：验证 `swift build` 通过；验证 `swift test` 通过，179 个测试全部通过。
+  - 2026-06-08：执行 `./scripts/build-app.sh`，版本从 `2.3.130 (260608.0218)` 递增到 `2.3.131 (260608.0239)`。
+  - 2026-06-08：已结束旧进程并启动新版 `.build/ClipEase.app`，进程路径为 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app/Contents/MacOS/ClipEase`。
+  - 阶段 5-C 收尾入口条件：阶段 5-C-3 本地提交完成，并由用户确认继续后，只允许做 Store 剩余职责复核或进入阶段 5-D。

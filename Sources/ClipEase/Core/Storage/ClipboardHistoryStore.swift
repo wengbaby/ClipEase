@@ -47,7 +47,7 @@ final class ClipboardHistoryStore: ObservableObject {
     private let userDefaults: UserDefaults
     private var domainStore = ClipboardHistoryDomainStore()
     private let selfWriteGuard = ClipboardSelfWriteGuard()
-    private var ocrTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
+    private let ocrCoordinator = HistoryOCRCoordinator()
     private let linkMetadataCoordinator = HistoryLinkMetadataCoordinator()
     private var deferredSaveTask: Task<Void, Never>?
     private var debugGenerationTask: Task<Void, Never>?
@@ -948,27 +948,10 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     func setOCRInteractiveThrottleActive(_ isActive: Bool) {
-        Task {
-            await ClipboardOCRConcurrencyLimiter.shared.setInteractionActive(isActive)
-        }
+        ocrCoordinator.setInteractiveThrottleActive(isActive)
     }
 
     private func enqueueOCRIfNeeded(for item: ClipboardItem) {
-        guard item.ocrStatus == .pending else {
-            return
-        }
-
-        ocrTaskByItemID[item.id]?.cancel()
-        ocrTaskByItemID[item.id] = Task(priority: .utility) { [weak self] in
-            guard let self else {
-                return
-            }
-
-            await self.performOCR(for: item)
-        }
-    }
-
-    private func performOCR(for item: ClipboardItem) async {
         guard item.ocrStatus == .pending else {
             return
         }
@@ -983,54 +966,16 @@ final class ClipboardHistoryStore: ObservableObject {
             sourceURL = nil
         }
 
-        guard let sourceURL else {
-            await MainActor.run {
-                self.applyOCRResult(
-                    .init(text: "", emails: [], phoneNumbers: [], urls: [], textRegions: []),
-                    status: .failed,
-                    to: item.id
-                )
+        ocrCoordinator.enqueue(
+            item: item,
+            sourceURL: sourceURL,
+            setProcessing: { [weak self] id in
+                self?.setOCRStatus(.processing, for: id)
+            },
+            applyResult: { [weak self] result, status, id in
+                self?.applyOCRResult(result, status: status, to: id)
             }
-            return
-        }
-
-        await ClipboardOCRConcurrencyLimiter.shared.waitForTurn()
-        defer {
-            Task {
-                await ClipboardOCRConcurrencyLimiter.shared.finishTurn()
-            }
-        }
-
-        guard !Task.isCancelled else {
-            finishOCRTask(for: item.id)
-            return
-        }
-
-        await MainActor.run {
-            self.setOCRStatus(.processing, for: item.id)
-        }
-
-        let result: ClipboardOCRMatch?
-        switch item.type {
-        case .image:
-            result = await ClipboardOCRService.shared.recognizeImage(at: sourceURL)
-        case .file:
-            result = await ClipboardOCRService.shared.recognizePDF(at: sourceURL)
-        default:
-            result = nil
-        }
-
-        await MainActor.run {
-            guard !Task.isCancelled else {
-                self.finishOCRTask(for: item.id)
-                return
-            }
-            if let result {
-                self.applyOCRResult(result, status: .completed, to: item.id)
-            } else {
-                self.applyOCRResult(.init(text: "", emails: [], phoneNumbers: [], urls: [], textRegions: []), status: .failed, to: item.id)
-            }
-        }
+        )
     }
 
     private func setOCRStatus(_ status: ClipboardOCRStatus, for id: ClipboardItem.ID) {
@@ -1061,29 +1006,18 @@ final class ClipboardHistoryStore: ObservableObject {
         } else {
             scheduleSave()
         }
-        finishOCRTask(for: id)
-    }
-
-    private func finishOCRTask(for id: ClipboardItem.ID) {
-        ocrTaskByItemID[id] = nil
     }
 
     private func cancelOCRTasks(for removedItems: [ClipboardItem]) {
-        cancelOCRTasks(for: Set(removedItems.map(\.id)))
+        ocrCoordinator.cancelTasks(for: removedItems)
     }
 
     private func cancelOCRTasks(for ids: Set<ClipboardItem.ID>) {
-        for id in ids {
-            ocrTaskByItemID[id]?.cancel()
-            ocrTaskByItemID[id] = nil
-        }
+        ocrCoordinator.cancelTasks(for: ids)
     }
 
     private func cancelAllOCRTasks() {
-        for task in ocrTaskByItemID.values {
-            task.cancel()
-        }
-        ocrTaskByItemID.removeAll()
+        ocrCoordinator.cancelAllTasks()
     }
 
     private func sortItems() {
@@ -1722,48 +1656,5 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         return items
-    }
-}
-
-private actor ClipboardOCRConcurrencyLimiter {
-    static let shared = ClipboardOCRConcurrencyLimiter()
-
-    private let idleLimit = 5
-    private let interactiveLimit = 2
-    private var isInteractionActive = false
-    private var activeCount = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func setInteractionActive(_ isActive: Bool) {
-        isInteractionActive = isActive
-        resumeAvailableWaiters()
-    }
-
-    func waitForTurn() async {
-        if activeCount < currentLimit {
-            activeCount += 1
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    func finishTurn() {
-        activeCount = max(0, activeCount - 1)
-        resumeAvailableWaiters()
-    }
-
-    private var currentLimit: Int {
-        isInteractionActive ? interactiveLimit : idleLimit
-    }
-
-    private func resumeAvailableWaiters() {
-        while activeCount < currentLimit, !waiters.isEmpty {
-            activeCount += 1
-            let next = waiters.removeFirst()
-            next.resume()
-        }
     }
 }
