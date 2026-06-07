@@ -9,6 +9,7 @@ struct HistoryWindowView: View {
     @ObservedObject var inputState: HistoryWindowInputState
     @ObservedObject var recordingController: RecordingController
     @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
+    @StateObject private var searchCoordinator = HistorySearchCoordinator()
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
     let onClose: () -> Void
@@ -66,13 +67,7 @@ struct HistoryWindowView: View {
     @State private var previewItemsSourceSignature: [HistoryPreviewSourceSignature] = []
     @State private var appliedPreviewItemsMutationGeneration: UInt64 = 0
     @State private var previewItemCache: [ClipboardItem.ID: CachedHistoryPreviewItem] = [:]
-    @State private var searchTask: Task<Void, Never>?
-    @State private var searchLoadMoreTask: Task<Void, Never>?
-    @State private var searchGeneration: UInt64 = 0
     @State private var searchVisibilityTask: Task<Void, Never>?
-    @State private var lastSearchRequestSignature: HistorySearchRequestSignature?
-    @State private var loadedSearchRepositoryResultCount = 0
-    @State private var canLoadMoreSearchResults = false
     @State private var pendingSearchTrigger = "unknown"
     @State private var searchHasHandedOffFocusToCard = false
     @State private var preheatTask: Task<Void, Never>?
@@ -527,8 +522,7 @@ struct HistoryWindowView: View {
             deferredStartupTask?.cancel()
             previewBuildTask?.cancel()
             previewBuildGeneration &+= 1
-            searchTask?.cancel()
-            searchLoadMoreTask?.cancel()
+            searchCoordinator.cancelAll()
             searchVisibilityTask?.cancel()
             preheatTask?.cancel()
             previewFollowTask?.cancel()
@@ -4794,37 +4788,22 @@ struct HistoryWindowView: View {
         immediate: Bool = false,
         debounceNanoseconds: UInt64 = 90_000_000
     ) {
-        searchTask?.cancel()
-        searchGeneration &+= 1
         let scheduleStartedAt = CFAbsoluteTimeGetCurrent()
-        let generation = searchGeneration
-        let currentGroup: HistoryGroupSelection = isSearchVisible ? .all : selectedGroup
-        let currentSearchText = searchText
-        let currentSearchCriteria = searchCriteria
-        let currentSearchIsActive = !currentSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            currentSearchCriteria.hasActiveFilters
         let currentSearchTrigger = pendingSearchTrigger
         pendingSearchTrigger = "stateChange"
-        let usesUnfilteredSource = HistorySearchController.usesUnfilteredSearchSource(
-            selectedGroup: currentGroup,
-            searchText: currentSearchText,
-            criteria: currentSearchCriteria
-        )
-        let maxResultCount = usesUnfilteredSource ? nil : searchResultPageSize
-        let requestSignature = HistorySearchRequestSignature(
-            sourceIdentity: HistorySearchSourceIdentity(items: sourceItems),
-            selectedGroup: currentGroup.storageValue,
-            searchText: currentSearchText,
-            criteria: currentSearchCriteria
-        )
-        let searchStore = store
-        guard requestSignature != lastSearchRequestSignature else {
+        guard let request = searchCoordinator.prepareSearch(
+            sourceItems: sourceItems,
+            selectedGroup: selectedGroup,
+            isSearchVisible: isSearchVisible,
+            searchText: searchText,
+            criteria: searchCriteria,
+            trigger: currentSearchTrigger,
+            pageSize: searchResultPageSize
+        ) else {
             return
         }
-        lastSearchRequestSignature = requestSignature
-        searchLoadMoreTask?.cancel()
-        loadedSearchRepositoryResultCount = 0
-        canLoadMoreSearchResults = false
+
+        let searchStore = store
         PerformanceDiagnosticsService.shared.record(
             "search.schedule",
             category: "search",
@@ -4832,21 +4811,18 @@ struct HistoryWindowView: View {
             itemCount: sourceItems.count,
             metadata: [
                 "immediate": "\(immediate)",
-                "queryLength": "\(currentSearchText.count)",
-                "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
-                "trigger": currentSearchTrigger
+                "queryLength": "\(request.searchText.count)",
+                "hasFilters": "\(request.criteria.hasActiveFilters)",
+                "trigger": request.trigger
             ]
         )
 
-        if usesUnfilteredSource {
-            searchTask = nil
-            searchLoadMoreTask = nil
+        if request.usesUnfilteredSource {
             let applyStartedAt = CFAbsoluteTimeGetCurrent()
-            loadedSearchRepositoryResultCount = 0
-            canLoadMoreSearchResults = false
+            searchCoordinator.markUnfilteredApplied()
             applyUnfilteredPreviewResult()
             if pendingLatestFocusItemID == nil {
-                applySearchSelectionAndViewport(isSearchActive: currentSearchIsActive)
+                applySearchSelectionAndViewport(isSearchActive: request.isSearchActive)
             }
             PerformanceDiagnosticsService.shared.record(
                 "search.applyResults",
@@ -4855,10 +4831,10 @@ struct HistoryWindowView: View {
                 itemCount: sourceItems.count,
                 resultCount: allPreviewItems.count,
                 metadata: [
-                    "queryLength": "\(currentSearchText.count)",
-                    "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                    "queryLength": "\(request.searchText.count)",
+                    "hasFilters": "\(request.criteria.hasActiveFilters)",
                     "mode": "unfilteredSource",
-                    "trigger": currentSearchTrigger
+                    "trigger": request.trigger
                 ]
             )
             renderState.markAndFinish("filtered-items-ready count=\(allPreviewItems.count)")
@@ -4875,97 +4851,29 @@ struct HistoryWindowView: View {
                 itemCount: sourceItems.count,
                 resultCount: allPreviewItems.count,
                 metadata: [
-                    "queryLength": "\(currentSearchText.count)",
-                    "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                    "queryLength": "\(request.searchText.count)",
+                    "hasFilters": "\(request.criteria.hasActiveFilters)",
                     "mode": "unfilteredSource",
-                    "trigger": currentSearchTrigger
+                    "trigger": request.trigger
                 ]
             )
             return
         }
 
-        searchTask = Task(priority: .userInitiated) {
-            if !immediate {
-                try? await Task.sleep(nanoseconds: debounceNanoseconds)
-            }
-
-            guard !Task.isCancelled else {
-                return
-            }
-
-            PerformanceDiagnosticsService.shared.recordResourceCheckpoint("search.filter.start")
-
-            let filterStartedAt = CFAbsoluteTimeGetCurrent()
-            let repositorySearchTask = Task.detached(priority: .userInitiated) {
-                searchStore.searchItems(
-                    ClipboardSearchQuery(
-                        text: currentSearchText,
-                        limit: maxResultCount ?? searchResultPageSize
-                    )
-                )
-            }
-            let filterTask = Task.detached(priority: .userInitiated) {
-                let repositoryItems = await repositorySearchTask.value
-                let repositoryPreviewItems = repositoryItems.map { item in
-                    HistoryPreviewItem(item: item)
-                }
-                let sourceByID = Dictionary(uniqueKeysWithValues: sourceItems.map { ($0.id, $0) })
-                let mergedSourceItems = repositoryPreviewItems.map { sourceByID[$0.id] ?? $0 }
-                let filteredItems: [HistoryPreviewItem]
-                if mergedSourceItems.isEmpty {
-                    filteredItems = try HistorySearchController.filterItems(
-                        sourceItems,
-                        selectedGroup: currentGroup,
-                        searchText: currentSearchText,
-                        criteria: currentSearchCriteria,
-                        maxResultCount: maxResultCount,
-                        now: Date()
-                    )
-                } else {
-                    filteredItems = try HistorySearchController.filterItems(
-                        mergedSourceItems,
-                        selectedGroup: currentGroup,
-                        searchText: currentSearchText,
-                        criteria: currentSearchCriteria,
-                        maxResultCount: maxResultCount,
-                        now: Date()
-                    )
-                }
-                return HistorySearchFilterResult(
-                    items: filteredItems,
-                    repositoryResultCount: repositoryItems.count,
-                    canLoadMore: repositoryItems.count == searchResultPageSize
-                )
-            }
-
-            let result: HistorySearchFilterResult
-            do {
-                result = try await withTaskCancellationHandler {
-                    try await filterTask.value
-                } onCancel: {
-                    repositorySearchTask.cancel()
-                    filterTask.cancel()
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                return
-            }
-
-            guard !Task.isCancelled else {
-                return
-            }
-            let filterDurationMS = (CFAbsoluteTimeGetCurrent() - filterStartedAt) * 1_000
-
-            await MainActor.run {
-                guard searchGeneration == generation else {
-                    return
-                }
-
+        searchCoordinator.startSearch(
+            request: request,
+            immediate: immediate,
+            debounceNanoseconds: debounceNanoseconds,
+            repositorySearch: { query in
+                searchStore.searchItems(query)
+            },
+            onResult: { coordinatorResult in
+                let request = coordinatorResult.request
+                let result = coordinatorResult.filterResult
                 let applyStartedAt = CFAbsoluteTimeGetCurrent()
                 var transaction = Transaction()
                 let shouldAnimateResults = inputState.isWindowPresentedSnapshot && shouldAnimateHistoryRailChange(
-                    sourceItemCount: sourceItems.count,
+                    sourceItemCount: request.sourceItems.count,
                     renderedItemCount: result.items.count
                 )
                 if shouldAnimateResults {
@@ -4975,37 +4883,35 @@ struct HistoryWindowView: View {
                 }
                 withTransaction(transaction) {
                     applyFilteredPreviewResult(result)
-                    loadedSearchRepositoryResultCount = result.repositoryResultCount
-                    canLoadMoreSearchResults = result.canLoadMore
                     if pendingLatestFocusItemID == nil {
-                        applySearchSelectionAndViewport(isSearchActive: currentSearchIsActive)
+                        applySearchSelectionAndViewport(isSearchActive: request.isSearchActive)
                     }
                 }
                 PerformanceDiagnosticsService.shared.record(
                     "search.filter",
                     category: "search",
-                    durationMS: filterDurationMS,
-                    itemCount: sourceItems.count,
+                    durationMS: coordinatorResult.filterDurationMS,
+                    itemCount: request.sourceItems.count,
                     resultCount: result.items.count,
                     metadata: [
-                        "queryLength": "\(currentSearchText.count)",
-                        "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                        "queryLength": "\(request.searchText.count)",
+                        "hasFilters": "\(request.criteria.hasActiveFilters)",
                         "mode": "sqliteFTS",
-                        "trigger": currentSearchTrigger
+                        "trigger": request.trigger
                     ]
                 )
                 PerformanceDiagnosticsService.shared.record(
                     "search.applyResults",
                     category: "search",
                     durationMS: (CFAbsoluteTimeGetCurrent() - applyStartedAt) * 1_000,
-                    itemCount: sourceItems.count,
+                    itemCount: request.sourceItems.count,
                     resultCount: result.items.count,
                     metadata: [
-                        "queryLength": "\(currentSearchText.count)",
-                        "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
+                        "queryLength": "\(request.searchText.count)",
+                        "hasFilters": "\(request.criteria.hasActiveFilters)",
                         "mode": "sqliteFTS",
                         "animated": "\(shouldAnimateResults)",
-                        "trigger": currentSearchTrigger
+                        "trigger": request.trigger
                     ]
                 )
                 renderState.markAndFinish("filtered-items-ready count=\(result.items.count)")
@@ -5028,92 +4934,38 @@ struct HistoryWindowView: View {
                     "search.postApply",
                     category: "search",
                     durationMS: (CFAbsoluteTimeGetCurrent() - followupStartedAt) * 1_000,
-                    itemCount: sourceItems.count,
+                    itemCount: request.sourceItems.count,
                     resultCount: result.items.count,
                     metadata: [
-                        "queryLength": "\(currentSearchText.count)",
-                        "hasFilters": "\(currentSearchCriteria.hasActiveFilters)",
-                        "trigger": currentSearchTrigger
+                        "queryLength": "\(request.searchText.count)",
+                        "hasFilters": "\(request.criteria.hasActiveFilters)",
+                        "trigger": request.trigger
                     ]
                 )
                 PerformanceDiagnosticsService.shared.recordResourceCheckpoint("search.apply.complete")
             }
-        }
+        )
     }
 
     private func loadMoreSearchResultsIfNeeded(visibleUpperBound: Int, preloadMargin: Int = 12) {
-        guard canLoadMoreSearchResults,
-              searchLoadMoreTask == nil,
-              visibleUpperBound + preloadMargin >= filteredPreviewItems.count else {
-            return
-        }
-
-        let currentSearchText = searchText
-        let currentSearchCriteria = searchCriteria
-        let currentGroup: HistoryGroupSelection = isSearchVisible ? .all : selectedGroup
-        guard !HistorySearchController.usesUnfilteredSearchSource(
-            selectedGroup: currentGroup,
-            searchText: currentSearchText,
-            criteria: currentSearchCriteria
-        ) else {
-            return
-        }
-
-        let generation = searchGeneration
-        let offset = loadedSearchRepositoryResultCount
-        let existingItems = filteredPreviewItems
         let searchStore = store
-        searchLoadMoreTask = Task(priority: .userInitiated) {
-            let repositoryItems = await Task.detached(priority: .userInitiated) {
-                searchStore.searchItems(
-                    ClipboardSearchQuery(
-                        text: currentSearchText,
-                        limit: searchResultPageSize,
-                        offset: offset
-                    )
-                )
-            }.value
-
-            guard !Task.isCancelled else {
-                return
-            }
-
-            let repositoryPreviewItems = repositoryItems.map { HistoryPreviewItem(item: $0) }
-            let filteredPage: [HistoryPreviewItem]
-            do {
-                filteredPage = try HistorySearchController.filterItems(
-                    repositoryPreviewItems,
-                    selectedGroup: currentGroup,
-                    searchText: currentSearchText,
-                    criteria: currentSearchCriteria,
-                    maxResultCount: searchResultPageSize,
-                    now: Date()
-                )
-            } catch {
-                await MainActor.run {
-                    searchLoadMoreTask = nil
-                }
-                return
-            }
-
-            await MainActor.run {
-                guard searchGeneration == generation else {
-                    return
-                }
-
-                let existingIDs = Set(existingItems.map(\.id))
-                let mergedItems = existingItems + filteredPage.filter { !existingIDs.contains($0.id) }
-                applyFilteredPreviewResult(HistorySearchFilterResult(
-                    items: mergedItems,
-                    repositoryResultCount: offset + repositoryItems.count,
-                    canLoadMore: repositoryItems.count == searchResultPageSize
-                ))
-                loadedSearchRepositoryResultCount = offset + repositoryItems.count
-                canLoadMoreSearchResults = repositoryItems.count == searchResultPageSize
-                searchLoadMoreTask = nil
+        searchCoordinator.loadMoreIfNeeded(
+            visibleUpperBound: visibleUpperBound,
+            preloadMargin: preloadMargin,
+            existingItems: filteredPreviewItems,
+            selectedGroup: selectedGroup,
+            isSearchVisible: isSearchVisible,
+            searchText: searchText,
+            criteria: searchCriteria,
+            pageSize: searchResultPageSize,
+            repositorySearch: { query in
+                searchStore.searchItems(query)
+            },
+            onResult: { result in
+                applyFilteredPreviewResult(result)
                 schedulePreheatVisibleAssets()
             }
-        }
+        )
     }
 
     private struct PreviewSignatureUpdate: Sendable {
