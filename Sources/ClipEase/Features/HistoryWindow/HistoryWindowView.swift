@@ -10,6 +10,8 @@ struct HistoryWindowView: View {
     @ObservedObject var recordingController: RecordingController
     @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
     @StateObject private var searchCoordinator = HistorySearchCoordinator()
+    @StateObject private var previewCoordinator = HistoryPreviewCoordinator()
+    @StateObject private var viewportStore = HistoryViewportStore()
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
     let onClose: () -> Void
@@ -71,11 +73,9 @@ struct HistoryWindowView: View {
     @State private var pendingSearchTrigger = "unknown"
     @State private var searchHasHandedOffFocusToCard = false
     @State private var preheatTask: Task<Void, Never>?
-    @State private var previewFollowTask: Task<Void, Never>?
     @State private var rememberSelectedItemTask: Task<Void, Never>?
     @State private var latestFocusRetryTask: Task<Void, Never>?
     @State private var hiddenResourceCheckpointTask: Task<Void, Never>?
-    @State private var pendingPreviewFollowItemID: ClipboardItem.ID?
     @State private var lastHiddenResourceCheckpointAt: CFAbsoluteTime = 0
     @State private var windowWidth: CGFloat = 0
     @State private var latestPresentedItemID: ClipboardItem.ID?
@@ -106,8 +106,6 @@ struct HistoryWindowView: View {
     @State private var searchControlScreenFrame: CGRect?
     @State private var searchInteractionScreenFrames: [CGRect] = []
     @State private var cardRailTopInWindow: CGFloat = 68
-    @State private var cardRailVisibleRect: CGRect = .zero
-    @State private var railViewportMode: HistoryRailViewportMode = .automatic
     @AppStorage("history.systemGroup.pinned.iconName") private var pinnedGroupIconName = "pin.fill"
     @AppStorage("history.systemGroup.pinned.colorHex") private var pinnedGroupColorHex = "#2E8CFF"
     @AppStorage("history.lastSelectedGroup") private var rememberedSelectedGroup = HistoryGroupSelection.all.storageValue
@@ -204,11 +202,12 @@ struct HistoryWindowView: View {
     }
 
     private var historyRailContentWidth: CGFloat {
-        guard !renderedItems.isEmpty else {
-            return horizontalContentPadding * 2
-        }
-
-        return horizontalContentPadding * 2 + CGFloat(renderedItems.count) * historyCardWidth + CGFloat(max(renderedItems.count - 1, 0)) * horizontalCardSpacing
+        RenderWindowCoordinator.contentWidth(
+            itemCount: renderedItems.count,
+            cardWidth: historyCardWidth,
+            cardSpacing: horizontalCardSpacing,
+            horizontalPadding: horizontalContentPadding
+        )
     }
 
     private var historyRailVisibleWindow: Range<Int> {
@@ -221,7 +220,7 @@ struct HistoryWindowView: View {
             pendingProgrammaticJumpItemID: pendingProgrammaticJumpItemID,
             pendingItemScrollID: pendingItemScrollID,
             selectedItemID: selectedItemID,
-            visibleRect: cardRailVisibleRect
+            visibleRect: viewportStore.visibleRect
         ),
               let focusedIndex = filteredItemIndex(for: focusedID) else {
             return nil
@@ -231,26 +230,24 @@ struct HistoryWindowView: View {
     }
 
     private var historyRailViewportContext: HistoryRailViewportContext {
-        HistoryRailViewportContext(
+        RenderWindowCoordinator.viewportContext(
             itemCount: renderedItems.count,
-            visibleRect: cardRailVisibleRect,
+            visibleRect: viewportStore.visibleRect,
             hasReliableVisibleRect: HistoryScrollCoordinator.shared.hasBoundScrollView,
             itemStride: itemStride,
             horizontalContentPadding: horizontalContentPadding,
             bufferItemCount: historyRailWindowBufferItemCount,
             renderedItemLimit: historyRailRenderedItemLimit,
             edgeBufferItemCount: 3,
-            mode: railViewportMode
+            mode: viewportStore.mode
         )
     }
 
     private var renderedWindowItems: ArraySlice<HistoryPreviewItem> {
-        let range = historyRailVisibleWindow
-        guard !range.isEmpty else {
-            return renderedItems[0..<0]
-        }
-
-        return renderedItems[range]
+        RenderWindowCoordinator.renderedWindowItems(
+            items: renderedItems,
+            visibleWindow: historyRailVisibleWindow
+        )
     }
 
     private func requestNextHistoryPageIfNeeded() {
@@ -408,11 +405,10 @@ struct HistoryWindowView: View {
                             if let targetOffset = programmaticJumpTargetOffset(for: pendingItemScrollID) {
                                 isPreparingPendingItemScrollMeasurement = true
                                 pendingItemScrollRetryCount += 1
-                                cardRailVisibleRect = CGRect(
-                                    x: targetOffset,
-                                    y: cardRailVisibleRect.minY,
-                                    width: max(cardRailVisibleRect.width, 1),
-                                    height: cardRailVisibleRect.height
+                                viewportStore.resetForLatestFocus(
+                                    offsetX: targetOffset,
+                                    width: viewportStore.visibleRect.width,
+                                    height: viewportStore.visibleRect.height
                                 )
 
                                 Task { @MainActor in
@@ -525,7 +521,7 @@ struct HistoryWindowView: View {
             searchCoordinator.cancelAll()
             searchVisibilityTask?.cancel()
             preheatTask?.cancel()
-            previewFollowTask?.cancel()
+            previewCoordinator.cancelFollow()
             rememberSelectedItemTask?.cancel()
             latestFocusRetryTask?.cancel()
             pendingKeyboardFocusClearTask?.cancel()
@@ -2471,7 +2467,7 @@ struct HistoryWindowView: View {
         keepKeyboardFocusedItemRendered(nextID)
         revealPartiallyVisibleCardIfNeeded(nextID, animated: false)
         if previewState.isVisible {
-            pendingPreviewFollowItemID = nextID
+            previewCoordinator.markNeedsFollow(nextID)
             showPreview(nextID)
             Task { @MainActor in
                 await Task.yield()
@@ -2713,7 +2709,7 @@ struct HistoryWindowView: View {
         }
 
         guard let cardFrame = cardViewportFrame(for: item.id) else {
-            pendingPreviewFollowItemID = item.id
+            previewCoordinator.markNeedsFollow(item.id)
             keepKeyboardFocusedItemRendered(item.id)
             scrollToItemWhenRendered(item.id, animated: false)
             followPreviewForCurrentScroll()
@@ -2736,32 +2732,15 @@ struct HistoryWindowView: View {
             return
         }
 
-        pendingPreviewFollowItemID = previewedID
-        guard previewFollowTask == nil else {
-            return
-        }
-
-        previewFollowTask = Task { @MainActor in
-            var targetID = previewedID
-            for delay in HistoryPreviewFollowPolicy.retryDelaysNanoseconds {
-                try? await Task.sleep(nanoseconds: delay)
-                guard !Task.isCancelled else {
-                    return
-                }
-
-                targetID = pendingPreviewFollowItemID ?? targetID
-                guard previewState.isVisible,
-                      previewState.itemID == targetID,
-                      let refreshedFrame = cardViewportFrame(for: targetID) else {
-                    continue
-                }
-
-                onMovePreview(refreshedFrame)
+        previewCoordinator.scheduleFollow(
+            itemID: previewedID,
+            isPreviewVisible: { previewState.isVisible },
+            currentPreviewItemID: { previewState.itemID },
+            frameForItem: { id in cardViewportFrame(for: id) },
+            onMovePreview: { frame in
+                onMovePreview(frame)
             }
-
-            pendingPreviewFollowItemID = nil
-            previewFollowTask = nil
-        }
+        )
     }
 
     private func isEditable(_ item: HistoryPreviewItem) -> Bool {
@@ -3957,11 +3936,11 @@ struct HistoryWindowView: View {
     }
 
     private func cardDocumentFrame(forRenderedIndex itemIndex: Int) -> CGRect {
-        CGRect(
-            x: horizontalContentPadding + CGFloat(itemIndex) * (historyCardWidth + horizontalCardSpacing),
-            y: 0,
-            width: historyCardWidth,
-            height: 270
+        RenderWindowCoordinator.documentFrame(
+            itemIndex: itemIndex,
+            horizontalPadding: horizontalContentPadding,
+            itemStride: itemStride,
+            cardWidth: historyCardWidth
         )
     }
 
@@ -3998,13 +3977,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        if abs(cardRailVisibleRect.minX - visibleRect.minX) > itemStride ||
-            abs(cardRailVisibleRect.width - visibleRect.width) > 0.5 ||
-            cardRailVisibleRect == .zero {
-            cardRailVisibleRect = visibleRect
-            if railViewportMode == .visibleArea {
-                railViewportMode = .automatic
-            }
+        if viewportStore.updateVisibleRectIfNeeded(visibleRect, itemStride: itemStride) {
             requestNextHistoryPageIfNeeded()
         }
     }
@@ -4015,16 +3988,15 @@ struct HistoryWindowView: View {
         }
 
         let focusedIndex = filteredItemIndex(for: id) ?? 0
-        cardRailVisibleRect = CGRect(
-            x: latestInsertedCardPreferredOffset(frame: CGRect(
+        viewportStore.resetForLatestFocus(
+            offsetX: latestInsertedCardPreferredOffset(frame: CGRect(
                 x: horizontalContentPadding + CGFloat(focusedIndex) * itemStride,
                 y: 0,
                 width: historyCardWidth,
                 height: 270
             )),
-            y: cardRailVisibleRect.minY,
-            width: max(cardRailVisibleRect.width, 1),
-            height: cardRailVisibleRect.height
+            width: viewportStore.visibleRect.width,
+            height: viewportStore.visibleRect.height
         )
     }
 
@@ -4048,7 +4020,7 @@ struct HistoryWindowView: View {
 
         let visibleRange = HistoryPreviewCacheRetentionPolicy.retainedWindow(
             itemCount: sourceItems.count,
-            visibleRect: cardRailVisibleRect,
+            visibleRect: viewportStore.visibleRect,
             hasReliableVisibleRect: HistoryScrollCoordinator.shared.hasBoundScrollView,
             itemStride: itemStride,
             horizontalContentPadding: horizontalContentPadding,
@@ -5144,19 +5116,19 @@ struct HistoryWindowView: View {
         shouldResetHorizontalOffsetForPendingItemScroll = false
         shouldAnimatePendingItemScroll = false
         isPreparingPendingItemScrollMeasurement = false
-        railViewportMode = .firstPage
+        viewportStore.mode = .firstPage
         let measuredVisibleRect = HistoryScrollCoordinator.shared.visibleDocumentRect
-        cardRailVisibleRect = CGRect(
+        viewportStore.visibleRect = CGRect(
             x: 0,
-            y: measuredVisibleRect?.minY ?? cardRailVisibleRect.minY,
-            width: measuredVisibleRect?.width ?? cardRailVisibleRect.width,
-            height: measuredVisibleRect?.height ?? cardRailVisibleRect.height
+            y: measuredVisibleRect?.minY ?? viewportStore.visibleRect.minY,
+            width: measuredVisibleRect?.width ?? viewportStore.visibleRect.width,
+            height: measuredVisibleRect?.height ?? viewportStore.visibleRect.height
         )
         HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
         Task { @MainActor in
             await Task.yield()
-            if railViewportMode == .firstPage {
-                railViewportMode = .automatic
+            if viewportStore.mode == .firstPage {
+                viewportStore.mode = .automatic
             }
         }
     }
@@ -5443,11 +5415,10 @@ struct HistoryWindowView: View {
             }
 
             if let targetOffset = programmaticJumpTargetOffset(for: id) {
-                cardRailVisibleRect = CGRect(
-                    x: targetOffset,
-                    y: cardRailVisibleRect.minY,
-                    width: max(cardRailVisibleRect.width, 1),
-                    height: cardRailVisibleRect.height
+                viewportStore.resetForLatestFocus(
+                    offsetX: targetOffset,
+                    width: viewportStore.visibleRect.width,
+                    height: viewportStore.visibleRect.height
                 )
             }
             itemScrollRequestID = UUID()
@@ -5564,103 +5535,11 @@ struct HistoryWindowView: View {
     }
 
     private func schedulePreheatVisibleAssets() {
-        preheatTask?.cancel()
-        let visibleRange = historyRailVisibleWindow
-        let preheatStart = max(0, visibleRange.lowerBound - 8)
-        let preheatEnd = min(filteredItems.count, visibleRange.upperBound + 8)
-        let itemsToPreheat = preheatStart < preheatEnd ? Array(filteredItems[preheatStart..<preheatEnd]) : []
-        guard !itemsToPreheat.isEmpty else {
-            preheatTask = nil
-            return
-        }
-
-        let batchSize = HistoryWindowRenderState.preheatBatchSize
-        preheatTask = Task.detached(priority: .utility) {
-            try? await Task.sleep(nanoseconds: 260_000_000)
-            guard !Task.isCancelled else {
-                return
-            }
-
-            for batchStart in stride(from: 0, to: itemsToPreheat.count, by: batchSize) {
-                guard !Task.isCancelled else {
-                    return
-                }
-                let batchEnd = min(batchStart + batchSize, itemsToPreheat.count)
-                for item in itemsToPreheat[batchStart..<batchEnd] {
-                    guard !Task.isCancelled else {
-                        return
-                    }
-                    await Self.preheatImageThumbnailInBackground(for: item)
-                    await Self.preheatSourceIconInBackground(for: item)
-                    await Self.preheatRichTextInBackground(for: item)
-                }
-                try? await Task.sleep(nanoseconds: 80_000_000)
-            }
-        }
-    }
-
-    nonisolated private static func preheatImageThumbnailInBackground(for item: HistoryPreviewItem) async {
-        guard let imageFileName = item.imageFileName,
-              let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(fileName: imageFileName),
-              let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
-            return
-        }
-
-        let cacheKey = "history-thumbnail:\(imageFileName)"
-        let isCached = await MainActor.run {
-            ImageMemoryCache.shared.cachedImage(for: cacheKey) != nil
-        }
-        guard !isCached else {
-            return
-        }
-
-        let image = HistoryCardAssetLoadGate.shared.load {
-            NSImage(contentsOf: thumbnailURL) ?? NSImage(contentsOf: imageURL)
-        }
-        if let image {
-            await MainActor.run {
-                ImageMemoryCache.shared.store(image, for: cacheKey)
-            }
-        }
-    }
-
-    nonisolated private static func preheatSourceIconInBackground(for item: HistoryPreviewItem) async {
-        guard let iconFileName = item.iconFileName,
-              let iconURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: iconFileName) else {
-            return
-        }
-
-        let cacheKey = "app-icon:\(iconFileName)"
-        let isCached = await MainActor.run {
-            ImageMemoryCache.shared.cachedImage(for: cacheKey) != nil
-        }
-        guard !isCached else {
-            return
-        }
-
-        let image = HistoryCardAssetLoadGate.shared.load {
-            NSImage(contentsOf: iconURL).map {
-                ClipEaseAppIcon.roundedImage($0, size: NSSize(width: 64, height: 64))
-            }
-        }
-        if let image {
-            await MainActor.run {
-                ImageMemoryCache.shared.store(image, for: cacheKey)
-            }
-        }
-    }
-
-    nonisolated private static func preheatRichTextInBackground(for item: HistoryPreviewItem) async {
-        guard let richTextFileName = item.richTextFileName else {
-            return
-        }
-
-        _ = HistoryCardAssetLoadGate.shared.load {
-            RichTextCardPreviewCache.loadAttributedString(
-                fileName: richTextFileName,
-                fallbackText: item.preview
-            )
-        }
+        PreviewAssetPreheater.schedule(
+            existingTask: &preheatTask,
+            items: filteredItems,
+            visibleWindow: historyRailVisibleWindow
+        )
     }
 
     private func nextSelectionID(afterDeleting id: ClipboardItem.ID?) -> ClipboardItem.ID? {

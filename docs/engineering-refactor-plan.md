@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 1-A，搜索链路拆分与最小迁移已完成，等待用户验证和本地提交确认
+- 当前执行阶段：阶段 1-B / 1-C，预览协调器与滚动视口状态边界拆分已完成，等待用户验证和本地提交确认
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：先验证阶段 1-A 搜索链路拆分；确认无回归后再决定是否提交本地 Git、进入阶段 1-B
+- 当前优先目标：先验证阶段 1-B / 1-C 预览、预热、滚动视口和渲染窗口拆分；确认无回归后再决定是否提交本地 Git、进入阶段 1-D
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -948,6 +948,19 @@
     - 验证：`swift build` 通过；`swift test` 通过，95 个测试全部通过。
     - 遗留风险：需要用户手工验证搜索输入、筛选、Tab/方向键交接、搜索结果滚动加载、预览弹窗位置没有回归。
     - 阶段 1-B 入口条件：阶段 1-A 手工验证正常，并完成本地 Git 提交后，再由用户明确确认继续。
+  - 2026-06-07 阶段 1-B / 1-C 预览协调器与滚动视口状态边界拆分：
+    - 新增 `Sources/ClipEase/Features/HistoryWindow/HistoryPreviewCoordinator.swift`。
+    - 新增 `Sources/ClipEase/Features/HistoryWindow/PreviewAssetPreheater.swift`。
+    - 新增 `Sources/ClipEase/Features/HistoryWindow/HistoryViewportStore.swift`。
+    - 新增 `Sources/ClipEase/Features/HistoryWindow/RenderWindowCoordinator.swift`。
+    - 新增 `Tests/ClipEaseTests/HistoryPreviewViewportCoordinatorTests.swift`。
+    - `HistoryWindowView.swift` 不再直接维护预览跟随 Task、预览跟随 pending item、滚动视口可见矩形和视口模式。
+    - 预览资源预热的范围计算、后台缩略图/icon/rich text 预热逻辑迁入 `PreviewAssetPreheater`。
+    - 渲染窗口内容宽度、视口上下文、窗口切片和卡片文档 frame 纯计算迁入 `RenderWindowCoordinator`。
+    - `HistoryWindowView.swift` 暂时保留 `showPreview` / `closePreview`、真实滚动执行、选中/焦点恢复、预览内容获取，因为这些仍直接依赖 `store`、`inputState`、`onPreview`、`onClosePreview` 和 `HistoryScrollCoordinator`。
+    - 验证：阶段内已运行定向测试 `swift test --filter HistoryPreviewViewportCoordinatorTests` 并通过；完成前仍需运行完整 `swift build` 和 `swift test`。
+    - 遗留风险：需要用户手工验证预览位置跟随、方向键左右切换、鼠标点击卡片、搜索后滚动加载、首次打开主窗口卡片渲染没有回归。
+    - 阶段 1-D 入口条件：阶段 1-B / 1-C 手工验证正常，并完成本地 Git 提交后，再由用户明确确认继续。
 
 ### 阶段 2：ClipboardHistoryStore 职责拆分
 

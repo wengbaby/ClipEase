@@ -376,10 +376,28 @@ import Testing
     ) == 37..<57)
 }
 
-@Test func railViewportContextUsesFocusedWindowBeforeVisibleRect() {
+@Test func railViewportContextKeepsVisibleWindowWhenFocusIsAlreadyVisible() {
     let context = HistoryRailViewportContext(
         itemCount: 100,
-        visibleRect: CGRect(x: 0, y: 0, width: 1080, height: 300),
+        visibleRect: CGRect(x: 5400, y: 0, width: 1080, height: 300),
+        hasReliableVisibleRect: true,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        bufferItemCount: 6,
+        renderedItemLimit: 20,
+        edgeBufferItemCount: 3
+    )
+
+    let visibleWindow = context.visibleWindow(focusedIndex: nil)
+
+    #expect(visibleWindow.contains(20))
+    #expect(context.visibleWindow(focusedIndex: 20) == visibleWindow)
+}
+
+@Test func railViewportContextUsesFocusedWindowWhenFocusLeavesVisibleWindow() {
+    let context = HistoryRailViewportContext(
+        itemCount: 100,
+        visibleRect: CGRect(x: 5400, y: 0, width: 1080, height: 300),
         hasReliableVisibleRect: true,
         itemStride: 270,
         horizontalContentPadding: 28,

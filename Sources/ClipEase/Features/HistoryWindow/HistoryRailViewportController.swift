@@ -34,16 +34,7 @@ struct HistoryRailViewportContext {
             )
         }
 
-        if let focusedIndex {
-            return HistoryRailRenderWindowPolicy.focusedWindow(
-                focusedIndex: focusedIndex,
-                itemCount: itemCount,
-                renderedItemLimit: renderedItemLimit,
-                edgeBufferItemCount: edgeBufferItemCount
-            )
-        }
-
-        return HistoryRailRenderWindowPolicy.visibleWindow(
+        let visibleWindow = HistoryRailRenderWindowPolicy.visibleWindow(
             itemCount: itemCount,
             visibleRect: visibleRect,
             hasReliableVisibleRect: hasReliableVisibleRect,
@@ -52,6 +43,18 @@ struct HistoryRailViewportContext {
             bufferItemCount: bufferItemCount,
             renderedItemLimit: renderedItemLimit
         )
+
+        if let focusedIndex,
+           !visibleWindow.contains(focusedIndex) {
+            return HistoryRailRenderWindowPolicy.focusedWindow(
+                focusedIndex: focusedIndex,
+                itemCount: itemCount,
+                renderedItemLimit: renderedItemLimit,
+                edgeBufferItemCount: edgeBufferItemCount
+            )
+        }
+
+        return visibleWindow
     }
 }
 
