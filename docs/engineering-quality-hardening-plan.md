@@ -176,7 +176,15 @@
 
 ### 阶段 5-A：主窗口关键交互回归保护
 
-- 状态：待执行
+- 状态：执行中，已补充最小交互回归测试
 - 计划开始：2026-06-08
 - 入口条件：当前 release 已发布，工作区干净，`swift build` 和 `swift test` 已通过。
 - 本阶段不改 UI，不改 Store，不改 SQLite，不改 release 脚本。
+- 完成记录：
+  - 2026-06-08：新增 `Tests/ClipEaseTests/HistoryInteractionRegressionTests.swift`，覆盖搜索框编辑键隔离、搜索到卡片的焦点交接、交接后空格预览、回到搜索框后的 Backspace/Space 保护、预览 fallback anchor 跟随和分组外观弹窗首开延迟策略。
+  - 2026-06-08：本轮未修改生产业务代码、主窗口 UI、Store、SQLite、设置页或发布脚本。
+  - 2026-06-08：定向验证 `swift test --filter HistoryInteractionRegression` 通过，5 个测试全部通过。
+  - 2026-06-08：验证 `swift build` 通过；验证 `swift test` 通过，172 个测试全部通过。
+  - 2026-06-08：执行 `./scripts/build-app.sh`，版本从 `2.3.126 (260608.0030)` 递增到 `2.3.127 (260608.0126)`。
+  - 2026-06-08：已结束旧进程并启动新版 `.build/ClipEase.app`，进程路径为 `/Users/wpc/code/codex/ClipboardHistory/.build/ClipEase.app/Contents/MacOS/ClipEase`。
+  - 阶段 5-B 入口条件：阶段 5-A 本地提交完成，并由用户确认继续后，按顺序只允许进入主窗口输入与焦点路由拆分。
