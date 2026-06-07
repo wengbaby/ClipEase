@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 3-F，SQLiteDatabaseCompactor 拆分已完成，等待本地提交
+- 当前执行阶段：阶段 3-G，SQLiteBackupManager 职责复核与收口已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 3-F；提交后按顺序进入阶段 3-G SQLiteBackupManager 职责复核与收口
+- 当前优先目标：提交阶段 3-G；提交后按顺序执行阶段 3 收尾验证
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1112,7 +1112,15 @@
     - `SQLiteClipboardStore.swift` 仍保留 repository 接口、数据库打开关闭和压缩触发入口。
     - 本轮未改变压缩策略、触发条件、SQLite schema、迁移、事务边界或用户设置。
     - 验证：`swift build` 通过；`swift test --filter SQLiteDatabaseCompactor` 通过，2 个 compactor 专项测试全部通过。
+    - 本地提交：`90e2df0 refactor: extract sqlite database compactor`。
     - 阶段 3-G 入口条件：阶段 3-F 本地提交完成后，按顺序只允许复核和收口 `SQLiteBackupManager` 的完整职责；不得改变备份目录格式、迁移策略或用户数据处理方式。
+  - 2026-06-07 阶段 3-G SQLiteBackupManager 职责复核与收口：
+    - 新增 `Tests/ClipEaseTests/SQLiteBackupManagerTests.swift`。
+    - 复核结论：`Sources/ClipEase/Core/Storage/SQLite/SQLiteBackupManager.swift` 已独立承担备份主库、`-wal`、`-shm`、`-journal` sidecar 的职责。
+    - 复核结论：`SQLiteClipboardStore.swift` 中旧 schema 迁移入口会在 migration 前调用 `SQLiteBackupManager`；备份失败会抛错并阻止继续迁移。
+    - 本轮未改变备份目录格式、备份文件名、迁移策略、用户数据处理方式、SQLite schema 或生产代码。
+    - 验证：`swift build` 通过；`swift test --filter SQLiteBackupManager` 通过，3 个备份管理器专项测试全部通过。
+    - 阶段 3 收尾入口条件：阶段 3-G 本地提交完成后，按顺序执行阶段 3 收尾验证；重点验证旧库迁移、FTS 搜索、分组加载、图片/富文本/文件附件引用、数据库压缩和备份文件生成。
 
 ### 阶段 4：设置页、诊断页、发布流程优化
 
