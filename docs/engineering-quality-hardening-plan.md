@@ -275,3 +275,14 @@
   - 2026-06-08：复核确认设置页仍保留 section 组合、真实服务调用、文件选择弹窗展示、状态提示和部分 AppKit alert；这些职责继续迁移需要新增设置页 view model/flow 层，超出本阶段两个协调器目标。
   - 2026-06-08：阶段 5-E 到此关闭。剩余设置页 flow 层职责作为后续可选优化记录，不在本轮继续拆分。
   - 阶段 5-F 入口条件：阶段 5-E 收尾提交完成，并由用户确认继续后，只允许进入免费发布流程 fallback。
+
+### 阶段 5-F：免费发布流程 fallback
+
+- 状态：阶段 5-F-1 已完成，发布失败恢复说明已进入脚本和清单
+- 计划开始：2026-06-08
+- 本阶段不引入 Apple notarization，不引入 Developer ID，不引入任何付费发布能力。
+- 完成记录：
+  - 2026-06-08：增强 `scripts/release.sh`，在真正执行发布推送前输出免费发布失败恢复步骤，覆盖分支推送、tag 推送、GitHub CLI 创建 release、GitHub 网页备用、GitHub API 备用、SSH 443 备用和 SHA-256 复核。
+  - 2026-06-08：更新 `docs/releases/release-checklist.md`，把同样的免费恢复步骤写入发布检查清单。
+  - 2026-06-08：新增 `ReleaseScriptPolicyTests` 覆盖 fallback 输出和 checklist 免费流程说明，明确不包含 notarization / Developer ID。
+  - 2026-06-08：定向验证 `swift test --filter ReleaseScriptPolicy` 通过，12 个测试全部通过。

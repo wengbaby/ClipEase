@@ -168,6 +168,23 @@ verify_github_release_asset_hash() {
   echo "Verified GitHub release asset SHA-256: $actual_sha256"
 }
 
+print_publish_fallback_instructions() {
+  cat <<EOF
+免费发布失败恢复步骤：
+1. 如果分支推送失败，修复网络或认证后重跑本脚本，或先手动执行：git push origin "HEAD:${PUBLISH_BRANCH}"
+2. 如果 tag 推送失败，确认本地 tag 存在后执行：git push origin "$TAG"
+3. 如果 GitHub Release 创建失败，确认 tag 已推送后执行：
+   gh release create "$TAG" "$DMG_PATH" --title "$TITLE" --notes-file "$BODY_PATH"
+4. 如果上传后 hash 校验失败，删除远端错误 asset 后重新上传，并用本地 SHA-256 对照：$SHA256
+GitHub 网页备用：
+   打开 GitHub Releases 页面，选择 tag "$TAG"，标题填写 "$TITLE"，正文使用 "$BODY_PATH"，上传 "$DMG_PATH"。
+GitHub API 备用：
+   可用 GitHub REST API 创建 release，再按 upload_url 上传 "$DMG_NAME"；上传后必须重新校验 SHA-256。
+SSH 443 备用：
+   如果普通 SSH 推送失败，可配置 github.com 走 ssh.github.com:443 后再重试 git push。
+EOF
+}
+
 require_command swift
 require_command create-dmg
 require_command hdiutil
@@ -301,6 +318,7 @@ if [[ "$PUBLISH" == "true" ]]; then
     exit 1
   fi
 
+  print_publish_fallback_instructions
   git push origin "HEAD:${PUBLISH_BRANCH}"
   git tag "$TAG"
   CREATED_TAG="true"

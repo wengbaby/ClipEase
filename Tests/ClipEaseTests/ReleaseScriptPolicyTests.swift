@@ -43,7 +43,7 @@ import Testing
 @Test func releaseScriptDryRunSkipsPublishCommands() throws {
     let script = try releaseScript()
     let dryRunRange = try #require(script.range(of: "if [[ \"$DRY_RUN\" == \"true\" ]]; then"))
-    let branchPushRange = try #require(script.range(of: "git push origin \"HEAD:${PUBLISH_BRANCH}\""))
+    let branchPushRange = try #require(script.range(of: "\n  git push origin \"HEAD:${PUBLISH_BRANCH}\""))
 
     #expect(dryRunRange.lowerBound < branchPushRange.lowerBound)
 }
@@ -85,8 +85,37 @@ import Testing
     #expect(releaseCreateRange.lowerBound < assetHashRange.lowerBound)
 }
 
+@Test func releaseScriptPrintsFreePublishFallbackInstructions() throws {
+    let script = try releaseScript()
+    let branchPushRange = try #require(script.range(of: "git push origin \"HEAD:${PUBLISH_BRANCH}\""))
+    let fallbackRange = try #require(script.range(of: "print_publish_fallback_instructions"))
+
+    #expect(fallbackRange.lowerBound < branchPushRange.lowerBound)
+    #expect(script.contains("免费发布失败恢复步骤"))
+    #expect(script.contains("gh release create \"$TAG\" \"$DMG_PATH\" --title \"$TITLE\" --notes-file \"$BODY_PATH\""))
+    #expect(script.contains("GitHub 网页备用"))
+    #expect(script.contains("GitHub API 备用"))
+}
+
+@Test func releaseChecklistDocumentsFreeFallbackOnly() throws {
+    let checklist = try releaseChecklist()
+
+    #expect(checklist.contains("免费发布失败恢复"))
+    #expect(checklist.contains("gh release create"))
+    #expect(checklist.contains("GitHub 网页备用"))
+    #expect(checklist.contains("GitHub API 备用"))
+    #expect(!checklist.contains("notarization"))
+    #expect(!checklist.contains("Developer ID"))
+}
+
 private func releaseScript() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("scripts/release.sh")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func releaseChecklist() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("docs/releases/release-checklist.md")
     return try String(contentsOf: path, encoding: .utf8)
 }
