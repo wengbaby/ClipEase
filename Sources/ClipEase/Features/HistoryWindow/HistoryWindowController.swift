@@ -144,6 +144,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         isClosing = true
+        inputState.requestWindowHideCleanup()
         panel.hasShadow = false
         let targetFrame = hiddenFrame(for: panel.frame)
         NSAnimationContext.runAnimationGroup { context in

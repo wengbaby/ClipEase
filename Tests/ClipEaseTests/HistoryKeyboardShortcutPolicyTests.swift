@@ -438,3 +438,77 @@ import Testing
 
     #expect(frame == CGRect(x: 270, y: 74, width: 250, height: 270))
 }
+
+@Test func groupRenameKeyPolicySubmitsOnReturnOrEnter() {
+    #expect(HistoryGroupRenameKeyPolicy.action(for: KeyCode.returnKey) == .submit)
+    #expect(HistoryGroupRenameKeyPolicy.action(for: KeyCode.enter) == .submit)
+    #expect(HistoryGroupRenameKeyPolicy.action(for: KeyCode.escape) == .cancel)
+    #expect(HistoryGroupRenameKeyPolicy.action(for: KeyCode.a) == nil)
+}
+
+@Test func persistentPopoverInitialShowIsDeferredUntilAnchorSettles() {
+    #expect(PersistentPopoverInitialShowPolicy.shouldScheduleDeferredInitialShow(
+        isPresented: true,
+        isPopoverShown: false,
+        isShowScheduled: false
+    ))
+    #expect(!PersistentPopoverInitialShowPolicy.shouldScheduleDeferredInitialShow(
+        isPresented: false,
+        isPopoverShown: false,
+        isShowScheduled: false
+    ))
+    #expect(!PersistentPopoverInitialShowPolicy.shouldScheduleDeferredInitialShow(
+        isPresented: true,
+        isPopoverShown: true,
+        isShowScheduled: false
+    ))
+    #expect(!PersistentPopoverInitialShowPolicy.shouldScheduleDeferredInitialShow(
+        isPresented: true,
+        isPopoverShown: false,
+        isShowScheduled: true
+    ))
+}
+
+@Test func persistentPopoverAppliesOnlyValidMeasuredContentSizes() {
+    #expect(PersistentPopoverContentSizePolicy.shouldApply(
+        CGSize(width: 304, height: 382)
+    ))
+    #expect(!PersistentPopoverContentSizePolicy.shouldApply(.zero))
+    #expect(!PersistentPopoverContentSizePolicy.shouldApply(
+        CGSize(width: 304, height: 0)
+    ))
+}
+
+@Test func groupAppearanceOutsideClickPolicyClosesOnlyOutsideOwnedPanels() {
+    #expect(HistoryGroupAppearanceOutsideClickPolicy.shouldClose(
+        isEnabled: true,
+        eventWindowRole: .hostWindow
+    ))
+    #expect(HistoryGroupAppearanceOutsideClickPolicy.shouldClose(
+        isEnabled: true,
+        eventWindowRole: .outsideApp
+    ))
+    #expect(!HistoryGroupAppearanceOutsideClickPolicy.shouldClose(
+        isEnabled: true,
+        eventWindowRole: .popover
+    ))
+    #expect(!HistoryGroupAppearanceOutsideClickPolicy.shouldClose(
+        isEnabled: true,
+        eventWindowRole: .colorPanel
+    ))
+    #expect(!HistoryGroupAppearanceOutsideClickPolicy.shouldClose(
+        isEnabled: false,
+        eventWindowRole: .hostWindow
+    ))
+}
+
+@Test @MainActor func windowHideCleanupCanBeRequestedBeforeWindowVisibilityChanges() {
+    let inputState = HistoryWindowInputState()
+    inputState.setWindowVisible(true)
+    let originalRequestID = inputState.windowHideRequestID
+
+    inputState.requestWindowHideCleanup()
+
+    #expect(inputState.isWindowVisible)
+    #expect(inputState.windowHideRequestID != originalRequestID)
+}

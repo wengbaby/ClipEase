@@ -118,6 +118,65 @@ enum HistoryKeyboardCharacterPolicy {
     }
 }
 
+enum HistoryGroupRenameKeyAction: Equatable {
+    case submit
+    case cancel
+}
+
+enum HistoryGroupRenameKeyPolicy {
+    static func action(for keyCode: UInt16) -> HistoryGroupRenameKeyAction? {
+        switch keyCode {
+        case KeyCode.returnKey, KeyCode.enter:
+            .submit
+        case KeyCode.escape:
+            .cancel
+        default:
+            nil
+        }
+    }
+}
+
+enum PersistentPopoverInitialShowPolicy {
+    static func shouldScheduleDeferredInitialShow(
+        isPresented: Bool,
+        isPopoverShown: Bool,
+        isShowScheduled: Bool
+    ) -> Bool {
+        isPresented && !isPopoverShown && !isShowScheduled
+    }
+}
+
+enum PersistentPopoverContentSizePolicy {
+    static func shouldApply(_ size: CGSize) -> Bool {
+        size.width > 0 && size.height > 0
+    }
+}
+
+enum HistoryGroupAppearanceEventWindowRole {
+    case hostWindow
+    case popover
+    case colorPanel
+    case outsideApp
+}
+
+enum HistoryGroupAppearanceOutsideClickPolicy {
+    static func shouldClose(
+        isEnabled: Bool,
+        eventWindowRole: HistoryGroupAppearanceEventWindowRole
+    ) -> Bool {
+        guard isEnabled else {
+            return false
+        }
+
+        switch eventWindowRole {
+        case .hostWindow, .outsideApp:
+            return true
+        case .popover, .colorPanel:
+            return false
+        }
+    }
+}
+
 enum HistorySearchCancelPolicy {
     enum Action: Equatable {
         case clearSearch
@@ -259,6 +318,10 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     func notifyWindowWillHide() {
         setWindowPresented(false)
         setWindowVisible(false)
+        windowHideRequestID = UUID()
+    }
+
+    func requestWindowHideCleanup() {
         windowHideRequestID = UUID()
     }
 

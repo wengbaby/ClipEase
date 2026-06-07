@@ -79,6 +79,7 @@ struct PersistentPopoverPresenter<Content: View>: NSViewRepresentable {
         var onDismiss: () -> Void = {}
         private var popover: NSPopover?
         private var hostingController: NSHostingController<Content>?
+        private var isInitialShowScheduled = false
 
         init(isPresented: Binding<Bool>) {
             self.isPresentedBinding = isPresented
@@ -96,6 +97,7 @@ struct PersistentPopoverPresenter<Content: View>: NSViewRepresentable {
             if isPresented {
                 show()
             } else {
+                isInitialShowScheduled = false
                 close(callDismiss: false)
             }
         }
@@ -115,10 +117,41 @@ struct PersistentPopoverPresenter<Content: View>: NSViewRepresentable {
                 self.popover = popover
             }
 
+            if PersistentPopoverInitialShowPolicy.shouldScheduleDeferredInitialShow(
+                isPresented: isPresented,
+                isPopoverShown: popover.isShown,
+                isShowScheduled: isInitialShowScheduled
+            ) {
+                isInitialShowScheduled = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else {
+                        return
+                    }
+
+                    self.isInitialShowScheduled = false
+                    self.showNow(popover)
+                }
+                return
+            }
+
+            showNow(popover)
+        }
+
+        private func showNow(_ popover: NSPopover) {
+            guard isPresented else {
+                return
+            }
+
             guard !popover.isShown else {
                 return
             }
 
+            guard let anchorView,
+                  anchorView.window != nil else {
+                return
+            }
+
+            prepareContentSize(for: popover)
             popover.show(
                 relativeTo: anchorView.bounds,
                 of: anchorView,
@@ -136,6 +169,7 @@ struct PersistentPopoverPresenter<Content: View>: NSViewRepresentable {
                 return
             }
 
+            prepareContentSize(for: popover)
             popover.show(
                 relativeTo: anchorView.bounds,
                 of: anchorView,
@@ -154,9 +188,11 @@ struct PersistentPopoverPresenter<Content: View>: NSViewRepresentable {
 
         func close(callDismiss: Bool) {
             guard let popover else {
+                isInitialShowScheduled = false
                 return
             }
 
+            isInitialShowScheduled = false
             if popover.isShown {
                 popover.performClose(nil)
             }
@@ -186,6 +222,20 @@ struct PersistentPopoverPresenter<Content: View>: NSViewRepresentable {
             return popover
         }
 
+        private func prepareContentSize(for popover: NSPopover) {
+            guard let hostingController = popover.contentViewController as? NSHostingController<Content> else {
+                return
+            }
+
+            hostingController.view.layoutSubtreeIfNeeded()
+            let measuredSize = hostingController.view.fittingSize
+            guard PersistentPopoverContentSizePolicy.shouldApply(measuredSize) else {
+                return
+            }
+
+            popover.contentSize = measuredSize
+        }
+
         private func nsRectEdge(for edge: Edge) -> NSRectEdge {
             switch edge {
             case .top:
@@ -198,5 +248,6 @@ struct PersistentPopoverPresenter<Content: View>: NSViewRepresentable {
                 .maxX
             }
         }
+
     }
 }

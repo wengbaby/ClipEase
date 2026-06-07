@@ -45,6 +45,7 @@ struct HistoryWindowView: View {
     @State private var groupAppearanceOriginalIconName = "tray.full"
     @State private var groupIconSearchText = ""
     @State private var isGroupIconSearchFocused = false
+    @State private var groupAppearancePopoverWindow: NSWindow?
     @State private var moveToGroupMenuSnapshot: [MoveToGroupMenuEntry] = []
     @State private var moveToGroupPickerTarget: MoveToGroupPickerTarget?
     @State private var pendingGroupTrackScrollID: String?
@@ -453,6 +454,14 @@ struct HistoryWindowView: View {
             )
         )
         .background(
+            GroupAppearanceOutsideMouseDownObserver(
+                isEnabled: groupAppearanceTarget != nil || systemGroupAppearanceTarget != nil,
+                hostWindow: hostWindow,
+                popoverWindow: groupAppearancePopoverWindow,
+                onMouseDown: closeGroupAppearanceLayer
+            )
+        )
+        .background(
             GeometryReader { proxy in
                 Color.clear
                     .onAppear {
@@ -615,6 +624,7 @@ struct HistoryWindowView: View {
             rememberedScrollOffsetsByScopeData = HistoryScrollCoordinator.shared.savedOffsetsStorageValue()
             rememberSelectedItem(immediate: true)
             cancelPendingGroupRename()
+            closeGroupAppearanceLayer()
             closeInactiveSearchBeforeHiding()
         }
         .onChange(of: selectedItemID) { _ in
@@ -1155,6 +1165,7 @@ struct HistoryWindowView: View {
                 onDismiss: closeSystemGroupAppearancePopover
             ) {
                 systemGroupAppearancePopover(group)
+                    .background(GroupAppearancePopoverWindowReader(window: $groupAppearancePopoverWindow))
                     .fixedSize()
             }
         )
@@ -1431,7 +1442,7 @@ struct HistoryWindowView: View {
                 .historyRailControlStyle()
                 .background(GroupMouseDownObserver(
                     onMouseDown: handleGroupRowOutsideClick,
-                    onRightMouseDown: { selectGroup(group.id) },
+                    onRightMouseDown: { selectGroupForContextMenu(group) },
                     onDoubleMouseDown: { beginRenameGroupAfterCurrentMouseEvent(group) }
                 ))
                 .contextMenu {
@@ -1463,6 +1474,7 @@ struct HistoryWindowView: View {
                         onDismiss: closeGroupAppearancePopover
                     ) {
                         groupAppearancePopover(group)
+                            .background(GroupAppearancePopoverWindowReader(window: $groupAppearancePopoverWindow))
                             .fixedSize()
                     }
                 )
@@ -2955,6 +2967,10 @@ struct HistoryWindowView: View {
         showStatus(group.selectedStatus)
     }
 
+    private func selectGroupForContextMenu(_ group: ClipboardGroup) {
+        selectGroup(group.id)
+    }
+
     private func createGroup() {
         let group = store.createGroup()
         beginRenameGroup(group)
@@ -3069,6 +3085,7 @@ struct HistoryWindowView: View {
 
     private func closeGroupAppearancePopover() {
         groupAppearanceTarget = nil
+        groupAppearancePopoverWindow = nil
         isGroupIconSearchFocused = false
         groupIconSearchText = ""
         closeGroupColorPanel()
@@ -3078,6 +3095,7 @@ struct HistoryWindowView: View {
 
     private func closeSystemGroupAppearancePopover() {
         systemGroupAppearanceTarget = nil
+        groupAppearancePopoverWindow = nil
         isGroupIconSearchFocused = false
         groupIconSearchText = ""
         closeGroupColorPanel()
@@ -3112,6 +3130,16 @@ struct HistoryWindowView: View {
         if groupAppearanceTarget != nil {
             closeGroupAppearancePopover()
         } else if systemGroupAppearanceTarget != nil {
+            closeSystemGroupAppearancePopover()
+        }
+    }
+
+    private func closeGroupAppearanceLayer() {
+        if groupAppearanceTarget != nil {
+            closeGroupAppearancePopover()
+        }
+
+        if systemGroupAppearanceTarget != nil {
             closeSystemGroupAppearancePopover()
         }
     }
@@ -6756,6 +6784,185 @@ private struct GroupRenameOutsideMouseDownObserver: NSViewRepresentable {
     }
 }
 
+private struct GroupAppearanceOutsideMouseDownObserver: NSViewRepresentable {
+    let isEnabled: Bool
+    let hostWindow: NSWindow?
+    let popoverWindow: NSWindow?
+    let onMouseDown: () -> Void
+
+    func makeNSView(context: Context) -> ObservingView {
+        let view = ObservingView()
+        view.coordinator = context.coordinator
+        context.coordinator.view = view
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.hostWindow = hostWindow
+        context.coordinator.popoverWindow = popoverWindow
+        context.coordinator.onMouseDown = onMouseDown
+        context.coordinator.installMonitor()
+        return view
+    }
+
+    func updateNSView(_ nsView: ObservingView, context: Context) {
+        nsView.coordinator = context.coordinator
+        context.coordinator.view = nsView
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.hostWindow = hostWindow
+        context.coordinator.popoverWindow = popoverWindow
+        context.coordinator.onMouseDown = onMouseDown
+        context.coordinator.installMonitorIfNeeded()
+    }
+
+    static func dismantleNSView(_ nsView: ObservingView, coordinator: Coordinator) {
+        coordinator.removeMonitor()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var view: ObservingView?
+        var isEnabled = false
+        weak var hostWindow: NSWindow?
+        weak var popoverWindow: NSWindow?
+        var onMouseDown: (() -> Void)?
+        private var localMonitor: Any?
+        private var globalMonitor: Any?
+
+        func installMonitor() {
+            removeMonitor()
+            localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                self?.handle(event)
+                return event
+            }
+            globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                Task { @MainActor in
+                    self?.handle(event)
+                }
+            }
+        }
+
+        func installMonitorIfNeeded() {
+            guard localMonitor == nil || globalMonitor == nil else {
+                return
+            }
+
+            installMonitor()
+        }
+
+        func removeMonitor() {
+            if let localMonitor {
+                NSEvent.removeMonitor(localMonitor)
+                self.localMonitor = nil
+            }
+            if let globalMonitor {
+                NSEvent.removeMonitor(globalMonitor)
+                self.globalMonitor = nil
+            }
+        }
+
+        @MainActor
+        private func handle(_ event: NSEvent) {
+            let role = eventWindowRole(for: event)
+            guard HistoryGroupAppearanceOutsideClickPolicy.shouldClose(
+                isEnabled: isEnabled,
+                eventWindowRole: role
+            ) else {
+                return
+            }
+
+            onMouseDown?()
+        }
+
+        private func eventWindowRole(for event: NSEvent) -> HistoryGroupAppearanceEventWindowRole {
+            guard let eventWindow = event.window else {
+                return .outsideApp
+            }
+
+            if let hostWindow = hostWindow ?? view?.window,
+               eventWindow === hostWindow {
+                return .hostWindow
+            }
+
+            if eventWindow === NSColorPanel.shared {
+                return .colorPanel
+            }
+
+            if let popoverWindow,
+               eventWindow === popoverWindow {
+                return .popover
+            }
+
+            return .outsideApp
+        }
+    }
+
+    final class ObservingView: NSView {
+        weak var coordinator: Coordinator?
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
+    }
+}
+
+private struct GroupAppearancePopoverWindowReader: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    func makeNSView(context: Context) -> WindowReaderView {
+        let view = WindowReaderView()
+        view.onWindowChange = { newWindow in
+            if window !== newWindow {
+                window = newWindow
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowReaderView, context: Context) {
+        nsView.onWindowChange = { newWindow in
+            if window !== newWindow {
+                window = newWindow
+            }
+        }
+        nsView.reportWindowSoon()
+    }
+
+    static func dismantleNSView(_ nsView: WindowReaderView, coordinator: ()) {
+        nsView.reportWindow(nil)
+    }
+
+    final class WindowReaderView: NSView {
+        var onWindowChange: ((NSWindow?) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            reportWindowSoon()
+        }
+
+        func reportWindowSoon() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                self.reportWindow(self.window)
+            }
+        }
+
+        func reportWindow(_ window: NSWindow?) {
+            DispatchQueue.main.async { [weak self] in
+                self?.onWindowChange?(window)
+            }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
+    }
+}
+
 private struct GroupRenameInputFrameReader: NSViewRepresentable {
     let onChange: (CGRect?) -> Void
 
@@ -7326,9 +7533,15 @@ private struct GroupInlineTextField: NSViewRepresentable {
         }
 
         override func keyDown(with event: NSEvent) {
-            if event.keyCode == 53 {
+            switch HistoryGroupRenameKeyPolicy.action(for: event.keyCode) {
+            case .submit:
+                coordinator?.parent.onSubmit?()
+                return
+            case .cancel:
                 coordinator?.parent.onEscape()
                 return
+            case nil:
+                break
             }
 
             super.keyDown(with: event)
