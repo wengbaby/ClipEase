@@ -190,6 +190,25 @@ enum HistoryGroupRenameKeyPolicy {
     }
 }
 
+enum HistoryGroupRenameActionPolicy {
+    enum Action: Equatable {
+        case submit
+        case cancel
+        case consume
+    }
+
+    static func action(for keyboardAction: HistoryKeyboardAction) -> Action {
+        switch keyboardAction {
+        case .enterFirstSearchResult:
+            .submit
+        case .close:
+            .cancel
+        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .selectVisibleCard, .openSearch, .showSettings, .copy, .copyPlainText, .delete, .togglePinned, .edit, .closeWindow, .createText, .toggleRecording, .appendSearchText, .focusFirstSearchResult:
+            .consume
+        }
+    }
+}
+
 enum PersistentPopoverInitialShowPolicy {
     static func shouldScheduleDeferredInitialShow(
         isPresented: Bool,

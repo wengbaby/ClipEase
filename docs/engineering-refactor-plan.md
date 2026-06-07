@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 2-B，GroupService 纯逻辑拆分已完成，等待本地提交
+- 当前执行阶段：阶段 2-B，GroupService 纯逻辑拆分后回归修复已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 2-B；提交后继续按顺序进入阶段 2-C HistoryPagingService
+- 当前优先目标：提交阶段 2-B 回归修复；提交后继续按顺序进入阶段 2-C HistoryPagingService
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -998,8 +998,17 @@
     - `ClipboardHistoryStore.swift` 暂时保留删除分组时移除条目、取消 OCR/链接任务、删除外部文件、增量持久化、条目移入移出分组和排序等副作用逻辑，因为这些仍依赖 Store 当前状态和持久化入口。
     - 验证：`swift build` 通过；`swift test` 通过，115 个测试全部通过。
     - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.102 (260607.1949)` 更新到 `2.3.103 (260607.1959)`，新版 `.build/ClipEase.app` 已启动。
+    - 本地提交：`b210c8d refactor: extract group service`。
     - 遗留风险：需要重点手工验证新建分组、重命名分组、重复名称提示、分组排序、修改分组颜色与图标、移动卡片进出分组、删除分组后条目清理没有回归。
     - 阶段 2-C 入口条件：阶段 2-B 本地 Git 提交完成后，按顺序只允许进入 `HistoryPagingService` 拆分。
+  - 2026-06-07 阶段 2-B 回归修复：分组重命名 Enter 确认：
+    - 修复表现：分组重命名时按 Return/Enter 没有确认退出编辑。
+    - 根因：全局键盘链路在文本输入活跃时仍允许 `.enterFirstSearchResult`，重命名状态下 `handleGroupEditingKeyboardAction` 只吞掉该 action，没有映射为重命名提交；当 Return/Enter 先进入全局 monitor 而不是 `GroupInlineTextField.keyDown` 时，就表现为无效。
+    - 修复：新增 `HistoryGroupRenameActionPolicy`，将重命名状态下的 `.enterFirstSearchResult` 映射为 `.submit`，调用 `commitPendingRenameIfNeeded()`；`.close` 仍取消，其它卡片/搜索命令继续被消费。
+    - 新增测试：`groupRenameActionPolicySubmitsWhenGlobalEnterActionArrives`。
+    - 验证：`swift build` 通过；`swift test` 通过，116 个测试全部通过。
+    - App 构建：已运行 `./scripts/build-app.sh`，版本从 `2.3.103 (260607.1959)` 更新到 `2.3.104 (260607.2010)`，新版 `.build/ClipEase.app` 已启动。
+    - 阶段 2-C 入口条件：本次回归修复本地 Git 提交完成后，再继续 `HistoryPagingService` 拆分。
 
 ### 阶段 3：SQLite 存储层工程化拆分
 

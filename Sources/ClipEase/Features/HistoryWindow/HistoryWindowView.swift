@@ -5671,11 +5671,14 @@ struct HistoryWindowView: View {
 
     private func handleGroupEditingKeyboardAction(_ action: HistoryKeyboardAction) -> Bool {
         if groupRenameTargetID != nil {
-            switch action {
-            case .close:
+            switch HistoryGroupRenameActionPolicy.action(for: action) {
+            case .submit:
+                commitPendingRenameIfNeeded()
+                return true
+            case .cancel:
                 handleRenameEscape()
                 return true
-            case .delete, .appendSearchText, .copy, .copyPlainText, .paste, .pastePlainText, .togglePinned, .edit, .createText, .openSearch, .showSettings, .closeWindow, .toggleRecording, .moveLeft, .moveRight, .togglePreview, .selectVisibleCard, .enterFirstSearchResult, .focusFirstSearchResult:
+            case .consume:
                 return true
             }
         }

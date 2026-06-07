@@ -580,6 +580,12 @@ import Testing
     #expect(HistoryGroupRenameKeyPolicy.action(for: KeyCode.a) == nil)
 }
 
+@Test func groupRenameActionPolicySubmitsWhenGlobalEnterActionArrives() {
+    #expect(HistoryGroupRenameActionPolicy.action(for: .enterFirstSearchResult) == .submit)
+    #expect(HistoryGroupRenameActionPolicy.action(for: .close) == .cancel)
+    #expect(HistoryGroupRenameActionPolicy.action(for: .delete) == .consume)
+}
+
 @Test func persistentPopoverInitialShowIsDeferredUntilAnchorSettles() {
     #expect(PersistentPopoverInitialShowPolicy.shouldScheduleDeferredInitialShow(
         isPresented: true,
