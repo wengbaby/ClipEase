@@ -278,7 +278,7 @@
 
 ### 阶段 5-F：免费发布流程 fallback
 
-- 状态：阶段 5-F-1 已完成，发布失败恢复说明已进入脚本和清单
+- 状态：已完成
 - 计划开始：2026-06-08
 - 本阶段不引入 Apple notarization，不引入 Developer ID，不引入任何付费发布能力。
 - 完成记录：
@@ -286,3 +286,6 @@
   - 2026-06-08：更新 `docs/releases/release-checklist.md`，把同样的免费恢复步骤写入发布检查清单。
   - 2026-06-08：新增 `ReleaseScriptPolicyTests` 覆盖 fallback 输出和 checklist 免费流程说明，明确不包含 notarization / Developer ID。
   - 2026-06-08：定向验证 `swift test --filter ReleaseScriptPolicy` 通过，12 个测试全部通过。
+  - 2026-06-08：完成阶段 5-F 收尾复核。当前免费发布链路已覆盖 dry-run、测试 gate、远端状态检查、DMG 校验、release notes metadata 校验、发布后 asset hash 校验和失败恢复说明。
+  - 2026-06-08：复核确认发布流程仍只依赖免费 GitHub CLI / GitHub 网页 / GitHub API / SSH 443 备用路径，不包含 Apple notarization、Developer ID 或任何付费发布能力。
+  - 2026-06-08：阶段 5-F 到此关闭。发布脚本后续只在真实 release 失败场景中按具体错误继续增强，不做无场景的复杂化。
