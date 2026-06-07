@@ -518,6 +518,43 @@ import Testing
     #expect(frame == CGRect(x: 270, y: 74, width: 250, height: 270))
 }
 
+@Test func previewViewportFramePrefersMeasuredFrameWhenValid() {
+    let measuredFrame = CGRect(x: 120, y: 74, width: 250, height: 270)
+    let frame = HistoryPreviewFramePolicy.viewportFrame(
+        measuredFrame: measuredFrame,
+        documentFrame: CGRect(x: 540, y: 0, width: 250, height: 270),
+        currentOffset: 270,
+        cardRailTopInWindow: 68,
+        selectedCardTopContentInset: 6
+    )
+
+    #expect(frame == measuredFrame)
+}
+
+@Test func previewViewportFrameFallsBackWhenMeasuredFrameIsEmpty() {
+    let frame = HistoryPreviewFramePolicy.viewportFrame(
+        measuredFrame: CGRect(x: 120, y: 74, width: 0, height: 0),
+        documentFrame: CGRect(x: 540, y: 0, width: 250, height: 270),
+        currentOffset: 270,
+        cardRailTopInWindow: 68,
+        selectedCardTopContentInset: 6
+    )
+
+    #expect(frame == CGRect(x: 270, y: 74, width: 250, height: 270))
+}
+
+@Test func previewViewportFrameReturnsNilWhenNoValidAnchorExists() {
+    let frame = HistoryPreviewFramePolicy.viewportFrame(
+        measuredFrame: CGRect(x: 120, y: 74, width: 0, height: 0),
+        documentFrame: nil,
+        currentOffset: 270,
+        cardRailTopInWindow: 68,
+        selectedCardTopContentInset: 6
+    )
+
+    #expect(frame == nil)
+}
+
 @Test func groupRenameKeyPolicySubmitsOnReturnOrEnter() {
     #expect(HistoryGroupRenameKeyPolicy.action(for: KeyCode.returnKey) == .submit)
     #expect(HistoryGroupRenameKeyPolicy.action(for: KeyCode.enter) == .submit)

@@ -3892,16 +3892,9 @@ struct HistoryWindowView: View {
     }
 
     private func cardViewportFrame(for id: HistoryPreviewItem.ID) -> CGRect? {
-        if let measuredFrame = cardViewportFrames[id] {
-            return measuredFrame
-        }
-
-        guard let documentFrame = cardDocumentFrame(for: id) else {
-            return nil
-        }
-
-        return HistoryPreviewFramePolicy.fallbackViewportFrame(
-            documentFrame: documentFrame,
+        HistoryPreviewFramePolicy.viewportFrame(
+            measuredFrame: cardViewportFrames[id],
+            documentFrame: cardDocumentFrame(for: id),
             currentOffset: HistoryScrollCoordinator.shared.currentOffset,
             cardRailTopInWindow: cardRailTopInWindow,
             selectedCardTopContentInset: selectedCardTopContentInset

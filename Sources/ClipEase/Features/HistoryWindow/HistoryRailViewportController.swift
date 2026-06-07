@@ -147,6 +147,31 @@ enum HistoryRailRenderWindowPolicy {
 }
 
 enum HistoryPreviewFramePolicy {
+    static func viewportFrame(
+        measuredFrame: CGRect?,
+        documentFrame: CGRect?,
+        currentOffset: CGFloat,
+        cardRailTopInWindow: CGFloat,
+        selectedCardTopContentInset: CGFloat
+    ) -> CGRect? {
+        if let measuredFrame,
+           isValidAnchorFrame(measuredFrame) {
+            return measuredFrame
+        }
+
+        guard let documentFrame,
+              isValidAnchorFrame(documentFrame) else {
+            return nil
+        }
+
+        return fallbackViewportFrame(
+            documentFrame: documentFrame,
+            currentOffset: currentOffset,
+            cardRailTopInWindow: cardRailTopInWindow,
+            selectedCardTopContentInset: selectedCardTopContentInset
+        )
+    }
+
     static func fallbackViewportFrame(
         documentFrame: CGRect,
         currentOffset: CGFloat,
@@ -157,6 +182,10 @@ enum HistoryPreviewFramePolicy {
             dx: -currentOffset,
             dy: cardRailTopInWindow + selectedCardTopContentInset
         )
+    }
+
+    private static func isValidAnchorFrame(_ frame: CGRect) -> Bool {
+        frame.width > 0 && frame.height > 0 && !frame.isNull && !frame.isInfinite
     }
 }
 
