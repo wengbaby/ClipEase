@@ -124,6 +124,27 @@ plist_value() {
   /usr/libexec/PlistBuddy -c "Print :$2" "$1"
 }
 
+verify_release_notes_metadata() {
+  local body_path="$1"
+  local version="$2"
+  local build="$3"
+  local dmg_name="$4"
+  local sha256="$5"
+
+  if ! grep -Fq "$version ($build)" "$body_path"; then
+    echo "Release notes missing version metadata: $version ($build)" >&2
+    exit 1
+  fi
+  if ! grep -Fq "$dmg_name" "$body_path"; then
+    echo "Release notes missing DMG name: $dmg_name" >&2
+    exit 1
+  fi
+  if ! grep -Fq "$sha256" "$body_path"; then
+    echo "Release notes missing SHA-256: $sha256" >&2
+    exit 1
+  fi
+}
+
 require_command swift
 require_command create-dmg
 require_command hdiutil
@@ -233,6 +254,8 @@ for key, value in replacements.items():
     body = body.replace(key, value)
 Path(body_path).write_text(body, encoding="utf-8")
 PY
+
+verify_release_notes_metadata "$BODY_PATH" "$VERSION" "$BUILD" "$DMG_NAME" "$SHA256"
 
 echo "Release title: $TITLE"
 echo "Release tag:   $TAG"

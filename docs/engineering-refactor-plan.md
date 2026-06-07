@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 4-G，DMG 校验增强已完成，等待本地提交
+- 当前执行阶段：阶段 4-H，版本一致性校验增强已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 4-G；提交后按顺序进入阶段 4-H 版本一致性校验增强
+- 当前优先目标：提交阶段 4-H；提交后按顺序进入阶段 4-I GitHub release asset hash 校验
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1209,3 +1209,13 @@
     - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，输出 `hdiutil: verify ... is VALID`，未创建 tag、GitHub Release 或上传。
     - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.123 (260608.0005)` 递增到 `2.3.124 (260608.0013)`；已结束旧进程并启动 `.build/ClipEase.app`。
     - 阶段 4-H 入口条件：阶段 4-G 本地提交完成后，按顺序增强版本一致性校验；不得直接发布。
+  - 2026-06-08 阶段 4-H 版本一致性校验增强：
+    - `scripts/release.sh` 新增 `verify_release_notes_metadata`。
+    - release notes 生成后会校验正文包含当前 `VERSION (BUILD)`、DMG 文件名和 SHA-256，防止文档和产物不同步。
+    - 保留原有 `Resources/Info.plist`、`.build/ClipEase.app` 和 DMG 内 `ClipEase.app` 的版本一致性检查。
+    - 新增 `ReleaseScriptPolicyTests` 覆盖 release notes 版本、DMG 名和 SHA metadata 校验。
+    - 本轮未改变 release notes 模板格式、DMG 布局、发布命令顺序、主窗口、搜索交互、SQLite、设置页视觉结构或快捷键行为。
+    - 验证：先运行 `swift test --filter releaseScriptValidatesReleaseNotesVersionMetadata` 观察到缺少 release notes metadata 校验的失败；实现后 `swift test --filter ReleaseScriptPolicy` 通过。
+    - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，生成 `ClipEase-2.3.124-260608.0013.dmg`、release notes 和 SHA-256，未创建 tag、GitHub Release 或上传。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.124 (260608.0013)` 递增到 `2.3.125 (260608.0024)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 阶段 4-I 入口条件：阶段 4-H 本地提交完成后，按顺序增强 GitHub release asset hash 校验；不得直接发布。

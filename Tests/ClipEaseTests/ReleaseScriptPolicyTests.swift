@@ -64,6 +64,16 @@ import Testing
     #expect(verifyRange.lowerBound < attachRange.lowerBound)
 }
 
+@Test func releaseScriptValidatesReleaseNotesVersionMetadata() throws {
+    let script = try releaseScript()
+
+    #expect(script.contains("verify_release_notes_metadata"))
+    #expect(script.contains("Release notes missing version metadata"))
+    #expect(script.contains("Release notes missing DMG name"))
+    #expect(script.contains("Release notes missing SHA-256"))
+    #expect(script.contains("verify_release_notes_metadata \"$BODY_PATH\" \"$VERSION\" \"$BUILD\" \"$DMG_NAME\" \"$SHA256\""))
+}
+
 private func releaseScript() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("scripts/release.sh")
