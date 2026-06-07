@@ -69,11 +69,11 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             }
 
             for group in groups {
-                try insert(group, in: database)
+                try SQLiteGroupDAO.insert(group, in: database)
             }
 
             for item in items where item.groupID != nil {
-                try insertGroupItem(for: item, in: database)
+                try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
             }
 
             try database.execute("COMMIT")
@@ -97,7 +97,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try createSchema(in: database)
         try recordSchemaVersion(in: database)
 
-        let groups = try loadGroups(in: database)
+        let groups = try SQLiteGroupDAO.loadGroups(in: database)
         let items = try SQLiteItemDAO.loadItems(
             in: database,
             whereSQL: "clipboard_items.is_deleted = 0",
@@ -141,7 +141,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             try database.execute("PRAGMA foreign_keys = ON")
             try createSchema(in: database)
             try recordSchemaVersion(in: database)
-            return ClipboardHistorySnapshot(items: [], groups: try loadGroups(in: database))
+            return ClipboardHistorySnapshot(items: [], groups: try SQLiteGroupDAO.loadGroups(in: database))
         }
 
         try createParentDirectory()
@@ -153,7 +153,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try createSchema(in: database)
         try recordSchemaVersion(in: database)
 
-        let groups = try loadGroups(in: database)
+        let groups = try SQLiteGroupDAO.loadGroups(in: database)
         let items = try SQLiteItemDAO.loadItems(
             in: database,
             whereSQL: "clipboard_items.is_deleted = 0",
@@ -263,7 +263,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             for item in items {
                 try insertItem(item, in: database)
                 if item.groupID != nil {
-                    try insertGroupItem(for: item, in: database)
+                    try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
                 }
             }
 
@@ -288,10 +288,10 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
         do {
             try deleteItems(with: deletedIDs.union([item.id]), in: database)
-            try upsertGroups(groups, in: database)
+            try SQLiteGroupDAO.upsert(groups, in: database)
             try insertItem(item, in: database)
             if item.groupID != nil {
-                try insertGroupItem(for: item, in: database)
+                try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
             }
             try database.execute("COMMIT")
         } catch {
@@ -318,7 +318,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         do {
             try deleteItems(with: ids, in: database)
             try deleteItems(inGroups: groupIDs, in: database)
-            try deleteGroups(with: groupIDs, in: database)
+            try SQLiteGroupDAO.deleteGroups(with: groupIDs, in: database)
             try database.execute("COMMIT")
         } catch {
             try? database.execute("ROLLBACK")
@@ -623,32 +623,6 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         )
     }
 
-    private func loadGroups(in database: SQLiteDatabase) throws -> [ClipboardGroup] {
-        let rows = try database.query(
-            """
-            SELECT id, name, color_hex, icon_name, sort_order, created_at, updated_at
-            FROM groups
-            ORDER BY sort_order ASC, created_at ASC
-            """
-        )
-
-        return rows.compactMap { row in
-            guard let id = UUID(uuidString: row.requiredText("id")) else {
-                return nil
-            }
-
-            return ClipboardGroup(
-                id: id,
-                name: row.requiredText("name"),
-                colorHex: row.requiredText("color_hex"),
-                iconName: row.requiredText("icon_name"),
-                sortOrder: row.requiredInt("sort_order"),
-                createdAt: Date(timeIntervalSince1970: row.requiredDouble("created_at")),
-                updatedAt: Date(timeIntervalSince1970: row.requiredDouble("updated_at"))
-            )
-        }
-    }
-
     private func recordSchemaVersion(in database: SQLiteDatabase) throws {
         try database.execute("PRAGMA user_version = \(Self.currentSchemaVersion)")
         try database.execute(
@@ -772,18 +746,6 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try SQLiteItemDAO.deleteItems(with: ids, in: database)
     }
 
-    private func deleteGroups(with ids: Set<ClipboardGroup.ID>, in database: SQLiteDatabase) throws {
-        guard !ids.isEmpty else {
-            return
-        }
-
-        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
-        try database.execute(
-            "DELETE FROM groups WHERE id IN (\(placeholders))",
-            values: ids.map { .text($0.uuidString) }
-        )
-    }
-
     private func deleteItems(inGroups ids: Set<ClipboardGroup.ID>, in database: SQLiteDatabase) throws {
         guard !ids.isEmpty else {
             return
@@ -794,70 +756,9 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try SQLiteItemDAO.deleteItems(inGroups: ids, in: database)
     }
 
-    private func upsertGroups(_ groups: [ClipboardGroup], in database: SQLiteDatabase) throws {
-        for group in groups {
-            try database.execute(
-                """
-                INSERT OR REPLACE INTO groups (
-                    id, name, color_hex, icon_name, sort_order, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                values: [
-                    .text(group.id.uuidString),
-                    .text(group.name),
-                    .text(group.colorHex),
-                    .text(group.iconName),
-                    .int(group.sortOrder),
-                    .double(group.createdAt.timeIntervalSince1970),
-                    .double(group.updatedAt.timeIntervalSince1970)
-                ]
-            )
-        }
-    }
-
     private func insertItem(_ item: ClipboardItem, in database: SQLiteDatabase) throws {
         try SQLiteItemDAO.insert(item, in: database)
         try insertSearchIndex(for: item, in: database)
-    }
-
-    private func insert(_ group: ClipboardGroup, in database: SQLiteDatabase) throws {
-        try database.execute(
-            """
-            INSERT INTO groups (
-                id, name, color_hex, icon_name, sort_order, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            values: [
-                .text(group.id.uuidString),
-                .text(group.name),
-                .text(group.colorHex),
-                .text(group.iconName),
-                .int(group.sortOrder),
-                .double(group.createdAt.timeIntervalSince1970),
-                .double(group.updatedAt.timeIntervalSince1970)
-            ]
-        )
-    }
-
-    private func insertGroupItem(for item: ClipboardItem, in database: SQLiteDatabase) throws {
-        guard let groupID = item.groupID else {
-            return
-        }
-
-        try database.execute(
-            """
-            INSERT INTO group_items (
-                id, group_id, item_id, created_at, sort_order
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            values: [
-                .text(UUID().uuidString),
-                .text(groupID.uuidString),
-                .text(item.id.uuidString),
-                .double((item.groupedAt ?? item.createdAt).timeIntervalSince1970),
-                .int(0)
-            ]
-        )
     }
 }
 
