@@ -7,7 +7,7 @@
 - 创建日期：2026-06-07
 - 当前执行阶段：阶段 4-I，GitHub release asset hash 校验已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 4-I；提交后按顺序进入阶段 4-J Apple notarization 预留选项
+- 当前优先目标：阶段 4-I 已完成；Apple notarization 相关规划已取消，下一步进入阶段 4 收尾验证
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -43,7 +43,7 @@
    - 这会导致设置页面视觉调整和真实 IO 操作互相影响。
 
 5. `scripts/release.sh`
-   - 发布流程已有版本一致性、DMG、GitHub release 相关逻辑，但还没有形成完整 CI gate、notarization、dry-run、asset hash 二次校验的自动化闭环。
+   - 发布流程已有版本一致性、DMG、GitHub release 相关逻辑，但还没有形成完整 CI gate、dry-run、asset hash 二次校验的自动化闭环。
 
 ### 1.3 为什么不能继续只做小修小补
 
@@ -217,14 +217,14 @@
 - 是否允许立即修改：当前不允许，阶段 4 再做。
 - 是否需要用户确认后再修改：需要，因为可能影响用户体验和默认行为。
 
-### P2：发布流程缺少完整 CI / notarization / 校验闭环
+### P2：发布流程缺少完整 CI / 校验闭环
 
 - 风险等级：P2
 - 涉及文件：`scripts/build-app.sh`、`scripts/release.sh`、`docs/releases/release-checklist.md`
-- 当前表现：本地脚本已覆盖较多 release 操作，但缺少完整 CI、notarization、dry-run、asset hash 二次校验闭环。
+- 当前表现：本地脚本已覆盖较多 release 操作，但缺少完整 CI、dry-run、asset hash 二次校验闭环。
 - 根本原因：发布自动化仍依赖本地环境和人工确认。
 - 可能造成的后果：版本号、DMG、tag、release notes 或远端 asset 不一致。
-- 推荐解决方案：阶段 4 增加 dry-run、测试 gate、DMG verify、版本一致性校验、GitHub asset hash 校验和 Apple notarization 预留。
+- 推荐解决方案：阶段 4 增加 dry-run、测试 gate、DMG verify、版本一致性校验和 GitHub asset hash 校验。Apple notarization 需要 Apple Developer Program，属于付费能力，当前明确取消。
 - 是否允许立即修改：当前不允许，阶段 4 再做。
 - 是否需要用户确认后再修改：需要。
 
@@ -343,7 +343,7 @@
 6. DMG 校验。
 7. 版本一致性校验。
 8. GitHub release asset hash 校验。
-9. Apple notarization 预留选项。
+9. Apple notarization 相关规划取消；不引入任何付费发布能力。
 
 ---
 
@@ -857,11 +857,11 @@
 11. 增加 DMG 校验。
 12. 增加版本一致性校验。
 13. 增加 GitHub release asset hash 校验。
-14. 预留 Apple notarization 选项。
+14. 执行阶段 4 收尾验证。
 15. 执行 `swift build`。
 16. 执行 `swift test`。
 17. 执行 release dry-run。
-18. 递增版本号。
+18. 如有代码变更则递增版本号。
 19. 更新本文档阶段 4 状态。
 20. 提交 git。
 
@@ -1229,4 +1229,5 @@
     - 验证：先运行 `swift test --filter releaseScriptVerifiesUploadedAssetHashAfterPublish` 观察到缺少发布后 asset hash 校验的失败；实现后 `swift test --filter ReleaseScriptPolicy` 通过。
     - release dry-run：`./scripts/release.sh --dry-run --bump none --skip-tests` 通过，生成 `ClipEase-2.3.125-260608.0024.dmg`、release notes 和 SHA-256，未创建 tag、GitHub Release 或上传。
     - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.125 (260608.0024)` 递增到 `2.3.126 (260608.0030)`；已结束旧进程并启动 `.build/ClipEase.app`。
-    - 阶段 4-J 入口条件：阶段 4-I 本地提交完成后，按顺序预留 Apple notarization 选项；不得直接发布。
+    - Apple notarization 相关规划已按用户确认取消：该能力需要 Apple Developer Program，属于付费能力，当前不考虑使用任何付费发布能力。
+    - 阶段 4 收尾入口条件：阶段 4-I 本地提交完成后，执行完整阶段 4 收尾验证；不得新增 notarization 相关脚本或配置。
