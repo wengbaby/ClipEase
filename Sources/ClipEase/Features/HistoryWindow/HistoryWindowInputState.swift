@@ -164,11 +164,16 @@ enum HistoryKeyboardCharacterPolicy {
         guard let text,
               text.rangeOfCharacter(from: .newlines) == nil,
               text.rangeOfCharacter(from: .controlCharacters) == nil,
-              text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+              text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              text.unicodeScalars.contains(where: isAppleFunctionKeyScalar) == false else {
             return nil
         }
 
         return text
+    }
+
+    private static func isAppleFunctionKeyScalar(_ scalar: UnicodeScalar) -> Bool {
+        (0xF700...0xF8FF).contains(scalar.value)
     }
 }
 

@@ -273,6 +273,13 @@ import Testing
     #expect(HistoryKeyboardCharacterPolicy.searchText(from: " ") == nil)
 }
 
+@Test func appleFunctionKeyPrivateCharactersDoNotOpenSearch() {
+    #expect(HistoryKeyboardCharacterPolicy.searchText(from: "\u{F700}") == nil)
+    #expect(HistoryKeyboardCharacterPolicy.searchText(from: "\u{F701}") == nil)
+    #expect(HistoryKeyboardCharacterPolicy.searchText(from: "\u{F702}") == nil)
+    #expect(HistoryKeyboardCharacterPolicy.searchText(from: "\u{F703}") == nil)
+}
+
 @Test func escapeClearsSearchBeforeClosingWhenTextExists() {
     #expect(HistorySearchCancelPolicy.action(
         hasSearchContent: true
