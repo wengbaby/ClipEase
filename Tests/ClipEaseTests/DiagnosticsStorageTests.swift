@@ -35,6 +35,24 @@ import Testing
     #expect(policy.maxBytes == 5 * 1_024 * 1_024)
 }
 
+@MainActor
+@Test func diagnosticsErrorEventsIncludeErrorMetadata() {
+    let error = NSError(domain: "ClipEaseTests", code: 42, userInfo: [NSLocalizedDescriptionKey: "write failed"])
+
+    let event = PerformanceDiagnosticsService.errorEvent(
+        "history.persistence.save.failed",
+        category: "storage",
+        error: error,
+        metadata: ["revision": "7"]
+    )
+
+    #expect(event.name == "history.persistence.save.failed")
+    #expect(event.category == "storage")
+    #expect(event.metadata["revision"] == "7")
+    #expect(event.metadata["error"] == "write failed")
+    #expect(event.metadata["errorType"] == "NSError")
+}
+
 @Test func diagnosticsRetentionRemovesOldRowsAndTrimsToMaxBytes() throws {
     let root = try makeTemporarySupportDirectory()
     let store = try PerformanceDiagnosticsStore(

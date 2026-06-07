@@ -418,12 +418,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     private func databaseSidecarURLs() -> [URL] {
-        [
-            databaseURL,
-            URL(fileURLWithPath: databaseURL.path + "-wal"),
-            URL(fileURLWithPath: databaseURL.path + "-shm"),
-            URL(fileURLWithPath: databaseURL.path + "-journal")
-        ]
+        SQLiteBackupManager.databaseFileURLs(for: databaseURL)
     }
 
     private func deleteHistoryStorageDirectories() throws {
@@ -451,13 +446,48 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
         let database = try SQLiteDatabase(url: databaseURL)
         let userVersion = try database.queryInt("PRAGMA user_version")
-        let needsReset = userVersion < Self.currentSchemaVersion
         database.close()
-        guard needsReset else {
+        guard userVersion < Self.currentSchemaVersion else {
             return
         }
 
-        try removeExistingDatabaseFiles()
+        let backupManager = SQLiteBackupManager(fileManager: fileManager)
+        let backup = try backupManager.backupDatabaseFiles(for: databaseURL, reason: "schema-\(userVersion)-to-\(Self.currentSchemaVersion)")
+        do {
+            let migrator = SQLiteSchemaMigrator(currentSchemaVersion: Self.currentSchemaVersion)
+            _ = try migrator.migrateIfNeeded(
+                databaseURL: databaseURL,
+                fileManager: fileManager,
+                createSchema: createSchema(in:),
+                recordSchemaVersion: recordSchemaVersion(in:)
+            )
+            Task { @MainActor in
+                PerformanceDiagnosticsService.shared.record(
+                    "history.sqlite.migration",
+                    category: "storage",
+                    durationMS: 0,
+                    metadata: [
+                        "fromVersion": "\(userVersion)",
+                        "toVersion": "\(Self.currentSchemaVersion)",
+                        "backup": backup?.directoryURL.path ?? ""
+                    ]
+                )
+            }
+        } catch {
+            Task { @MainActor in
+                PerformanceDiagnosticsService.shared.recordError(
+                    "history.sqlite.migration.failed",
+                    category: "storage",
+                    error: error,
+                    metadata: [
+                        "fromVersion": "\(userVersion)",
+                        "toVersion": "\(Self.currentSchemaVersion)",
+                        "backup": backup?.directoryURL.path ?? ""
+                    ]
+                )
+            }
+            throw error
+        }
     }
 
     private func createSchema(in database: SQLiteDatabase) throws {

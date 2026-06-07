@@ -7,6 +7,16 @@ struct StoredClipboardImage: Sendable {
     let width: Int
     let height: Int
     let hash: String
+
+    static func hash(for imageData: Data) -> String {
+        SHA256.hash(data: imageData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    static func hash(for image: NSImage) -> String? {
+        image.pngData().map(hash(for:))
+    }
 }
 
 struct StoredRichText: Sendable {
@@ -137,9 +147,7 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
             return nil
         }
 
-        let hash = SHA256.hash(data: imageData)
-            .map { String(format: "%02x", $0) }
-            .joined()
+        let hash = StoredClipboardImage.hash(for: imageData)
         let fileName = "\(UUID().uuidString).png"
 
         do {

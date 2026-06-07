@@ -4,6 +4,7 @@ struct ClipboardWriteCoordinator {
     let pasteboard: NSPasteboard
     let skipText: (String) -> Void
     let skipImage: (ClipboardItem) -> Void
+    let skipImageHash: (String) -> Void
     let skipFiles: ([URL]) -> Void
 
     @discardableResult
@@ -33,6 +34,15 @@ struct ClipboardWriteCoordinator {
         pasteboard.clearContents()
         return pasteboard.writeObjects([image])
     }
+
+    @discardableResult
+    func writeImage(_ image: NSImage, imageHash: String?) -> Bool {
+        if let imageHash {
+            skipImageHash(imageHash)
+        }
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([image])
+    }
 }
 
 extension ClipboardWriteCoordinator {
@@ -41,6 +51,7 @@ extension ClipboardWriteCoordinator {
             pasteboard: .general,
             skipText: skipText,
             skipImage: { _ in },
+            skipImageHash: { _ in },
             skipFiles: { _ in }
         )
     }

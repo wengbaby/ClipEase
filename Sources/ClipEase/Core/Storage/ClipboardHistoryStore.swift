@@ -46,9 +46,7 @@ final class ClipboardHistoryStore: ObservableObject {
     private let saveWriter: ClipboardHistorySaveWriter
     private let userDefaults: UserDefaults
     private var itemIDsByHash: [String: Set<ClipboardItem.ID>] = [:]
-    private var skippedClipboardTexts: Set<String> = []
-    private var skippedImageHashes: Set<String> = []
-    private var skippedClipboardFilePathSets: Set<String> = []
+    private let selfWriteGuard = ClipboardSelfWriteGuard()
     private var ocrTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
     private var linkMetadataTaskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
     private var linkMetadataGenerationByItemID: [ClipboardItem.ID: Int] = [:]
@@ -176,7 +174,7 @@ final class ClipboardHistoryStore: ObservableObject {
             return
         }
 
-        if skippedClipboardTexts.remove(normalizedText) != nil {
+        if selfWriteGuard.consumeText(normalizedText) {
             persistence.deleteRichText(fileName: storedRichText.fileName)
             return
         }
@@ -204,7 +202,7 @@ final class ClipboardHistoryStore: ObservableObject {
             return
         }
 
-        if skippedImageHashes.remove(storedImage.hash) != nil {
+        if selfWriteGuard.consumeImageHash(storedImage.hash) {
             persistence.deleteImage(fileName: storedImage.fileName)
             return
         }
@@ -226,6 +224,9 @@ final class ClipboardHistoryStore: ObservableObject {
     func addFiles(_ urls: [URL], sourceApp: SourceAppInfo) {
         let references = fileReferences(from: urls)
         guard !references.isEmpty else {
+            return
+        }
+        if selfWriteGuard.consumeFiles(urls) {
             return
         }
 
@@ -349,8 +350,7 @@ final class ClipboardHistoryStore: ObservableObject {
         cancelAllLinkMetadataTasks()
         deleteExternalFiles(for: removedItems)
         itemIDsByHash.removeAll()
-        skippedClipboardTexts.removeAll()
-        skippedImageHashes.removeAll()
+        selfWriteGuard.removeAll()
         persistDeleteAll()
     }
 
@@ -904,47 +904,27 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     func skipNextClipboardText(_ text: String) {
-        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedText.isEmpty else {
-            return
-        }
-
-        skippedClipboardTexts.insert(normalizedText)
+        selfWriteGuard.skipText(text)
     }
 
     func consumeSkippedClipboardText(_ text: String) -> Bool {
-        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedText.isEmpty else {
-            return false
-        }
-
-        return skippedClipboardTexts.remove(normalizedText) != nil
+        selfWriteGuard.consumeText(text)
     }
 
     func skipNextClipboardImage(_ item: ClipboardItem) {
-        guard let imageHash = item.imageHash else {
-            return
-        }
+        selfWriteGuard.skipImageHash(item.imageHash)
+    }
 
-        skippedImageHashes.insert(imageHash)
+    func skipNextClipboardImageHash(_ hash: String) {
+        selfWriteGuard.skipImageHash(hash)
     }
 
     func skipNextClipboardFiles(_ urls: [URL]) {
-        let key = clipboardFilePathSetKey(for: urls)
-        guard !key.isEmpty else {
-            return
-        }
-
-        skippedClipboardFilePathSets.insert(key)
+        selfWriteGuard.skipFiles(urls)
     }
 
     func consumeSkippedClipboardFiles(_ urls: [URL]) -> Bool {
-        let key = clipboardFilePathSetKey(for: urls)
-        guard !key.isEmpty else {
-            return false
-        }
-
-        return skippedClipboardFilePathSets.remove(key) != nil
+        selfWriteGuard.consumeFiles(urls)
     }
 
     func imageData(for item: ClipboardItem) -> Data? {
@@ -1479,6 +1459,11 @@ final class ClipboardHistoryStore: ObservableObject {
             try saveImmediatelyOrThrow()
         } catch {
             NSLog("ClipEase failed to save clipboard history: \(error.localizedDescription)")
+            PerformanceDiagnosticsService.shared.recordError(
+                "history.persistence.saveImmediate.failed",
+                category: "storage",
+                error: error
+            )
         }
     }
 
@@ -2074,6 +2059,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 try saveIfCurrent(snapshot, revision: revision)
             } catch {
                 NSLog("ClipEase failed to save clipboard history: \(error.localizedDescription)")
+                recordPersistenceError("history.persistence.save.failed", error: error, revision: revision)
             }
         }
     }
@@ -2084,6 +2070,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 try upsertIfCurrent(item, deleting: deletedIDs, groups: groups, revision: revision)
             } catch {
                 NSLog("ClipEase failed to upsert clipboard history: \(error.localizedDescription)")
+                recordPersistenceError("history.persistence.upsert.failed", error: error, revision: revision)
             }
         }
     }
@@ -2094,6 +2081,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 try insertItemsIfCurrent(items, revision: revision)
             } catch {
                 NSLog("ClipEase failed to insert clipboard history items: \(error.localizedDescription)")
+                recordPersistenceError("history.persistence.insert.failed", error: error, revision: revision)
             }
         }
     }
@@ -2108,6 +2096,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 try deleteIfCurrent(itemIDs: itemIDs, groupIDs: groupIDs, revision: revision)
             } catch {
                 NSLog("ClipEase failed to delete clipboard history items: \(error.localizedDescription)")
+                recordPersistenceError("history.persistence.delete.failed", error: error, revision: revision)
             }
         }
     }
@@ -2118,6 +2107,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 try deleteAllIfCurrent(revision: revision)
             } catch {
                 NSLog("ClipEase failed to clear clipboard history: \(error.localizedDescription)")
+                recordPersistenceError("history.persistence.deleteAll.failed", error: error, revision: revision)
             }
         }
     }
@@ -2246,6 +2236,7 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
             result = try persistence.compactDatabaseIfNeededOrThrow()
         } catch {
             NSLog("ClipEase failed to compact clipboard history database: \(error.localizedDescription)")
+            recordPersistenceError("history.persistence.compact.failed", error: error, revision: latestRevision)
             return
         }
 
@@ -2261,6 +2252,17 @@ private final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 durationMS: durationMS,
                 resultCount: result.reclaimedBytes,
                 metadata: ["reclaimedBytes": "\(result.reclaimedBytes)"]
+            )
+        }
+    }
+
+    private func recordPersistenceError(_ name: String, error: Error, revision: Int) {
+        Task { @MainActor in
+            PerformanceDiagnosticsService.shared.recordError(
+                name,
+                category: "storage",
+                error: error,
+                metadata: ["revision": "\(revision)"]
             )
         }
     }

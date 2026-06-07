@@ -30,6 +30,7 @@ final class PasteExecutor {
             pasteboard: pasteboard,
             skipText: store.skipNextClipboardText,
             skipImage: store.skipNextClipboardImage,
+            skipImageHash: store.skipNextClipboardImageHash,
             skipFiles: store.skipNextClipboardFiles
         )
     }
@@ -168,8 +169,8 @@ final class PasteExecutor {
         if let skipText {
             store.skipNextClipboardText(skipText)
         }
-        pasteboard.clearContents()
-        guard pasteboard.writeObjects([image]) else {
+        let imageHash = StoredClipboardImage.hash(for: image)
+        guard clipboardWriter.writeImage(image, imageHash: imageHash) else {
             return .failed("无法写入图片到剪贴板")
         }
         return .copied

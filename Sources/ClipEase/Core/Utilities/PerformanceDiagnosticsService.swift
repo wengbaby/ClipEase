@@ -198,6 +198,34 @@ final class PerformanceDiagnosticsService: ObservableObject {
         write(event)
     }
 
+    func recordError(
+        _ name: String,
+        category: String,
+        error: Error,
+        metadata: [String: String] = [:]
+    ) {
+        let event = Self.errorEvent(name, category: category, error: error, metadata: metadata)
+        appendRecentEventForUI(event)
+        write(event)
+    }
+
+    nonisolated static func errorEvent(
+        _ name: String,
+        category: String,
+        error: Error,
+        metadata: [String: String] = [:]
+    ) -> PerformanceDiagnosticEvent {
+        var errorMetadata = metadata
+        errorMetadata["error"] = error.localizedDescription
+        errorMetadata["errorType"] = String(describing: type(of: error))
+        return PerformanceDiagnosticEvent(
+            name: name,
+            category: category,
+            durationMS: 0,
+            metadata: errorMetadata
+        )
+    }
+
     func recordResourceCheckpoint(_ reason: String) {
         guard isEnabled else {
             return
