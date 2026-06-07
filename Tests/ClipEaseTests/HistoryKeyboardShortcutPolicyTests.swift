@@ -142,6 +142,58 @@ import Testing
     ))
 }
 
+@Test func searchFocusTransitionRefocusesTextFieldAndClearsCardHandoff() {
+    #expect(HistorySearchFocusTransitionPolicy.transition(
+        event: .searchFieldFocused,
+        hasSearchResult: true,
+        isSearchVisible: true
+    ) == HistorySearchFocusTransition(
+        isSearchFocused: true,
+        isTextInputFocused: true,
+        searchHasHandedOffFocusToCard: false,
+        shouldRefocusSearchField: false
+    ))
+}
+
+@Test func searchFocusTransitionHandsOffToFirstCardWhenResultExists() {
+    #expect(HistorySearchFocusTransitionPolicy.transition(
+        event: .focusFirstResult,
+        hasSearchResult: true,
+        isSearchVisible: true
+    ) == HistorySearchFocusTransition(
+        isSearchFocused: false,
+        isTextInputFocused: false,
+        searchHasHandedOffFocusToCard: true,
+        shouldRefocusSearchField: false
+    ))
+}
+
+@Test func searchFocusTransitionKeepsSearchFieldFocusedWhenNoResultExists() {
+    #expect(HistorySearchFocusTransitionPolicy.transition(
+        event: .focusFirstResult,
+        hasSearchResult: false,
+        isSearchVisible: true
+    ) == HistorySearchFocusTransition(
+        isSearchFocused: true,
+        isTextInputFocused: true,
+        searchHasHandedOffFocusToCard: false,
+        shouldRefocusSearchField: true
+    ))
+}
+
+@Test func searchFocusTransitionClearsFocusWhenSearchCloses() {
+    #expect(HistorySearchFocusTransitionPolicy.transition(
+        event: .searchClosed,
+        hasSearchResult: true,
+        isSearchVisible: false
+    ) == HistorySearchFocusTransition(
+        isSearchFocused: false,
+        isTextInputFocused: false,
+        searchHasHandedOffFocusToCard: false,
+        shouldRefocusSearchField: false
+    ))
+}
+
 @Test func searchTextFieldDoesNotRestoreFocusAfterHandingOffToCard() {
     #expect(!HistorySearchTextFieldFocusPolicy.shouldRestoreFocusOnKeyEvent(
         searchHasHandedOffFocusToCard: true
@@ -369,6 +421,33 @@ import Testing
     )
 
     let window = context.visibleWindow(focusedIndex: 50)
+
+    #expect(window.count <= 20)
+    #expect(window.contains(20))
+}
+
+@Test func previewCacheRetentionUsesFirstPageWhenRailHasNoMeasuredViewport() {
+    #expect(HistoryPreviewCacheRetentionPolicy.retainedWindow(
+        itemCount: 100,
+        visibleRect: .zero,
+        hasReliableVisibleRect: false,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        retainedItemCount: 20,
+        renderedItemLimit: 20
+    ) == 0..<20)
+}
+
+@Test func previewCacheRetentionUsesVisibleViewportWhenRailIsBound() {
+    let window = HistoryPreviewCacheRetentionPolicy.retainedWindow(
+        itemCount: 100,
+        visibleRect: CGRect(x: 5400, y: 0, width: 1080, height: 300),
+        hasReliableVisibleRect: true,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        retainedItemCount: 20,
+        renderedItemLimit: 20
+    )
 
     #expect(window.count <= 20)
     #expect(window.contains(20))

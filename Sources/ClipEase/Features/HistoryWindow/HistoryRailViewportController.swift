@@ -159,3 +159,34 @@ enum HistoryPreviewFramePolicy {
         )
     }
 }
+
+enum HistoryPreviewCacheRetentionPolicy {
+    static func retainedWindow(
+        itemCount: Int,
+        visibleRect: CGRect,
+        hasReliableVisibleRect: Bool,
+        itemStride: CGFloat,
+        horizontalContentPadding: CGFloat,
+        retainedItemCount: Int,
+        renderedItemLimit: Int
+    ) -> Range<Int> {
+        guard itemCount > 0 else {
+            return 0..<0
+        }
+
+        guard visibleRect != .zero else {
+            return 0..<min(itemCount, retainedItemCount)
+        }
+
+        return HistoryRailViewportContext(
+            itemCount: itemCount,
+            visibleRect: visibleRect,
+            hasReliableVisibleRect: hasReliableVisibleRect,
+            itemStride: itemStride,
+            horizontalContentPadding: horizontalContentPadding,
+            bufferItemCount: retainedItemCount / 2,
+            renderedItemLimit: renderedItemLimit,
+            edgeBufferItemCount: 3
+        ).visibleWindow(focusedIndex: nil)
+    }
+}

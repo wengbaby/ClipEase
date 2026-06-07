@@ -81,6 +81,60 @@ enum HistoryCardFocusPolicy {
     }
 }
 
+struct HistorySearchFocusTransition: Equatable {
+    let isSearchFocused: Bool
+    let isTextInputFocused: Bool
+    let searchHasHandedOffFocusToCard: Bool
+    let shouldRefocusSearchField: Bool
+}
+
+enum HistorySearchFocusTransitionEvent {
+    case searchFieldFocused
+    case focusFirstResult
+    case searchClosed
+}
+
+enum HistorySearchFocusTransitionPolicy {
+    static func transition(
+        event: HistorySearchFocusTransitionEvent,
+        hasSearchResult: Bool,
+        isSearchVisible: Bool
+    ) -> HistorySearchFocusTransition {
+        switch event {
+        case .searchFieldFocused:
+            return HistorySearchFocusTransition(
+                isSearchFocused: true,
+                isTextInputFocused: true,
+                searchHasHandedOffFocusToCard: false,
+                shouldRefocusSearchField: false
+            )
+        case .focusFirstResult:
+            guard hasSearchResult else {
+                return HistorySearchFocusTransition(
+                    isSearchFocused: isSearchVisible,
+                    isTextInputFocused: isSearchVisible,
+                    searchHasHandedOffFocusToCard: false,
+                    shouldRefocusSearchField: isSearchVisible
+                )
+            }
+
+            return HistorySearchFocusTransition(
+                isSearchFocused: false,
+                isTextInputFocused: false,
+                searchHasHandedOffFocusToCard: true,
+                shouldRefocusSearchField: false
+            )
+        case .searchClosed:
+            return HistorySearchFocusTransition(
+                isSearchFocused: false,
+                isTextInputFocused: false,
+                searchHasHandedOffFocusToCard: false,
+                shouldRefocusSearchField: false
+            )
+        }
+    }
+}
+
 enum HistorySearchTextFieldFocusPolicy {
     static func shouldRestoreFocusOnKeyEvent(searchHasHandedOffFocusToCard: Bool) -> Bool {
         !searchHasHandedOffFocusToCard

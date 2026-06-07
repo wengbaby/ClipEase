@@ -4059,21 +4059,15 @@ struct HistoryWindowView: View {
             retainedIDs.insert(pendingItemScrollID)
         }
 
-        let visibleRange: Range<Int>
-        if cardRailVisibleRect == .zero {
-            visibleRange = 0..<min(sourceItems.count, previewItemCacheRetainedItemCount)
-        } else {
-            visibleRange = HistoryRailViewportContext(
-                itemCount: sourceItems.count,
-                visibleRect: cardRailVisibleRect,
-                hasReliableVisibleRect: HistoryScrollCoordinator.shared.hasBoundScrollView,
-                itemStride: itemStride,
-                horizontalContentPadding: horizontalContentPadding,
-                bufferItemCount: previewItemCacheRetainedItemCount / 2,
-                renderedItemLimit: historyRailRenderedItemLimit,
-                edgeBufferItemCount: 3
-            ).visibleWindow(focusedIndex: nil)
-        }
+        let visibleRange = HistoryPreviewCacheRetentionPolicy.retainedWindow(
+            itemCount: sourceItems.count,
+            visibleRect: cardRailVisibleRect,
+            hasReliableVisibleRect: HistoryScrollCoordinator.shared.hasBoundScrollView,
+            itemStride: itemStride,
+            horizontalContentPadding: horizontalContentPadding,
+            retainedItemCount: previewItemCacheRetainedItemCount,
+            renderedItemLimit: historyRailRenderedItemLimit
+        )
 
         if !visibleRange.isEmpty {
             for item in sourceItems[visibleRange] {
@@ -4223,11 +4217,12 @@ struct HistoryWindowView: View {
     }
 
     private func closeSearch() {
-        searchHasHandedOffFocusToCard = false
+        applySearchFocusTransition(
+            .searchClosed,
+            hasSearchResult: filteredItems.first != nil,
+            isSearchVisible: false
+        )
         isSearchVisible = false
-        isSearchFocused = false
-        inputState.setTextInputFocused(false)
-        inputState.setSearchHasHandedOffFocusToCard(false)
         inputState.setSearchVisible(false)
     }
 
@@ -5997,10 +5992,11 @@ struct HistoryWindowView: View {
 
     private func synchronizeSearchTextFieldFocus(_ isFocused: Bool) {
         if isFocused {
-            searchHasHandedOffFocusToCard = false
-            inputState.setSearchHasHandedOffFocusToCard(false)
-            isSearchFocused = true
-            inputState.setTextInputFocused(true)
+            applySearchFocusTransition(
+                .searchFieldFocused,
+                hasSearchResult: filteredItems.first != nil,
+                isSearchVisible: isSearchVisible
+            )
         } else {
             isSearchFocused = false
             inputState.setTextInputFocused(false)
@@ -6009,17 +6005,20 @@ struct HistoryWindowView: View {
 
     private func focusFirstSearchResultCard() {
         guard let firstID = filteredItems.first?.id else {
-            if isSearchVisible {
-                focusSearchField()
-            }
+            applySearchFocusTransition(
+                .focusFirstResult,
+                hasSearchResult: false,
+                isSearchVisible: isSearchVisible
+            )
             return
         }
 
         selectedItemID = firstID
-        searchHasHandedOffFocusToCard = true
-        inputState.setSearchHasHandedOffFocusToCard(true)
-        isSearchFocused = false
-        inputState.setTextInputFocused(false)
+        applySearchFocusTransition(
+            .focusFirstResult,
+            hasSearchResult: true,
+            isSearchVisible: isSearchVisible
+        )
         if previewState.isVisible {
             showPreview(firstID)
         }
@@ -6030,6 +6029,25 @@ struct HistoryWindowView: View {
         isSearchFocused = true
         searchFocusRequestID += 1
         inputState.setTextInputFocused(true)
+    }
+
+    private func applySearchFocusTransition(
+        _ event: HistorySearchFocusTransitionEvent,
+        hasSearchResult: Bool,
+        isSearchVisible: Bool
+    ) {
+        let transition = HistorySearchFocusTransitionPolicy.transition(
+            event: event,
+            hasSearchResult: hasSearchResult,
+            isSearchVisible: isSearchVisible
+        )
+        searchHasHandedOffFocusToCard = transition.searchHasHandedOffFocusToCard
+        inputState.setSearchHasHandedOffFocusToCard(transition.searchHasHandedOffFocusToCard)
+        isSearchFocused = transition.isSearchFocused
+        inputState.setTextInputFocused(transition.isTextInputFocused)
+        if transition.shouldRefocusSearchField {
+            searchFocusRequestID += 1
+        }
     }
 
     private func closeWindowFromShortcut() {
