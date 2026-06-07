@@ -599,128 +599,38 @@ struct SettingsView: View {
     }
 
     private var groupsSection: some View {
-        settingsSection(title: "分组管理", subtitle: groupsSubtitle) {
-            VStack(alignment: .leading, spacing: 12) {
-                historyActionGroup(title: "操作") {
-                    historyButton("新建分组", prominent: true) {
-                        let group = store.createGroup()
-                        groupSelection = [group.id]
-                        showStatus("已新建“\(group.name)”")
-                    }
-
-                    Button("删除所选", role: .destructive) {
-                        requestDeleteSelectedGroups()
-                    }
-                    .buttonStyle(.bordered)
-                    .frame(minWidth: 88)
-                    .disabled(groupSelection.isEmpty)
-                }
-
-                if store.groups.isEmpty {
-                    Text("暂无分组")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(.secondary)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(store.groups) { group in
-                                groupManagementRow(group)
-                                    .padding(.horizontal, 8)
-                                    .background(
-                                        groupSelection.contains(group.id)
-                                            ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.12)
-                                            : Color.clear
-                                    )
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .frame(minHeight: 260)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                }
-            }
-        }
-    }
-
-    private func groupManagementRow(_ group: ClipboardGroup) -> some View {
-        HStack(spacing: 10) {
-            Button {
-                toggleGroupSelection(group.id)
-            } label: {
-                Image(systemName: groupSelection.contains(group.id) ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(groupSelection.contains(group.id) ? Color.accentColor : .secondary)
-
-            Image(systemName: group.iconName)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 28, height: 28)
-                .background(Color.clipeaseHex(group.colorHex))
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-            SettingsTextField(
-                text: Binding(
-                    get: { editingSettingsGroupNames[group.id] ?? store.group(with: group.id)?.name ?? group.name },
-                    set: { editingSettingsGroupNames[group.id] = $0 }
-                ),
-                focusedID: $focusedSettingsGroupNameID,
-                id: group.id,
-                placeholder: "分组名称",
-                onCommit: { name in
-                    commitSettingsGroupName(group.id, name: name)
-                },
-                onCancel: {
-                    editingSettingsGroupNames[group.id] = store.group(with: group.id)?.name ?? group.name
-                }
-            )
-            .frame(height: 24)
-            .frame(minWidth: 150)
-
-            Button {
+        SettingsGroupsSection(
+            subtitle: groupsSubtitle,
+            groups: store.groups,
+            groupSelection: groupSelection,
+            focusedGroupNameID: $focusedSettingsGroupNameID,
+            editingGroupNames: $editingSettingsGroupNames,
+            appearancePickerGroupID: $groupAppearancePickerGroupID,
+            groupName: { group in
+                store.group(with: group.id)?.name ?? group.name
+            },
+            itemCount: store.itemCount(inGroup:),
+            onCreateGroup: {
+                let group = store.createGroup()
+                groupSelection = [group.id]
+                showStatus("已新建“\(group.name)”")
+            },
+            onRequestDeleteSelectedGroups: requestDeleteSelectedGroups,
+            onToggleGroupSelection: toggleGroupSelection,
+            onCommitGroupName: commitSettingsGroupName,
+            onCancelGroupNameEditing: { group in
+                editingSettingsGroupNames[group.id] = store.group(with: group.id)?.name ?? group.name
+            },
+            onBeginAppearanceEditing: { group in
                 groupAppearanceColor = Color.clipeaseHex(store.group(with: group.id)?.colorHex ?? group.colorHex)
                 groupIconSearchText = ""
                 groupAppearancePickerGroupID = group.id
-            } label: {
-                Label("颜色与图标", systemImage: "paintpalette")
-            }
-            .buttonStyle(.borderless)
-            .help("调整颜色和图标")
-            .background(
-                PersistentPopoverPresenter(
-                    isPresented: Binding(
-                        get: { groupAppearancePickerGroupID == group.id },
-                        set: { isPresented in
-                            groupAppearancePickerGroupID = isPresented ? group.id : nil
-                            if !isPresented {
-                                closeGroupAppearancePicker()
-                            }
-                        }
-                    ),
-                    arrowEdge: .bottom,
-                    onDismiss: closeGroupAppearancePicker
-                ) {
-                    groupAppearancePicker(for: group)
-                }
-            )
-
-            Text("\(store.itemCount(inGroup: group.id)) 条")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 56, alignment: .trailing)
-
-            Button(role: .destructive) {
-                requestDeleteGroup(group)
-            } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .help("删除分组")
+            },
+            onDismissAppearancePicker: closeGroupAppearancePicker,
+            onRequestDeleteGroup: requestDeleteGroup
+        ) { group in
+            groupAppearancePicker(for: group)
         }
-        .padding(.vertical, 4)
     }
 
     private func groupAppearancePicker(for group: ClipboardGroup) -> some View {
@@ -955,25 +865,11 @@ struct SettingsView: View {
     }
 
     private var groupsSubtitle: String {
-        if store.groups.isEmpty {
-            return "暂无分组"
-        }
-
-        let groupedItemCount = store.groups.reduce(0) { partialResult, group in
-            partialResult + store.itemCount(inGroup: group.id)
-        }
-        return "\(store.groups.count) 个分组，\(groupedItemCount) 条内容"
+        SettingsGroupsViewModel.subtitle(groups: store.groups, itemCount: store.itemCount(inGroup:))
     }
 
     private var filteredGroupIcons: [String] {
-        let query = groupIconSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            return ClipboardGroup.defaultIcons
-        }
-
-        return ClipboardGroup.defaultIcons.filter {
-            $0.localizedCaseInsensitiveContains(query)
-        }
+        SettingsGroupsViewModel.filteredIcons(query: groupIconSearchText)
     }
 
     private func closeGroupAppearancePicker() {
@@ -1141,13 +1037,15 @@ struct SettingsView: View {
     }
 
     private func requestDeleteSelectedGroups() {
-        guard !groupSelection.isEmpty else {
+        switch SettingsGroupsViewModel.bulkDeleteDecision(
+            selectedIDs: groupSelection,
+            itemCount: store.itemCount(inGroup:)
+        ) {
+        case .none:
             return
-        }
-
-        if groupSelection.contains(where: { store.itemCount(inGroup: $0) > 0 }) {
+        case .confirm:
             isBulkGroupDeleteConfirmationPresented = true
-        } else {
+        case .deleteImmediately:
             deleteSelectedGroups()
         }
     }
@@ -1516,7 +1414,7 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsTextField: NSViewRepresentable {
+struct SettingsTextField: NSViewRepresentable {
     @Binding var text: String
     private let isFocused: Binding<Bool>?
     private let focusedID: Binding<ClipboardGroup.ID?>?

@@ -5,9 +5,9 @@
 ## 当前文档状态
 
 - 创建日期：2026-06-07
-- 当前执行阶段：阶段 4-B，设置页性能/日志区拆分已完成，等待本地提交
+- 当前执行阶段：阶段 4-C，设置页分组管理区拆分已完成，等待本地提交
 - 当前禁止事项：禁止直接进入主窗口大拆分，禁止直接重写 Store，禁止直接修改 SQLite 结构而不做备份和迁移测试
-- 当前优先目标：提交阶段 4-B；提交后按顺序进入阶段 4-C 分组设置区拆分
+- 当前优先目标：提交阶段 4-C；提交后按顺序进入阶段 4-D 诊断日志可观测性增强
 - 版本要求：每次后续代码修改完成后，必须编译、运行验证，并按项目版本规则递增版本号
 
 ---
@@ -1159,3 +1159,14 @@
     - 验证：先运行 `swift test --filter SettingsDiagnosticsViewModel` 观察到缺少 ViewModel 的失败；实现后定向测试通过；`swift build` 通过；`swift test` 通过，155 个测试全部通过。
     - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.118 (260607.2252)` 递增到 `2.3.119 (260607.2311)`；已结束旧进程并启动 `.build/ClipEase.app`。
     - 阶段 4-C 入口条件：阶段 4-B 本地提交完成后，按顺序拆 `SettingsGroupsSection`；不得提前修改发布脚本。
+  - 2026-06-07 阶段 4-C 设置页分组管理区拆分：
+    - 新增 `Sources/ClipEase/Features/Settings/ViewModels/SettingsGroupsViewModel.swift`。
+    - 新增 `Sources/ClipEase/Features/Settings/Sections/SettingsGroupsSection.swift`。
+    - 新增 `Tests/ClipEaseTests/SettingsGroupsViewModelTests.swift`。
+    - `SettingsView.swift` 不再直接拼装分组管理列表、分组行、选择按钮、重命名输入框和删除按钮。
+    - `SettingsView.swift` 仍保留实际 store 操作、删除确认弹窗、颜色与图标弹窗内容、颜色面板关闭逻辑和状态提示入口，避免改变分组业务行为。
+    - `SettingsGroupsViewModel` 只承载分组副标题、图标筛选和批量删除确认策略等纯逻辑。
+    - 本轮未改变设置页视觉结构、分组按钮文案、重命名行为、颜色与图标弹窗行为、主窗口、搜索交互、SQLite 结构或发布脚本。
+    - 验证：先运行 `swift test --filter SettingsGroupsViewModel` 观察到缺少 ViewModel 的失败；实现后定向测试通过；`swift build` 通过；`swift test` 通过，159 个测试全部通过。
+    - App 构建与运行：已执行 `./scripts/build-app.sh`，版本从 `2.3.119 (260607.2311)` 递增到 `2.3.120 (260607.2332)`；已结束旧进程并启动 `.build/ClipEase.app`。
+    - 阶段 4-D 入口条件：阶段 4-C 本地提交完成后，按顺序增强诊断日志可观测性；不得提前修改发布脚本。
