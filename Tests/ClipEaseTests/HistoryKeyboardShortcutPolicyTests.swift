@@ -547,6 +547,17 @@ import Testing
     #expect(second.arrowX > first.arrowX)
 }
 
+@Test func detachedPreviewFrameRemovesArrowHeightAndKeepsTopEdge() {
+    let attachedFrame = CGRect(x: 120, y: 180, width: 390, height: 274)
+    let detachedFrame = HistoryPreviewDetachedFramePolicy.frame(
+        for: CGSize(width: 390, height: 260),
+        keepingTopEdgeFrom: attachedFrame
+    )
+
+    #expect(detachedFrame.height == 260)
+    #expect(detachedFrame.maxY == attachedFrame.maxY)
+}
+
 @Test func previewFallbackFrameTracksDocumentPositionAndScrollOffset() {
     let frame = HistoryPreviewFramePolicy.fallbackViewportFrame(
         documentFrame: CGRect(x: 540, y: 0, width: 250, height: 270),

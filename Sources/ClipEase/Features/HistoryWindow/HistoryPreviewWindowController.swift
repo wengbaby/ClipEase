@@ -514,6 +514,7 @@ final class HistoryPreviewWindowController {
             guard let panel else {
                 return
             }
+            self?.prepareDetachedPreviewContent(panel: panel, configuration: configuration)
             self?.dragPanelManually(
                 panel,
                 initialMouseDownEvent: initialMouseDownEvent,
@@ -521,6 +522,30 @@ final class HistoryPreviewWindowController {
             )
             self?.completeInitialDetachedPreviewDrag(panel: panel, configuration: configuration)
         }
+    }
+
+    private func prepareDetachedPreviewContent(panel: NSPanel, configuration: PreviewContentConfiguration) {
+        renderPreviewContent(
+            panel: panel,
+            configuration: configuration,
+            isContentReady: true,
+            showsArrow: false,
+            onClose: { [weak self, weak panel] in
+                guard let panel else {
+                    return
+                }
+                self?.closeDetachedPreview(panel)
+            },
+            onDetachDrag: { nil }
+        )
+        panel.setFrame(
+            HistoryPreviewDetachedFramePolicy.frame(
+                for: configuration.size,
+                keepingTopEdgeFrom: panel.frame
+            ),
+            display: true,
+            animate: false
+        )
     }
 
     private func completeInitialDetachedPreviewDrag(panel: NSPanel, configuration: PreviewContentConfiguration) {
@@ -827,6 +852,17 @@ final class HistoryPreviewWindowController {
         )
     }
 
+}
+
+enum HistoryPreviewDetachedFramePolicy {
+    static func frame(for size: CGSize, keepingTopEdgeFrom frame: CGRect) -> CGRect {
+        CGRect(
+            x: frame.minX,
+            y: frame.maxY - size.height,
+            width: size.width,
+            height: size.height
+        )
+    }
 }
 
 private struct PreviewContentConfiguration {
