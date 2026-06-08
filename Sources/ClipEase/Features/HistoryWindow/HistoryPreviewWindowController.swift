@@ -536,7 +536,12 @@ final class HistoryPreviewWindowController {
                 }
                 self?.closeDetachedPreview(panel)
             },
-            onDetachDrag: { nil }
+            onDetachDrag: { [weak self, weak panel] in
+                guard let panel else {
+                    return nil
+                }
+                return self?.dragDetachedPreview(panel)
+            }
         )
         panel.setFrame(
             HistoryPreviewDetachedFramePolicy.frame(
