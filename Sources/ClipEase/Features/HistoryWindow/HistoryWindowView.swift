@@ -85,6 +85,7 @@ struct HistoryWindowView: View {
     @State private var pendingKeyboardFocusClearTask: Task<Void, Never>?
     @State private var latestClipboardFocusGeneration: UInt64 = 0
     @State private var pendingProgrammaticJumpItemID: ClipboardItem.ID?
+    @State private var pendingPastedItemFocusOnNextShow: ClipboardItem.ID?
     @State private var pendingDefaultFocusOnShow = false
     @State private var pendingItemScrollID: HistoryPreviewItem.ID?
     @State private var pendingItemScrollRetryCount = 0
@@ -2584,6 +2585,7 @@ struct HistoryWindowView: View {
             return
         }
         accessibilityPermissionState.refresh()
+        pendingPastedItemFocusOnNextShow = item.id
         switch pasteExecutor.pastePlainTextToFrontmostApp(item) {
         case .copiedOnly, .copiedFallbackTextOnly:
             store.markUsed(item.id)
@@ -2594,6 +2596,7 @@ struct HistoryWindowView: View {
             scheduleProgrammaticJump(to: item.id)
             showStatus("已粘贴纯文本到当前 App")
         case .failed(let reason):
+            pendingPastedItemFocusOnNextShow = nil
             showStatus(reason)
         }
     }
@@ -2688,6 +2691,7 @@ struct HistoryWindowView: View {
         }
 
         accessibilityPermissionState.refresh()
+        pendingPastedItemFocusOnNextShow = item.id
         switch pasteExecutor.pasteToFrontmostApp(item) {
         case .copiedOnly:
             store.markUsed(item.id)
@@ -2706,6 +2710,7 @@ struct HistoryWindowView: View {
             scheduleProgrammaticJump(to: item.id)
             showStatus(pastedFallbackTextStatus(for: item))
         case .failed(let reason):
+            pendingPastedItemFocusOnNextShow = nil
             showStatus(reason)
         }
         PerformanceDiagnosticsService.shared.record(
@@ -5393,6 +5398,10 @@ struct HistoryWindowView: View {
         searchHasHandedOffFocusToCard = false
         inputState.setSearchHasHandedOffFocusToCard(false)
 
+        pendingLatestFocusItemID = nil
+        pendingLatestFocusTimestamp = nil
+        pendingLatestFocusReason = nil
+        pendingLatestFocusLockID = nil
         pendingProgrammaticJumpItemID = nil
         pendingItemScrollID = nil
         pendingItemScrollRetryCount = 0
@@ -5423,12 +5432,18 @@ struct HistoryWindowView: View {
             return
         }
 
-        guard let firstID = filteredItems.first?.id else {
+        let preferredID = pendingPastedItemFocusOnNextShow.flatMap { id in
+            containsFilteredItem(id) ? id : nil
+        }
+        guard let targetID = preferredID ?? filteredItems.first?.id else {
             selectedItemID = nil
             return
         }
 
-        selectedItemID = firstID
+        selectedItemID = targetID
+        if pendingPastedItemFocusOnNextShow == targetID {
+            pendingPastedItemFocusOnNextShow = nil
+        }
         pendingDefaultFocusOnShow = false
     }
 
@@ -5586,10 +5601,13 @@ struct HistoryWindowView: View {
         }
 
         if let preferredID,
+           pendingPastedItemFocusOnNextShow == nil,
            store.item(with: preferredID) != nil {
             selectedItemID = preferredID
         } else {
-            selectedItemID = rememberedSelectionFallbackID() ?? firstItem.id
+            selectedItemID = pendingPastedItemFocusOnNextShow.flatMap { id in
+                store.item(with: id) == nil ? nil : id
+            } ?? rememberedSelectionFallbackID() ?? firstItem.id
         }
         rememberSelectedItem()
 
