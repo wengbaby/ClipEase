@@ -11,6 +11,22 @@ private struct RichTextImportResult: Sendable {
     let plainText: String
 }
 
+struct ClipboardPollingPolicy: Sendable {
+    let activeInterval: TimeInterval
+    let idleInterval: TimeInterval
+    let idleThreshold: Int
+
+    static let `default` = ClipboardPollingPolicy(
+        activeInterval: 0.25,
+        idleInterval: 0.75,
+        idleThreshold: 12
+    )
+
+    func interval(afterUnchangedPollCount unchangedPollCount: Int) -> TimeInterval {
+        unchangedPollCount >= idleThreshold ? idleInterval : activeInterval
+    }
+}
+
 @MainActor
 final class ClipboardMonitor {
     private static let filenamesPasteboardType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
@@ -26,20 +42,24 @@ final class ClipboardMonitor {
     private let store: ClipboardHistoryStore
     private let recordingController: RecordingController
     private let ignoredAppSettings: IgnoredAppSettings
+    private let pollingPolicy: ClipboardPollingPolicy
     var shouldSuppressRecording: (() -> Bool)?
     private var timer: Timer?
     private var lastChangeCount: Int
+    private var unchangedPollCount = 0
     private var richTextImportTask: Task<Void, Never>?
 
     init(
         store: ClipboardHistoryStore,
         recordingController: RecordingController,
         ignoredAppSettings: IgnoredAppSettings,
-        pasteboard: NSPasteboard = .general
+        pasteboard: NSPasteboard = .general,
+        pollingPolicy: ClipboardPollingPolicy = .default
     ) {
         self.store = store
         self.recordingController = recordingController
         self.ignoredAppSettings = ignoredAppSettings
+        self.pollingPolicy = pollingPolicy
         self.pasteboard = pasteboard
         self.lastChangeCount = pasteboard.changeCount
     }
@@ -49,8 +69,13 @@ final class ClipboardMonitor {
             return
         }
 
+        scheduleTimer(interval: pollingPolicy.activeInterval)
+    }
+
+    private func scheduleTimer(interval: TimeInterval) {
+        timer?.invalidate()
         timer = Timer.scheduledTimer(
-            withTimeInterval: 0.75,
+            withTimeInterval: interval,
             repeats: true
         ) { [weak self] _ in
             Task { @MainActor in
@@ -59,9 +84,20 @@ final class ClipboardMonitor {
         }
     }
 
+    private func updatePollingIntervalForCurrentActivity() {
+        let nextInterval = pollingPolicy.interval(afterUnchangedPollCount: unchangedPollCount)
+        guard let timer,
+              abs(timer.timeInterval - nextInterval) > 0.001 else {
+            return
+        }
+
+        scheduleTimer(interval: nextInterval)
+    }
+
     func stop() {
         timer?.invalidate()
         timer = nil
+        unchangedPollCount = 0
         richTextImportTask?.cancel()
         richTextImportTask = nil
     }
@@ -70,9 +106,13 @@ final class ClipboardMonitor {
         let startedAt = CFAbsoluteTimeGetCurrent()
         let currentChangeCount = pasteboard.changeCount
         guard currentChangeCount != lastChangeCount else {
+            unchangedPollCount += 1
+            updatePollingIntervalForCurrentActivity()
             return
         }
 
+        unchangedPollCount = 0
+        updatePollingIntervalForCurrentActivity()
         lastChangeCount = currentChangeCount
         richTextImportTask?.cancel()
         richTextImportTask = nil
