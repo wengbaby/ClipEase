@@ -105,10 +105,14 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         if let latestFocusRequest = store.latestItemFocusRequest {
             inputState.requestItemFocus(latestFocusRequest.itemID, resetToAll: true)
         } else if !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
-            inputState.requestDefaultFocus(resetToFirst: shouldAnimate)
+            HistoryScrollCoordinator.shared.restoreSavedOffset()
         }
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(true)
+        if store.latestItemFocusRequest == nil,
+           !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
+            inputState.requestDefaultFocus(resetToFirst: shouldAnimate)
+        }
         store.setOCRInteractiveThrottleActive(true)
 
         guard shouldAnimate else {

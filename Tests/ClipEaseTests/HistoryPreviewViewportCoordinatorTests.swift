@@ -24,6 +24,40 @@ import Testing
     #expect(store.mode == .automatic)
 }
 
+@MainActor
+@Test func historyViewportStoreDefaultFocusResetDoesNotPinFirstPageMode() {
+    let store = HistoryViewportStore(
+        visibleRect: CGRect(x: 0, y: 0, width: 800, height: 300),
+        mode: .automatic
+    )
+
+    store.visibleRect = CGRect(x: 0, y: 0, width: 800, height: 300)
+    store.mode = .automatic
+
+    let changed = store.updateVisibleRectIfNeeded(
+        CGRect(x: 5_400, y: 0, width: 800, height: 300),
+        itemStride: 270
+    )
+
+    #expect(changed)
+    #expect(store.mode == .automatic)
+
+    let range = HistoryRailViewportContext(
+        itemCount: 80,
+        visibleRect: store.visibleRect,
+        hasReliableVisibleRect: true,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        bufferItemCount: 6,
+        renderedItemLimit: 20,
+        edgeBufferItemCount: 3,
+        mode: store.mode
+    ).visibleWindow(focusedIndex: nil)
+
+    #expect(range.lowerBound > 0)
+    #expect(range.contains(20))
+}
+
 @Test func renderWindowCoordinatorKeepsExistingContentWidthCalculation() {
     let width = RenderWindowCoordinator.contentWidth(
         itemCount: 3,

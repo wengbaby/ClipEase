@@ -85,6 +85,7 @@ struct HistoryWindowView: View {
     @State private var pendingKeyboardFocusClearTask: Task<Void, Never>?
     @State private var latestClipboardFocusGeneration: UInt64 = 0
     @State private var pendingProgrammaticJumpItemID: ClipboardItem.ID?
+    @State private var pendingDefaultFocusOnShow = false
     @State private var pendingItemScrollID: HistoryPreviewItem.ID?
     @State private var pendingItemScrollRetryCount = 0
     @State private var shouldResetHorizontalOffsetForPendingItemScroll = false
@@ -554,6 +555,7 @@ struct HistoryWindowView: View {
             pendingKeyboardFocusClearTask?.cancel()
             hiddenResourceCheckpointTask?.cancel()
             enteringItemClearTask?.cancel()
+            pendingDefaultFocusOnShow = false
             hoveredCardID = nil
             pressedCardID = nil
             HistoryScrollCoordinator.shared.onOffsetChange = nil
@@ -4838,6 +4840,7 @@ struct HistoryWindowView: View {
             fulfillPendingLatestFocusIfPossible()
             convergeLatestClipboardFocusIfNeeded()
             applyPendingProgrammaticJumpIfPossible()
+            applyPendingDefaultFocusOnShowIfNeeded()
             schedulePreheatVisibleAssets()
             PerformanceDiagnosticsService.shared.record(
                 "search.postApply",
@@ -4915,6 +4918,7 @@ struct HistoryWindowView: View {
                 fulfillPendingLatestFocusIfPossible()
                 convergeLatestClipboardFocusIfNeeded()
                 applyPendingProgrammaticJumpIfPossible()
+                applyPendingDefaultFocusOnShowIfNeeded()
                 schedulePreheatVisibleAssets()
                 if HistorySearchPaginationPolicy.shouldLoadMore(
                     filteredCount: result.items.count,
@@ -5389,19 +5393,43 @@ struct HistoryWindowView: View {
         searchHasHandedOffFocusToCard = false
         inputState.setSearchHasHandedOffFocusToCard(false)
 
+        pendingProgrammaticJumpItemID = nil
+        pendingItemScrollID = nil
+        pendingItemScrollRetryCount = 0
+        pendingKeyboardFocusItemID = nil
+        pendingKeyboardFocusClearTask?.cancel()
+        shouldResetHorizontalOffsetForPendingItemScroll = false
+        shouldAnimatePendingItemScroll = false
+        isPreparingPendingItemScrollMeasurement = false
+        pendingDefaultFocusOnShow = true
+        if request.resetToFirst {
+            HistoryScrollCoordinator.shared.discardSavedOffset(for: selectedGroup.storageValue)
+            HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
+            viewportStore.mode = .automatic
+            viewportStore.visibleRect = CGRect(
+                x: 0,
+                y: viewportStore.visibleRect.minY,
+                width: max(viewportStore.visibleRect.width, 1),
+                height: viewportStore.visibleRect.height
+            )
+        }
+
+        applyPendingDefaultFocusOnShowIfNeeded()
+    }
+
+    private func applyPendingDefaultFocusOnShowIfNeeded() {
+        guard pendingDefaultFocusOnShow,
+              pendingLatestFocusItemID == nil else {
+            return
+        }
+
         guard let firstID = filteredItems.first?.id else {
             selectedItemID = nil
             return
         }
 
         selectedItemID = firstID
-        if request.resetToFirst {
-            pendingProgrammaticJumpItemID = firstID
-            shouldResetHorizontalOffsetForPendingItemScroll = true
-            resetVisibleRailWindowForLatestFocus(firstID)
-            scrollToItemWhenRendered(firstID, animated: false)
-            applyPendingProgrammaticJumpIfPossible()
-        }
+        pendingDefaultFocusOnShow = false
     }
 
     private func prepareLatestItemFocus(
