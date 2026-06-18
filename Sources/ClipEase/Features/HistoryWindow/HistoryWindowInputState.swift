@@ -352,6 +352,16 @@ enum HistorySearchResultSelectionPolicy {
     }
 }
 
+enum HistoryOrdinarySelectionRestorePolicy {
+    static func canRestore(
+        hasPendingLatestFocus: Bool,
+        hasPendingDefaultFocus: Bool,
+        hasPendingPastedFocus: Bool
+    ) -> Bool {
+        !hasPendingLatestFocus && !hasPendingDefaultFocus && !hasPendingPastedFocus
+    }
+}
+
 struct HistoryKeyboardRequest: Equatable {
     let id = UUID()
     let action: HistoryKeyboardAction

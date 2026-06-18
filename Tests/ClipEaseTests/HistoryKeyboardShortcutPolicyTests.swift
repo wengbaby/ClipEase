@@ -523,6 +523,24 @@ import Testing
     ) == selectedID)
 }
 
+@Test func ordinarySelectionRestoreWaitsForPendingPastedFocus() {
+    #expect(!HistoryOrdinarySelectionRestorePolicy.canRestore(
+        hasPendingLatestFocus: false,
+        hasPendingDefaultFocus: true,
+        hasPendingPastedFocus: true
+    ))
+    #expect(!HistoryOrdinarySelectionRestorePolicy.canRestore(
+        hasPendingLatestFocus: false,
+        hasPendingDefaultFocus: false,
+        hasPendingPastedFocus: true
+    ))
+    #expect(HistoryOrdinarySelectionRestorePolicy.canRestore(
+        hasPendingLatestFocus: false,
+        hasPendingDefaultFocus: false,
+        hasPendingPastedFocus: false
+    ))
+}
+
 @Test func previewFollowRetriesAcrossMultipleLayoutPasses() {
     #expect(HistoryPreviewFollowPolicy.retryDelaysNanoseconds.count >= 3)
     #expect(HistoryPreviewFollowPolicy.retryDelaysNanoseconds.allSatisfy { $0 > 0 })

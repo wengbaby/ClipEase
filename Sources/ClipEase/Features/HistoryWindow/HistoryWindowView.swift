@@ -2735,6 +2735,12 @@ struct HistoryWindowView: View {
     }
 
     private func scheduleProgrammaticJump(to id: ClipboardItem.ID) {
+        pendingPastedItemFocusOnNextShow = id
+        guard inputState.isWindowPresentedSnapshot else {
+            clearPendingHistoryRailJumpState()
+            return
+        }
+
         resetFiltersForLatestItemFocus()
         scheduleLatestProgrammaticTransition(
             to: id,
@@ -2742,6 +2748,25 @@ struct HistoryWindowView: View {
             resetToAll: true,
             animateWhenPresented: false
         )
+    }
+
+    private func clearPendingHistoryRailJumpState() {
+        pendingLatestFocusItemID = nil
+        pendingLatestFocusTimestamp = nil
+        pendingLatestFocusReason = nil
+        pendingLatestFocusLockID = nil
+        pendingProgrammaticJumpItemID = nil
+        pendingItemScrollID = nil
+        pendingItemScrollRetryCount = 0
+        pendingKeyboardFocusItemID = nil
+        pendingKeyboardFocusClearTask?.cancel()
+        pendingKeyboardFocusClearTask = nil
+        latestFocusRetryTask?.cancel()
+        latestFocusRetryTask = nil
+        shouldResetHorizontalOffsetForPendingItemScroll = false
+        shouldAnimatePendingItemScroll = false
+        isPreparingPendingItemScrollMeasurement = false
+        viewportStore.mode = .automatic
     }
 
     private func showPreview(_ id: ClipboardItem.ID?) {
@@ -4823,7 +4848,11 @@ struct HistoryWindowView: View {
             let applyStartedAt = CFAbsoluteTimeGetCurrent()
             searchCoordinator.markUnfilteredApplied()
             applyUnfilteredPreviewResult()
-            if pendingLatestFocusItemID == nil {
+            if HistoryOrdinarySelectionRestorePolicy.canRestore(
+                hasPendingLatestFocus: pendingLatestFocusItemID != nil,
+                hasPendingDefaultFocus: pendingDefaultFocusOnShow,
+                hasPendingPastedFocus: pendingPastedItemFocusOnNextShow != nil
+            ) {
                 applySearchSelectionAndViewport(isSearchActive: request.isSearchActive)
             }
             PerformanceDiagnosticsService.shared.record(
@@ -4886,7 +4915,11 @@ struct HistoryWindowView: View {
                 }
                 withTransaction(transaction) {
                     applyFilteredPreviewResult(result)
-                    if pendingLatestFocusItemID == nil {
+                    if HistoryOrdinarySelectionRestorePolicy.canRestore(
+                        hasPendingLatestFocus: pendingLatestFocusItemID != nil,
+                        hasPendingDefaultFocus: pendingDefaultFocusOnShow,
+                        hasPendingPastedFocus: pendingPastedItemFocusOnNextShow != nil
+                    ) {
                         applySearchSelectionAndViewport(isSearchActive: request.isSearchActive)
                     }
                 }
@@ -5398,18 +5431,7 @@ struct HistoryWindowView: View {
         searchHasHandedOffFocusToCard = false
         inputState.setSearchHasHandedOffFocusToCard(false)
 
-        pendingLatestFocusItemID = nil
-        pendingLatestFocusTimestamp = nil
-        pendingLatestFocusReason = nil
-        pendingLatestFocusLockID = nil
-        pendingProgrammaticJumpItemID = nil
-        pendingItemScrollID = nil
-        pendingItemScrollRetryCount = 0
-        pendingKeyboardFocusItemID = nil
-        pendingKeyboardFocusClearTask?.cancel()
-        shouldResetHorizontalOffsetForPendingItemScroll = false
-        shouldAnimatePendingItemScroll = false
-        isPreparingPendingItemScrollMeasurement = false
+        clearPendingHistoryRailJumpState()
         pendingDefaultFocusOnShow = true
         if request.resetToFirst {
             HistoryScrollCoordinator.shared.discardSavedOffset(for: selectedGroup.storageValue)
@@ -5432,18 +5454,25 @@ struct HistoryWindowView: View {
             return
         }
 
-        let preferredID = pendingPastedItemFocusOnNextShow.flatMap { id in
-            containsFilteredItem(id) ? id : nil
+        if let pastedID = pendingPastedItemFocusOnNextShow {
+            guard containsFilteredItem(pastedID) else {
+                return
+            }
+
+            selectedItemID = pastedID
+            if filteredItems.first?.id == pastedID {
+                pendingPastedItemFocusOnNextShow = nil
+                pendingDefaultFocusOnShow = false
+            }
+            return
         }
-        guard let targetID = preferredID ?? filteredItems.first?.id else {
+
+        guard let targetID = filteredItems.first?.id else {
             selectedItemID = nil
             return
         }
 
         selectedItemID = targetID
-        if pendingPastedItemFocusOnNextShow == targetID {
-            pendingPastedItemFocusOnNextShow = nil
-        }
         pendingDefaultFocusOnShow = false
     }
 
