@@ -105,7 +105,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         if let latestFocusRequest = store.latestItemFocusRequest {
             inputState.requestItemFocus(latestFocusRequest.itemID, resetToAll: true)
         } else if !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
-            HistoryScrollCoordinator.shared.restoreSavedOffset()
+            inputState.requestDefaultFocus(resetToFirst: shouldAnimate)
         }
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(true)

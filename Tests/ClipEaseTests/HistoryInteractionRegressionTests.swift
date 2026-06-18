@@ -67,6 +67,20 @@ import Testing
     ))
 }
 
+@Test @MainActor func defaultFocusRequestEmitsDistinctEventsForRepeatedShows() {
+    let inputState = HistoryWindowInputState()
+
+    inputState.requestDefaultFocus(resetToFirst: true)
+    let firstRequest = inputState.defaultFocusRequest
+    inputState.requestDefaultFocus(resetToFirst: true)
+    let secondRequest = inputState.defaultFocusRequest
+
+    #expect(firstRequest != nil)
+    #expect(secondRequest != nil)
+    #expect(firstRequest != secondRequest)
+    #expect(secondRequest?.resetToFirst == true)
+}
+
 @Test func previewFallbackAnchorTracksFocusedCardAcrossHorizontalMovement() {
     let itemStride: CGFloat = 270
     let cardFrame = CGSize(width: 250, height: 270)

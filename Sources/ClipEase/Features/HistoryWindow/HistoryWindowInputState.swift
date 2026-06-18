@@ -363,12 +363,18 @@ struct HistoryItemFocusRequest: Equatable {
     let resetToAll: Bool
 }
 
+struct HistoryDefaultFocusRequest: Equatable {
+    let id = UUID()
+    let resetToFirst: Bool
+}
+
 final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     @MainActor static weak var currentForTextEditing: HistoryWindowInputState?
 
     @Published private(set) var isCommandKeyPressed = false
     @Published private(set) var request: HistoryKeyboardRequest?
     @Published private(set) var itemFocusRequest: HistoryItemFocusRequest?
+    @Published private(set) var defaultFocusRequest: HistoryDefaultFocusRequest?
     @Published private(set) var windowHideRequestID = UUID()
     @Published private(set) var isWindowVisible = false
     @Published private(set) var isWindowPresented = false
@@ -450,6 +456,10 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
 
     func requestItemFocus(_ itemID: ClipboardItem.ID, resetToAll: Bool) {
         itemFocusRequest = HistoryItemFocusRequest(itemID: itemID, resetToAll: resetToAll)
+    }
+
+    func requestDefaultFocus(resetToFirst: Bool) {
+        defaultFocusRequest = HistoryDefaultFocusRequest(resetToFirst: resetToFirst)
     }
 
     func notifyWindowWillHide() {

@@ -629,6 +629,13 @@ struct HistoryWindowView: View {
 
             focusRequestedItem(request)
         }
+        .onChange(of: inputState.defaultFocusRequest) { request in
+            guard let request else {
+                return
+            }
+
+            focusDefaultItemOnShow(request)
+        }
         .onChange(of: store.latestItemFocusRequest) { request in
             guard let request else {
                 return
@@ -5368,6 +5375,33 @@ struct HistoryWindowView: View {
             resetToAll: request.resetToAll
         )
         fulfillPendingLatestFocusIfPossible()
+    }
+
+    private func focusDefaultItemOnShow(_ request: HistoryDefaultFocusRequest) {
+        guard pendingLatestFocusItemID == nil else {
+            return
+        }
+
+        if isSearchFocused || inputState.isTextInputFocusedSnapshot {
+            isSearchFocused = false
+            inputState.setTextInputFocused(false)
+        }
+        searchHasHandedOffFocusToCard = false
+        inputState.setSearchHasHandedOffFocusToCard(false)
+
+        guard let firstID = filteredItems.first?.id else {
+            selectedItemID = nil
+            return
+        }
+
+        selectedItemID = firstID
+        if request.resetToFirst {
+            pendingProgrammaticJumpItemID = firstID
+            shouldResetHorizontalOffsetForPendingItemScroll = true
+            resetVisibleRailWindowForLatestFocus(firstID)
+            scrollToItemWhenRendered(firstID, animated: false)
+            applyPendingProgrammaticJumpIfPossible()
+        }
     }
 
     private func prepareLatestItemFocus(
