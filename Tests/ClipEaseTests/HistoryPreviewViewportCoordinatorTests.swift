@@ -58,6 +58,33 @@ import Testing
     #expect(range.contains(20))
 }
 
+@Test func scrollOffsetChangesMustUpdateRenderWindowEvenBeforePresentedSnapshotSettles() {
+    let staleWindow = HistoryRailViewportContext(
+        itemCount: 100,
+        visibleRect: .zero,
+        hasReliableVisibleRect: true,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        bufferItemCount: 6,
+        renderedItemLimit: 20,
+        edgeBufferItemCount: 3
+    ).visibleWindow(focusedIndex: nil)
+    let scrolledWindow = HistoryRailViewportContext(
+        itemCount: 100,
+        visibleRect: CGRect(x: 5_400, y: 0, width: 1_080, height: 300),
+        hasReliableVisibleRect: true,
+        itemStride: 270,
+        horizontalContentPadding: 28,
+        bufferItemCount: 6,
+        renderedItemLimit: 20,
+        edgeBufferItemCount: 3
+    ).visibleWindow(focusedIndex: nil)
+
+    #expect(staleWindow == 0..<20)
+    #expect(scrolledWindow != staleWindow)
+    #expect(scrolledWindow.contains(20))
+}
+
 @Test func renderWindowCoordinatorKeepsExistingContentWidthCalculation() {
     let width = RenderWindowCoordinator.contentWidth(
         itemCount: 3,

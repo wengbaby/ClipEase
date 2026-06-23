@@ -522,11 +522,7 @@ struct HistoryWindowView: View {
             restoreRememberedGroupSelection()
             HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)
             HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)
-            HistoryScrollCoordinator.shared.onOffsetChange = { [weak inputState] _ in
-                guard inputState?.isWindowPresentedSnapshot == true else {
-                    return
-                }
-
+            HistoryScrollCoordinator.shared.onOffsetChange = { _ in
                 Task { @MainActor in
                     updateCardRailVisibleRect()
                     requestNextHistoryPageIfNeeded()
