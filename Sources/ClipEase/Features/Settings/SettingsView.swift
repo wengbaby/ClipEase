@@ -109,6 +109,7 @@ struct SettingsView: View {
     @State private var focusedSettingsGroupNameID: ClipboardGroup.ID?
     @State private var editingSettingsGroupNames: [ClipboardGroup.ID: String] = [:]
     @StateObject private var historyDataViewModel = SettingsHistoryDataViewModel()
+    @StateObject private var updateViewModel = SettingsUpdateViewModel()
     private let groupAppearancePopoverWidth: CGFloat = 304
     private let groupAppearanceIconGridHeight: CGFloat = 178
 
@@ -140,6 +141,9 @@ struct SettingsView: View {
             accessibilityPermissionState.refresh()
             loginItemController.refresh()
             historyDataViewModel.refreshStorageUsage()
+            if selectedCategory == .about {
+                updateViewModel.checkAutomaticallyIfNeeded()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             accessibilityPermissionState.refresh()
@@ -834,11 +838,18 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         AboutSettingsSection(
+            updateViewModel: updateViewModel,
             onOpenGitHub: openGitHub,
             onOpenSupportCommunity: openSupportCommunity,
             onCopyVersion: copyVersion,
-            onRevealDebugTools: revealDebugToolsIfNeeded
+            onRevealDebugTools: revealDebugToolsIfNeeded,
+            onCheckForUpdates: checkForUpdates,
+            onOpenRelease: openRelease,
+            onDownloadUpdate: downloadUpdate
         )
+        .onAppear {
+            updateViewModel.checkAutomaticallyIfNeeded()
+        }
     }
 
     private var recordingSubtitle: String {
@@ -1344,6 +1355,25 @@ struct SettingsView: View {
 
         NSWorkspace.shared.open(url)
         showStatus("已打开 GitHub")
+    }
+
+    private func checkForUpdates() {
+        updateViewModel.checkManually()
+    }
+
+    private func openRelease(_ url: URL?) {
+        guard let releaseURL = url ?? AppVersionInfo.githubReleasesURL else {
+            showStatus("无法打开 Release")
+            return
+        }
+
+        NSWorkspace.shared.open(releaseURL)
+        showStatus("已打开 Release")
+    }
+
+    private func downloadUpdate(_ url: URL) {
+        NSWorkspace.shared.open(url)
+        showStatus("已打开 DMG 下载")
     }
 
     private func copyVersion() {

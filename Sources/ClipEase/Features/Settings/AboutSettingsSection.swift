@@ -70,10 +70,15 @@ private struct SupportQRCodeAssets {
 }
 
 struct AboutSettingsSection: View {
+    @ObservedObject var updateViewModel: SettingsUpdateViewModel
+
     let onOpenGitHub: () -> Void
     let onOpenSupportCommunity: () -> Void
     let onCopyVersion: () -> Void
     let onRevealDebugTools: () -> Void
+    let onCheckForUpdates: () -> Void
+    let onOpenRelease: (URL?) -> Void
+    let onDownloadUpdate: (URL) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -103,6 +108,33 @@ struct AboutSettingsSection: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onRevealDebugTools)
+
+                Divider()
+
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("版本更新")
+                            .font(.system(size: 13, weight: .semibold))
+
+                        Text(updateSubtitle)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .lineSpacing(4)
+                    }
+
+                    Spacer()
+
+                    Toggle("自动检查", isOn: $updateViewModel.isAutomaticCheckEnabled)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .font(.system(size: 12, weight: .regular))
+
+                    Button(updateViewModel.state.isChecking ? "检查中" : "检查更新", action: onCheckForUpdates)
+                        .buttonStyle(.bordered)
+                        .disabled(updateViewModel.state.isChecking)
+                }
+
+                updateStatusView
 
                 Divider()
 
@@ -161,6 +193,125 @@ struct AboutSettingsSection: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var updateSubtitle: String {
+        updateViewModel.isAutomaticCheckEnabled
+            ? "每天静默检查一次 GitHub 最新正式 Release。"
+            : "已关闭自动检查，你仍然可以手动检查更新。"
+    }
+
+    @ViewBuilder
+    private var updateStatusView: some View {
+        switch updateViewModel.state {
+        case .idle:
+            EmptyView()
+        case .checking:
+            updateStatusCard(
+                iconName: "arrow.triangle.2.circlepath",
+                title: "正在检查更新",
+                message: "正在连接 GitHub 获取最新正式 Release。",
+                tint: Color(red: 0.82, green: 0.52, blue: 0.12)
+            ) {
+                EmptyView()
+            }
+        case .upToDate(let version):
+            updateStatusCard(
+                iconName: "checkmark.circle",
+                title: "已是最新版",
+                message: "当前版本 \(version) 已是 GitHub 最新正式 Release。",
+                tint: Color(red: 0.18, green: 0.55, blue: 0.28)
+            ) {
+                Button("打开 Release") {
+                    onOpenRelease(nil)
+                }
+                .buttonStyle(.bordered)
+            }
+        case .updateAvailable(let info):
+            updateStatusCard(
+                iconName: "arrow.down.circle",
+                title: "发现新版本 ClipEase \(info.version)",
+                message: updateAvailableMessage(for: info),
+                tint: Color(red: 0.18, green: 0.48, blue: 0.86)
+            ) {
+                if let downloadURL = info.downloadURL {
+                    Button("下载 DMG") {
+                        onDownloadUpdate(downloadURL)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                Button("打开 Release") {
+                    onOpenRelease(info.releaseURL)
+                }
+                .buttonStyle(.bordered)
+            }
+        case .failed:
+            updateStatusCard(
+                iconName: "exclamationmark.circle",
+                title: "检查失败，稍后重试",
+                message: "可能是网络或 GitHub 暂时不可用。你可以稍后重新检查，也可以打开 GitHub 自行下载。",
+                tint: Color(red: 0.78, green: 0.24, blue: 0.18)
+            ) {
+                Button("重新检查", action: onCheckForUpdates)
+                    .buttonStyle(.borderedProminent)
+
+                Button("打开 Release") {
+                    onOpenRelease(nil)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private func updateAvailableMessage(for info: AppUpdateInfo) -> String {
+        if let publishedAt = info.publishedAt {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            return "当前版本为 \(AppVersionInfo.shortVersion)。GitHub 最新正式 Release 发布于 \(formatter.string(from: publishedAt))。"
+        }
+
+        return "当前版本为 \(AppVersionInfo.shortVersion)。GitHub 有新的正式 Release。"
+    }
+
+    private func updateStatusCard<Actions: View>(
+        iconName: String,
+        title: String,
+        message: String,
+        tint: Color,
+        @ViewBuilder actions: () -> Actions
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 20, height: 20)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+
+                Text(message)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(4)
+
+                HStack(spacing: 8) {
+                    actions()
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.1))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(tint.opacity(0.24), lineWidth: 1)
+        }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
