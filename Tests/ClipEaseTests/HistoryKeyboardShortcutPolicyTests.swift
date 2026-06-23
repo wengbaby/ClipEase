@@ -541,6 +541,43 @@ import Testing
     ))
 }
 
+@Test func rememberedViewportRestoreWaitsForPastedFocusRequest() {
+    #expect(!HistoryRememberedViewportRestorePolicy.canRestore(
+        didRestoreRememberedViewport: false,
+        hasPendingLatestFocus: false,
+        hasPendingDefaultFocus: false,
+        hasPendingPastedFocus: true,
+        hasRememberedSelection: true
+    ))
+}
+
+@Test func rememberedViewportRestoreDoesNotOverrideExplicitDefaultFocus() {
+    #expect(!HistoryRememberedViewportRestorePolicy.canRestore(
+        didRestoreRememberedViewport: true,
+        hasPendingLatestFocus: false,
+        hasPendingDefaultFocus: false,
+        hasPendingPastedFocus: false,
+        hasRememberedSelection: true
+    ))
+}
+
+@Test func rememberedViewportRestoreRequiresRememberedSelectionAndNoPendingFocus() {
+    #expect(HistoryRememberedViewportRestorePolicy.canRestore(
+        didRestoreRememberedViewport: false,
+        hasPendingLatestFocus: false,
+        hasPendingDefaultFocus: false,
+        hasPendingPastedFocus: false,
+        hasRememberedSelection: true
+    ))
+    #expect(!HistoryRememberedViewportRestorePolicy.canRestore(
+        didRestoreRememberedViewport: false,
+        hasPendingLatestFocus: false,
+        hasPendingDefaultFocus: false,
+        hasPendingPastedFocus: false,
+        hasRememberedSelection: false
+    ))
+}
+
 @Test func previewFollowRetriesAcrossMultipleLayoutPasses() {
     #expect(HistoryPreviewFollowPolicy.retryDelaysNanoseconds.count >= 3)
     #expect(HistoryPreviewFollowPolicy.retryDelaysNanoseconds.allSatisfy { $0 > 0 })

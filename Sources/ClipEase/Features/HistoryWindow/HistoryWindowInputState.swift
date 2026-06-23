@@ -362,6 +362,24 @@ enum HistoryOrdinarySelectionRestorePolicy {
     }
 }
 
+enum HistoryRememberedViewportRestorePolicy {
+    static func canRestore(
+        didRestoreRememberedViewport: Bool,
+        hasPendingLatestFocus: Bool,
+        hasPendingDefaultFocus: Bool,
+        hasPendingPastedFocus: Bool,
+        hasRememberedSelection: Bool
+    ) -> Bool {
+        !didRestoreRememberedViewport &&
+            hasRememberedSelection &&
+            HistoryOrdinarySelectionRestorePolicy.canRestore(
+                hasPendingLatestFocus: hasPendingLatestFocus,
+                hasPendingDefaultFocus: hasPendingDefaultFocus,
+                hasPendingPastedFocus: hasPendingPastedFocus
+            )
+    }
+}
+
 struct HistoryKeyboardRequest: Equatable {
     let id = UUID()
     let action: HistoryKeyboardAction

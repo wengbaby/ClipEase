@@ -5434,6 +5434,7 @@ struct HistoryWindowView: View {
         clearPendingHistoryRailJumpState()
         pendingDefaultFocusOnShow = true
         if request.resetToFirst {
+            didRestoreRememberedViewport = true
             HistoryScrollCoordinator.shared.discardSavedOffset(for: selectedGroup.storageValue)
             HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
             viewportStore.mode = .automatic
@@ -5647,9 +5648,14 @@ struct HistoryWindowView: View {
     }
 
     private func restoreRememberedViewportIfNeeded() {
-        guard !didRestoreRememberedViewport,
-              pendingLatestFocusItemID == nil,
-              let rememberedID = rememberedSelectedItemUUID(),
+        guard let rememberedID = rememberedSelectedItemUUID(),
+              HistoryRememberedViewportRestorePolicy.canRestore(
+                didRestoreRememberedViewport: didRestoreRememberedViewport,
+                hasPendingLatestFocus: pendingLatestFocusItemID != nil,
+                hasPendingDefaultFocus: pendingDefaultFocusOnShow,
+                hasPendingPastedFocus: pendingPastedItemFocusOnNextShow != nil,
+                hasRememberedSelection: true
+              ),
               containsFilteredItem(rememberedID) else {
             return
         }
