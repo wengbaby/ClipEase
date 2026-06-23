@@ -97,6 +97,26 @@ import Testing
     #expect(script.contains("GitHub API 备用"))
 }
 
+@Test func releaseScriptSupportsHumanWrittenNotesFile() throws {
+    let script = try releaseScript()
+
+    #expect(script.contains("--notes-file <path>"))
+    #expect(script.contains("CUSTOM_NOTES_FILE"))
+    #expect(script.contains("resolve_notes_file"))
+    #expect(script.contains("Release notes file does not exist"))
+    #expect(script.contains("if notes_path:"))
+    #expect(script.contains("intro = Path(notes_path).read_text"))
+}
+
+@Test func publishCurrentScriptRequiresNotesFileAndRestartsBuiltApp() throws {
+    let script = try publishCurrentScript()
+
+    #expect(script.contains("Usage: scripts/publish-current.sh --notes-file <path>"))
+    #expect(script.contains("Missing required --notes-file"))
+    #expect(script.contains("\"$ROOT_DIR/scripts/release.sh\" --bump none --publish --notes-file \"$NOTES_FILE\""))
+    #expect(script.contains("\"$ROOT_DIR/scripts/build-app.sh\" --bump none --preserve-build --run"))
+}
+
 @Test func releaseChecklistDocumentsFreeFallbackOnly() throws {
     let checklist = try releaseChecklist()
 
@@ -117,5 +137,11 @@ private func releaseScript() throws -> String {
 private func releaseChecklist() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("docs/releases/release-checklist.md")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func publishCurrentScript() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("scripts/publish-current.sh")
     return try String(contentsOf: path, encoding: .utf8)
 }

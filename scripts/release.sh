@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/.build/release-artifacts"
 APP_DIR="$ROOT_DIR/.build/ClipEase.app"
 TEMPLATE_FILE="$ROOT_DIR/docs/releases/release-notes-template.md"
+CUSTOM_NOTES_FILE=""
 BUMP_TYPE="patch"
 PUBLISH="false"
 DRY_RUN="false"
@@ -20,6 +21,7 @@ Options:
   --publish                       Create git tag, GitHub Release, and upload the DMG.
   --dry-run                       Build and verify release artifacts without git tag, GitHub Release, or upload.
   --skip-tests                    Skip swift test. Use only when tests were already run.
+  --notes-file <path>             Use human-written release notes, then append generated verification metadata.
   -h, --help                      Show this help.
 
 Output:
@@ -50,6 +52,14 @@ while [[ $# -gt 0 ]]; do
       SKIP_TESTS="true"
       shift
       ;;
+    --notes-file)
+      CUSTOM_NOTES_FILE="${2:-}"
+      shift 2
+      ;;
+    --notes-file=*)
+      CUSTOM_NOTES_FILE="${1#*=}"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -76,6 +86,30 @@ require_command() {
     exit 1
   fi
 }
+
+resolve_notes_file() {
+  local path="$1"
+
+  if [[ -z "$path" ]]; then
+    echo "--notes-file requires a path." >&2
+    exit 1
+  fi
+
+  if [[ "$path" != /* ]]; then
+    path="$ROOT_DIR/$path"
+  fi
+
+  if [[ ! -f "$path" ]]; then
+    echo "Release notes file does not exist: $path" >&2
+    exit 1
+  fi
+
+  CUSTOM_NOTES_FILE="$path"
+}
+
+if [[ -n "$CUSTOM_NOTES_FILE" ]]; then
+  resolve_notes_file "$CUSTOM_NOTES_FILE"
+fi
 
 ensure_clean_worktree_for_publish() {
   if [[ "$BUMP_TYPE" != "none" ]]; then
@@ -277,12 +311,25 @@ if [[ "$SKIP_TESTS" == "true" ]]; then
   TEST_LINE="本次脚本跳过 \`swift test\`，请确认发布前已单独通过完整测试。"
 fi
 
-python3 - "$TEMPLATE_FILE" "$BODY_PATH" "$VERSION" "$BUILD" "$DMG_NAME" "$SHA256" "$TEST_LINE" <<'PY'
+python3 - "$TEMPLATE_FILE" "$CUSTOM_NOTES_FILE" "$BODY_PATH" "$VERSION" "$BUILD" "$DMG_NAME" "$SHA256" "$TEST_LINE" <<'PY'
 import sys
 from pathlib import Path
 
-template_path, body_path, version, build, dmg_name, sha256, test_line = sys.argv[1:]
-body = Path(template_path).read_text(encoding="utf-8")
+template_path, notes_path, body_path, version, build, dmg_name, sha256, test_line = sys.argv[1:]
+if notes_path:
+    intro = Path(notes_path).read_text(encoding="utf-8").strip()
+    body = f"""{intro}
+
+## 验证
+
+- {test_line}
+- 已构建 `.build/ClipEase.app`，版本为 `{version} ({build})`。
+- 已生成并验证 `{dmg_name}`。
+- 已挂载 DMG 检查内部 `ClipEase.app` 版本为 `{version} ({build})`。
+- DMG SHA-256：`{sha256}`。
+"""
+else:
+    body = Path(template_path).read_text(encoding="utf-8")
 replacements = {
     "{{VERSION}}": version,
     "{{BUILD}}": build,
