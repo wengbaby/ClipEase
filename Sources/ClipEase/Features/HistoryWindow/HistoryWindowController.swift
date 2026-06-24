@@ -104,7 +104,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         renderState.mark("panel-ordered")
         let latestFocusRequest = store.consumeLatestItemFocusRequest()
         if let latestFocusRequest {
-            inputState.requestItemFocus(latestFocusRequest.itemID, resetToAll: true)
+            inputState.requestItemFocus(
+                latestFocusRequest.itemID,
+                resetToAll: true,
+                reason: latestFocusRequest.reason
+            )
         } else if !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
             HistoryScrollCoordinator.shared.restoreSavedOffset()
         }

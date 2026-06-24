@@ -895,11 +895,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func playEntranceAnimationIfPresented(for id: ClipboardItem.ID) {
-        guard inputState.isWindowPresentedSnapshot else {
-            return
-        }
-
+    private func playEntranceAnimationSoon(for id: ClipboardItem.ID) {
         playEntranceAnimation(for: [id])
     }
 
@@ -916,13 +912,22 @@ struct HistoryWindowView: View {
         entranceSheenProgress = 0
         entranceSheenAnimationTask = Task { @MainActor in
             await Task.yield()
+            await Task.yield()
             guard !Task.isCancelled else {
                 return
             }
 
-            withAnimation(.linear(duration: latestItemEntranceSheenDuration)) {
-                entranceSheenProgress = 1
+            let startedAt = CACurrentMediaTime()
+            while !Task.isCancelled {
+                let elapsed = CACurrentMediaTime() - startedAt
+                entranceSheenProgress = min(1, CGFloat(elapsed / latestItemEntranceSheenDuration))
+                if elapsed >= latestItemEntranceSheenDuration {
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 16_000_000)
             }
+
+            entranceSheenProgress = 1
             entranceSheenAnimationTask = nil
         }
         entranceSheenClearTask = Task { @MainActor in
@@ -5362,7 +5367,7 @@ struct HistoryWindowView: View {
         resetVisibleRailWindowForLatestFocus(focusCandidateID)
         fulfillPendingLatestFocusIfPossible()
         if focusReason == .inserted {
-            playEntranceAnimationIfPresented(for: focusCandidateID)
+            playEntranceAnimationSoon(for: focusCandidateID)
         }
     }
 
@@ -5385,7 +5390,7 @@ struct HistoryWindowView: View {
         HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
         resetVisibleRailWindowForLatestFocus(newestChangedItem.id)
         fulfillPendingLatestFocusIfPossible()
-        playEntranceAnimationIfPresented(for: newestChangedItem.id)
+        playEntranceAnimationSoon(for: newestChangedItem.id)
     }
 
     private func convergeLatestClipboardFocusIfNeeded() {
@@ -5540,7 +5545,7 @@ struct HistoryWindowView: View {
         )
         fulfillPendingLatestFocusIfPossible()
         if request.reason == .inserted {
-            playEntranceAnimationIfPresented(for: request.itemID)
+            playEntranceAnimationSoon(for: request.itemID)
         }
     }
 
@@ -5552,6 +5557,9 @@ struct HistoryWindowView: View {
             resetToAll: request.resetToAll
         )
         fulfillPendingLatestFocusIfPossible()
+        if request.reason == .inserted {
+            playEntranceAnimationSoon(for: request.itemID)
+        }
     }
 
     private func focusDefaultItemOnShow(_ request: HistoryDefaultFocusRequest) {

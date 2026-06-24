@@ -416,6 +416,7 @@ struct HistoryItemFocusRequest: Equatable {
     let id = UUID()
     let itemID: ClipboardItem.ID
     let resetToAll: Bool
+    let reason: ClipboardItemFocusRequest.Reason?
 }
 
 struct HistoryDefaultFocusRequest: Equatable {
@@ -509,8 +510,12 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
         request = HistoryKeyboardRequest(action: action)
     }
 
-    func requestItemFocus(_ itemID: ClipboardItem.ID, resetToAll: Bool) {
-        itemFocusRequest = HistoryItemFocusRequest(itemID: itemID, resetToAll: resetToAll)
+    func requestItemFocus(
+        _ itemID: ClipboardItem.ID,
+        resetToAll: Bool,
+        reason: ClipboardItemFocusRequest.Reason? = nil
+    ) {
+        itemFocusRequest = HistoryItemFocusRequest(itemID: itemID, resetToAll: resetToAll, reason: reason)
     }
 
     func requestDefaultFocus(resetToFirst: Bool) {
