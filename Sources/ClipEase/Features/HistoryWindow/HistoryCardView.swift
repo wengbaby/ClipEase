@@ -8,7 +8,7 @@ struct HistoryCardView: View, Equatable {
     let isShortcutOverlayVisible: Bool
     let isHovered: Bool
     let isPressed: Bool
-    let entranceOffset: CGFloat
+    let isEnteringLatestItem: Bool
     let onClick: () -> Void
     let onDoubleClick: () -> Void
     let onRightMouseDown: () -> Void
@@ -25,8 +25,12 @@ struct HistoryCardView: View, Equatable {
             lhs.isShortcutOverlayVisible == rhs.isShortcutOverlayVisible &&
             lhs.isHovered == rhs.isHovered &&
             lhs.isPressed == rhs.isPressed &&
-            lhs.entranceOffset == rhs.entranceOffset
+            lhs.isEnteringLatestItem == rhs.isEnteringLatestItem
     }
+
+    @State private var entranceSheenProgress: CGFloat = 0
+
+    private let entranceSheenDuration: TimeInterval = 2.5
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,6 +73,13 @@ struct HistoryCardView: View, Equatable {
         }
         .frame(width: 250, height: 270)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            if isEnteringLatestItem {
+                entranceSheen
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .transition(.opacity)
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             if let shortcutNumber {
                 Text("\(shortcutNumber)")
@@ -81,9 +92,15 @@ struct HistoryCardView: View, Equatable {
                     .opacity(isShortcutOverlayVisible ? 1 : 0)
             }
         }
-        .offset(y: entranceOffset)
         .animation(.easeOut(duration: 0.10), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
+        .animation(.easeOut(duration: 0.16), value: isEnteringLatestItem)
+        .onAppear {
+            updateEntranceSheenAnimation(isEnteringLatestItem)
+        }
+        .onChange(of: isEnteringLatestItem) { isEntering in
+            updateEntranceSheenAnimation(isEntering)
+        }
         .overlay(
             CardDragSourceView(
                 item: item,
@@ -102,6 +119,40 @@ struct HistoryCardView: View, Equatable {
                 onMouseExitedWindow: onMouseExitedWindow
             )
         )
+    }
+
+    private var entranceSheen: some View {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 1)
+            LinearGradient(
+                colors: [
+                    .clear,
+                    .white.opacity(0),
+                    .white.opacity(0.48),
+                    .white.opacity(0)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: width * 2.6, height: proxy.size.height)
+            .offset(x: -width * 1.35 + entranceSheenProgress * width * 2.25)
+            .blendMode(.screen)
+            .allowsHitTesting(false)
+        }
+        .clipped()
+        .allowsHitTesting(false)
+    }
+
+    private func updateEntranceSheenAnimation(_ isEntering: Bool) {
+        guard isEntering else {
+            entranceSheenProgress = 0
+            return
+        }
+
+        entranceSheenProgress = 0
+        withAnimation(.timingCurve(0.16, 1.0, 0.3, 1.0, duration: entranceSheenDuration)) {
+            entranceSheenProgress = 1
+        }
     }
 
     @ViewBuilder

@@ -118,6 +118,7 @@ struct HistoryWindowView: View {
     private let horizontalContentPadding: CGFloat = 28
     private let horizontalCardSpacing: CGFloat = 20
     private let historyCardWidth: CGFloat = 250
+    private let latestItemEntranceDuration: TimeInterval = 2.5
     private let pendingItemScrollMaxRetryCount = 6
     private let largeHistoryAnimationThreshold = 2_000
     private let historyRailWindowBufferItemCount = 6
@@ -731,7 +732,8 @@ struct HistoryWindowView: View {
         )
         let isHovered = hoveredCardID == item.id
         let isPressed = pressedCardID == item.id
-        let cardScale: CGFloat = isPressed ? 1.045 : (isHovered ? 1.04 : (isCardFocused ? 1.025 : 1))
+        let isEnteringLatestItem = enteringItemIDs.contains(item.id)
+        let cardScale: CGFloat = isPressed ? 1.045 : (isHovered ? 1.04 : (isCardFocused ? (isEnteringLatestItem ? 1.012 : 1.025) : 1))
 
         HistoryCardView(
             item: item,
@@ -740,7 +742,7 @@ struct HistoryWindowView: View {
             isShortcutOverlayVisible: isCommandKeyPressed || inputState.isCommandKeyPressed,
             isHovered: isHovered,
             isPressed: isPressed,
-            entranceOffset: enteringItemIDs.contains(item.id) ? -10 : 0,
+            isEnteringLatestItem: isEnteringLatestItem,
             onClick: {
                 selectCardForPrimaryClick(item)
             },
@@ -776,10 +778,20 @@ struct HistoryWindowView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(
-                    isCardFocused ? Color(red: 0.18, green: 0.55, blue: 1.0) : (isHovered || isPressed ? Color.clear : Color.black.opacity(0.08)),
+                    isCardFocused && !isEnteringLatestItem ? Color(red: 0.18, green: 0.55, blue: 1.0) : (isHovered || isPressed || isEnteringLatestItem ? Color.clear : Color.black.opacity(0.08)),
                     lineWidth: isCardFocused ? 4 : 1
                 )
                 .allowsHitTesting(false)
+        }
+        .overlay {
+            if isEnteringLatestItem {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(red: 0.18, green: 0.55, blue: 1.0), lineWidth: 3)
+                    .padding(-4)
+                    .opacity(0.88)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
         }
         .shadow(
             color: .black.opacity(0),
@@ -789,6 +801,7 @@ struct HistoryWindowView: View {
         )
         .scaleEffect(cardScale, anchor: .center)
         .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isCardFocused)
+        .animation(.easeOut(duration: 0.68), value: isEnteringLatestItem)
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
         .id(item.id)
@@ -820,12 +833,12 @@ struct HistoryWindowView: View {
         enteringItemClearTask?.cancel()
         enteringItemIDs.formUnion(ids)
         enteringItemClearTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 180_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(latestItemEntranceDuration * 1_000_000_000))
             guard !Task.isCancelled else {
                 return
             }
 
-            withAnimation(.easeOut(duration: 0.16)) {
+            withAnimation(.easeOut(duration: 0.22)) {
                 enteringItemIDs.subtract(ids)
             }
             enteringItemClearTask = nil
