@@ -95,8 +95,7 @@ struct HistoryWindowView: View {
     @State private var enteringItemIDs: Set<ClipboardItem.ID> = []
     @State private var enteringItemClearTask: Task<Void, Never>?
     @State private var entranceSheenItemIDs: Set<ClipboardItem.ID> = []
-    @State private var entranceSheenProgress: CGFloat = 0
-    @State private var entranceSheenAnimationTask: Task<Void, Never>?
+    @State private var entranceSheenStartTime: CFTimeInterval?
     @State private var entranceSheenClearTask: Task<Void, Never>?
     @State private var didRestoreRememberedViewport = false
     @State private var itemScrollRequestID = UUID()
@@ -122,7 +121,7 @@ struct HistoryWindowView: View {
     private let horizontalContentPadding: CGFloat = 28
     private let horizontalCardSpacing: CGFloat = 20
     private let historyCardWidth: CGFloat = 250
-    private let latestItemEntranceDuration: TimeInterval = 1.0
+    private let latestItemEntranceDuration: TimeInterval = 1.15
     private let latestItemEntranceSheenDuration: TimeInterval = 1.8
     private let pendingItemScrollMaxRetryCount = 6
     private let largeHistoryAnimationThreshold = 2_000
@@ -558,10 +557,9 @@ struct HistoryWindowView: View {
             pendingKeyboardFocusClearTask?.cancel()
             hiddenResourceCheckpointTask?.cancel()
             enteringItemClearTask?.cancel()
-            entranceSheenAnimationTask?.cancel()
             entranceSheenClearTask?.cancel()
             entranceSheenItemIDs.removeAll()
-            entranceSheenProgress = 0
+            entranceSheenStartTime = nil
             pendingDefaultFocusOnShow = false
             hoveredCardID = nil
             pressedCardID = nil
@@ -818,7 +816,7 @@ struct HistoryWindowView: View {
         )
         .scaleEffect(cardScale, anchor: .center)
         .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isCardFocused)
-        .animation(.easeOut(duration: 0.68), value: isEnteringLatestItem)
+        .animation(.easeOut(duration: 0.82), value: isEnteringLatestItem)
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
         .id(item.id)
@@ -827,28 +825,40 @@ struct HistoryWindowView: View {
     }
 
     private var latestCardEntranceSheen: some View {
-        GeometryReader { proxy in
-            let width = max(proxy.size.width, 1)
-            let height = max(proxy.size.height, 1)
-            let sheenOpacity = latestCardEntranceSheenOpacity(for: entranceSheenProgress)
-            let sheenTravelProgress = latestCardEntranceSheenTravelProgress(for: entranceSheenProgress)
-            LinearGradient(
-                colors: [
-                    .clear,
-                    .white.opacity(0),
-                    .white.opacity(0.52),
-                    .white.opacity(0),
-                    .clear
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .frame(width: width * 1.55, height: height * 1.28)
-            .rotationEffect(.degrees(-10))
-            .offset(x: -width * 0.78 + sheenTravelProgress * width * 1.7, y: -height * 0.14)
-            .opacity(sheenOpacity)
+        TimelineView(.animation) { timeline in
+            GeometryReader { proxy in
+                let width = max(proxy.size.width, 1)
+                let height = max(proxy.size.height, 1)
+                let progress = latestCardEntranceSheenProgress(at: timeline.date)
+                let sheenOpacity = latestCardEntranceSheenOpacity(for: progress)
+                let sheenTravelProgress = latestCardEntranceSheenTravelProgress(for: progress)
+                LinearGradient(
+                    colors: [
+                        .clear,
+                        .white.opacity(0),
+                        .white.opacity(0.52),
+                        .white.opacity(0),
+                        .clear
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .frame(width: width * 1.55, height: height * 1.28)
+                .rotationEffect(.degrees(-10))
+                .offset(x: -width * 0.78 + sheenTravelProgress * width * 1.7, y: -height * 0.14)
+                .opacity(sheenOpacity)
+            }
         }
         .clipped()
+    }
+
+    private func latestCardEntranceSheenProgress(at date: Date) -> CGFloat {
+        guard let entranceSheenStartTime else {
+            return 0
+        }
+
+        let elapsed = date.timeIntervalSinceReferenceDate - entranceSheenStartTime
+        return min(1, max(0, CGFloat(elapsed / latestItemEntranceSheenDuration)))
     }
 
     private func latestCardEntranceSheenOpacity(for progress: CGFloat) -> CGFloat {
@@ -905,25 +915,10 @@ struct HistoryWindowView: View {
         }
 
         enteringItemClearTask?.cancel()
-        entranceSheenAnimationTask?.cancel()
         entranceSheenClearTask?.cancel()
         enteringItemIDs.formUnion(ids)
         entranceSheenItemIDs = ids
-        entranceSheenProgress = 0
-        let startedAt = CACurrentMediaTime()
-        entranceSheenAnimationTask = Task { @MainActor in
-            while !Task.isCancelled {
-                let elapsed = CACurrentMediaTime() - startedAt
-                entranceSheenProgress = min(1, CGFloat(elapsed / latestItemEntranceSheenDuration))
-                if elapsed >= latestItemEntranceSheenDuration {
-                    break
-                }
-                try? await Task.sleep(nanoseconds: 16_000_000)
-            }
-
-            entranceSheenProgress = 1
-            entranceSheenAnimationTask = nil
-        }
+        entranceSheenStartTime = Date().timeIntervalSinceReferenceDate
         entranceSheenClearTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(latestItemEntranceSheenDuration * 1_000_000_000))
             guard !Task.isCancelled else {
@@ -931,7 +926,7 @@ struct HistoryWindowView: View {
             }
 
             entranceSheenItemIDs.subtract(ids)
-            entranceSheenProgress = 0
+            entranceSheenStartTime = nil
             entranceSheenClearTask = nil
         }
         enteringItemClearTask = Task { @MainActor in
@@ -940,7 +935,7 @@ struct HistoryWindowView: View {
                 return
             }
 
-            withAnimation(.easeOut(duration: 0.12)) {
+            withAnimation(.easeOut(duration: 0.20)) {
                 enteringItemIDs.subtract(ids)
             }
             enteringItemClearTask = nil

@@ -83,7 +83,7 @@ struct HistoryCardView: View, Equatable {
         }
         .animation(.easeOut(duration: 0.10), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
-        .animation(.easeOut(duration: 0.16), value: isEnteringLatestItem)
+        .animation(.easeOut(duration: 0.22), value: isEnteringLatestItem)
         .overlay(
             CardDragSourceView(
                 item: item,
