@@ -30,6 +30,7 @@ struct HistoryCardView: View, Equatable {
 
     @State private var entranceSheenProgress: CGFloat = 0
     @State private var isEntranceSheenVisible = false
+    @State private var entranceSheenAnimationTask: Task<Void, Never>?
     @State private var entranceSheenHideTask: Task<Void, Never>?
 
     private let entranceSheenDuration: TimeInterval = 1.8
@@ -104,6 +105,7 @@ struct HistoryCardView: View, Equatable {
             updateEntranceSheenAnimation(isEntering)
         }
         .onDisappear {
+            entranceSheenAnimationTask?.cancel()
             entranceSheenHideTask?.cancel()
         }
         .overlay(
@@ -165,10 +167,20 @@ struct HistoryCardView: View, Equatable {
         }
 
         entranceSheenHideTask?.cancel()
+        entranceSheenAnimationTask?.cancel()
         isEntranceSheenVisible = true
         entranceSheenProgress = 0
-        withAnimation(.linear(duration: entranceSheenDuration)) {
-            entranceSheenProgress = 1
+
+        entranceSheenAnimationTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else {
+                return
+            }
+
+            withAnimation(.linear(duration: entranceSheenDuration)) {
+                entranceSheenProgress = 1
+            }
+            entranceSheenAnimationTask = nil
         }
         entranceSheenHideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(entranceSheenDuration * 1_000_000_000))
