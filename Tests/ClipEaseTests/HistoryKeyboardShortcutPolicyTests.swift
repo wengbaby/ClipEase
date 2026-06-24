@@ -541,6 +541,36 @@ import Testing
     ))
 }
 
+@Test func selectionRecoveryPrefersPastedItemAfterMarkUsedReordersHistory() {
+    let firstID = UUID()
+    let pastedID = UUID()
+    let rememberedID = UUID()
+    let existingIDs: Set<UUID> = [pastedID, rememberedID, firstID]
+
+    #expect(HistorySelectionRecoveryPolicy.selectedID(
+        pendingPastedID: pastedID,
+        preferredID: rememberedID,
+        rememberedID: rememberedID,
+        firstID: firstID,
+        containsID: { existingIDs.contains($0) }
+    ) == pastedID)
+}
+
+@Test func selectionRecoveryFallsBackWhenPastedItemNoLongerExists() {
+    let firstID = UUID()
+    let pastedID = UUID()
+    let rememberedID = UUID()
+    let existingIDs: Set<UUID> = [rememberedID, firstID]
+
+    #expect(HistorySelectionRecoveryPolicy.selectedID(
+        pendingPastedID: pastedID,
+        preferredID: rememberedID,
+        rememberedID: rememberedID,
+        firstID: firstID,
+        containsID: { existingIDs.contains($0) }
+    ) == rememberedID)
+}
+
 @Test func rememberedViewportRestoreWaitsForPastedFocusRequest() {
     #expect(!HistoryRememberedViewportRestorePolicy.canRestore(
         didRestoreRememberedViewport: false,

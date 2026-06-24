@@ -362,6 +362,33 @@ enum HistoryOrdinarySelectionRestorePolicy {
     }
 }
 
+enum HistorySelectionRecoveryPolicy {
+    static func selectedID(
+        pendingPastedID: ClipboardItem.ID?,
+        preferredID: ClipboardItem.ID?,
+        rememberedID: ClipboardItem.ID?,
+        firstID: ClipboardItem.ID?,
+        containsID: (ClipboardItem.ID) -> Bool
+    ) -> ClipboardItem.ID? {
+        if let pendingPastedID,
+           containsID(pendingPastedID) {
+            return pendingPastedID
+        }
+
+        if let preferredID,
+           containsID(preferredID) {
+            return preferredID
+        }
+
+        if let rememberedID,
+           containsID(rememberedID) {
+            return rememberedID
+        }
+
+        return firstID
+    }
+}
+
 enum HistoryRememberedViewportRestorePolicy {
     static func canRestore(
         didRestoreRememberedViewport: Bool,

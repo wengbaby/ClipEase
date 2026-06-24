@@ -2581,7 +2581,7 @@ struct HistoryWindowView: View {
             return
         }
         accessibilityPermissionState.refresh()
-        pendingPastedItemFocusOnNextShow = item.id
+        preparePastedItemFocus(item.id)
         switch pasteExecutor.pastePlainTextToFrontmostApp(item) {
         case .copiedOnly, .copiedFallbackTextOnly:
             store.markUsed(item.id)
@@ -2687,7 +2687,7 @@ struct HistoryWindowView: View {
         }
 
         accessibilityPermissionState.refresh()
-        pendingPastedItemFocusOnNextShow = item.id
+        preparePastedItemFocus(item.id)
         switch pasteExecutor.pasteToFrontmostApp(item) {
         case .copiedOnly:
             store.markUsed(item.id)
@@ -2730,8 +2730,16 @@ struct HistoryWindowView: View {
         onClose()
     }
 
-    private func scheduleProgrammaticJump(to id: ClipboardItem.ID) {
+    private func preparePastedItemFocus(_ id: ClipboardItem.ID) {
         pendingPastedItemFocusOnNextShow = id
+        selectedItemID = id
+        persistSelectedItem()
+        HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
+        HistoryScrollCoordinator.shared.discardSavedOffset(for: selectedGroup.storageValue)
+    }
+
+    private func scheduleProgrammaticJump(to id: ClipboardItem.ID) {
+        preparePastedItemFocus(id)
         guard inputState.isWindowPresentedSnapshot else {
             clearPendingHistoryRailJumpState()
             return
@@ -2936,14 +2944,22 @@ struct HistoryWindowView: View {
     }
 
     private func persistSelectedItem() {
-        guard let selectedItemID else {
+        let itemIDToPersist: ClipboardItem.ID?
+        if let pendingPastedItemFocusOnNextShow,
+           selectedItemID == nil || selectedItemID == pendingPastedItemFocusOnNextShow {
+            itemIDToPersist = pendingPastedItemFocusOnNextShow
+        } else {
+            itemIDToPersist = selectedItemID
+        }
+
+        guard let itemIDToPersist else {
             rememberedSelectedItemID = ""
             UserDefaults.standard.set("", forKey: "history.lastSelectedItemID")
             return
         }
 
-        rememberedSelectedItemID = selectedItemID.uuidString
-        UserDefaults.standard.set(selectedItemID.uuidString, forKey: "history.lastSelectedItemID")
+        rememberedSelectedItemID = itemIDToPersist.uuidString
+        UserDefaults.standard.set(itemIDToPersist.uuidString, forKey: "history.lastSelectedItemID")
     }
 
     private func rememberedSelectedItemUUID() -> ClipboardItem.ID? {
@@ -5626,15 +5642,13 @@ struct HistoryWindowView: View {
             return
         }
 
-        if let preferredID,
-           pendingPastedItemFocusOnNextShow == nil,
-           store.item(with: preferredID) != nil {
-            selectedItemID = preferredID
-        } else {
-            selectedItemID = pendingPastedItemFocusOnNextShow.flatMap { id in
-                store.item(with: id) == nil ? nil : id
-            } ?? rememberedSelectionFallbackID() ?? firstItem.id
-        }
+        selectedItemID = HistorySelectionRecoveryPolicy.selectedID(
+            pendingPastedID: pendingPastedItemFocusOnNextShow,
+            preferredID: preferredID,
+            rememberedID: rememberedSelectedItemUUID(),
+            firstID: firstItem.id,
+            containsID: { id in store.item(with: id) != nil }
+        )
         rememberSelectedItem()
 
         if let previewedID,
