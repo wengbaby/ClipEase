@@ -124,23 +124,34 @@ struct HistoryCardView: View, Equatable {
     private var entranceSheen: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
+            let sheenOpacity = entranceSheenOpacity(for: entranceSheenProgress)
             LinearGradient(
                 colors: [
                     .clear,
-                    .white.opacity(0),
                     .white.opacity(0.48),
                     .white.opacity(0)
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
             )
-            .frame(width: width * 2.6, height: proxy.size.height)
-            .offset(x: -width * 1.35 + entranceSheenProgress * width * 2.25)
+            .frame(width: width * 0.9, height: proxy.size.height)
+            .offset(x: -width * 0.95 + entranceSheenProgress * width * 2.1)
+            .opacity(sheenOpacity)
             .blendMode(.screen)
             .allowsHitTesting(false)
         }
         .clipped()
         .allowsHitTesting(false)
+    }
+
+    private func entranceSheenOpacity(for progress: CGFloat) -> CGFloat {
+        guard progress > 0 else {
+            return 0
+        }
+        guard progress > 0.72 else {
+            return 1
+        }
+        return max(0, 1 - ((progress - 0.72) / 0.28))
     }
 
     private func updateEntranceSheenAnimation(_ isEntering: Bool) {
@@ -150,7 +161,7 @@ struct HistoryCardView: View, Equatable {
         }
 
         entranceSheenProgress = 0
-        withAnimation(.timingCurve(0.16, 1.0, 0.3, 1.0, duration: entranceSheenDuration)) {
+        withAnimation(.linear(duration: entranceSheenDuration)) {
             entranceSheenProgress = 1
         }
     }
