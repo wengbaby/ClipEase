@@ -76,13 +76,6 @@ struct HistoryCardView: View, Equatable {
         }
         .frame(width: 250, height: 270)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            if isEntranceSheenVisible {
-                entranceSheen
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .transition(.opacity)
-            }
-        }
         .overlay(alignment: .bottomTrailing) {
             if let shortcutNumber {
                 Text("\(shortcutNumber)")
@@ -126,6 +119,13 @@ struct HistoryCardView: View, Equatable {
                 onMouseExitedWindow: onMouseExitedWindow
             )
         )
+        .overlay {
+            if isEntranceSheenVisible {
+                entranceSheen
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .transition(.opacity)
+            }
+        }
     }
 
     private var entranceSheen: some View {
@@ -135,7 +135,9 @@ struct HistoryCardView: View, Equatable {
             LinearGradient(
                 colors: [
                     .clear,
-                    .white.opacity(0.48),
+                    Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.14),
+                    .white.opacity(0.34),
+                    Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.10),
                     .white.opacity(0)
                 ],
                 startPoint: .leading,
@@ -144,7 +146,6 @@ struct HistoryCardView: View, Equatable {
             .frame(width: width * 0.9, height: proxy.size.height)
             .offset(x: -width * 0.95 + entranceSheenProgress * width * 2.1)
             .opacity(sheenOpacity)
-            .blendMode(.screen)
             .allowsHitTesting(false)
         }
         .clipped()
