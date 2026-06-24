@@ -28,13 +28,6 @@ struct HistoryCardView: View, Equatable {
             lhs.isEnteringLatestItem == rhs.isEnteringLatestItem
     }
 
-    @State private var entranceSheenProgress: CGFloat = 0
-    @State private var isEntranceSheenVisible = false
-    @State private var entranceSheenAnimationTask: Task<Void, Never>?
-    @State private var entranceSheenHideTask: Task<Void, Never>?
-
-    private let entranceSheenDuration: TimeInterval = 1.8
-
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top) {
@@ -91,16 +84,6 @@ struct HistoryCardView: View, Equatable {
         .animation(.easeOut(duration: 0.10), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
         .animation(.easeOut(duration: 0.16), value: isEnteringLatestItem)
-        .onAppear {
-            updateEntranceSheenAnimation(isEnteringLatestItem)
-        }
-        .onChange(of: isEnteringLatestItem) { isEntering in
-            updateEntranceSheenAnimation(isEntering)
-        }
-        .onDisappear {
-            entranceSheenAnimationTask?.cancel()
-            entranceSheenHideTask?.cancel()
-        }
         .overlay(
             CardDragSourceView(
                 item: item,
@@ -119,80 +102,6 @@ struct HistoryCardView: View, Equatable {
                 onMouseExitedWindow: onMouseExitedWindow
             )
         )
-        .overlay {
-            if isEntranceSheenVisible {
-                entranceSheen
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .transition(.opacity)
-            }
-        }
-    }
-
-    private var entranceSheen: some View {
-        GeometryReader { proxy in
-            let width = max(proxy.size.width, 1)
-            let sheenOpacity = entranceSheenOpacity(for: entranceSheenProgress)
-            LinearGradient(
-                colors: [
-                    .clear,
-                    Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.14),
-                    .white.opacity(0.34),
-                    Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.10),
-                    .white.opacity(0)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(width: width * 0.9, height: proxy.size.height)
-            .offset(x: -width * 0.95 + entranceSheenProgress * width * 2.1)
-            .opacity(sheenOpacity)
-            .allowsHitTesting(false)
-        }
-        .clipped()
-        .allowsHitTesting(false)
-    }
-
-    private func entranceSheenOpacity(for progress: CGFloat) -> CGFloat {
-        guard progress > 0 else {
-            return 0
-        }
-        guard progress > 0.72 else {
-            return 1
-        }
-        return max(0, 1 - ((progress - 0.72) / 0.28))
-    }
-
-    private func updateEntranceSheenAnimation(_ isEntering: Bool) {
-        guard isEntering else {
-            return
-        }
-
-        entranceSheenHideTask?.cancel()
-        entranceSheenAnimationTask?.cancel()
-        isEntranceSheenVisible = true
-        entranceSheenProgress = 0
-
-        entranceSheenAnimationTask = Task { @MainActor in
-            await Task.yield()
-            guard !Task.isCancelled else {
-                return
-            }
-
-            withAnimation(.linear(duration: entranceSheenDuration)) {
-                entranceSheenProgress = 1
-            }
-            entranceSheenAnimationTask = nil
-        }
-        entranceSheenHideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(entranceSheenDuration * 1_000_000_000))
-            guard !Task.isCancelled else {
-                return
-            }
-
-            isEntranceSheenVisible = false
-            entranceSheenProgress = 0
-            entranceSheenHideTask = nil
-        }
     }
 
     @ViewBuilder

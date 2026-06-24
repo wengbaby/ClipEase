@@ -94,6 +94,10 @@ struct HistoryWindowView: View {
     @State private var isPreparingPendingItemScrollMeasurement = false
     @State private var enteringItemIDs: Set<ClipboardItem.ID> = []
     @State private var enteringItemClearTask: Task<Void, Never>?
+    @State private var entranceSheenItemIDs: Set<ClipboardItem.ID> = []
+    @State private var entranceSheenProgress: CGFloat = 0
+    @State private var entranceSheenAnimationTask: Task<Void, Never>?
+    @State private var entranceSheenClearTask: Task<Void, Never>?
     @State private var didRestoreRememberedViewport = false
     @State private var itemScrollRequestID = UUID()
     @State private var hoveredCardID: HistoryPreviewItem.ID?
@@ -119,6 +123,7 @@ struct HistoryWindowView: View {
     private let horizontalCardSpacing: CGFloat = 20
     private let historyCardWidth: CGFloat = 250
     private let latestItemEntranceDuration: TimeInterval = 1.0
+    private let latestItemEntranceSheenDuration: TimeInterval = 1.8
     private let pendingItemScrollMaxRetryCount = 6
     private let largeHistoryAnimationThreshold = 2_000
     private let historyRailWindowBufferItemCount = 6
@@ -553,6 +558,10 @@ struct HistoryWindowView: View {
             pendingKeyboardFocusClearTask?.cancel()
             hiddenResourceCheckpointTask?.cancel()
             enteringItemClearTask?.cancel()
+            entranceSheenAnimationTask?.cancel()
+            entranceSheenClearTask?.cancel()
+            entranceSheenItemIDs.removeAll()
+            entranceSheenProgress = 0
             pendingDefaultFocusOnShow = false
             hoveredCardID = nil
             pressedCardID = nil
@@ -733,6 +742,7 @@ struct HistoryWindowView: View {
         let isHovered = hoveredCardID == item.id
         let isPressed = pressedCardID == item.id
         let isEnteringLatestItem = enteringItemIDs.contains(item.id)
+        let isShowingEntranceSheen = entranceSheenItemIDs.contains(item.id)
         let cardScale: CGFloat = isPressed ? 1.045 : (isHovered ? 1.04 : (isCardFocused ? (isEnteringLatestItem ? 1.012 : 1.025) : 1))
 
         HistoryCardView(
@@ -793,6 +803,13 @@ struct HistoryWindowView: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay {
+            if isShowingEntranceSheen {
+                latestCardEntranceSheen
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .allowsHitTesting(false)
+            }
+        }
         .shadow(
             color: .black.opacity(0),
             radius: 0,
@@ -807,6 +824,38 @@ struct HistoryWindowView: View {
         .id(item.id)
         .contentShape(Rectangle())
         .zIndex(isPressed ? 4 : (isHovered ? 3 : (isCardFocused ? 2 : 0)))
+    }
+
+    private var latestCardEntranceSheen: some View {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 1)
+            let opacity = latestCardEntranceSheenOpacity(for: entranceSheenProgress)
+            LinearGradient(
+                colors: [
+                    .clear,
+                    Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.18),
+                    .white.opacity(0.42),
+                    Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.14),
+                    .white.opacity(0)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: width * 0.9, height: proxy.size.height)
+            .offset(x: -width * 0.95 + entranceSheenProgress * width * 2.1)
+            .opacity(opacity)
+        }
+        .clipped()
+    }
+
+    private func latestCardEntranceSheenOpacity(for progress: CGFloat) -> CGFloat {
+        guard progress > 0 else {
+            return 0
+        }
+        guard progress > 0.72 else {
+            return 1
+        }
+        return max(0, 1 - ((progress - 0.72) / 0.28))
     }
 
     private func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
@@ -825,13 +874,46 @@ struct HistoryWindowView: View {
         }
     }
 
+    private func playEntranceAnimationIfPresented(for id: ClipboardItem.ID) {
+        guard inputState.isWindowPresentedSnapshot else {
+            return
+        }
+
+        playEntranceAnimation(for: [id])
+    }
+
     private func playEntranceAnimation(for ids: Set<ClipboardItem.ID>) {
         guard !ids.isEmpty else {
             return
         }
 
         enteringItemClearTask?.cancel()
+        entranceSheenAnimationTask?.cancel()
+        entranceSheenClearTask?.cancel()
         enteringItemIDs.formUnion(ids)
+        entranceSheenItemIDs = ids
+        entranceSheenProgress = 0
+        entranceSheenAnimationTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else {
+                return
+            }
+
+            withAnimation(.linear(duration: latestItemEntranceSheenDuration)) {
+                entranceSheenProgress = 1
+            }
+            entranceSheenAnimationTask = nil
+        }
+        entranceSheenClearTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(latestItemEntranceSheenDuration * 1_000_000_000))
+            guard !Task.isCancelled else {
+                return
+            }
+
+            entranceSheenItemIDs.subtract(ids)
+            entranceSheenProgress = 0
+            entranceSheenClearTask = nil
+        }
         enteringItemClearTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(latestItemEntranceDuration * 1_000_000_000))
             guard !Task.isCancelled else {
@@ -5258,6 +5340,9 @@ struct HistoryWindowView: View {
         HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
         resetVisibleRailWindowForLatestFocus(focusCandidateID)
         fulfillPendingLatestFocusIfPossible()
+        if focusReason == .inserted {
+            playEntranceAnimationIfPresented(for: focusCandidateID)
+        }
     }
 
     private func focusRecentlyAddedItemOnShowIfNeeded(sourceItems: [ClipboardItem]) {
@@ -5279,6 +5364,7 @@ struct HistoryWindowView: View {
         HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
         resetVisibleRailWindowForLatestFocus(newestChangedItem.id)
         fulfillPendingLatestFocusIfPossible()
+        playEntranceAnimationIfPresented(for: newestChangedItem.id)
     }
 
     private func convergeLatestClipboardFocusIfNeeded() {
@@ -5432,6 +5518,9 @@ struct HistoryWindowView: View {
             resetToAll: true
         )
         fulfillPendingLatestFocusIfPossible()
+        if request.reason == .inserted {
+            playEntranceAnimationIfPresented(for: request.itemID)
+        }
     }
 
     private func focusRequestedItem(_ request: HistoryItemFocusRequest) {
