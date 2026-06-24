@@ -30,7 +30,7 @@ struct HistoryCardView: View, Equatable {
 
     @State private var entranceSheenProgress: CGFloat = 0
 
-    private let entranceSheenDuration: TimeInterval = 2.5
+    private let entranceSheenDuration: TimeInterval = 1.0
 
     var body: some View {
         VStack(spacing: 0) {
