@@ -845,7 +845,7 @@ struct HistoryWindowView: View {
             )
             .frame(width: width * 1.55, height: height * 1.28)
             .rotationEffect(.degrees(-10))
-            .offset(x: width * 0.92 - sheenTravelProgress * width * 1.7, y: -height * 0.14)
+            .offset(x: -width * 0.78 + sheenTravelProgress * width * 1.7, y: -height * 0.14)
             .opacity(sheenOpacity)
         }
         .clipped()
@@ -910,14 +910,8 @@ struct HistoryWindowView: View {
         enteringItemIDs.formUnion(ids)
         entranceSheenItemIDs = ids
         entranceSheenProgress = 0
+        let startedAt = CACurrentMediaTime()
         entranceSheenAnimationTask = Task { @MainActor in
-            await Task.yield()
-            await Task.yield()
-            guard !Task.isCancelled else {
-                return
-            }
-
-            let startedAt = CACurrentMediaTime()
             while !Task.isCancelled {
                 let elapsed = CACurrentMediaTime() - startedAt
                 entranceSheenProgress = min(1, CGFloat(elapsed / latestItemEntranceSheenDuration))
