@@ -260,14 +260,6 @@ struct HistoryWindowView: View {
         }
     }
 
-    private var historyRailAnimationValue: [HistoryPreviewItem.ID] {
-        guard shouldAnimateHistoryRailChange(sourceItemCount: allPreviewItems.count, renderedItemCount: renderedItems.count) else {
-            return []
-        }
-
-        return renderedItems.map(\.id)
-    }
-
     private func shouldAnimateHistoryRailChange(sourceItemCount: Int, renderedItemCount: Int) -> Bool {
         sourceItemCount <= largeHistoryAnimationThreshold &&
             renderedItemCount <= largeHistoryAnimationThreshold
@@ -725,7 +717,6 @@ struct HistoryWindowView: View {
             .padding(.top, selectedCardTopContentInset)
             .padding(.bottom, 8)
             .padding(.bottom, 22)
-            .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.88), value: historyRailAnimationValue)
         }
     }
 
@@ -906,18 +897,14 @@ struct HistoryWindowView: View {
     }
 
     private func playEntranceAnimationSoon(for id: ClipboardItem.ID) {
-        playEntranceAnimation(for: [id])
+        playEntranceAnimation(for: id)
     }
 
-    private func playEntranceAnimation(for ids: Set<ClipboardItem.ID>) {
-        guard !ids.isEmpty else {
-            return
-        }
-
+    private func playEntranceAnimation(for id: ClipboardItem.ID) {
         enteringItemClearTask?.cancel()
         entranceSheenClearTask?.cancel()
-        enteringItemIDs.formUnion(ids)
-        entranceSheenItemIDs = ids
+        enteringItemIDs = [id]
+        entranceSheenItemIDs = [id]
         entranceSheenStartTime = Date().timeIntervalSinceReferenceDate
         entranceSheenClearTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(latestItemEntranceSheenDuration * 1_000_000_000))
@@ -925,7 +912,7 @@ struct HistoryWindowView: View {
                 return
             }
 
-            entranceSheenItemIDs.subtract(ids)
+            entranceSheenItemIDs.remove(id)
             entranceSheenStartTime = nil
             entranceSheenClearTask = nil
         }
@@ -936,7 +923,7 @@ struct HistoryWindowView: View {
             }
 
             withAnimation(.easeOut(duration: 0.20)) {
-                enteringItemIDs.subtract(ids)
+                _ = enteringItemIDs.remove(id)
             }
             enteringItemClearTask = nil
         }
@@ -4842,13 +4829,13 @@ struct HistoryWindowView: View {
                 }
                 let previewItemsForSearch: [HistoryPreviewItem]
                 let sourceAppSnapshot = rebuildResult.sourceAppSnapshot
-                let insertedEntranceIDs: Set<ClipboardItem.ID>
+                let insertedEntranceID: ClipboardItem.ID?
                 switch rebuildResult {
                 case .prepend(let insertedItems, _, _, _, _)
                     where inputState.isWindowPresentedSnapshot && shouldAnimateRebuild:
-                    insertedEntranceIDs = Set(insertedItems.map(\.id))
+                    insertedEntranceID = insertedItems.first?.id
                 default:
-                    insertedEntranceIDs = []
+                    insertedEntranceID = nil
                 }
 
                 withTransaction(transaction) {
@@ -4861,8 +4848,8 @@ struct HistoryWindowView: View {
                         allPreviewItems.insert(contentsOf: insertedItems, at: 0)
                     }
                 }
-                if !insertedEntranceIDs.isEmpty {
-                    playEntranceAnimation(for: insertedEntranceIDs)
+                if let insertedEntranceID {
+                    playEntranceAnimation(for: insertedEntranceID)
                 }
                 previewItemsForSearch = allPreviewItems
                 if sourceAppFilterOptions != sourceAppSnapshot.options {
