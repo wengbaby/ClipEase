@@ -23,6 +23,21 @@ import Testing
 }
 
 @MainActor
+@Test func latestItemFocusRequestIsConsumedOnce() {
+    let store = ClipboardHistoryStore(persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository()))
+
+    store.addText("first", sourceApp: .clipease)
+    let firstRequest = store.consumeLatestItemFocusRequest()
+
+    #expect(firstRequest?.itemID == store.items.first?.id)
+    #expect(store.consumeLatestItemFocusRequest() == nil)
+
+    store.addText("second", sourceApp: .clipease)
+
+    #expect(store.consumeLatestItemFocusRequest()?.itemID == store.items.first?.id)
+}
+
+@MainActor
 @Test func skippedClipboardFilesAreNotAddedToHistory() throws {
     let store = ClipboardHistoryStore(persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository()))
     let fileURL = FileManager.default.temporaryDirectory

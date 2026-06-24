@@ -102,14 +102,15 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         panel.makeKey()
         renderState.mark("panel-ordered")
-        if let latestFocusRequest = store.latestItemFocusRequest {
+        let latestFocusRequest = store.consumeLatestItemFocusRequest()
+        if let latestFocusRequest {
             inputState.requestItemFocus(latestFocusRequest.itemID, resetToAll: true)
         } else if !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
             HistoryScrollCoordinator.shared.restoreSavedOffset()
         }
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(true)
-        if store.latestItemFocusRequest == nil,
+        if latestFocusRequest == nil,
            !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
             inputState.requestDefaultFocus(resetToFirst: shouldAnimate)
         }

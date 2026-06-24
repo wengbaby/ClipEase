@@ -531,7 +531,7 @@ struct HistoryWindowView: View {
             }
             refreshMoveToGroupMenuSnapshot()
             primeLatestItemPresentationGuard(sourceItems: store.items)
-            if let request = store.latestItemFocusRequest {
+            if let request = store.consumeLatestItemFocusRequest() {
                 focusRequestedLatestItem(request)
             }
             focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)

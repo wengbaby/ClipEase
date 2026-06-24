@@ -166,6 +166,12 @@ final class ClipboardHistoryStore: ObservableObject {
         playExternalCopyFeedbackIfNeeded(for: upsertedItem)
     }
 
+    func consumeLatestItemFocusRequest() -> ClipboardItemFocusRequest? {
+        let request = latestItemFocusRequest
+        latestItemFocusRequest = nil
+        return request
+    }
+
     func addRichText(
         _ data: Data,
         plainText: String,
