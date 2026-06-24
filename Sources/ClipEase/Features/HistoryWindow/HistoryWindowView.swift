@@ -118,7 +118,7 @@ struct HistoryWindowView: View {
     private let horizontalContentPadding: CGFloat = 28
     private let horizontalCardSpacing: CGFloat = 20
     private let historyCardWidth: CGFloat = 250
-    private let latestItemEntranceDuration: TimeInterval = 2.5
+    private let latestItemEntranceDuration: TimeInterval = 1.0
     private let pendingItemScrollMaxRetryCount = 6
     private let largeHistoryAnimationThreshold = 2_000
     private let historyRailWindowBufferItemCount = 6
@@ -838,7 +838,7 @@ struct HistoryWindowView: View {
                 return
             }
 
-            withAnimation(.easeOut(duration: 0.22)) {
+            withAnimation(.easeOut(duration: 0.12)) {
                 enteringItemIDs.subtract(ids)
             }
             enteringItemClearTask = nil
