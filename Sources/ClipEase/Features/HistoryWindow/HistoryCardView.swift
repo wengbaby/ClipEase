@@ -29,8 +29,10 @@ struct HistoryCardView: View, Equatable {
     }
 
     @State private var entranceSheenProgress: CGFloat = 0
+    @State private var isEntranceSheenVisible = false
+    @State private var entranceSheenHideTask: Task<Void, Never>?
 
-    private let entranceSheenDuration: TimeInterval = 1.0
+    private let entranceSheenDuration: TimeInterval = 1.8
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,7 +76,7 @@ struct HistoryCardView: View, Equatable {
         .frame(width: 250, height: 270)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
-            if isEnteringLatestItem {
+            if isEntranceSheenVisible {
                 entranceSheen
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .transition(.opacity)
@@ -100,6 +102,9 @@ struct HistoryCardView: View, Equatable {
         }
         .onChange(of: isEnteringLatestItem) { isEntering in
             updateEntranceSheenAnimation(isEntering)
+        }
+        .onDisappear {
+            entranceSheenHideTask?.cancel()
         }
         .overlay(
             CardDragSourceView(
@@ -156,13 +161,24 @@ struct HistoryCardView: View, Equatable {
 
     private func updateEntranceSheenAnimation(_ isEntering: Bool) {
         guard isEntering else {
-            entranceSheenProgress = 0
             return
         }
 
+        entranceSheenHideTask?.cancel()
+        isEntranceSheenVisible = true
         entranceSheenProgress = 0
         withAnimation(.linear(duration: entranceSheenDuration)) {
             entranceSheenProgress = 1
+        }
+        entranceSheenHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(entranceSheenDuration * 1_000_000_000))
+            guard !Task.isCancelled else {
+                return
+            }
+
+            isEntranceSheenVisible = false
+            entranceSheenProgress = 0
+            entranceSheenHideTask = nil
         }
     }
 
