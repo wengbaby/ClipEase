@@ -829,33 +829,54 @@ struct HistoryWindowView: View {
     private var latestCardEntranceSheen: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
-            let opacity = latestCardEntranceSheenOpacity(for: entranceSheenProgress)
+            let height = max(proxy.size.height, 1)
+            let sheenOpacity = latestCardEntranceSheenOpacity(for: entranceSheenProgress)
+            let sheenTravelProgress = latestCardEntranceSheenTravelProgress(for: entranceSheenProgress)
             LinearGradient(
                 colors: [
                     .clear,
-                    Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.18),
-                    .white.opacity(0.42),
-                    Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.14),
-                    .white.opacity(0)
+                    .white.opacity(0),
+                    .white.opacity(0.52),
+                    .white.opacity(0),
+                    .clear
                 ],
-                startPoint: .leading,
-                endPoint: .trailing
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
-            .frame(width: width * 0.9, height: proxy.size.height)
-            .offset(x: -width * 0.95 + entranceSheenProgress * width * 2.1)
-            .opacity(opacity)
+            .frame(width: width * 1.55, height: height * 1.28)
+            .rotationEffect(.degrees(-10))
+            .offset(x: width * 0.92 - sheenTravelProgress * width * 1.7, y: -height * 0.14)
+            .opacity(sheenOpacity)
         }
         .clipped()
     }
 
     private func latestCardEntranceSheenOpacity(for progress: CGFloat) -> CGFloat {
+        if progress <= 0 {
+            return 0
+        }
+
+        if progress < 0.18 {
+            return progress / 0.18
+        }
+
+        if progress <= 0.82 {
+            return 1
+        }
+
+        return max(0, 1 - ((progress - 0.82) / 0.18))
+    }
+
+    private func latestCardEntranceSheenTravelProgress(for progress: CGFloat) -> CGFloat {
         guard progress > 0 else {
             return 0
         }
-        guard progress > 0.72 else {
+
+        guard progress < 0.82 else {
             return 1
         }
-        return max(0, 1 - ((progress - 0.72) / 0.28))
+
+        return min(1, progress / 0.82)
     }
 
     private func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
