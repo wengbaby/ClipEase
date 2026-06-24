@@ -54,8 +54,8 @@ scripts/release.sh --bump none --skip-tests
 
 Release 正文从 `docs/releases/release-notes-template.md` 生成，必须包含：
 
-- `本次优化`
-- `本次修复`
+- `这版改了什么`
+- `下载`
 - `验证`
 - DMG SHA-256
 
