@@ -141,6 +141,24 @@ import Testing
     ) == .focusFirstSearchResult)
 }
 
+@Test func searchFieldHandoffToFirstResultClearsTextFirstResponder() {
+    #expect(HistorySearchTextFirstResponderHandoffPolicy.shouldClearTextFirstResponder(
+        isSearchFocused: true,
+        isTextInputFocused: true,
+        hasSearchResult: true
+    ))
+    #expect(HistorySearchTextFirstResponderHandoffPolicy.shouldClearTextFirstResponder(
+        isSearchFocused: false,
+        isTextInputFocused: true,
+        hasSearchResult: true
+    ))
+    #expect(!HistorySearchTextFirstResponderHandoffPolicy.shouldClearTextFirstResponder(
+        isSearchFocused: true,
+        isTextInputFocused: true,
+        hasSearchResult: false
+    ))
+}
+
 @Test func searchFieldRightArrowOnlyExitsAtEnd() {
     #expect(HistoryKeyboardInputPolicy.actionForTextInput(
         keyCode: KeyCode.rightArrow,

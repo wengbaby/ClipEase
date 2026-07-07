@@ -5805,6 +5805,14 @@ struct HistoryWindowView: View {
             return
         }
 
+        if HistorySearchTextFirstResponderHandoffPolicy.shouldClearTextFirstResponder(
+            isSearchFocused: isSearchFocused,
+            isTextInputFocused: inputState.isTextInputFocusedSnapshot,
+            hasSearchResult: true
+        ) {
+            hostWindow?.makeFirstResponder(nil)
+        }
+
         selectedItemID = firstID
         applySearchFocusTransition(
             .focusFirstResult,

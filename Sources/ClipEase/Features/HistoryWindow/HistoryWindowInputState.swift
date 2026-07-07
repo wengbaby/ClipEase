@@ -165,6 +165,16 @@ enum HistorySearchTextFieldFocusPolicy {
     }
 }
 
+enum HistorySearchTextFirstResponderHandoffPolicy {
+    static func shouldClearTextFirstResponder(
+        isSearchFocused: Bool,
+        isTextInputFocused: Bool,
+        hasSearchResult: Bool
+    ) -> Bool {
+        hasSearchResult && (isSearchFocused || isTextInputFocused)
+    }
+}
+
 enum HistoryPanelSpaceKeyPolicy {
     static func shouldTogglePreview(
         isHistoryTextInputActive: Bool,

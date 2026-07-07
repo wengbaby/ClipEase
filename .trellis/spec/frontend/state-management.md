@@ -76,6 +76,10 @@ Required regression tests:
 - `HistoryKeyboardShortcutPolicyTests.shortcutOverlayIsHiddenWhileTextInputIsActive`
   proves holding `Command` does not reveal card 1-9 shortcut badges while the
   search field or another text input owns focus.
+- `HistoryKeyboardShortcutPolicyTests.searchFieldHandoffToFirstResultClearsTextFirstResponder`
+  proves Enter/Tab handoff from the search field to the first result clears the
+  actual AppKit text first responder immediately, so the next Enter routes to
+  card paste instead of being swallowed by the search field command handler.
 
 ---
 
