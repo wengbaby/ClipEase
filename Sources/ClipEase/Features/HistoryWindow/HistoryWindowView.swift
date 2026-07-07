@@ -26,13 +26,7 @@ struct HistoryWindowView: View {
     @State private var statusText: String?
     @State private var statusGeneration: UInt64 = 0
     @State private var hostWindow: NSWindow?
-    @State private var searchText = ""
-    @State private var searchCriteria = HistorySearchCriteria()
-    @State private var selectedSearchTokenKind: HistorySearchTokenKind?
-    @State private var isSearchVisible = false
-    @State private var isSearchFieldLayoutVisible = false
-    @State private var isSearchFieldVisualVisible = false
-    @State private var isSearchFilterPanelPresented = false
+    @State private var searchUIState = HistoryWindowSearchUIState()
     @State private var selectedGroup: HistoryGroupSelection = .all
     @State private var isClearConfirmationPresented = false
     @State private var groupPendingDeletion: ClipboardGroup?
@@ -56,8 +50,6 @@ struct HistoryWindowView: View {
     @State private var previewBuildGeneration: UInt64 = 0
     @State private var deferredStartupTask: Task<Void, Never>?
     @State private var searchVisibilityTask: Task<Void, Never>?
-    @State private var pendingSearchTrigger = "unknown"
-    @State private var searchHasHandedOffFocusToCard = false
     @State private var preheatTask: Task<Void, Never>?
     @State private var rememberSelectedItemTask: Task<Void, Never>?
     @State private var latestFocusRetryTask: Task<Void, Never>?
@@ -273,23 +265,21 @@ struct HistoryWindowView: View {
 
     private var searchTokens: [HistorySearchToken] {
         HistorySearchToken.tokens(
-            criteria: searchCriteria,
+            criteria: searchUIState.criteria,
             groups: store.groups
         )
     }
 
     private var isSearchActive: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchCriteria.hasActiveFilters
+        searchUIState.isActive
     }
 
     private var isSearchControlExpanded: Bool {
-        isSearchVisible || isSearchFieldLayoutVisible
+        searchUIState.shouldShowField
     }
 
     private var hasSearchContent: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            !searchTokens.isEmpty ||
-            searchCriteria.hasActiveFilters
+        searchUIState.hasContent || !searchTokens.isEmpty
     }
 
     private var canEditSelectedItemFromShortcut: Bool {
@@ -327,7 +317,7 @@ struct HistoryWindowView: View {
     private var isTextInputActiveForEditShortcut: Bool {
         isSearchFocused ||
             isGroupIconSearchFocused ||
-            isSearchFilterPanelPresented ||
+            searchUIState.isFilterPanelPresented ||
             groupRenameTargetID != nil ||
             groupAppearanceCoordinator.regularGroupTarget != nil ||
             groupAppearanceCoordinator.systemGroupTarget != nil ||
@@ -421,7 +411,7 @@ struct HistoryWindowView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             SearchOutsideWindowMouseDownObserver(
-                isEnabled: isSearchVisible,
+                isEnabled: searchUIState.isVisible,
                 hostWindow: hostWindow,
                 excludedFrames: searchInteractionScreenFrames,
                 onMouseDown: closeSearchFromOutsideClick
@@ -469,7 +459,7 @@ struct HistoryWindowView: View {
         .onChange(of: searchControlScreenFrame) { _ in
             refreshSearchInteractionScreenFrames()
         }
-        .onChange(of: isSearchFilterPanelPresented) { _ in
+        .onChange(of: searchUIState.isFilterPanelPresented) { _ in
             refreshSearchInteractionScreenFrames()
         }
         .onChange(of: hostWindow) { _ in
@@ -547,7 +537,7 @@ struct HistoryWindowView: View {
                !store.groups.contains(where: { $0.id == selectedGroupID }) {
                 selectedGroup = .all
             }
-            searchCriteria.groups = searchCriteria.groups.filter { group in
+            searchUIState.criteria.groups = searchUIState.criteria.groups.filter { group in
                 switch group {
                 case .pinned:
                     return true
@@ -559,8 +549,8 @@ struct HistoryWindowView: View {
             rememberSelectedGroup()
             scheduleSearchUpdate(immediate: true)
         }
-        .onChange(of: searchText) { _ in
-            selectedSearchTokenKind = nil
+        .onChange(of: searchUIState.text) { _ in
+            searchUIState.selectedTokenKind = nil
             scheduleSearchUpdate(debounceNanoseconds: isSearchTextComposing ? 300_000_000 : 160_000_000)
         }
         .onChange(of: isSearchTextComposing) { isComposing in
@@ -568,9 +558,9 @@ struct HistoryWindowView: View {
                 scheduleSearchUpdate(debounceNanoseconds: 60_000_000)
             }
         }
-        .onChange(of: searchCriteria) { _ in
-            if !searchTokens.contains(where: { $0.kind == selectedSearchTokenKind }) {
-                selectedSearchTokenKind = nil
+        .onChange(of: searchUIState.criteria) { _ in
+            if !searchTokens.contains(where: { $0.kind == searchUIState.selectedTokenKind }) {
+                searchUIState.selectedTokenKind = nil
             }
             scheduleSearchUpdate(immediate: true)
         }
@@ -625,7 +615,7 @@ struct HistoryWindowView: View {
         .onChange(of: isSearchFocused) { isFocused in
             inputState.setTextInputFocused(isFocused)
         }
-        .onChange(of: searchHasHandedOffFocusToCard) { hasHandedOff in
+        .onChange(of: searchUIState.hasHandedOffFocusToCard) { hasHandedOff in
             inputState.setSearchHasHandedOffFocusToCard(hasHandedOff)
         }
         .onChange(of: isGroupIconSearchFocused) { isFocused in
@@ -634,9 +624,9 @@ struct HistoryWindowView: View {
         .onChange(of: groupRenameTargetID) { targetID in
             inputState.setTextInputFocused(targetID != nil || isGroupIconSearchFocused)
         }
-        .onChange(of: isSearchVisible) { isVisible in
+        .onChange(of: searchUIState.isVisible) { isVisible in
             if !isVisible {
-                isSearchFilterPanelPresented = false
+                searchUIState.isFilterPanelPresented = false
             }
             inputState.setSearchVisible(isVisible)
             updateSearchFieldPresentation(isVisible: isVisible)
@@ -691,7 +681,7 @@ struct HistoryWindowView: View {
         let isCardFocused = isSelected && HistoryCardFocusPolicy.isCardFocusActive(
             selectedItemID: selectedItemID,
             isSearchFieldFocused: isSearchFocused || inputState.isTextInputFocusedSnapshot,
-            searchHasHandedOffFocusToCard: searchHasHandedOffFocusToCard
+            searchHasHandedOffFocusToCard: searchUIState.hasHandedOffFocusToCard
         )
         let isHovered = hoveredCardID == item.id
         let isPressed = pressedCardID == item.id
@@ -701,7 +691,7 @@ struct HistoryWindowView: View {
 
         HistoryCardView(
             item: item,
-            searchQuery: searchText,
+            searchQuery: searchUIState.text,
             shortcutNumber: shortcutNumber(for: item.id),
             isShortcutOverlayVisible: isShortcutOverlayVisible,
             isHovered: isHovered,
@@ -1157,7 +1147,7 @@ struct HistoryWindowView: View {
     private var searchToggleButton: some View {
         Button(action: toggleSearch) {
             HStack(spacing: 5) {
-                Image(systemName: isSearchVisible ? "xmark" : "magnifyingglass")
+                Image(systemName: searchUIState.isVisible ? "xmark" : "magnifyingglass")
                     .font(.system(size: 12, weight: .semibold))
 
                 Text("搜索")
@@ -1174,7 +1164,7 @@ struct HistoryWindowView: View {
         .historyRailControlStyle()
         .background(
             SearchInteractionLiveRegion(
-                isActive: isSearchVisible,
+                isActive: searchUIState.isVisible,
                 onRegister: { view in
                     SearchInteractionRegionRegistry.shared.register(view)
                 },
@@ -1621,12 +1611,12 @@ struct HistoryWindowView: View {
                         }
 
                         SearchTextField(
-                            text: $searchText,
+                            text: $searchUIState.text,
                             isFocused: $isSearchFocused,
                             isComposing: $isSearchTextComposing,
                             pendingComposedInputEvent: $pendingComposedSearchInputEvent,
                             focusRequestID: searchFocusRequestID,
-                            searchHasHandedOffFocusToCard: searchHasHandedOffFocusToCard,
+                            searchHasHandedOffFocusToCard: searchUIState.hasHandedOffFocusToCard,
                             hasSearchResult: !filteredItems.isEmpty,
                             hasSearchTokens: !searchTokens.isEmpty,
                             onFocusChanged: synchronizeSearchTextFieldFocus,
@@ -1661,13 +1651,13 @@ struct HistoryWindowView: View {
             }
 
             Button(action: toggleSearchFilterPanel) {
-                Image(systemName: searchCriteria.hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                Image(systemName: searchUIState.criteria.hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     .font(.system(size: 13, weight: .semibold))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(searchCriteria.hasActiveFilters ? Color(red: 0.18, green: 0.55, blue: 1.0) : .secondary)
+            .foregroundStyle(searchUIState.criteria.hasActiveFilters ? Color(red: 0.18, green: 0.55, blue: 1.0) : .secondary)
             .help("搜索筛选")
-            .popover(isPresented: $isSearchFilterPanelPresented, arrowEdge: .bottom) {
+            .popover(isPresented: $searchUIState.isFilterPanelPresented, arrowEdge: .bottom) {
                 searchFilterPanel
                     .fixedSize()
                     .background(SearchPanelWindowReader(onWindowChange: { _ in
@@ -1676,8 +1666,8 @@ struct HistoryWindowView: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(width: isSearchFieldLayoutVisible ? 520 : 0, height: 30)
-        .background(Color.white.opacity(isSearchFieldVisualVisible ? 0.72 : 0))
+        .frame(width: searchUIState.isFieldLayoutVisible ? 520 : 0, height: 30)
+        .background(Color.white.opacity(searchUIState.isFieldVisualVisible ? 0.72 : 0))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1685,7 +1675,7 @@ struct HistoryWindowView: View {
         }
         .background(
             SearchInteractionLiveRegion(
-                isActive: isSearchVisible,
+                isActive: searchUIState.isVisible,
                 onRegister: { view in
                     SearchInteractionRegionRegistry.shared.register(view)
                 },
@@ -1695,7 +1685,7 @@ struct HistoryWindowView: View {
             )
         )
         .background(
-            SearchInteractionScreenFrameReader(isActive: isSearchVisible) { frame in
+            SearchInteractionScreenFrameReader(isActive: searchUIState.isVisible) { frame in
                 if searchControlScreenFrame != frame {
                     searchControlScreenFrame = frame
                 }
@@ -1705,18 +1695,18 @@ struct HistoryWindowView: View {
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: SearchInteractionFramePreferenceKey.self,
-                    value: isSearchVisible ? [proxy.frame(in: .named("historyWindow")).insetBy(dx: -8, dy: -8)] : []
+                    value: searchUIState.isVisible ? [proxy.frame(in: .named("historyWindow")).insetBy(dx: -8, dy: -8)] : []
                 )
             }
         )
-        .opacity(isSearchFieldVisualVisible ? 1 : 0)
-        .scaleEffect(isSearchFieldVisualVisible ? 1 : 0.985, anchor: .leading)
-        .allowsHitTesting(isSearchVisible)
-        .animation(.easeOut(duration: 0.12), value: isSearchFieldVisualVisible)
+        .opacity(searchUIState.isFieldVisualVisible ? 1 : 0)
+        .scaleEffect(searchUIState.isFieldVisualVisible ? 1 : 0.985, anchor: .leading)
+        .allowsHitTesting(searchUIState.isVisible)
+        .animation(.easeOut(duration: 0.12), value: searchUIState.isFieldVisualVisible)
     }
 
     private func searchTokenView(_ token: HistorySearchToken) -> some View {
-        let isSelected = selectedSearchTokenKind == token.kind
+        let isSelected = searchUIState.selectedTokenKind == token.kind
         let selectedBackground = Color(red: 0.18, green: 0.55, blue: 1.0)
         let addedBackground = Color(red: 0.82, green: 0.91, blue: 1.0)
         let addedStroke = Color(red: 0.45, green: 0.68, blue: 0.92)
@@ -1749,7 +1739,7 @@ struct HistoryWindowView: View {
         .fixedSize()
         .contentShape(Rectangle())
         .onTapGesture {
-            selectedSearchTokenKind = token.kind
+            searchUIState.selectedTokenKind = token.kind
             focusSearchField()
         }
     }
@@ -1763,12 +1753,12 @@ struct HistoryWindowView: View {
                 Spacer()
 
                 Button("清空") {
-                    searchCriteria = HistorySearchCriteria()
+                    searchUIState.criteria = HistorySearchCriteria()
                 }
-                .disabled(!searchCriteria.hasActiveFilters)
+                .disabled(!searchUIState.criteria.hasActiveFilters)
 
                 Button("关闭") {
-                    isSearchFilterPanelPresented = false
+                    searchUIState.isFilterPanelPresented = false
                     focusSearchField()
                 }
             }
@@ -1781,7 +1771,7 @@ struct HistoryWindowView: View {
                                 searchFilterChip(
                                     title: type.title,
                                     systemImage: type.iconName,
-                                    isSelected: searchCriteria.types.contains(type),
+                                    isSelected: searchUIState.criteria.types.contains(type),
                                     action: { toggleSearchType(type) }
                                 )
                             }
@@ -1801,7 +1791,7 @@ struct HistoryWindowView: View {
                                         title: appName,
                                         iconFileName: option.iconFileName,
                                         fallbackSystemImage: "app.fill",
-                                        isSelected: searchCriteria.sourceAppNames.contains(appName),
+                                        isSelected: searchUIState.criteria.sourceAppNames.contains(appName),
                                         action: { toggleSearchSourceApp(appName) }
                                     )
                                 }
@@ -1815,7 +1805,7 @@ struct HistoryWindowView: View {
                                 searchFilterChip(
                                     title: range.title,
                                     systemImage: "calendar",
-                                    isSelected: searchCriteria.dateRanges.contains(range),
+                                    isSelected: searchUIState.criteria.dateRanges.contains(range),
                                     action: { toggleSearchDateRange(range) }
                                 )
                             }
@@ -1828,7 +1818,7 @@ struct HistoryWindowView: View {
                                 searchFilterChip(
                                     title: group.title,
                                     systemImage: systemGroupIconName(group),
-                                    isSelected: searchCriteria.groups.contains(group.searchGroup),
+                                    isSelected: searchUIState.criteria.groups.contains(group.searchGroup),
                                     action: { toggleSearchGroup(group.searchGroup) }
                                 )
                             }
@@ -1837,7 +1827,7 @@ struct HistoryWindowView: View {
                                 searchFilterChip(
                                     title: group.name,
                                     systemImage: group.iconName,
-                                    isSelected: searchCriteria.groups.contains(.group(group.id)),
+                                    isSelected: searchUIState.criteria.groups.contains(.group(group.id)),
                                     action: { toggleSearchGroup(.group(group.id)) }
                                 )
                             }
@@ -2742,7 +2732,7 @@ struct HistoryWindowView: View {
         let startedAt = CFAbsoluteTimeGetCurrent()
         guard containsFilteredItem(id),
               let item = store.item(with: id) else {
-            if isSearchVisible {
+            if searchUIState.isVisible {
                 showStatus("没有可粘贴的搜索结果")
             }
             return
@@ -4261,7 +4251,7 @@ struct HistoryWindowView: View {
     }
 
     private func toggleSearch() {
-        if isSearchVisible {
+        if searchUIState.isVisible {
             clearAndCloseSearch()
         } else {
             openSearch()
@@ -4278,24 +4268,18 @@ struct HistoryWindowView: View {
 
     private func clearSearchText() {
         let fallbackID = selectedItemID
-        searchHasHandedOffFocusToCard = false
-        searchText = ""
-        selectedSearchTokenKind = nil
-        isSearchFocused = isSearchVisible
-        inputState.setTextInputFocused(isSearchVisible)
+        let shouldFocusTextInput = searchUIState.clearText()
+        isSearchFocused = shouldFocusTextInput
+        inputState.setTextInputFocused(shouldFocusTextInput)
         restoreSelectionAfterClearingSearch(preferredID: fallbackID)
     }
 
     private func clearSearchTextAndFilters() {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        pendingSearchTrigger = "search.clearButton"
         let fallbackID = selectedItemID
-        searchHasHandedOffFocusToCard = false
-        searchText = ""
-        searchCriteria = HistorySearchCriteria()
-        selectedSearchTokenKind = nil
-        isSearchFocused = isSearchVisible
-        inputState.setTextInputFocused(isSearchVisible)
+        let shouldFocusTextInput = searchUIState.clearTextAndFilters(trigger: "search.clearButton")
+        isSearchFocused = shouldFocusTextInput
+        inputState.setTextInputFocused(shouldFocusTextInput)
         restoreSelectionAfterClearingSearch(preferredID: fallbackID)
         recordHistoryInteraction(
             "search.clearButton",
@@ -4310,7 +4294,7 @@ struct HistoryWindowView: View {
             hasSearchResult: filteredItems.first != nil,
             isSearchVisible: false
         )
-        isSearchVisible = false
+        searchUIState.close()
         inputState.setSearchVisible(false)
     }
 
@@ -4318,28 +4302,28 @@ struct HistoryWindowView: View {
         searchVisibilityTask?.cancel()
 
         if isVisible {
-            isSearchFieldLayoutVisible = true
+            searchUIState.setFieldPresentationVisible(true)
             searchVisibilityTask = Task { @MainActor in
                 await Task.yield()
-                guard !Task.isCancelled, isSearchVisible else {
+                guard !Task.isCancelled, searchUIState.isVisible else {
                     return
                 }
-                isSearchFieldVisualVisible = true
+                searchUIState.finishFieldPresentationShow()
             }
         } else {
-            isSearchFieldVisualVisible = false
+            searchUIState.setFieldPresentationVisible(false)
             searchVisibilityTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 120_000_000)
-                guard !Task.isCancelled, !isSearchVisible else {
+                guard !Task.isCancelled, !searchUIState.isVisible else {
                     return
                 }
-                isSearchFieldLayoutVisible = false
+                searchUIState.finishFieldPresentationHide()
             }
         }
     }
 
     private func closeSearchFromOutsideClick() {
-        guard isSearchVisible else {
+        guard searchUIState.isVisible else {
             return
         }
 
@@ -4351,7 +4335,7 @@ struct HistoryWindowView: View {
     }
 
     private func refreshSearchInteractionScreenFrames() {
-        guard isSearchVisible,
+        guard searchUIState.isVisible,
               let hostWindow else {
             searchInteractionScreenFrames = []
             return
@@ -4365,7 +4349,7 @@ struct HistoryWindowView: View {
         for window in NSApp.windows where window.isVisible && window !== hostWindow {
             let className = String(describing: type(of: window))
             let isSearchRelatedPanel = className.contains("Popover") || window.level.rawValue >= NSWindow.Level.popUpMenu.rawValue
-            if isSearchFilterPanelPresented && isSearchRelatedPanel {
+            if searchUIState.isFilterPanelPresented && isSearchRelatedPanel {
                 frames.append(window.frame.insetBy(dx: -8, dy: -8))
             }
         }
@@ -4375,15 +4359,13 @@ struct HistoryWindowView: View {
 
     private func clearAndCloseSearch() {
         let fallbackID = selectedItemID
-        searchText = ""
-        searchCriteria = HistorySearchCriteria()
-        selectedSearchTokenKind = nil
+        searchUIState.clearAndClose()
         restoreSelectionAfterClearingSearch(preferredID: fallbackID)
         closeSearch()
     }
 
     private func closeSearchForGroupNavigation() {
-        guard isSearchVisible || isSearchActive else {
+        guard searchUIState.isVisible || isSearchActive else {
             return
         }
 
@@ -4391,7 +4373,7 @@ struct HistoryWindowView: View {
     }
 
     private func closeInactiveSearchBeforeHiding() {
-        guard isSearchVisible, !isSearchActive else {
+        guard searchUIState.isVisible, !isSearchActive else {
             return
         }
 
@@ -4400,9 +4382,8 @@ struct HistoryWindowView: View {
 
     private func openSearch() {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        pendingSearchTrigger = "search.toggleButton.open"
         selectedGroup = .all
-        isSearchVisible = true
+        searchUIState.open(trigger: "search.toggleButton.open")
         inputState.setSearchVisible(true)
         recordHistoryInteraction(
             "search.toggleButton.open",
@@ -4419,23 +4400,24 @@ struct HistoryWindowView: View {
     }
 
     private func handleCommandFSearch() {
-        pendingSearchTrigger = "search.commandF"
-        if !isSearchVisible {
+        searchUIState.pendingTrigger = "search.commandF"
+        if !searchUIState.isVisible {
             openSearch()
-        } else if isSearchFilterPanelPresented {
-            isSearchFilterPanelPresented = false
+        } else if searchUIState.isFilterPanelPresented {
+            searchUIState.isFilterPanelPresented = false
             focusSearchField()
         } else {
-            isSearchFilterPanelPresented = true
+            searchUIState.isFilterPanelPresented = true
         }
     }
 
     private func toggleSearchFilterPanel() {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        let willOpen = !isSearchFilterPanelPresented
-        pendingSearchTrigger = willOpen ? "filter.button.open" : "filter.button.close"
-        isSearchFilterPanelPresented.toggle()
-        if isSearchFilterPanelPresented {
+        let willOpen = searchUIState.toggleFilterPanel(
+            openTrigger: "filter.button.open",
+            closeTrigger: "filter.button.close"
+        )
+        if searchUIState.isFilterPanelPresented {
             isSearchFocused = false
             inputState.setTextInputFocused(false)
         } else {
@@ -4445,7 +4427,7 @@ struct HistoryWindowView: View {
             willOpen ? "filter.button.open" : "filter.button.close",
             startedAt: startedAt,
             metadata: [
-                "hasFilters": "\(searchCriteria.hasActiveFilters)",
+                "hasFilters": "\(searchUIState.criteria.hasActiveFilters)",
                 "tokenCount": "\(searchTokens.count)",
                 "itemCount": "\(items.count)",
                 "filteredCount": "\(filteredItems.count)"
@@ -4459,10 +4441,10 @@ struct HistoryWindowView: View {
         metadata: [String: String] = [:]
     ) {
         var nextMetadata = metadata
-        nextMetadata["searchVisible"] = "\(isSearchVisible)"
-        nextMetadata["filterPanelVisible"] = "\(isSearchFilterPanelPresented)"
-        nextMetadata["hasFilters"] = "\(searchCriteria.hasActiveFilters)"
-        nextMetadata["queryLength"] = "\(searchText.count)"
+        nextMetadata["searchVisible"] = "\(searchUIState.isVisible)"
+        nextMetadata["filterPanelVisible"] = "\(searchUIState.isFilterPanelPresented)"
+        nextMetadata["hasFilters"] = "\(searchUIState.criteria.hasActiveFilters)"
+        nextMetadata["queryLength"] = "\(searchUIState.text.count)"
         PerformanceDiagnosticsService.shared.record(
             name,
             category: "interaction",
@@ -4479,95 +4461,50 @@ struct HistoryWindowView: View {
 
     private func toggleSearchType(_ type: HistorySearchItemType) {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        pendingSearchTrigger = "filter.type.toggle"
-        if searchCriteria.types.contains(type) {
-            searchCriteria.types.remove(type)
-            removeSearchTokenOrder(.type(type))
-        } else {
-            searchCriteria.types.insert(type)
-            appendSearchTokenOrder(.type(type))
-        }
+        searchUIState.toggleType(type)
         recordHistoryInteraction("filter.type.toggle", startedAt: startedAt, metadata: ["type": "\(type)"])
     }
 
     private func toggleSearchSourceApp(_ appName: String) {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        pendingSearchTrigger = "filter.sourceApp.toggle"
-        if searchCriteria.sourceAppNames.contains(appName) {
-            searchCriteria.sourceAppNames.remove(appName)
-            removeSearchTokenOrder(.sourceApp(appName))
-        } else {
-            searchCriteria.sourceAppNames.insert(appName)
-            appendSearchTokenOrder(.sourceApp(appName))
-        }
+        searchUIState.toggleSourceApp(appName)
         recordHistoryInteraction("filter.sourceApp.toggle", startedAt: startedAt, metadata: ["appName": appName])
     }
 
     private func toggleSearchDateRange(_ range: HistorySearchDateRange) {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        pendingSearchTrigger = "filter.date.toggle"
-        if searchCriteria.dateRanges.contains(range) {
-            searchCriteria.dateRanges.remove(range)
-            removeSearchTokenOrder(.date(range))
-        } else {
-            searchCriteria.dateRanges.insert(range)
-            appendSearchTokenOrder(.date(range))
-        }
+        searchUIState.toggleDateRange(range)
         recordHistoryInteraction("filter.date.toggle", startedAt: startedAt, metadata: ["range": "\(range)"])
     }
 
     private func toggleSearchGroup(_ group: HistorySearchGroup) {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        pendingSearchTrigger = "filter.group.toggle"
-        if searchCriteria.groups.contains(group) {
-            searchCriteria.groups.remove(group)
-            removeSearchTokenOrder(.group(group))
-        } else {
-            searchCriteria.groups.insert(group)
-            appendSearchTokenOrder(.group(group))
-        }
+        searchUIState.toggleGroup(group)
         recordHistoryInteraction("filter.group.toggle", startedAt: startedAt, metadata: ["group": "\(group)"])
     }
 
     private func removeSearchToken(_ token: HistorySearchToken) {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        pendingSearchTrigger = "search.token.remove"
-        switch token.kind {
-        case .type(let type):
-            searchCriteria.types.remove(type)
-        case .sourceApp(let appName):
-            searchCriteria.sourceAppNames.remove(appName)
-        case .date(let range):
-            searchCriteria.dateRanges.remove(range)
-        case .group(let group):
-            searchCriteria.groups.remove(group)
-        }
-        removeSearchTokenOrder(token.kind)
-
-        selectedSearchTokenKind = nil
+        searchUIState.removeToken(token.kind)
         focusSearchField()
         recordHistoryInteraction("search.token.remove", startedAt: startedAt, metadata: ["token": token.title])
     }
 
     private func appendSearchTokenOrder(_ kind: HistorySearchTokenKind) {
-        guard !searchCriteria.tokenOrder.contains(kind) else {
-            return
-        }
-
-        searchCriteria.tokenOrder.append(kind)
+        searchUIState.appendTokenOrder(kind)
     }
 
     private func removeSearchTokenOrder(_ kind: HistorySearchTokenKind) {
-        searchCriteria.tokenOrder.removeAll { $0 == kind }
+        searchUIState.removeTokenOrder(kind)
     }
 
     private func pruneSearchTokenOrder() {
         let activeKinds = Set(searchTokens.map(\.kind))
-        searchCriteria.tokenOrder.removeAll { !activeKinds.contains($0) }
+        searchUIState.pruneTokenOrder(activeKinds: activeKinds)
     }
 
     private func handleSearchTokenBackspace() {
-        if let selectedSearchTokenKind,
+        if let selectedSearchTokenKind = searchUIState.selectedTokenKind,
            let selectedToken = searchTokens.first(where: { $0.kind == selectedSearchTokenKind }) {
             removeSearchToken(selectedToken)
             return
@@ -4577,7 +4514,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        selectedSearchTokenKind = token.kind
+        searchUIState.selectedTokenKind = token.kind
         focusSearchField()
     }
 
@@ -4780,14 +4717,14 @@ struct HistoryWindowView: View {
         debounceNanoseconds: UInt64 = 90_000_000
     ) {
         let scheduleStartedAt = CFAbsoluteTimeGetCurrent()
-        let currentSearchTrigger = pendingSearchTrigger
-        pendingSearchTrigger = "stateChange"
+        let currentSearchTrigger = searchUIState.pendingTrigger
+        searchUIState.pendingTrigger = "stateChange"
         guard let request = searchCoordinator.prepareSearch(
             sourceItems: sourceItems,
             selectedGroup: selectedGroup,
-            isSearchVisible: isSearchVisible,
-            searchText: searchText,
-            criteria: searchCriteria,
+            isSearchVisible: searchUIState.isVisible,
+            searchText: searchUIState.text,
+            criteria: searchUIState.criteria,
             trigger: currentSearchTrigger,
             pageSize: searchResultPageSize,
             targetResultCount: historyRailRenderedItemLimit
@@ -4956,9 +4893,9 @@ struct HistoryWindowView: View {
             preloadMargin: preloadMargin,
             existingItems: previewItemsState.filteredItems,
             selectedGroup: selectedGroup,
-            isSearchVisible: isSearchVisible,
-            searchText: searchText,
-            criteria: searchCriteria,
+            isSearchVisible: searchUIState.isVisible,
+            searchText: searchUIState.text,
+            criteria: searchUIState.criteria,
             pageSize: searchResultPageSize,
             repositorySearch: { query in
                 searchStore.searchItems(query)
@@ -5263,7 +5200,7 @@ struct HistoryWindowView: View {
             isSearchFocused = false
             inputState.setTextInputFocused(false)
         }
-        searchHasHandedOffFocusToCard = false
+        searchUIState.hasHandedOffFocusToCard = false
         inputState.setSearchHasHandedOffFocusToCard(false)
 
         clearPendingHistoryRailJumpState()
@@ -5323,11 +5260,11 @@ struct HistoryWindowView: View {
             rememberSelectedGroup()
             HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)
         }
-        if resetToAll, isSearchVisible || isSearchActive {
-            searchText = ""
-            searchCriteria = HistorySearchCriteria()
-            selectedSearchTokenKind = nil
-            isSearchVisible = false
+        if resetToAll, searchUIState.isVisible || isSearchActive {
+            searchUIState.text = ""
+            searchUIState.criteria = HistorySearchCriteria()
+            searchUIState.selectedTokenKind = nil
+            searchUIState.isVisible = false
             isSearchFocused = false
             inputState.setSearchVisible(false)
             inputState.setTextInputFocused(false)
@@ -5427,14 +5364,14 @@ struct HistoryWindowView: View {
             rememberSelectedGroup()
         }
 
-        guard isSearchVisible || isSearchActive else {
+        guard searchUIState.isVisible || isSearchActive else {
             return
         }
 
-        searchText = ""
-        searchCriteria = HistorySearchCriteria()
-        selectedSearchTokenKind = nil
-        isSearchVisible = false
+        searchUIState.text = ""
+        searchUIState.criteria = HistorySearchCriteria()
+        searchUIState.selectedTokenKind = nil
+        searchUIState.isVisible = false
         isSearchFocused = false
         inputState.setSearchVisible(false)
         inputState.setTextInputFocused(false)
@@ -5658,13 +5595,13 @@ struct HistoryWindowView: View {
             closePreview()
         }
 
-        if !isSearchVisible {
+        if !searchUIState.isVisible {
             selectedGroup = .all
-            isSearchVisible = true
+            searchUIState.isVisible = true
             inputState.setSearchVisible(true)
         }
 
-        searchText += text
+        searchUIState.text += text
         focusSearchField()
     }
 
@@ -5673,9 +5610,9 @@ struct HistoryWindowView: View {
             closePreview()
         }
 
-        if !isSearchVisible {
+        if !searchUIState.isVisible {
             selectedGroup = .all
-            isSearchVisible = true
+            searchUIState.isVisible = true
             inputState.setSearchVisible(true)
         }
 
@@ -5703,7 +5640,7 @@ struct HistoryWindowView: View {
             applySearchFocusTransition(
                 .searchFieldFocused,
                 hasSearchResult: filteredItems.first != nil,
-                isSearchVisible: isSearchVisible
+                isSearchVisible: searchUIState.isVisible
             )
         } else {
             isSearchFocused = false
@@ -5716,7 +5653,7 @@ struct HistoryWindowView: View {
             applySearchFocusTransition(
                 .focusFirstResult,
                 hasSearchResult: false,
-                isSearchVisible: isSearchVisible
+                isSearchVisible: searchUIState.isVisible
             )
             return
         }
@@ -5733,7 +5670,7 @@ struct HistoryWindowView: View {
         applySearchFocusTransition(
             .focusFirstResult,
             hasSearchResult: true,
-            isSearchVisible: isSearchVisible
+            isSearchVisible: searchUIState.isVisible
         )
         if previewState.isVisible {
             showPreview(firstID)
@@ -5741,7 +5678,7 @@ struct HistoryWindowView: View {
     }
 
     private func focusSearchField() {
-        searchHasHandedOffFocusToCard = false
+        searchUIState.hasHandedOffFocusToCard = false
         isSearchFocused = true
         searchFocusRequestID += 1
         inputState.setTextInputFocused(true)
@@ -5770,7 +5707,7 @@ struct HistoryWindowView: View {
                 isSearchVisible: isSearchVisible
             )
         }
-        searchHasHandedOffFocusToCard = transition.searchHasHandedOffFocusToCard
+        searchUIState.hasHandedOffFocusToCard = transition.searchHasHandedOffFocusToCard
         inputState.setSearchHasHandedOffFocusToCard(transition.searchHasHandedOffFocusToCard)
         isSearchFocused = transition.isSearchFocused
         inputState.setTextInputFocused(transition.isTextInputFocused)
@@ -5807,7 +5744,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        if isSearchVisible {
+        if searchUIState.isVisible {
             closeSearch()
             return
         }
@@ -5824,8 +5761,8 @@ struct HistoryWindowView: View {
             didClose = true
         }
 
-        if isSearchFilterPanelPresented {
-            isSearchFilterPanelPresented = false
+        if searchUIState.isFilterPanelPresented {
+            searchUIState.isFilterPanelPresented = false
             didClose = true
         }
 
