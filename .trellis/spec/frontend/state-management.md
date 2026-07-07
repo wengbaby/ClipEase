@@ -33,9 +33,11 @@ guards, cancellation, repository pagination, and producing a single
 
 Search flow contract:
 
-- `ClipboardSearchQuery` is a text/limit/offset repository query. SQLite FTS
-  returns text candidates only; UI criteria such as source app, type, date, and
-  group are applied by `HistorySearchController.filterItems`.
+- `ClipboardSearchQuery` is a text/limit/offset repository query with optional
+  stable filter hints. SQLite FTS may push down deterministic equality filters
+  such as item type, source app, pinned state, and group membership, while
+  `HistorySearchController.filterItems` remains the final source of truth for
+  UI criteria semantics.
 - Because repository candidates can be rejected by UI criteria, initial search
   must continue loading repository pages in the background until either
   `targetResultCount` filtered items are available or the repository has no more
@@ -51,6 +53,10 @@ Required regression tests:
 - `HistorySearchCoordinatorTests.searchCoordinatorFillsInitialFilteredSearchPageBeforeApplying`
   proves filtered first-page misses do not make the visible search result look
   incomplete.
+- `HistorySearchCoordinatorTests.searchCoordinatorPushesStableFiltersIntoRepositoryQuery`
+  proves stable UI criteria are passed to the repository query so sparse
+  filtered searches do not wait on unrelated FTS pages before producing useful
+  results.
 - Cancellation and stale-generation tests must remain in
   `HistorySearchCoordinatorTests` when changing search task structure.
 

@@ -157,6 +157,39 @@ import Testing
     #expect(result.durationMS < 1_500)
 }
 
+@Test func sqliteFilteredSearchHandlesTenThousandSparseSourceItemsWithinBudget() throws {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("ClipEasePerformanceTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let targetApp = SourceAppInfo(name: "Target", bundleID: "com.example.target", iconName: "app.fill", iconFileName: nil, headerColorHex: "#2E8CFF")
+    let otherApp = SourceAppInfo(name: "Other", bundleID: "com.example.other", iconName: "app.fill", iconFileName: nil, headerColorHex: "#8E8E93")
+    let items = (0..<10_000).map { index in
+        ClipboardItem.text(
+            "稀疏筛选 shared 性能测试 \(index)",
+            sourceApp: index.isMultiple(of: 200) ? targetApp : otherApp
+        )
+    }
+
+    let databaseURL = directory.appendingPathComponent("ClipEaseBenchmark.sqlite")
+    let store = SQLiteClipboardStore(databaseURL: databaseURL)
+    try store.insertItems(items)
+
+    let result = try PerformanceBudget.measure {
+        try store.searchItems(ClipboardSearchQuery(
+            text: "shared",
+            limit: 20,
+            filters: ClipboardSearchQueryFilters(sourceAppNames: [targetApp.name])
+        ))
+    }
+
+    #expect(databaseURL.path.hasPrefix(directory.path))
+    #expect(result.value.count == 20)
+    #expect(result.value.allSatisfy { $0.sourceAppName == targetApp.name })
+    #expect(result.durationMS < 1_500)
+}
+
 enum PerformanceBudget {
     struct Result<T> {
         let value: T

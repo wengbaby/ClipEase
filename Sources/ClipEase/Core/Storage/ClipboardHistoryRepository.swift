@@ -9,11 +9,54 @@ struct ClipboardSearchQuery: Sendable, Equatable {
     var text: String
     var limit: Int
     var offset: Int
+    var filters: ClipboardSearchQueryFilters
 
-    init(text: String, limit: Int = 500, offset: Int = 0) {
+    init(
+        text: String,
+        limit: Int = 500,
+        offset: Int = 0,
+        filters: ClipboardSearchQueryFilters = ClipboardSearchQueryFilters()
+    ) {
         self.text = text
         self.limit = limit
         self.offset = max(0, offset)
+        self.filters = filters
+    }
+}
+
+struct ClipboardSearchQueryFilters: Sendable, Equatable {
+    var types: Set<ClipboardItemType>
+    var sourceAppNames: Set<String>
+    var requiresPinned: Bool
+    var requiredGroupIDs: Set<ClipboardGroup.ID>
+    var groupCriteria: ClipboardSearchQueryGroupCriteria
+
+    init(
+        types: Set<ClipboardItemType> = [],
+        sourceAppNames: Set<String> = [],
+        requiresPinned: Bool = false,
+        requiredGroupIDs: Set<ClipboardGroup.ID> = [],
+        groupCriteria: ClipboardSearchQueryGroupCriteria = ClipboardSearchQueryGroupCriteria()
+    ) {
+        self.types = types
+        self.sourceAppNames = sourceAppNames
+        self.requiresPinned = requiresPinned
+        self.requiredGroupIDs = requiredGroupIDs
+        self.groupCriteria = groupCriteria
+    }
+}
+
+struct ClipboardSearchQueryGroupCriteria: Sendable, Equatable {
+    var includesPinned: Bool
+    var groupIDs: Set<ClipboardGroup.ID>
+
+    init(includesPinned: Bool = false, groupIDs: Set<ClipboardGroup.ID> = []) {
+        self.includesPinned = includesPinned
+        self.groupIDs = groupIDs
+    }
+
+    var isEmpty: Bool {
+        !includesPinned && groupIDs.isEmpty
     }
 }
 
@@ -79,6 +122,10 @@ extension ClipboardHistoryRepository {
         result.reserveCapacity(min(max(query.limit, 0), 500))
         var skippedMatches = 0
         for item in try loadSnapshot().items {
+            guard item.matchesSearchFilters(query.filters) else {
+                continue
+            }
+
             guard item.cardSearchText.contains(normalizedQuery) else {
                 continue
             }
@@ -135,6 +182,46 @@ extension ClipboardHistoryRepository {
 }
 
 extension ClipboardItem {
+    func matchesSearchFilters(_ filters: ClipboardSearchQueryFilters) -> Bool {
+        if !filters.types.isEmpty,
+           !filters.types.contains(type) {
+            return false
+        }
+
+        if !filters.sourceAppNames.isEmpty,
+           !filters.sourceAppNames.contains(sourceAppName) {
+            return false
+        }
+
+        if filters.requiresPinned,
+           !isPinned {
+            return false
+        }
+
+        if !filters.requiredGroupIDs.isEmpty,
+           !groupMatches(filters.requiredGroupIDs) {
+            return false
+        }
+
+        if !filters.groupCriteria.isEmpty {
+            let matchesPinned = filters.groupCriteria.includesPinned && isPinned
+            let matchesGroup = groupMatches(filters.groupCriteria.groupIDs)
+            if !matchesPinned && !matchesGroup {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private func groupMatches(_ ids: Set<ClipboardGroup.ID>) -> Bool {
+        guard !ids.isEmpty,
+              let groupID else {
+            return false
+        }
+        return ids.contains(groupID)
+    }
+
     var cardSearchText: String {
         [
             preview,

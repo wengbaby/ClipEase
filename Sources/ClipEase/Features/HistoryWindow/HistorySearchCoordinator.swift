@@ -173,7 +173,8 @@ final class HistorySearchCoordinator: ObservableObject {
                 ClipboardSearchQuery(
                     text: request.searchText,
                     limit: request.pageSize,
-                    offset: offset
+                    offset: offset,
+                    filters: request.repositoryFilters
                 )
             )
             try Task.checkCancellation()
@@ -246,7 +247,11 @@ final class HistorySearchCoordinator: ObservableObject {
                     ClipboardSearchQuery(
                         text: searchText,
                         limit: pageSize,
-                        offset: offset
+                        offset: offset,
+                        filters: Self.repositoryFilters(
+                            selectedGroup: currentGroup,
+                            criteria: criteria
+                        )
                     )
                 )
             }.value
@@ -310,5 +315,67 @@ final class HistorySearchCoordinator: ObservableObject {
     ) -> [HistoryPreviewItem] {
         let existingIDs = Set(existingItems.map(\.id))
         return existingItems + filteredPage.filter { !existingIDs.contains($0.id) }
+    }
+}
+
+private extension HistoryPreparedSearchRequest {
+    var repositoryFilters: ClipboardSearchQueryFilters {
+        HistorySearchCoordinator.repositoryFilters(
+            selectedGroup: selectedGroup,
+            criteria: criteria
+        )
+    }
+}
+
+private extension HistorySearchCoordinator {
+    nonisolated static func repositoryFilters(
+        selectedGroup: HistoryGroupSelection,
+        criteria: HistorySearchCriteria
+    ) -> ClipboardSearchQueryFilters {
+        var requiredGroupIDs = Set<ClipboardGroup.ID>()
+        var requiresPinned = false
+        switch selectedGroup {
+        case .all:
+            break
+        case .pinned:
+            requiresPinned = true
+        case .group(let groupID):
+            requiredGroupIDs.insert(groupID)
+        }
+
+        var groupCriteria = ClipboardSearchQueryGroupCriteria()
+        for group in criteria.groups {
+            switch group {
+            case .pinned:
+                groupCriteria.includesPinned = true
+            case .group(let groupID):
+                groupCriteria.groupIDs.insert(groupID)
+            }
+        }
+
+        return ClipboardSearchQueryFilters(
+            types: Set(criteria.types.map(\.clipboardItemType)),
+            sourceAppNames: criteria.sourceAppNames,
+            requiresPinned: requiresPinned,
+            requiredGroupIDs: requiredGroupIDs,
+            groupCriteria: groupCriteria
+        )
+    }
+}
+
+private extension HistorySearchItemType {
+    var clipboardItemType: ClipboardItemType {
+        switch self {
+        case .text:
+            .text
+        case .link:
+            .link
+        case .image:
+            .image
+        case .color:
+            .color
+        case .file:
+            .file
+        }
     }
 }

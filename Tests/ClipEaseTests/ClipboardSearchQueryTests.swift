@@ -47,6 +47,54 @@ private struct TestClipboardHistoryRepository: ClipboardHistoryRepository {
     #expect(result.map(\.id) == [contentMatch.id])
 }
 
+@Test func defaultRepositorySearchAppliesStableFiltersBeforeOffset() throws {
+    let targetApp = SourceAppInfo(name: "Target", bundleID: "com.example.target", iconName: "app.fill", iconFileName: nil, headerColorHex: "#2E8CFF")
+    let otherApp = SourceAppInfo(name: "Other", bundleID: "com.example.other", iconName: "app.fill", iconFileName: nil, headerColorHex: "#8E8E93")
+    let groupID = UUID()
+    var firstMatch = ClipboardItem.link(URL(string: "https://example.com/first")!, originalText: "shared first", sourceApp: targetApp)
+    firstMatch.isPinned = true
+    firstMatch.groupID = groupID
+    firstMatch.createdAt = Date(timeIntervalSince1970: 200)
+    var secondMatch = ClipboardItem.link(URL(string: "https://example.com/second")!, originalText: "shared second", sourceApp: targetApp)
+    secondMatch.isPinned = true
+    secondMatch.groupID = groupID
+    secondMatch.createdAt = Date(timeIntervalSince1970: 100)
+    var wrongType = ClipboardItem.text("shared wrong type", sourceApp: targetApp)
+    wrongType.isPinned = true
+    wrongType.groupID = groupID
+    var wrongSource = ClipboardItem.link(URL(string: "https://example.com/source")!, originalText: "shared wrong source", sourceApp: otherApp)
+    wrongSource.isPinned = true
+    wrongSource.groupID = groupID
+    var wrongPinned = ClipboardItem.link(URL(string: "https://example.com/pinned")!, originalText: "shared wrong pinned", sourceApp: targetApp)
+    wrongPinned.groupID = groupID
+    var wrongGroup = ClipboardItem.link(URL(string: "https://example.com/group")!, originalText: "shared wrong group", sourceApp: targetApp)
+    wrongGroup.isPinned = true
+
+    let repository = TestClipboardHistoryRepository(items: [
+        wrongType,
+        firstMatch,
+        wrongSource,
+        wrongPinned,
+        wrongGroup,
+        secondMatch
+    ])
+    let query = ClipboardSearchQuery(
+        text: "shared",
+        limit: 1,
+        offset: 1,
+        filters: ClipboardSearchQueryFilters(
+            types: [.link],
+            sourceAppNames: [targetApp.name],
+            requiresPinned: true,
+            requiredGroupIDs: [groupID]
+        )
+    )
+
+    let result = try repository.searchItems(query)
+
+    #expect(result.map(\.id) == [secondMatch.id])
+}
+
 @Test func sqliteRepositorySearchMatchesCardContentOnly() throws {
     let directory = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("ClipEaseTests-\(UUID().uuidString)", isDirectory: true)
@@ -61,6 +109,64 @@ private struct TestClipboardHistoryRepository: ClipboardHistoryRepository {
     let result = try store.searchItems(ClipboardSearchQuery(text: "88", limit: 10))
 
     #expect(result.map(\.id) == [contentMatch.id])
+}
+
+@Test func sqliteRepositorySearchAppliesStableFiltersBeforeOffset() throws {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("ClipEaseTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let targetApp = SourceAppInfo(name: "Target", bundleID: "com.example.target", iconName: "app.fill", iconFileName: nil, headerColorHex: "#2E8CFF")
+    let otherApp = SourceAppInfo(name: "Other", bundleID: "com.example.other", iconName: "app.fill", iconFileName: nil, headerColorHex: "#8E8E93")
+    let group = ClipboardGroup(
+        id: UUID(),
+        name: "Project",
+        colorHex: "#2E8CFF",
+        iconName: "folder",
+        sortOrder: 0,
+        createdAt: Date(),
+        updatedAt: Date()
+    )
+    var firstMatch = ClipboardItem.link(URL(string: "https://example.com/first")!, originalText: "shared first", sourceApp: targetApp)
+    firstMatch.isPinned = true
+    firstMatch.groupID = group.id
+    firstMatch.createdAt = Date(timeIntervalSince1970: 200)
+    var secondMatch = ClipboardItem.link(URL(string: "https://example.com/second")!, originalText: "shared second", sourceApp: targetApp)
+    secondMatch.isPinned = true
+    secondMatch.groupID = group.id
+    secondMatch.createdAt = Date(timeIntervalSince1970: 100)
+    var wrongType = ClipboardItem.text("shared wrong type", sourceApp: targetApp)
+    wrongType.isPinned = true
+    wrongType.groupID = group.id
+    var wrongSource = ClipboardItem.link(URL(string: "https://example.com/source")!, originalText: "shared wrong source", sourceApp: otherApp)
+    wrongSource.isPinned = true
+    wrongSource.groupID = group.id
+    var wrongPinned = ClipboardItem.link(URL(string: "https://example.com/pinned")!, originalText: "shared wrong pinned", sourceApp: targetApp)
+    wrongPinned.groupID = group.id
+    var wrongGroup = ClipboardItem.link(URL(string: "https://example.com/group")!, originalText: "shared wrong group", sourceApp: targetApp)
+    wrongGroup.isPinned = true
+
+    let store = SQLiteClipboardStore(databaseURL: directory.appendingPathComponent("ClipEase.sqlite"))
+    try store.replaceAllItems(
+        with: [wrongType, firstMatch, wrongSource, wrongPinned, wrongGroup, secondMatch],
+        groups: [group]
+    )
+    let query = ClipboardSearchQuery(
+        text: "shared",
+        limit: 1,
+        offset: 1,
+        filters: ClipboardSearchQueryFilters(
+            types: [.link],
+            sourceAppNames: [targetApp.name],
+            requiresPinned: true,
+            requiredGroupIDs: [group.id]
+        )
+    )
+
+    let result = try store.searchItems(query)
+
+    #expect(result.map(\.id) == [secondMatch.id])
 }
 
 @Test func historySearchControllerUsesUnfilteredSourceWhenSearchIsEmpty() {

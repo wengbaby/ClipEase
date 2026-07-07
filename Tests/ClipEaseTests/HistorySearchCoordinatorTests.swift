@@ -248,6 +248,51 @@ import Testing
     #expect(appliedResult?.canLoadMore == false)
 }
 
+@MainActor
+@Test func searchCoordinatorPushesStableFiltersIntoRepositoryQuery() async throws {
+    let coordinator = HistorySearchCoordinator()
+    let groupID = UUID()
+    let targetApp = SourceAppInfo(name: "Target", bundleID: "com.example.target", iconName: "app.fill", iconFileName: nil, headerColorHex: "#2E8CFF")
+    var criteria = HistorySearchCriteria()
+    criteria.types.insert(.image)
+    criteria.sourceAppNames.insert(targetApp.name)
+    criteria.groups.insert(.pinned)
+
+    let request = try #require(coordinator.prepareSearch(
+        sourceItems: [],
+        selectedGroup: .group(groupID),
+        isSearchVisible: false,
+        searchText: "shared",
+        criteria: criteria,
+        trigger: "typing",
+        pageSize: 20,
+        targetResultCount: 20
+    ))
+
+    let queryRecorder = SearchQueryRecorder()
+    var appliedResult: HistorySearchFilterResult?
+    coordinator.startSearch(
+        request: request,
+        immediate: true,
+        debounceNanoseconds: 0,
+        repositorySearch: { query in
+            queryRecorder.append(query)
+            return []
+        },
+        onResult: { result in
+            appliedResult = result.filterResult
+        }
+    )
+
+    try await waitUntil { appliedResult != nil }
+    let query = try #require(queryRecorder.queries.first)
+    #expect(query.filters.types == [.image])
+    #expect(query.filters.sourceAppNames == [targetApp.name])
+    #expect(query.filters.requiredGroupIDs == [groupID])
+    #expect(query.filters.groupCriteria.includesPinned)
+    #expect(query.filters.groupCriteria.groupIDs.isEmpty)
+}
+
 private final class SearchQueryRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var storedQueries: [ClipboardSearchQuery] = []
