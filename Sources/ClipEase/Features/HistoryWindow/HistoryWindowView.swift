@@ -351,6 +351,15 @@ struct HistoryWindowView: View {
         isTextInputActiveForEditShortcut || inputState.isPreviewContentActive
     }
 
+    private var isShortcutOverlayVisible: Bool {
+        HistoryShortcutOverlayPolicy.isVisible(
+            isCommandKeyPressed: isCommandKeyPressed,
+            isInputCommandKeyPressed: inputState.isCommandKeyPressed,
+            isTextInputActive: isTextInputActiveForEditShortcut || inputState.isHistoryTextInputActiveSnapshot,
+            isPreviewContentActive: inputState.isPreviewContentActive
+        )
+    }
+
     private var canPerformDeleteCommand: Bool {
         HistoryKeyboardActionRouter().allowsHistoryCommand(
             .delete,
@@ -738,7 +747,7 @@ struct HistoryWindowView: View {
             item: item,
             searchQuery: searchText,
             shortcutNumber: shortcutNumber(for: item.id),
-            isShortcutOverlayVisible: isCommandKeyPressed || inputState.isCommandKeyPressed,
+            isShortcutOverlayVisible: isShortcutOverlayVisible,
             isHovered: isHovered,
             isPressed: isPressed,
             isEnteringLatestItem: isEnteringLatestItem,
@@ -7535,7 +7544,7 @@ private struct NumberShortcutHandler: NSViewRepresentable {
                     guard let self,
                           !self.isPreviewContentActive(),
                           self.window?.isKeyWindow == true,
-                          !Self.isTextInputActive(),
+                          !self.isHistoryTextInputActive(),
                           event.modifierFlags.contains(.command),
                           let characters = event.charactersIgnoringModifiers,
                           characters.count == 1,
@@ -7558,7 +7567,8 @@ private struct NumberShortcutHandler: NSViewRepresentable {
                         return event
                     }
 
-                    self.onCommandStateChange?(event.modifierFlags.contains(.command))
+                    let isTextInputActive = self.isHistoryTextInputActive()
+                    self.onCommandStateChange?(event.modifierFlags.contains(.command) && !isTextInputActive)
                     return event
                 }
             }
@@ -7580,6 +7590,10 @@ private struct NumberShortcutHandler: NSViewRepresentable {
 
         private func isPreviewContentActive() -> Bool {
             inputState?.isPreviewActiveSnapshot == true
+        }
+
+        private func isHistoryTextInputActive() -> Bool {
+            inputState?.isHistoryTextInputActiveSnapshot == true || Self.isTextInputActive()
         }
 
         private static func isTextInputActive() -> Bool {

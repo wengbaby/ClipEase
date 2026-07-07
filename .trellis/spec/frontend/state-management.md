@@ -60,6 +60,23 @@ Required regression tests:
 - Cancellation and stale-generation tests must remain in
   `HistorySearchCoordinatorTests` when changing search task structure.
 
+### History Window Keyboard State
+
+History keyboard routing must treat focused search text, group rename fields,
+popover search fields, and actual AppKit `NSTextView` first responders as text
+input layers. While a text input layer is active, card-level commands and card
+shortcut overlays must stay disabled so `Command` combinations remain owned by
+the focused text field.
+
+Required regression tests:
+
+- `HistoryKeyboardShortcutPolicyTests.cardCommandsAreBlockedWhileTextInputIsActive`
+  proves card actions such as paste, preview, delete, and visible-card selection
+  do not run while text input is active.
+- `HistoryKeyboardShortcutPolicyTests.shortcutOverlayIsHiddenWhileTextInputIsActive`
+  proves holding `Command` does not reveal card 1-9 shortcut badges while the
+  search field or another text input owns focus.
+
 ---
 
 ## When to Use Global State

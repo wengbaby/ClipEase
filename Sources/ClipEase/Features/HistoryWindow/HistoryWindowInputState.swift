@@ -55,6 +55,22 @@ enum HistoryKeyboardShortcutPolicy {
     }
 }
 
+enum HistoryShortcutOverlayPolicy {
+    static func isVisible(
+        isCommandKeyPressed: Bool,
+        isInputCommandKeyPressed: Bool,
+        isTextInputActive: Bool,
+        isPreviewContentActive: Bool
+    ) -> Bool {
+        guard !isTextInputActive,
+              !isPreviewContentActive else {
+            return false
+        }
+
+        return isCommandKeyPressed || isInputCommandKeyPressed
+    }
+}
+
 enum HistoryKeyboardInputPolicy {
     static func actionForTextInput(
         keyCode: UInt16,

@@ -47,6 +47,42 @@ import Testing
     }
 }
 
+@Test func shortcutOverlayIsHiddenWhileTextInputIsActive() {
+    #expect(!HistoryShortcutOverlayPolicy.isVisible(
+        isCommandKeyPressed: true,
+        isInputCommandKeyPressed: false,
+        isTextInputActive: true,
+        isPreviewContentActive: false
+    ))
+    #expect(!HistoryShortcutOverlayPolicy.isVisible(
+        isCommandKeyPressed: false,
+        isInputCommandKeyPressed: true,
+        isTextInputActive: true,
+        isPreviewContentActive: false
+    ))
+}
+
+@Test func shortcutOverlayIsVisibleOnlyForCommandOutsideInputLayers() {
+    #expect(HistoryShortcutOverlayPolicy.isVisible(
+        isCommandKeyPressed: true,
+        isInputCommandKeyPressed: false,
+        isTextInputActive: false,
+        isPreviewContentActive: false
+    ))
+    #expect(!HistoryShortcutOverlayPolicy.isVisible(
+        isCommandKeyPressed: false,
+        isInputCommandKeyPressed: false,
+        isTextInputActive: false,
+        isPreviewContentActive: false
+    ))
+    #expect(!HistoryShortcutOverlayPolicy.isVisible(
+        isCommandKeyPressed: true,
+        isInputCommandKeyPressed: false,
+        isTextInputActive: false,
+        isPreviewContentActive: true
+    ))
+}
+
 @Test func searchFieldExitCommandIsAllowedWhileTextInputIsActive() {
     #expect(HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
         .enterFirstSearchResult,
