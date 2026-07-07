@@ -4864,7 +4864,8 @@ struct HistoryWindowView: View {
             searchText: searchText,
             criteria: searchCriteria,
             trigger: currentSearchTrigger,
-            pageSize: searchResultPageSize
+            pageSize: searchResultPageSize,
+            targetResultCount: historyRailRenderedItemLimit
         ) else {
             return
         }

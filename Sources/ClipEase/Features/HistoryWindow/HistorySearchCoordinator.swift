@@ -11,6 +11,7 @@ struct HistoryPreparedSearchRequest: Sendable {
     let usesUnfilteredSource: Bool
     let maxResultCount: Int?
     let pageSize: Int
+    let targetResultCount: Int?
 }
 
 struct HistorySearchCoordinatorResult: Sendable {
@@ -42,7 +43,8 @@ final class HistorySearchCoordinator: ObservableObject {
         searchText: String,
         criteria: HistorySearchCriteria,
         trigger: String,
-        pageSize: Int
+        pageSize: Int,
+        targetResultCount: Int? = nil
     ) -> HistoryPreparedSearchRequest? {
         searchTask?.cancel()
         generation &+= 1
@@ -81,8 +83,9 @@ final class HistorySearchCoordinator: ObservableObject {
             isSearchActive: isSearchActive,
             trigger: trigger,
             usesUnfilteredSource: usesUnfilteredSource,
-            maxResultCount: usesUnfilteredSource ? nil : pageSize,
-            pageSize: pageSize
+            maxResultCount: usesUnfilteredSource ? nil : (targetResultCount ?? pageSize),
+            pageSize: pageSize,
+            targetResultCount: targetResultCount
         )
     }
 
@@ -112,33 +115,10 @@ final class HistorySearchCoordinator: ObservableObject {
             PerformanceDiagnosticsService.shared.recordResourceCheckpoint("search.filter.start")
 
             let filterStartedAt = CFAbsoluteTimeGetCurrent()
-            let repositorySearchTask = Task.detached(priority: .userInitiated) {
-                repositorySearch(
-                    ClipboardSearchQuery(
-                        text: request.searchText,
-                        limit: request.maxResultCount ?? request.pageSize
-                    )
-                )
-            }
             let filterTask = Task.detached(priority: .userInitiated) {
-                let repositoryItems = await repositorySearchTask.value
-                let mergedSourceItems = Self.mergedRepositoryPreviewItems(
-                    repositoryItems: repositoryItems,
-                    sourceItems: request.sourceItems
-                )
-                let itemsToFilter = mergedSourceItems.isEmpty ? request.sourceItems : mergedSourceItems
-                let filteredItems = try HistorySearchController.filterItems(
-                    itemsToFilter,
-                    selectedGroup: request.selectedGroup,
-                    searchText: request.searchText,
-                    criteria: request.criteria,
-                    maxResultCount: request.maxResultCount,
-                    now: Date()
-                )
-                return HistorySearchFilterResult(
-                    items: filteredItems,
-                    repositoryResultCount: repositoryItems.count,
-                    canLoadMore: repositoryItems.count == request.pageSize
+                try Self.searchAndFilterInitialResults(
+                    request: request,
+                    repositorySearch: repositorySearch
                 )
             }
 
@@ -147,7 +127,6 @@ final class HistorySearchCoordinator: ObservableObject {
                 result = try await withTaskCancellationHandler {
                     try await filterTask.value
                 } onCancel: {
-                    repositorySearchTask.cancel()
                     filterTask.cancel()
                 }
             } catch is CancellationError {
@@ -175,6 +154,61 @@ final class HistorySearchCoordinator: ObservableObject {
                 ))
             }
         }
+    }
+
+    nonisolated private static func searchAndFilterInitialResults(
+        request: HistoryPreparedSearchRequest,
+        repositorySearch: @escaping @Sendable (ClipboardSearchQuery) -> [ClipboardItem]
+    ) throws -> HistorySearchFilterResult {
+        let targetResultCount = request.targetResultCount ?? request.maxResultCount ?? request.pageSize
+        var repositoryItems: [ClipboardItem] = []
+        var filteredItems: [HistoryPreviewItem] = []
+        var repositoryResultCount = 0
+        var canLoadMore = false
+        var offset = 0
+
+        repeat {
+            try Task.checkCancellation()
+            let page = repositorySearch(
+                ClipboardSearchQuery(
+                    text: request.searchText,
+                    limit: request.pageSize,
+                    offset: offset
+                )
+            )
+            try Task.checkCancellation()
+
+            repositoryItems.append(contentsOf: page)
+            repositoryResultCount += page.count
+            offset += page.count
+
+            let mergedSourceItems = mergedRepositoryPreviewItems(
+                repositoryItems: repositoryItems,
+                sourceItems: request.sourceItems
+            )
+            let itemsToFilter = mergedSourceItems.isEmpty ? request.sourceItems : mergedSourceItems
+            filteredItems = try HistorySearchController.filterItems(
+                itemsToFilter,
+                selectedGroup: request.selectedGroup,
+                searchText: request.searchText,
+                criteria: request.criteria,
+                maxResultCount: request.maxResultCount,
+                now: Date()
+            )
+            canLoadMore = page.count == request.pageSize
+        } while HistorySearchPaginationPolicy.shouldLoadMore(
+            filteredCount: filteredItems.count,
+            targetCount: targetResultCount,
+            repositoryResultCount: repositoryResultCount,
+            pageSize: request.pageSize,
+            canLoadMore: canLoadMore
+        )
+
+        return HistorySearchFilterResult(
+            items: filteredItems,
+            repositoryResultCount: repositoryResultCount,
+            canLoadMore: canLoadMore
+        )
     }
 
     func loadMoreIfNeeded(

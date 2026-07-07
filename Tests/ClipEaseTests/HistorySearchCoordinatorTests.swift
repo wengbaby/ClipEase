@@ -194,6 +194,77 @@ import Testing
     #expect(loadMoreAppliedCount == 0)
 }
 
+@MainActor
+@Test func searchCoordinatorFillsInitialFilteredSearchPageBeforeApplying() async throws {
+    let coordinator = HistorySearchCoordinator()
+    let targetApp = SourceAppInfo(name: "Target", bundleID: "com.example.target", iconName: "app.fill", iconFileName: nil, headerColorHex: "#2E8CFF")
+    let otherApp = SourceAppInfo(name: "Other", bundleID: "com.example.other", iconName: "app.fill", iconFileName: nil, headerColorHex: "#8E8E93")
+    var criteria = HistorySearchCriteria()
+    criteria.sourceAppNames.insert(targetApp.name)
+
+    let request = try #require(coordinator.prepareSearch(
+        sourceItems: [],
+        selectedGroup: .all,
+        isSearchVisible: true,
+        searchText: "shared",
+        criteria: criteria,
+        trigger: "typing",
+        pageSize: 2,
+        targetResultCount: 2
+    ))
+
+    let queryRecorder = SearchQueryRecorder()
+    var appliedResult: HistorySearchFilterResult?
+    coordinator.startSearch(
+        request: request,
+        immediate: true,
+        debounceNanoseconds: 0,
+        repositorySearch: { query in
+            queryRecorder.append(query)
+            switch query.offset {
+            case 0:
+                return [
+                    ClipboardItem.text("shared first miss", sourceApp: otherApp),
+                    ClipboardItem.text("shared first hit", sourceApp: targetApp)
+                ]
+            case 2:
+                return [
+                    ClipboardItem.text("shared second hit", sourceApp: targetApp)
+                ]
+            default:
+                return []
+            }
+        },
+        onResult: { result in
+            appliedResult = result.filterResult
+        }
+    )
+
+    try await waitUntil { appliedResult != nil }
+
+    #expect(queryRecorder.queries.map(\.offset) == [0, 2])
+    #expect(appliedResult?.items.map(\.sourceAppName) == [targetApp.name, targetApp.name])
+    #expect(appliedResult?.repositoryResultCount == 3)
+    #expect(appliedResult?.canLoadMore == false)
+}
+
+private final class SearchQueryRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedQueries: [ClipboardSearchQuery] = []
+
+    var queries: [ClipboardSearchQuery] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedQueries
+    }
+
+    func append(_ query: ClipboardSearchQuery) {
+        lock.lock()
+        defer { lock.unlock() }
+        storedQueries.append(query)
+    }
+}
+
 private func waitUntil(
     timeoutNanoseconds: UInt64 = 1_000_000_000,
     condition: @escaping @MainActor () -> Bool
