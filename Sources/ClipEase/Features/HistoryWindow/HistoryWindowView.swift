@@ -22,9 +22,8 @@ struct HistoryWindowView: View {
     let onClosePreview: () -> Void
     let onCreateText: (ClipboardGroup.ID?) -> Void
 
-    @State private var selectedItemID: HistoryPreviewItem.ID?
-    @State private var statusText: String?
-    @State private var statusGeneration: UInt64 = 0
+    @State private var cardInteractionState = HistoryWindowCardInteractionState()
+    @State private var statusState = HistoryWindowStatusState()
     @State private var hostWindow: NSWindow?
     @State private var searchUIState = HistoryWindowSearchUIState()
     @State private var groupUIState = HistoryWindowGroupUIState()
@@ -46,13 +45,6 @@ struct HistoryWindowView: View {
     @State private var viewportState = HistoryWindowViewportState()
     @State private var focusState = HistoryWindowFocusState()
     @State private var pendingKeyboardFocusClearTask: Task<Void, Never>?
-    @State private var enteringItemIDs: Set<ClipboardItem.ID> = []
-    @State private var enteringItemClearTask: Task<Void, Never>?
-    @State private var entranceSheenItemIDs: Set<ClipboardItem.ID> = []
-    @State private var entranceSheenStartTime: CFTimeInterval?
-    @State private var entranceSheenClearTask: Task<Void, Never>?
-    @State private var hoveredCardID: HistoryPreviewItem.ID?
-    @State private var pressedCardID: HistoryPreviewItem.ID?
     @AppStorage("history.systemGroup.pinned.iconName") private var pinnedGroupIconName = "pin.fill"
     @AppStorage("history.systemGroup.pinned.colorHex") private var pinnedGroupColorHex = "#2E8CFF"
     @AppStorage("history.lastSelectedGroup") private var rememberedSelectedGroup = HistoryGroupSelection.all.storageValue
@@ -78,6 +70,46 @@ struct HistoryWindowView: View {
     private let searchResultPageSize = 50
     private let hiddenResourceCheckpointMinimumInterval: CFTimeInterval = 10
     private let latestInsertedCardLeadingInset: CGFloat = 28
+
+    private var selectedItemID: HistoryPreviewItem.ID? {
+        get { cardInteractionState.selectedItemID }
+        nonmutating set { cardInteractionState.selectedItemID = newValue }
+    }
+
+    private var enteringItemIDs: Set<ClipboardItem.ID> {
+        get { cardInteractionState.enteringItemIDs }
+        nonmutating set { cardInteractionState.enteringItemIDs = newValue }
+    }
+
+    private var enteringItemClearTask: Task<Void, Never>? {
+        get { cardInteractionState.enteringItemClearTask }
+        nonmutating set { cardInteractionState.enteringItemClearTask = newValue }
+    }
+
+    private var entranceSheenItemIDs: Set<ClipboardItem.ID> {
+        get { cardInteractionState.entranceSheenItemIDs }
+        nonmutating set { cardInteractionState.entranceSheenItemIDs = newValue }
+    }
+
+    private var entranceSheenStartTime: CFTimeInterval? {
+        get { cardInteractionState.entranceSheenStartTime }
+        nonmutating set { cardInteractionState.entranceSheenStartTime = newValue }
+    }
+
+    private var entranceSheenClearTask: Task<Void, Never>? {
+        get { cardInteractionState.entranceSheenClearTask }
+        nonmutating set { cardInteractionState.entranceSheenClearTask = newValue }
+    }
+
+    private var hoveredCardID: HistoryPreviewItem.ID? {
+        get { cardInteractionState.hoveredCardID }
+        nonmutating set { cardInteractionState.hoveredCardID = newValue }
+    }
+
+    private var pressedCardID: HistoryPreviewItem.ID? {
+        get { cardInteractionState.pressedCardID }
+        nonmutating set { cardInteractionState.pressedCardID = newValue }
+    }
 
     private var items: [HistoryPreviewItem] {
         previewItemsState.allItems
@@ -462,13 +494,8 @@ struct HistoryWindowView: View {
             latestFocusRetryTask?.cancel()
             pendingKeyboardFocusClearTask?.cancel()
             hiddenResourceCheckpointTask?.cancel()
-            enteringItemClearTask?.cancel()
-            entranceSheenClearTask?.cancel()
-            entranceSheenItemIDs.removeAll()
-            entranceSheenStartTime = nil
+            cardInteractionState.clearTransientState()
             focusState.pendingDefaultFocusOnShow = false
-            hoveredCardID = nil
-            pressedCardID = nil
             HistoryScrollCoordinator.shared.onOffsetChange = nil
         }
         .onChange(of: store.items) { newItems in
@@ -792,19 +819,11 @@ struct HistoryWindowView: View {
     }
 
     private func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
-        if isHovered {
-            hoveredCardID = id
-        } else if hoveredCardID == id {
-            hoveredCardID = nil
-        }
+        cardInteractionState.setHover(id, isHovered: isHovered)
     }
 
     private func setCardPress(_ id: HistoryPreviewItem.ID, isPressed: Bool) {
-        if isPressed {
-            pressedCardID = id
-        } else if pressedCardID == id {
-            pressedCardID = nil
-        }
+        cardInteractionState.setPress(id, isPressed: isPressed)
     }
 
     private func playEntranceAnimationSoon(for id: ClipboardItem.ID) {
@@ -812,31 +831,24 @@ struct HistoryWindowView: View {
     }
 
     private func playEntranceAnimation(for id: ClipboardItem.ID) {
-        enteringItemClearTask?.cancel()
-        entranceSheenClearTask?.cancel()
-        enteringItemIDs = [id]
-        entranceSheenItemIDs = [id]
-        entranceSheenStartTime = Date().timeIntervalSinceReferenceDate
-        entranceSheenClearTask = Task { @MainActor in
+        cardInteractionState.startEntranceAnimation(for: id, startTime: Date().timeIntervalSinceReferenceDate)
+        cardInteractionState.entranceSheenClearTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(latestItemEntranceSheenDuration * 1_000_000_000))
             guard !Task.isCancelled else {
                 return
             }
 
-            entranceSheenItemIDs.remove(id)
-            entranceSheenStartTime = nil
-            entranceSheenClearTask = nil
+            cardInteractionState.finishEntranceSheen(for: id)
         }
-        enteringItemClearTask = Task { @MainActor in
+        cardInteractionState.enteringItemClearTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(latestItemEntranceDuration * 1_000_000_000))
             guard !Task.isCancelled else {
                 return
             }
 
             withAnimation(.easeOut(duration: 0.20)) {
-                _ = enteringItemIDs.remove(id)
+                cardInteractionState.finishEntering(for: id)
             }
-            enteringItemClearTask = nil
         }
     }
 
@@ -4106,15 +4118,11 @@ struct HistoryWindowView: View {
     }
 
     private func showStatus(_ text: String) {
-        statusGeneration &+= 1
-        let generation = statusGeneration
-        statusText = text
+        let generation = statusState.show(text)
         GlobalStatusToastController.shared.show(text, relativeTo: hostWindow)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            if statusGeneration == generation {
-                statusText = nil
-            }
+            _ = statusState.clearIfCurrent(generation: generation)
         }
     }
 
