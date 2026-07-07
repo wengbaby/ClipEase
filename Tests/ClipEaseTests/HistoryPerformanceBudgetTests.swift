@@ -13,6 +13,17 @@ import Testing
     #expect(result.durationMS < 150)
 }
 
+@Test func previewGenerationHandlesTenThousandTextItemsWithinBudget() {
+    let items = PerformanceFixture.textItems(count: 10_000)
+
+    let result = PerformanceBudget.measure {
+        items.map(HistoryPreviewItem.init)
+    }
+
+    #expect(result.value.count == 10_000)
+    #expect(result.durationMS < 700)
+}
+
 @Test func searchFilterHandlesThreeThousandMixedItemsWithinBudget() throws {
     let previewItems = PerformanceFixture.mixedItems(count: 3_000).map(HistoryPreviewItem.init)
 
@@ -30,6 +41,25 @@ import Testing
     #expect(!result.value.isEmpty)
     #expect(result.value.count <= 50)
     #expect(result.durationMS < 180)
+}
+
+@Test func searchFilterHandlesTenThousandMixedItemsWithinBudget() throws {
+    let previewItems = PerformanceFixture.mixedItems(count: 10_000).map(HistoryPreviewItem.init)
+
+    let result = try PerformanceBudget.measure {
+        try HistorySearchController.filterItems(
+            previewItems,
+            selectedGroup: .all,
+            searchText: "性能测试 9999",
+            criteria: HistorySearchCriteria(),
+            maxResultCount: 50,
+            now: Date(timeIntervalSince1970: 4_000)
+        )
+    }
+
+    #expect(!result.value.isEmpty)
+    #expect(result.value.count <= 50)
+    #expect(result.durationMS < 700)
 }
 
 @Test func searchFilterHandlesOneThousandRichImageFileItemsWithinBudget() throws {
@@ -69,6 +99,24 @@ import Testing
     #expect(result.durationMS < 5)
 }
 
+@Test func renderWindowPolicyHandlesTenThousandItemsWithinBudget() {
+    let result = PerformanceBudget.measure {
+        HistoryRailRenderWindowPolicy.visibleWindow(
+            itemCount: 10_000,
+            visibleRect: CGRect(x: 1_900_000, y: 0, width: 1_080, height: 300),
+            hasReliableVisibleRect: true,
+            itemStride: 270,
+            horizontalContentPadding: 28,
+            bufferItemCount: 6,
+            renderedItemLimit: 20
+        )
+    }
+
+    #expect(result.value.count <= 20)
+    #expect(!result.value.isEmpty)
+    #expect(result.durationMS < 5)
+}
+
 @Test func sqliteSearchHandlesThreeThousandMixedItemsWithinBudgetUsingTemporaryStore() throws {
     let directory = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("ClipEasePerformanceTests-\(UUID().uuidString)", isDirectory: true)
@@ -87,6 +135,26 @@ import Testing
     #expect(!result.value.isEmpty)
     #expect(result.value.count <= 50)
     #expect(result.durationMS < 250)
+}
+
+@Test func sqliteSearchHandlesTenThousandMixedItemsWithinBudgetUsingTemporaryStore() throws {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("ClipEasePerformanceTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEaseBenchmark.sqlite")
+    let store = SQLiteClipboardStore(databaseURL: databaseURL)
+    try store.insertItems(PerformanceFixture.mixedItems(count: 10_000))
+
+    let result = try PerformanceBudget.measure {
+        try store.searchItems(ClipboardSearchQuery(text: "性能测试 9999", limit: 50))
+    }
+
+    #expect(databaseURL.path.hasPrefix(directory.path))
+    #expect(!result.value.isEmpty)
+    #expect(result.value.count <= 50)
+    #expect(result.durationMS < 1_500)
 }
 
 enum PerformanceBudget {

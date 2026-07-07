@@ -88,3 +88,122 @@ import Testing
 
     #expect(result.map(\.id) == [first.id, second.id, third.id])
 }
+
+@MainActor
+@Test func searchCoordinatorDoesNotApplyCanceledDebouncedSearch() async throws {
+    let coordinator = HistorySearchCoordinator()
+    let items = [
+        HistoryPreviewItem(item: .text("alpha", sourceApp: .clipease))
+    ]
+    var appliedResultCount = 0
+
+    let firstRequest = try #require(coordinator.prepareSearch(
+        sourceItems: items,
+        selectedGroup: .all,
+        isSearchVisible: true,
+        searchText: "alpha",
+        criteria: HistorySearchCriteria(),
+        trigger: "typing",
+        pageSize: 50
+    ))
+    coordinator.startSearch(
+        request: firstRequest,
+        immediate: false,
+        debounceNanoseconds: 200_000_000,
+        repositorySearch: { _ in [] },
+        onResult: { _ in
+            appliedResultCount += 1
+        }
+    )
+
+    _ = coordinator.prepareSearch(
+        sourceItems: items,
+        selectedGroup: .all,
+        isSearchVisible: true,
+        searchText: "beta",
+        criteria: HistorySearchCriteria(),
+        trigger: "typing",
+        pageSize: 50
+    )
+
+    try await Task.sleep(nanoseconds: 300_000_000)
+    #expect(appliedResultCount == 0)
+}
+
+@MainActor
+@Test func searchCoordinatorDoesNotApplyCanceledLoadMoreResults() async throws {
+    let coordinator = HistorySearchCoordinator()
+    let first = HistoryPreviewItem(item: .text("item one", sourceApp: .clipease))
+    let secondItem = ClipboardItem.text("item two", sourceApp: .clipease)
+    var initialSearchApplied = false
+    var loadMoreAppliedCount = 0
+
+    let request = try #require(coordinator.prepareSearch(
+        sourceItems: [first],
+        selectedGroup: .all,
+        isSearchVisible: true,
+        searchText: "item",
+        criteria: HistorySearchCriteria(),
+        trigger: "typing",
+        pageSize: 1
+    ))
+    coordinator.startSearch(
+        request: request,
+        immediate: true,
+        debounceNanoseconds: 0,
+        repositorySearch: { _ in
+            [ClipboardItem.text("item one", sourceApp: .clipease)]
+        },
+        onResult: { _ in
+            initialSearchApplied = true
+        }
+    )
+    try await waitUntil { initialSearchApplied }
+
+    let loadMoreGate = DispatchSemaphore(value: 0)
+    coordinator.loadMoreIfNeeded(
+        visibleUpperBound: 1,
+        preloadMargin: 0,
+        existingItems: [first],
+        selectedGroup: .all,
+        isSearchVisible: true,
+        searchText: "item",
+        criteria: HistorySearchCriteria(),
+        pageSize: 1,
+        repositorySearch: { _ in
+            loadMoreGate.wait()
+            return [secondItem]
+        },
+        onResult: { _ in
+            loadMoreAppliedCount += 1
+        }
+    )
+
+    _ = coordinator.prepareSearch(
+        sourceItems: [first],
+        selectedGroup: .all,
+        isSearchVisible: true,
+        searchText: "different",
+        criteria: HistorySearchCriteria(),
+        trigger: "typing",
+        pageSize: 1
+    )
+    loadMoreGate.signal()
+
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(loadMoreAppliedCount == 0)
+}
+
+private func waitUntil(
+    timeoutNanoseconds: UInt64 = 1_000_000_000,
+    condition: @escaping @MainActor () -> Bool
+) async throws {
+    let startedAt = ContinuousClock.now
+    while !(await condition()) {
+        try await Task.sleep(nanoseconds: 10_000_000)
+        if startedAt.duration(to: ContinuousClock.now) > .nanoseconds(Int64(timeoutNanoseconds)) {
+            Issue.record("Timed out waiting for condition")
+            return
+        }
+    }
+}

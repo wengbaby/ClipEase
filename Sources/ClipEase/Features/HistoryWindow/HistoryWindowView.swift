@@ -56,7 +56,7 @@ struct HistoryWindowView: View {
     @State private var filteredPreviewItemIDs: Set<HistoryPreviewItem.ID> = []
     @State private var filteredPreviewItemIndexByID: [HistoryPreviewItem.ID: Int] = [:]
     @State private var isUsingUnfilteredPreviewResult = true
-    @State private var sourceAppFilterOptions: [SourceAppFilterOption] = []
+    @State private var sourceAppFilterOptions: [HistorySourceAppFilterOption] = []
     @State private var sourceAppIconFileNameByName: [String: String] = [:]
     @State private var previewBuildTask: Task<Void, Never>?
     @State private var previewBuildGeneration: UInt64 = 0
@@ -4640,7 +4640,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        let signatureUpdate = Self.previewSignatureUpdate(
+        let signatureUpdate = HistoryPreviewBuildCoordinator.previewSignatureUpdate(
             sourceItems: sourceItems,
             currentSourceSignature: currentSourceSignature
         )
@@ -4675,91 +4675,17 @@ struct HistoryWindowView: View {
         previewBuildTask = Task {
             PerformanceDiagnosticsService.shared.recordResourceCheckpoint("preview.rebuild.start")
             let buildTask = Task.detached(priority: .userInitiated) {
-                let startedAt = CFAbsoluteTimeGetCurrent()
-                if let insertion = Self.incrementalPreviewInsertion(
+                try HistoryPreviewBuildCoordinator.rebuild(
                     sourceItems: sourceItems,
                     sourceSignature: sourceSignature,
                     currentPreviewItems: currentPreviewItems,
-                    currentSourceSignature: currentSourceSignature
-                ) {
-                    var nextCache: [ClipboardItem.ID: CachedHistoryPreviewItem] = [:]
-                    nextCache.reserveCapacity(min(retainedCacheIDs.count, sourceItems.count))
-
-                    for (index, item) in sourceItems.enumerated() {
-                        try Task.checkCancellation()
-                        guard retainedCacheIDs.contains(item.id) else {
-                            continue
-                        }
-
-                        let signature = sourceSignature[index]
-                        let previewItem: HistoryPreviewItem
-                        if index < insertion.insertedItems.count {
-                            previewItem = insertion.insertedItems[index]
-                        } else {
-                            previewItem = currentPreviewItems[index - insertion.insertedItems.count]
-                        }
-                        nextCache[item.id] = CachedHistoryPreviewItem(
-                            signature: signature,
-                            item: previewItem
-                        )
-
-                        if nextCache.count >= retainedCacheIDs.count {
-                            break
-                        }
-                    }
-
-                    try Task.checkCancellation()
-                    let sourceAppSnapshot = Self.sourceAppFilterSnapshot(from: sourceItems)
-                    let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
-                    return PreviewRebuildResult.prepend(
-                        insertedItems: insertion.insertedItems,
-                        nextCache: nextCache,
-                        sourceAppSnapshot: sourceAppSnapshot,
-                        cacheHitCount: insertion.cacheHitCount,
-                        durationMS: durationMS
-                    )
-                }
-
-                var previewItems: [HistoryPreviewItem] = []
-                previewItems.reserveCapacity(sourceItems.count)
-                var cacheHitCount = 0
-                var nextCache: [ClipboardItem.ID: CachedHistoryPreviewItem] = [:]
-                nextCache.reserveCapacity(min(retainedCacheIDs.count, sourceItems.count))
-
-                for (index, item) in sourceItems.enumerated() {
-                    try Task.checkCancellation()
-                    let signature = sourceSignature[index]
-                    let previewItem: HistoryPreviewItem
-                    if let cachedItem = currentPreviewItemCache[item.id],
-                       cachedItem.signature == signature {
-                        previewItem = cachedItem.item
-                        cacheHitCount += 1
-                    } else {
-                        previewItem = HistoryPreviewItem(item: item)
-                    }
-
-                    previewItems.append(previewItem)
-                    if retainedCacheIDs.contains(item.id) {
-                        nextCache[item.id] = CachedHistoryPreviewItem(
-                            signature: signature,
-                            item: previewItem
-                        )
-                    }
-                }
-
-                try Task.checkCancellation()
-                let sourceAppSnapshot = Self.sourceAppFilterSnapshot(from: sourceItems)
-                let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
-                return PreviewRebuildResult.full(
-                    previewItems: previewItems,
-                    nextCache: nextCache,
-                    sourceAppSnapshot: sourceAppSnapshot,
-                    cacheHitCount: cacheHitCount,
-                    durationMS: durationMS
+                    currentSourceSignature: currentSourceSignature,
+                    currentPreviewItemCache: currentPreviewItemCache,
+                    retainedCacheIDs: retainedCacheIDs
                 )
             }
 
-            let rebuildResult: PreviewRebuildResult
+            let rebuildResult: HistoryPreviewBuildCoordinator.RebuildResult
             do {
                 rebuildResult = try await withTaskCancellationHandler {
                     try await buildTask.value
@@ -4777,7 +4703,11 @@ struct HistoryWindowView: View {
             }
 
             await MainActor.run {
-                guard !Task.isCancelled, previewBuildGeneration == generation else {
+                guard HistoryPreviewBuildCoordinator.shouldApplyResult(
+                    isTaskCancelled: Task.isCancelled,
+                    generation: generation,
+                    currentGeneration: previewBuildGeneration
+                ) else {
                     return
                 }
 
@@ -5111,146 +5041,6 @@ struct HistoryWindowView: View {
                 applyFilteredPreviewResult(result)
                 schedulePreheatVisibleAssets()
             }
-        )
-    }
-
-    private struct PreviewSignatureUpdate: Sendable {
-        let sourceSignature: [HistoryPreviewSourceSignature]
-        let hasChanges: Bool
-    }
-
-    nonisolated private static func previewSignatureUpdate(
-        sourceItems: [ClipboardItem],
-        currentSourceSignature: [HistoryPreviewSourceSignature]
-    ) -> PreviewSignatureUpdate {
-        guard !currentSourceSignature.isEmpty,
-              sourceItems.count >= currentSourceSignature.count else {
-            let sourceSignature = sourceItems.map(HistoryPreviewSourceSignature.init)
-            return PreviewSignatureUpdate(
-                sourceSignature: sourceSignature,
-                hasChanges: sourceSignature != currentSourceSignature
-            )
-        }
-
-        let insertedCount = sourceItems.count - currentSourceSignature.count
-        guard insertedCount > 0,
-              insertedCount <= 8 else {
-            let sourceSignature = sourceItems.map(HistoryPreviewSourceSignature.init)
-            return PreviewSignatureUpdate(
-                sourceSignature: sourceSignature,
-                hasChanges: sourceSignature != currentSourceSignature
-            )
-        }
-
-        for (offset, signature) in currentSourceSignature.enumerated() {
-            guard signature.matches(item: sourceItems[offset + insertedCount]) else {
-                let sourceSignature = sourceItems.map(HistoryPreviewSourceSignature.init)
-                return PreviewSignatureUpdate(
-                    sourceSignature: sourceSignature,
-                    hasChanges: sourceSignature != currentSourceSignature
-                )
-            }
-        }
-
-        var sourceSignature = sourceItems.prefix(insertedCount).map(HistoryPreviewSourceSignature.init)
-        sourceSignature.reserveCapacity(sourceItems.count)
-        sourceSignature.append(contentsOf: currentSourceSignature)
-        return PreviewSignatureUpdate(sourceSignature: sourceSignature, hasChanges: true)
-    }
-
-    private enum PreviewRebuildResult: Sendable {
-        case full(
-            previewItems: [HistoryPreviewItem],
-            nextCache: [ClipboardItem.ID: CachedHistoryPreviewItem],
-            sourceAppSnapshot: SourceAppFilterSnapshot,
-            cacheHitCount: Int,
-            durationMS: Double
-        )
-        case prepend(
-            insertedItems: [HistoryPreviewItem],
-            nextCache: [ClipboardItem.ID: CachedHistoryPreviewItem],
-            sourceAppSnapshot: SourceAppFilterSnapshot,
-            cacheHitCount: Int,
-            durationMS: Double
-        )
-
-        var sourceAppSnapshot: SourceAppFilterSnapshot {
-            switch self {
-            case .full(_, _, let sourceAppSnapshot, _, _),
-                 .prepend(_, _, let sourceAppSnapshot, _, _):
-                sourceAppSnapshot
-            }
-        }
-    }
-
-    private struct IncrementalPreviewInsertion: Sendable {
-        let insertedItems: [HistoryPreviewItem]
-        let cacheHitCount: Int
-    }
-
-    nonisolated private static func incrementalPreviewInsertion(
-        sourceItems: [ClipboardItem],
-        sourceSignature: [HistoryPreviewSourceSignature],
-        currentPreviewItems: [HistoryPreviewItem],
-        currentSourceSignature: [HistoryPreviewSourceSignature]
-    ) -> IncrementalPreviewInsertion? {
-        guard !currentPreviewItems.isEmpty,
-              sourceItems.count >= currentPreviewItems.count,
-              currentSourceSignature.count == currentPreviewItems.count,
-              sourceSignature.count == sourceItems.count else {
-            return nil
-        }
-
-        let insertedCount = sourceItems.count - currentPreviewItems.count
-        guard insertedCount >= 0,
-              insertedCount <= 8,
-              sourceSignature.dropFirst(insertedCount).elementsEqual(currentSourceSignature) else {
-            return nil
-        }
-
-        var insertedItems: [HistoryPreviewItem] = []
-        insertedItems.reserveCapacity(insertedCount)
-
-        for index in 0..<insertedCount {
-            insertedItems.append(HistoryPreviewItem(item: sourceItems[index]))
-        }
-
-        return IncrementalPreviewInsertion(
-            insertedItems: insertedItems,
-            cacheHitCount: currentPreviewItems.count
-        )
-    }
-
-    nonisolated private static func sourceAppFilterSnapshot(
-        from sourceItems: [ClipboardItem]
-    ) -> SourceAppFilterSnapshot {
-        var seen = Set<String>()
-        var options: [SourceAppFilterOption] = []
-        var iconFileNameByName: [String: String] = [:]
-
-        options.reserveCapacity(min(sourceItems.count, 128))
-        for item in sourceItems {
-            let name = item.sourceAppName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else {
-                continue
-            }
-
-            if iconFileNameByName[name] == nil,
-               let iconFileName = item.iconFileName {
-                iconFileNameByName[name] = iconFileName
-            }
-
-            guard !seen.contains(name) else {
-                continue
-            }
-
-            seen.insert(name)
-            options.append(SourceAppFilterOption(name: name, iconFileName: item.iconFileName))
-        }
-
-        return SourceAppFilterSnapshot(
-            options: options,
-            iconFileNameByName: iconFileNameByName
         )
     }
 
@@ -6152,94 +5942,6 @@ struct HistoryWindowView: View {
         toggleRecording()
     }
 
-}
-
-private struct HistoryPreviewSourceSignature: Equatable {
-    let id: ClipboardItem.ID
-    let type: ClipboardItemType
-    let createdAt: Date
-    let sourceAppName: String
-    let sourceBundleID: String?
-    let iconName: String
-    let iconFileName: String?
-    let headerColorHex: String
-    let linkTitle: String?
-    let linkSubtitle: String?
-    let isPinned: Bool
-    let groupID: ClipboardGroup.ID?
-    let groupedAt: Date?
-    let richTextFileName: String?
-    let imageFileName: String?
-    let imageWidth: Int?
-    let imageHeight: Int?
-    let imageHash: String?
-    let fileReferences: [ClipboardFileReference]
-    let text: String
-
-    init(item: ClipboardItem) {
-        id = item.id
-        type = item.type
-        createdAt = item.createdAt
-        sourceAppName = item.sourceAppName
-        sourceBundleID = item.sourceBundleID
-        iconName = item.iconName
-        iconFileName = item.iconFileName
-        headerColorHex = item.headerColorHex
-        linkTitle = item.linkTitle
-        linkSubtitle = item.linkSubtitle
-        isPinned = item.isPinned
-        groupID = item.groupID
-        groupedAt = item.groupedAt
-        richTextFileName = item.richTextFileName
-        imageFileName = item.imageFileName
-        imageWidth = item.imageWidth
-        imageHeight = item.imageHeight
-        imageHash = item.imageHash
-        fileReferences = item.fileReferences
-        text = item.text
-    }
-
-    func matches(item: ClipboardItem) -> Bool {
-        id == item.id &&
-            type == item.type &&
-            createdAt == item.createdAt &&
-            sourceAppName == item.sourceAppName &&
-            sourceBundleID == item.sourceBundleID &&
-            iconName == item.iconName &&
-            iconFileName == item.iconFileName &&
-            headerColorHex == item.headerColorHex &&
-            linkTitle == item.linkTitle &&
-            linkSubtitle == item.linkSubtitle &&
-            isPinned == item.isPinned &&
-            groupID == item.groupID &&
-            groupedAt == item.groupedAt &&
-            richTextFileName == item.richTextFileName &&
-            imageFileName == item.imageFileName &&
-            imageWidth == item.imageWidth &&
-            imageHeight == item.imageHeight &&
-            imageHash == item.imageHash &&
-            fileReferences == item.fileReferences &&
-            text == item.text
-    }
-}
-
-private struct CachedHistoryPreviewItem: Sendable {
-    let signature: HistoryPreviewSourceSignature
-    let item: HistoryPreviewItem
-}
-
-private struct SourceAppFilterSnapshot: Sendable {
-    let options: [SourceAppFilterOption]
-    let iconFileNameByName: [String: String]
-}
-
-private struct SourceAppFilterOption: Identifiable, Equatable, Sendable {
-    let name: String
-    let iconFileName: String?
-
-    var id: String {
-        name
-    }
 }
 
 private struct LatestItemObservation: Equatable {

@@ -1,0 +1,30 @@
+{
+  "id": "history-architecture-stability-performance",
+  "name": "history-architecture-stability-performance",
+  "title": "History Architecture Stability Performance Optimization",
+  "description": "Refactor pure history window logic, strengthen concurrency guards, and extend performance budget tests without changing UI/UX.",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "wengbaby",
+  "assignee": "wengbaby",
+  "createdAt": "2026-07-07",
+  "completedAt": null,
+  "branch": "codex/history-architecture-stability-performance",
+  "base_branch": "codex/history-architecture-stability-performance",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-07-a-history-window-pure-logic-split",
+    "07-07-b-history-concurrency-guard-tests",
+    "07-07-c-history-performance-budget-expansion"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
