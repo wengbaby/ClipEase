@@ -51,19 +51,10 @@ struct HistoryWindowView: View {
     @State private var isSearchTextComposing = false
     @State private var searchFocusRequestID = 0
     @State private var pendingComposedSearchInputEvent: HistoryKeyboardPendingTextInputEvent?
-    @State private var allPreviewItems: [HistoryPreviewItem] = []
-    @State private var filteredPreviewItems: [HistoryPreviewItem] = []
-    @State private var filteredPreviewItemIDs: Set<HistoryPreviewItem.ID> = []
-    @State private var filteredPreviewItemIndexByID: [HistoryPreviewItem.ID: Int] = [:]
-    @State private var isUsingUnfilteredPreviewResult = true
-    @State private var sourceAppFilterOptions: [HistorySourceAppFilterOption] = []
-    @State private var sourceAppIconFileNameByName: [String: String] = [:]
+    @State private var previewItemsState = HistoryWindowPreviewItemsState()
     @State private var previewBuildTask: Task<Void, Never>?
     @State private var previewBuildGeneration: UInt64 = 0
     @State private var deferredStartupTask: Task<Void, Never>?
-    @State private var previewItemsSourceSignature: [HistoryPreviewSourceSignature] = []
-    @State private var appliedPreviewItemsMutationGeneration: UInt64 = 0
-    @State private var previewItemCache: [ClipboardItem.ID: CachedHistoryPreviewItem] = [:]
     @State private var searchVisibilityTask: Task<Void, Never>?
     @State private var pendingSearchTrigger = "unknown"
     @State private var searchHasHandedOffFocusToCard = false
@@ -133,11 +124,11 @@ struct HistoryWindowView: View {
     private let latestInsertedCardLeadingInset: CGFloat = 28
 
     private var items: [HistoryPreviewItem] {
-        allPreviewItems
+        previewItemsState.allItems
     }
 
     private var filteredItems: [HistoryPreviewItem] {
-        isUsingUnfilteredPreviewResult ? allPreviewItems : filteredPreviewItems
+        previewItemsState.visibleItems
     }
 
     private var renderedItems: [HistoryPreviewItem] {
@@ -145,58 +136,23 @@ struct HistoryWindowView: View {
     }
 
     private func applyFilteredPreviewResult(_ result: HistorySearchFilterResult) {
-        guard isUsingUnfilteredPreviewResult || filteredPreviewItems != result.items else {
-            return
-        }
-
-        isUsingUnfilteredPreviewResult = false
-        filteredPreviewItems = result.items
-        filteredPreviewItemIDs = result.itemIDs
-        filteredPreviewItemIndexByID = result.itemIndexByID
+        previewItemsState.applyFilteredResult(result)
     }
 
     private func applyUnfilteredPreviewResult() {
-        guard !isUsingUnfilteredPreviewResult else {
-            return
-        }
-
-        isUsingUnfilteredPreviewResult = true
-        filteredPreviewItems.removeAll(keepingCapacity: false)
-        filteredPreviewItemIDs.removeAll(keepingCapacity: true)
-        filteredPreviewItemIndexByID.removeAll(keepingCapacity: true)
+        previewItemsState.applyUnfilteredResult()
     }
 
     private func containsFilteredItem(_ id: HistoryPreviewItem.ID?) -> Bool {
-        guard let id else {
-            return false
-        }
-
-        if isUsingUnfilteredPreviewResult {
-            return store.cachedItemIndex(with: id) != nil
-        }
-
-        return filteredPreviewItemIDs.contains(id)
+        previewItemsState.containsFilteredItem(id) { store.cachedItemIndex(with: $0) != nil }
     }
 
     private func filteredItemIndex(for id: HistoryPreviewItem.ID?) -> Int? {
-        guard let id else {
-            return nil
-        }
-
-        if isUsingUnfilteredPreviewResult {
-            return store.cachedItemIndex(with: id)
-        }
-
-        return filteredPreviewItemIndexByID[id]
+        previewItemsState.filteredItemIndex(for: id) { store.cachedItemIndex(with: $0) }
     }
 
     private func filteredItem(for id: HistoryPreviewItem.ID?) -> HistoryPreviewItem? {
-        guard let index = filteredItemIndex(for: id),
-              filteredItems.indices.contains(index) else {
-            return nil
-        }
-
-        return filteredItems[index]
+        previewItemsState.filteredItem(for: id) { store.cachedItemIndex(with: $0) }
     }
 
     private var itemStride: CGFloat {
@@ -253,7 +209,7 @@ struct HistoryWindowView: View {
     }
 
     private func requestNextHistoryPageIfNeeded() {
-        if isUsingUnfilteredPreviewResult {
+        if previewItemsState.isUsingUnfilteredResult {
             store.loadMoreItemsIfNeeded(visibleUpperBound: historyRailVisibleWindow.upperBound, preloadMargin: 20)
         } else {
             loadMoreSearchResultsIfNeeded(visibleUpperBound: historyRailVisibleWindow.upperBound)
@@ -1833,13 +1789,13 @@ struct HistoryWindowView: View {
                     }
 
                     searchFilterSection("App") {
-                        if sourceAppFilterOptions.isEmpty {
+                        if previewItemsState.sourceAppFilterOptions.isEmpty {
                             Text("暂无来源")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.secondary)
                         } else {
                             filterChipGrid {
-                                ForEach(sourceAppFilterOptions) { option in
+                                ForEach(previewItemsState.sourceAppFilterOptions) { option in
                                     let appName = option.name
                                     searchFilterChip(
                                         title: appName,
@@ -2199,10 +2155,10 @@ struct HistoryWindowView: View {
             category: "history",
             durationMS: 0,
             itemCount: store.items.count,
-            resultCount: allPreviewItems.count,
+            resultCount: previewItemsState.allItems.count,
             metadata: [
                 "reason": "window.hidden",
-                "cacheStored": "\(previewItemCache.count)"
+                "cacheStored": "\(previewItemsState.previewItemCache.count)"
             ]
         )
         let now = CFAbsoluteTimeGetCurrent()
@@ -2228,8 +2184,8 @@ struct HistoryWindowView: View {
             return
         }
 
-        if allPreviewItems.isEmpty || filteredPreviewItems.isEmpty {
-            scheduleDeferredStartupWork(delayNanoseconds: allPreviewItems.isEmpty ? 0 : 32_000_000)
+        if previewItemsState.allItems.isEmpty || previewItemsState.filteredItems.isEmpty {
+            scheduleDeferredStartupWork(delayNanoseconds: previewItemsState.allItems.isEmpty ? 0 : 32_000_000)
         }
     }
 
@@ -4518,7 +4474,7 @@ struct HistoryWindowView: View {
     }
 
     private func sourceAppIconFileName(_ appName: String) -> String? {
-        sourceAppIconFileNameByName[appName]
+        previewItemsState.sourceAppIconFileNameByName[appName]
     }
 
     private func toggleSearchType(_ type: HistorySearchItemType) {
@@ -4627,7 +4583,7 @@ struct HistoryWindowView: View {
 
     private func schedulePreviewItemsRebuild(from sourceItems: [ClipboardItem]) {
         let signatureStartedAt = CFAbsoluteTimeGetCurrent()
-        let currentSourceSignature = previewItemsSourceSignature
+        let currentSourceSignature = previewItemsState.previewItemsSourceSignature
         let sourceGeneration = store.itemsMutationGeneration
         if canSkipPreviewRebuild(
             sourceItems: sourceItems,
@@ -4638,13 +4594,13 @@ struct HistoryWindowView: View {
                 category: "history",
                 durationMS: (CFAbsoluteTimeGetCurrent() - signatureStartedAt) * 1_000,
                 itemCount: sourceItems.count,
-                resultCount: allPreviewItems.count,
+                resultCount: previewItemsState.allItems.count,
                 metadata: [
                     "reason": "sourceGenerationUnchanged",
-                    "cacheStored": "\(previewItemCache.count)"
+                    "cacheStored": "\(previewItemsState.previewItemCache.count)"
                 ]
             )
-            scheduleSearchUpdate(sourceItems: allPreviewItems, immediate: true)
+            scheduleSearchUpdate(sourceItems: previewItemsState.allItems, immediate: true)
             convergeLatestClipboardFocusIfNeeded()
             return
         }
@@ -4659,13 +4615,13 @@ struct HistoryWindowView: View {
                 category: "history",
                 durationMS: (CFAbsoluteTimeGetCurrent() - signatureStartedAt) * 1_000,
                 itemCount: sourceItems.count,
-                resultCount: allPreviewItems.count,
+                resultCount: previewItemsState.allItems.count,
                 metadata: [
                     "reason": "sourceSignatureUnchanged",
-                    "cacheStored": "\(previewItemCache.count)"
+                    "cacheStored": "\(previewItemsState.previewItemCache.count)"
                 ]
             )
-            scheduleSearchUpdate(sourceItems: allPreviewItems, immediate: true)
+            scheduleSearchUpdate(sourceItems: previewItemsState.allItems, immediate: true)
             convergeLatestClipboardFocusIfNeeded()
             return
         }
@@ -4677,8 +4633,8 @@ struct HistoryWindowView: View {
         let currentSelectedID = selectedItemID ?? rememberedSelectedItemUUID()
         let currentPreviewedItemID = previewState.itemID
         let currentLatestClipboardFocusGeneration = latestClipboardFocusGeneration
-        let currentPreviewItemCache = previewItemCache
-        let currentPreviewItems = allPreviewItems
+        let currentPreviewItemCache = previewItemsState.previewItemCache
+        let currentPreviewItems = previewItemsState.allItems
         let retainedCacheIDs = retainedPreviewCacheIDs(for: sourceItems)
 
         previewBuildTask = Task {
@@ -4721,53 +4677,33 @@ struct HistoryWindowView: View {
                 }
 
                 let applyStartedAt = CFAbsoluteTimeGetCurrent()
-                let resultCount: Int
-                let cacheMisses: Int
-                let cacheHitCount: Int
-                let cacheStored: Int
-                let buildDurationMS: Double
-                let rebuildMode: String
-                switch rebuildResult {
-                case .full(let previewItems, let nextCache, _, let hitCount, let durationMS):
-                    resultCount = previewItems.count
-                    cacheMisses = previewItems.count - hitCount
-                    cacheHitCount = hitCount
-                    cacheStored = nextCache.count
-                    buildDurationMS = durationMS
-                    rebuildMode = "full"
-                case .prepend(let insertedItems, let nextCache, _, let hitCount, let durationMS):
-                    resultCount = currentPreviewItems.count + insertedItems.count
-                    cacheMisses = insertedItems.count
-                    cacheHitCount = hitCount
-                    cacheStored = nextCache.count
-                    buildDurationMS = durationMS
-                    rebuildMode = "incrementalPrepend"
-                }
+                let applySummary = HistoryWindowPreviewItemsState.rebuildApplySummary(
+                    rebuildResult,
+                    existingItemCount: currentPreviewItems.count
+                )
                 PerformanceDiagnosticsService.shared.record(
                     "preview.rebuild.background",
                     category: "history",
-                    durationMS: buildDurationMS,
+                    durationMS: applySummary.buildDurationMS,
                     itemCount: sourceItems.count,
-                    resultCount: resultCount,
+                    resultCount: applySummary.resultCount,
                     metadata: [
-                        "cacheHits": "\(cacheHitCount)",
-                        "cacheMisses": "\(cacheMisses)",
-                        "cacheStored": "\(cacheStored)",
-                        "mode": rebuildMode
+                        "cacheHits": "\(applySummary.cacheHitCount)",
+                        "cacheMisses": "\(applySummary.cacheMisses)",
+                        "cacheStored": "\(applySummary.cacheStored)",
+                        "mode": applySummary.mode.diagnosticsValue
                     ]
                 )
                 var transaction = Transaction()
                 let shouldAnimateRebuild = inputState.isWindowPresentedSnapshot && shouldAnimateHistoryRailChange(
                     sourceItemCount: sourceItems.count,
-                    renderedItemCount: resultCount
+                    renderedItemCount: applySummary.resultCount
                 )
                 if shouldAnimateRebuild {
                     transaction.animation = .easeOut(duration: pendingLatestFocusItemID != nil ? 0.30 : 0.18)
                 } else {
                     transaction.disablesAnimations = true
                 }
-                let previewItemsForSearch: [HistoryPreviewItem]
-                let sourceAppSnapshot = rebuildResult.sourceAppSnapshot
                 let insertedEntranceID: ClipboardItem.ID?
                 switch rebuildResult {
                 case .prepend(let insertedItems, _, _, _, _)
@@ -4778,25 +4714,17 @@ struct HistoryWindowView: View {
                 }
 
                 withTransaction(transaction) {
-                    switch rebuildResult {
-                    case .full(let previewItems, let nextCache, _, _, _):
-                        previewItemCache = nextCache
-                        allPreviewItems = previewItems
-                    case .prepend(let insertedItems, let nextCache, _, _, _):
-                        previewItemCache = nextCache
-                        allPreviewItems.insert(contentsOf: insertedItems, at: 0)
-                    }
+                    previewItemsState.applyRebuildItems(rebuildResult)
                 }
                 if let insertedEntranceID {
                     playEntranceAnimation(for: insertedEntranceID)
                 }
-                previewItemsForSearch = allPreviewItems
-                if sourceAppFilterOptions != sourceAppSnapshot.options {
-                    sourceAppFilterOptions = sourceAppSnapshot.options
-                }
-                if sourceAppIconFileNameByName != sourceAppSnapshot.iconFileNameByName {
-                    sourceAppIconFileNameByName = sourceAppSnapshot.iconFileNameByName
-                }
+                let previewItemsForSearch = previewItemsState.allItems
+                previewItemsState.applyRebuildMetadata(
+                    applySummary,
+                    sourceSignature: sourceSignature,
+                    sourceGeneration: sourceGeneration
+                )
                 PerformanceDiagnosticsService.shared.record(
                     "preview.rebuild.apply",
                     category: "history",
@@ -4805,13 +4733,11 @@ struct HistoryWindowView: View {
                     resultCount: previewItemsForSearch.count,
                     metadata: [
                         "animated": "\(shouldAnimateRebuild)",
-                        "cacheHits": "\(cacheHitCount)",
-                        "cacheStored": "\(cacheStored)",
-                        "mode": rebuildMode
+                        "cacheHits": "\(applySummary.cacheHitCount)",
+                        "cacheStored": "\(applySummary.cacheStored)",
+                        "mode": applySummary.mode.diagnosticsValue
                     ]
                 )
-                previewItemsSourceSignature = sourceSignature
-                appliedPreviewItemsMutationGeneration = sourceGeneration
                 renderState.mark("preview-items-ready count=\(previewItemsForSearch.count)")
 
                 scheduleSearchUpdate(sourceItems: previewItemsForSearch, immediate: true)
@@ -4834,17 +4760,7 @@ struct HistoryWindowView: View {
         sourceItems: [ClipboardItem],
         sourceGeneration: UInt64
     ) -> Bool {
-        guard appliedPreviewItemsMutationGeneration == sourceGeneration,
-              allPreviewItems.count == sourceItems.count else {
-            return false
-        }
-
-        if sourceItems.isEmpty {
-            return allPreviewItems.isEmpty
-        }
-
-        return allPreviewItems.first?.id == sourceItems.first?.id &&
-            allPreviewItems.last?.id == sourceItems.last?.id
+        previewItemsState.canSkipPreviewRebuild(sourceItems: sourceItems, sourceGeneration: sourceGeneration)
     }
 
     private func scheduleSearchUpdate(
@@ -4852,7 +4768,7 @@ struct HistoryWindowView: View {
         debounceNanoseconds: UInt64 = 90_000_000
     ) {
         scheduleSearchUpdate(
-            sourceItems: allPreviewItems,
+            sourceItems: previewItemsState.allItems,
             immediate: immediate,
             debounceNanoseconds: debounceNanoseconds
         )
@@ -4909,7 +4825,7 @@ struct HistoryWindowView: View {
                 category: "search",
                 durationMS: (CFAbsoluteTimeGetCurrent() - applyStartedAt) * 1_000,
                 itemCount: sourceItems.count,
-                resultCount: allPreviewItems.count,
+                resultCount: previewItemsState.allItems.count,
                 metadata: [
                     "queryLength": "\(request.searchText.count)",
                     "hasFilters": "\(request.criteria.hasActiveFilters)",
@@ -4917,7 +4833,7 @@ struct HistoryWindowView: View {
                     "trigger": request.trigger
                 ]
             )
-            renderState.markAndFinish("filtered-items-ready count=\(allPreviewItems.count)")
+            renderState.markAndFinish("filtered-items-ready count=\(previewItemsState.allItems.count)")
             let followupStartedAt = CFAbsoluteTimeGetCurrent()
             restoreRememberedViewportIfNeeded()
             fulfillPendingLatestFocusIfPossible()
@@ -4930,7 +4846,7 @@ struct HistoryWindowView: View {
                 category: "search",
                 durationMS: (CFAbsoluteTimeGetCurrent() - followupStartedAt) * 1_000,
                 itemCount: sourceItems.count,
-                resultCount: allPreviewItems.count,
+                resultCount: previewItemsState.allItems.count,
                 metadata: [
                     "queryLength": "\(request.searchText.count)",
                     "hasFilters": "\(request.criteria.hasActiveFilters)",
@@ -5038,7 +4954,7 @@ struct HistoryWindowView: View {
         searchCoordinator.loadMoreIfNeeded(
             visibleUpperBound: visibleUpperBound,
             preloadMargin: preloadMargin,
-            existingItems: filteredPreviewItems,
+            existingItems: previewItemsState.filteredItems,
             selectedGroup: selectedGroup,
             isSearchVisible: isSearchVisible,
             searchText: searchText,
