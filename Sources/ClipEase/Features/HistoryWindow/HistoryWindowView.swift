@@ -27,19 +27,7 @@ struct HistoryWindowView: View {
     @State private var statusGeneration: UInt64 = 0
     @State private var hostWindow: NSWindow?
     @State private var searchUIState = HistoryWindowSearchUIState()
-    @State private var selectedGroup: HistoryGroupSelection = .all
-    @State private var isClearConfirmationPresented = false
-    @State private var groupPendingDeletion: ClipboardGroup?
-    @State private var groupRenameTargetID: ClipboardGroup.ID?
-    @State private var groupRenameText = ""
-    @State private var groupRenameOriginalText = ""
-    @State private var isGroupRenameCancelPending = false
-    @State private var groupRenameFocusRequestID = 0
-    @State private var groupRenameInputScreenFrame: CGRect?
-    @State private var isGroupIconSearchFocused = false
-    @State private var moveToGroupMenuSnapshot: [MoveToGroupMenuEntry] = []
-    @State private var moveToGroupPickerTarget: MoveToGroupPickerTarget?
-    @State private var pendingGroupTrackScrollID: String?
+    @State private var groupUIState = HistoryWindowGroupUIState()
     @State private var isCommandKeyPressed = false
     @State private var isSearchFocused = false
     @State private var isSearchTextComposing = false
@@ -260,7 +248,7 @@ struct HistoryWindowView: View {
     }
 
     private var selectedGroupID: ClipboardGroup.ID? {
-        selectedGroup.groupID
+        groupUIState.selectedGroupID
     }
 
     private var searchTokens: [HistorySearchToken] {
@@ -316,12 +304,12 @@ struct HistoryWindowView: View {
 
     private var isTextInputActiveForEditShortcut: Bool {
         isSearchFocused ||
-            isGroupIconSearchFocused ||
+            groupUIState.isIconSearchFocused ||
             searchUIState.isFilterPanelPresented ||
-            groupRenameTargetID != nil ||
+            groupUIState.renameTargetID != nil ||
             groupAppearanceCoordinator.regularGroupTarget != nil ||
             groupAppearanceCoordinator.systemGroupTarget != nil ||
-            moveToGroupPickerTarget != nil ||
+            groupUIState.moveToGroupPickerTarget != nil ||
             NSApp.keyWindow?.firstResponder is NSTextView
     }
 
@@ -419,9 +407,9 @@ struct HistoryWindowView: View {
         )
         .background(
             GroupRenameOutsideMouseDownObserver(
-                isEnabled: groupRenameTargetID != nil,
+                isEnabled: groupUIState.renameTargetID != nil,
                 hostWindow: hostWindow,
-                excludedScreenFrame: groupRenameInputScreenFrame,
+                excludedScreenFrame: groupUIState.renameInputScreenFrame,
                 onMouseDown: commitPendingRenameIfNeeded
             )
         )
@@ -473,7 +461,7 @@ struct HistoryWindowView: View {
             HistoryWindowInputState.currentForTextEditing = inputState
             restoreRememberedGroupSelection()
             HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)
-            HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)
+            HistoryScrollCoordinator.shared.setScope(groupUIState.selectedGroup.storageValue)
             HistoryScrollCoordinator.shared.onOffsetChange = { _ in
                 Task { @MainActor in
                     updateCardRailVisibleRect()
@@ -533,10 +521,7 @@ struct HistoryWindowView: View {
         }
         .onChange(of: store.groups) { _ in
             refreshMoveToGroupMenuSnapshot()
-            if let selectedGroupID,
-               !store.groups.contains(where: { $0.id == selectedGroupID }) {
-                selectedGroup = .all
-            }
+            groupUIState.repairSelectedGroupIfNeeded(groups: store.groups)
             searchUIState.criteria.groups = searchUIState.criteria.groups.filter { group in
                 switch group {
                 case .pinned:
@@ -564,9 +549,9 @@ struct HistoryWindowView: View {
             }
             scheduleSearchUpdate(immediate: true)
         }
-        .onChange(of: selectedGroup) { _ in
+        .onChange(of: groupUIState.selectedGroup) { _ in
             rememberSelectedGroup()
-            HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)
+            HistoryScrollCoordinator.shared.setScope(groupUIState.selectedGroup.storageValue)
             scheduleSearchUpdate(immediate: true)
         }
         .onChange(of: inputState.request) { request in
@@ -618,11 +603,11 @@ struct HistoryWindowView: View {
         .onChange(of: searchUIState.hasHandedOffFocusToCard) { hasHandedOff in
             inputState.setSearchHasHandedOffFocusToCard(hasHandedOff)
         }
-        .onChange(of: isGroupIconSearchFocused) { isFocused in
-            inputState.setTextInputFocused(isFocused || groupRenameTargetID != nil)
+        .onChange(of: groupUIState.isIconSearchFocused) { isFocused in
+            inputState.setTextInputFocused(isFocused || groupUIState.renameTargetID != nil)
         }
-        .onChange(of: groupRenameTargetID) { targetID in
-            inputState.setTextInputFocused(targetID != nil || isGroupIconSearchFocused)
+        .onChange(of: groupUIState.renameTargetID) { targetID in
+            inputState.setTextInputFocused(targetID != nil || groupUIState.isIconSearchFocused)
         }
         .onChange(of: searchUIState.isVisible) { isVisible in
             if !isVisible {
@@ -641,7 +626,7 @@ struct HistoryWindowView: View {
         .onExitCommand {
             handleEscapeClose()
         }
-        .sheet(item: $moveToGroupPickerTarget) { target in
+        .sheet(item: $groupUIState.moveToGroupPickerTarget) { target in
             moveToGroupPicker(for: target)
         }
     }
@@ -1075,7 +1060,7 @@ struct HistoryWindowView: View {
                     .padding(.vertical, 1)
                 }
                 .background(HorizontalScrollWheelRedirector(scope: .auxiliaryRail))
-                .onChange(of: pendingGroupTrackScrollID) { scrollID in
+                .onChange(of: groupUIState.pendingGroupTrackScrollID) { scrollID in
                     guard let scrollID else {
                         return
                     }
@@ -1083,7 +1068,7 @@ struct HistoryWindowView: View {
                     withAnimation(.easeOut(duration: 0.18)) {
                         scrollProxy.scrollTo(scrollID, anchor: .trailing)
                     }
-                    pendingGroupTrackScrollID = nil
+                    groupUIState.pendingGroupTrackScrollID = nil
                 }
             }
         }
@@ -1091,15 +1076,15 @@ struct HistoryWindowView: View {
         .confirmationDialog(
             "删除分组？",
             isPresented: Binding(
-                get: { groupPendingDeletion != nil },
+                get: { groupUIState.groupPendingDeletion != nil },
                 set: { isPresented in
                     if !isPresented {
-                        groupPendingDeletion = nil
+                        groupUIState.groupPendingDeletion = nil
                     }
                 }
             ),
             titleVisibility: .visible,
-            presenting: groupPendingDeletion
+            presenting: groupUIState.groupPendingDeletion
         ) { group in
             Button("删除分组和内容", role: .destructive) {
                 deleteGroup(group)
@@ -1112,7 +1097,7 @@ struct HistoryWindowView: View {
     }
 
     private var allHistoryGroupButton: some View {
-        let isSelected = selectedGroup == .all
+        let isSelected = groupUIState.selectedGroup == .all
 
         return Button(action: selectAllGroups) {
             HStack(spacing: 6) {
@@ -1191,7 +1176,7 @@ struct HistoryWindowView: View {
     }
 
     private func systemGroupButton(_ group: SystemHistoryGroup) -> some View {
-        let isSelected = selectedGroup == group.selection
+        let isSelected = groupUIState.selectedGroup == group.selection
         let color = systemGroupColor(group)
 
         return Button(action: { selectSystemGroup(group) }) {
@@ -1280,7 +1265,7 @@ struct HistoryWindowView: View {
 
             GroupInlineTextField(
                 text: groupIconSearchTextBinding,
-                isFocused: $isGroupIconSearchFocused,
+                isFocused: $groupUIState.isIconSearchFocused,
                 placeholder: "搜索图标",
                 onEscape: handleGroupIconSearchEscape
             )
@@ -1349,7 +1334,7 @@ struct HistoryWindowView: View {
 
             GroupInlineTextField(
                 text: groupIconSearchTextBinding,
-                isFocused: $isGroupIconSearchFocused,
+                isFocused: $groupUIState.isIconSearchFocused,
                 placeholder: "搜索图标",
                 onEscape: handleGroupIconSearchEscape
             )
@@ -1433,8 +1418,8 @@ struct HistoryWindowView: View {
     }
 
     private func groupButton(_ group: ClipboardGroup, compact: Bool = false) -> some View {
-        let isSelected = selectedGroup == .group(group.id)
-        let isRenaming = groupRenameTargetID == group.id
+        let isSelected = groupUIState.selectedGroup == .group(group.id)
+        let isRenaming = groupUIState.renameTargetID == group.id
 
         return Group {
             if isRenaming {
@@ -1443,9 +1428,9 @@ struct HistoryWindowView: View {
                         .font(.system(size: 12, weight: .semibold))
 
                     GroupInlineTextField(
-                        text: $groupRenameText,
+                        text: $groupUIState.renameText,
                         isFocused: Binding(
-                            get: { groupRenameTargetID == group.id },
+                            get: { groupUIState.renameTargetID == group.id },
                             set: { _ in }
                         ),
                         placeholder: "分组名称",
@@ -1453,14 +1438,14 @@ struct HistoryWindowView: View {
                         textColor: .white,
                         drawsBackground: false,
                         isGroupRenameField: true,
-                        focusRequestID: groupRenameFocusRequestID,
+                        focusRequestID: groupUIState.renameFocusRequestID,
                         onEscape: handleRenameEscape,
                         onSubmit: { commitRenameGroup(group) }
                     )
                     .frame(width: 84, height: 20)
                     .background(
                         GroupRenameInputFrameReader { frame in
-                            groupRenameInputScreenFrame = frame
+                            groupUIState.renameInputScreenFrame = frame
                         }
                     )
                 }
@@ -1474,21 +1459,21 @@ struct HistoryWindowView: View {
                         .stroke(Color.white.opacity(0.9), lineWidth: 2)
                 }
                 .onAppear {
-                    if groupRenameTargetID == nil {
-                        groupRenameOriginalText = group.name
-                        groupRenameText = group.name
-                        isGroupRenameCancelPending = false
+                    if groupUIState.renameTargetID == nil {
+                        groupUIState.renameOriginalText = group.name
+                        groupUIState.renameText = group.name
+                        groupUIState.isRenameCancelPending = false
                     }
                     focusedRenameGroupID = group.id
                 }
                 .onChange(of: focusedRenameGroupID) { focusedID in
-                    if focusedID != group.id, groupRenameTargetID == group.id {
+                    if focusedID != group.id, groupUIState.renameTargetID == group.id {
                         commitPendingRenameIfNeeded()
                     }
                 }
                 .onDisappear {
-                    if groupRenameTargetID == group.id {
-                        groupRenameInputScreenFrame = nil
+                    if groupUIState.renameTargetID == group.id {
+                        groupUIState.renameInputScreenFrame = nil
                     }
                 }
             } else {
@@ -1930,7 +1915,7 @@ struct HistoryWindowView: View {
 
         typeSpecificContextMenu(for: item)
 
-        if !moveToGroupMenuSnapshot.isEmpty {
+        if !groupUIState.moveToGroupMenuSnapshot.isEmpty {
             Button(item.groupID == nil ? "加入分组..." : "移动到分组...") {
                 presentMoveToGroupPicker(for: item)
             }
@@ -1986,7 +1971,7 @@ struct HistoryWindowView: View {
 
         addTypeSpecificMenuItems(for: item, to: menu)
 
-        if !moveToGroupMenuSnapshot.isEmpty {
+        if !groupUIState.moveToGroupMenuSnapshot.isEmpty {
             addMenuItem(item.groupID == nil ? "加入分组..." : "移动到分组...", to: menu) {
                 presentMoveToGroupPicker(for: item)
             }
@@ -2122,10 +2107,7 @@ struct HistoryWindowView: View {
     }
 
     private func refreshMoveToGroupMenuSnapshot() {
-        let snapshot = store.groups.map { MoveToGroupMenuEntry(group: $0) }
-        if moveToGroupMenuSnapshot != snapshot {
-            moveToGroupMenuSnapshot = snapshot
-        }
+        groupUIState.refreshMoveToGroupMenuSnapshot(groups: store.groups)
     }
 
     private func refreshAccessibilityStateAfterFirstFrame() {
@@ -2201,7 +2183,7 @@ struct HistoryWindowView: View {
     }
 
     private func moveToGroupPicker(for target: MoveToGroupPickerTarget) -> some View {
-        let groupEntries = moveToGroupMenuSnapshot
+        let groupEntries = groupUIState.moveToGroupMenuSnapshot
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
@@ -2217,7 +2199,7 @@ struct HistoryWindowView: View {
                 Spacer()
 
                 Button("取消") {
-                    moveToGroupPickerTarget = nil
+                    groupUIState.moveToGroupPickerTarget = nil
                 }
                 .keyboardShortcut(.cancelAction)
             }
@@ -2238,7 +2220,7 @@ struct HistoryWindowView: View {
 
                 Button(role: .destructive) {
                     removeItemFromGroup(target.itemID)
-                    moveToGroupPickerTarget = nil
+                    groupUIState.moveToGroupPickerTarget = nil
                 } label: {
                     Label("移出分组", systemImage: "tray.and.arrow.up")
                 }
@@ -2256,7 +2238,7 @@ struct HistoryWindowView: View {
 
         return Button {
             addItem(target.itemID, toGroup: group.id, named: group.name)
-            moveToGroupPickerTarget = nil
+            groupUIState.moveToGroupPickerTarget = nil
         } label: {
             HStack(spacing: 9) {
                 Image(systemName: group.iconName)
@@ -2312,7 +2294,7 @@ struct HistoryWindowView: View {
             .historyRailControlStyle()
         .confirmationDialog(
             "清空全部历史？",
-            isPresented: $isClearConfirmationPresented,
+            isPresented: $groupUIState.isClearConfirmationPresented,
             titleVisibility: .visible
         ) {
             Button("清空历史", role: .destructive) {
@@ -2351,7 +2333,7 @@ struct HistoryWindowView: View {
 
         let clearItem = NSMenuItem(title: "清空历史", action: nil, keyEquivalent: "")
         let clearTarget = ClosureMenuItemTarget {
-            isClearConfirmationPresented = true
+            groupUIState.isClearConfirmationPresented = true
         }
         clearItem.target = clearTarget
         clearItem.representedObject = clearTarget
@@ -2492,7 +2474,7 @@ struct HistoryWindowView: View {
 
     private var emptyContentMessage: String {
         if !isSearchActive {
-            if selectedGroup == .pinned {
+            if groupUIState.selectedGroup == .pinned {
                 return "暂无置顶内容"
             }
 
@@ -2506,7 +2488,7 @@ struct HistoryWindowView: View {
 
     private var emptyContentIconName: String {
         if !isSearchActive,
-           selectedGroup == .pinned {
+           groupUIState.selectedGroup == .pinned {
             return "pin"
         }
 
@@ -2520,7 +2502,7 @@ struct HistoryWindowView: View {
 
     private var emptyContentTint: Color {
         if !isSearchActive,
-           selectedGroup == .pinned {
+           groupUIState.selectedGroup == .pinned {
             return systemGroupColor(.pinned)
         }
 
@@ -2787,7 +2769,7 @@ struct HistoryWindowView: View {
         selectedItemID = id
         persistSelectedItem()
         HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
-        HistoryScrollCoordinator.shared.discardSavedOffset(for: selectedGroup.storageValue)
+        HistoryScrollCoordinator.shared.discardSavedOffset(for: groupUIState.selectedGroup.storageValue)
     }
 
     private func scheduleProgrammaticJump(to id: ClipboardItem.ID) {
@@ -2947,32 +2929,29 @@ struct HistoryWindowView: View {
     private func clearAllItems() {
         store.clearAllItems()
         selectedItemID = nil
-        selectedGroup = .all
+        groupUIState.selectedGroup = .all
         rememberSelectedGroup()
         showStatus("已清空")
     }
 
     private func restoreRememberedGroupSelection() {
-        let restoredSelection = HistoryGroupSelection(storageValue: rememberedSelectedGroup)
-        if case .group(let groupID) = restoredSelection,
-           !store.groups.contains(where: { $0.id == groupID }) {
-            selectedGroup = .all
+        groupUIState.restoreSelectedGroup(from: rememberedSelectedGroup, groups: store.groups)
+        if groupUIState.selectedGroup.storageValue != rememberedSelectedGroup {
             rememberSelectedGroup()
             return
         }
 
-        selectedGroup = restoredSelection
-        HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)
+        HistoryScrollCoordinator.shared.setScope(groupUIState.selectedGroup.storageValue)
     }
 
     private func rememberSelectedGroup() {
-        if case .group(let groupID) = selectedGroup,
+        if case .group(let groupID) = groupUIState.selectedGroup,
            !store.groups.contains(where: { $0.id == groupID }) {
             rememberedSelectedGroup = HistoryGroupSelection.all.storageValue
             return
         }
 
-        rememberedSelectedGroup = selectedGroup.storageValue
+        rememberedSelectedGroup = groupUIState.selectedGroup.storageValue
     }
 
     private func rememberSelectedItem(immediate: Bool = false) {
@@ -3030,25 +3009,25 @@ struct HistoryWindowView: View {
     private func selectAllGroups() {
         commitPendingRenameIfNeeded()
         closeSearchForGroupNavigation()
-        selectedGroup = .all
+        groupUIState.selectedGroup = .all
         showStatus("全部剪切板")
     }
 
     private func selectAllGroupsForContextMenu() {
         commitPendingRenameIfNeeded()
         closeSearchForGroupNavigation()
-        guard selectedGroup != .all else {
+        guard groupUIState.selectedGroup != .all else {
             return
         }
 
-        selectedGroup = .all
+        groupUIState.selectedGroup = .all
         showStatus("全部剪切板")
     }
 
     private func selectGroup(_ id: ClipboardGroup.ID) {
         commitPendingRenameIfNeeded()
         closeSearchForGroupNavigation()
-        selectedGroup = .group(id)
+        groupUIState.selectedGroup = .group(id)
         let groupName = store.group(with: id)?.name ?? "分组"
         showStatus(groupName)
     }
@@ -3056,18 +3035,18 @@ struct HistoryWindowView: View {
     private func selectSystemGroup(_ group: SystemHistoryGroup) {
         commitPendingRenameIfNeeded()
         closeSearchForGroupNavigation()
-        selectedGroup = selectedGroup == group.selection ? .all : group.selection
-        showStatus(selectedGroup == group.selection ? group.selectedStatus : "全部剪切板")
+        groupUIState.selectedGroup = groupUIState.selectedGroup == group.selection ? .all : group.selection
+        showStatus(groupUIState.selectedGroup == group.selection ? group.selectedStatus : "全部剪切板")
     }
 
     private func selectSystemGroupForContextMenu(_ group: SystemHistoryGroup) {
         commitPendingRenameIfNeeded()
         closeSearchForGroupNavigation()
-        guard selectedGroup != group.selection else {
+        guard groupUIState.selectedGroup != group.selection else {
             return
         }
 
-        selectedGroup = group.selection
+        groupUIState.selectedGroup = group.selection
         showStatus(group.selectedStatus)
     }
 
@@ -3078,23 +3057,19 @@ struct HistoryWindowView: View {
     private func createGroup() {
         let group = store.createGroup()
         beginRenameGroup(group)
-        pendingGroupTrackScrollID = HistoryGroupSelection.group(group.id).scrollID
+        groupUIState.pendingGroupTrackScrollID = HistoryGroupSelection.group(group.id).scrollID
         showStatus("已新建分组")
     }
 
     private func beginRenameGroup(_ group: ClipboardGroup) {
         closeSearchForGroupNavigation()
         commitPendingRenameIfNeeded()
-        groupRenameText = group.name
-        groupRenameOriginalText = group.name
-        isGroupRenameCancelPending = false
-        groupRenameTargetID = group.id
-        groupRenameFocusRequestID += 1
+        groupUIState.beginRename(group)
         inputState.setTextInputFocused(true)
         Task { @MainActor in
             await Task.yield()
             focusedRenameGroupID = group.id
-            groupRenameFocusRequestID += 1
+            groupUIState.requestRenameFocus()
         }
     }
 
@@ -3105,11 +3080,11 @@ struct HistoryWindowView: View {
     }
 
     private func commitRenameGroup(_ group: ClipboardGroup) {
-        guard groupRenameTargetID == group.id else {
+        guard groupUIState.renameTargetID == group.id else {
             return
         }
 
-        let trimmedName = groupRenameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = groupUIState.renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedName.isEmpty {
             switch store.renameGroup(group.id, name: trimmedName) {
             case .renamed:
@@ -3123,28 +3098,23 @@ struct HistoryWindowView: View {
             case .notFound:
                 showStatus("分组不存在")
             }
-        } else if !isGroupRenameCancelPending {
+        } else if !groupUIState.isRenameCancelPending {
             showStatus("分组名称不能为空")
         }
 
         focusedRenameGroupID = nil
-        groupRenameTargetID = nil
-        isGroupRenameCancelPending = false
-        groupRenameInputScreenFrame = nil
+        groupUIState.finishRename()
         inputState.setTextInputFocused(false)
     }
 
     private func cancelRenameGroup() {
         focusedRenameGroupID = nil
-        groupRenameTargetID = nil
-        groupRenameText = groupRenameOriginalText
-        isGroupRenameCancelPending = false
-        groupRenameInputScreenFrame = nil
+        groupUIState.cancelRename()
         inputState.setTextInputFocused(false)
     }
 
     private func handleRenameEscape() {
-        isGroupRenameCancelPending = true
+        groupUIState.markRenameCancelPending()
         cancelRenameGroup()
     }
 
@@ -3152,7 +3122,7 @@ struct HistoryWindowView: View {
         closeSearchForGroupNavigation()
         commitPendingRenameIfNeeded()
         closeGroupColorPanel()
-        isGroupIconSearchFocused = false
+        groupUIState.isIconSearchFocused = false
         groupAppearanceCoordinator.beginEditing(group)
         inputState.setPresentedInputLayerActive(true)
     }
@@ -3161,7 +3131,7 @@ struct HistoryWindowView: View {
         closeSearchForGroupNavigation()
         commitPendingRenameIfNeeded()
         closeGroupColorPanel()
-        isGroupIconSearchFocused = false
+        groupUIState.isIconSearchFocused = false
         groupAppearanceCoordinator.beginEditingSystemGroup(
             group,
             colorHex: systemGroupColor(group).clipeaseHexString,
@@ -3179,7 +3149,7 @@ struct HistoryWindowView: View {
 
     private func closeGroupAppearancePopover() {
         groupAppearanceCoordinator.closeRegularPopover()
-        isGroupIconSearchFocused = false
+        groupUIState.isIconSearchFocused = false
         closeGroupColorPanel()
         inputState.setTextInputFocused(false)
         inputState.setPresentedInputLayerActive(false)
@@ -3187,7 +3157,7 @@ struct HistoryWindowView: View {
 
     private func closeSystemGroupAppearancePopover() {
         groupAppearanceCoordinator.closeSystemPopover()
-        isGroupIconSearchFocused = false
+        groupUIState.isIconSearchFocused = false
         closeGroupColorPanel()
         inputState.setTextInputFocused(false)
         inputState.setPresentedInputLayerActive(false)
@@ -3216,7 +3186,7 @@ struct HistoryWindowView: View {
         case .clearedSearch, .none:
             return
         case .closedPopover:
-            isGroupIconSearchFocused = false
+            groupUIState.isIconSearchFocused = false
             closeGroupColorPanel()
             inputState.setTextInputFocused(false)
             inputState.setPresentedInputLayerActive(false)
@@ -3270,13 +3240,12 @@ struct HistoryWindowView: View {
         if store.itemCount(inGroup: group.id) == 0 {
             deleteGroup(group)
         } else {
-            groupPendingDeletion = group
+            groupUIState.groupPendingDeletion = group
         }
     }
 
     private func commitPendingRenameIfNeeded() {
-        guard let groupRenameTargetID,
-              let group = store.group(with: groupRenameTargetID) else {
+        guard let group = store.group(with: groupUIState.renameTargetID) else {
             return
         }
 
@@ -3284,7 +3253,7 @@ struct HistoryWindowView: View {
     }
 
     private func handleGroupRowOutsideClick() {
-        if groupRenameTargetID != nil {
+        if groupUIState.renameTargetID != nil {
             commitPendingRenameIfNeeded()
         }
 
@@ -3292,24 +3261,24 @@ struct HistoryWindowView: View {
     }
 
     private func cancelPendingGroupRename() {
-        guard groupRenameTargetID != nil else {
+        guard groupUIState.renameTargetID != nil else {
             return
         }
 
-        isGroupRenameCancelPending = true
+        groupUIState.markRenameCancelPending()
         cancelRenameGroup()
     }
 
     private func deleteGroup(_ group: ClipboardGroup) {
         let removedCount = store.deleteGroup(group.id)
-        if selectedGroup == .group(group.id) {
-            selectedGroup = .all
+        if groupUIState.selectedGroup == .group(group.id) {
+            groupUIState.selectedGroup = .all
         }
         showStatus(removedCount > 0 ? "已删除分组和 \(removedCount) 条内容" : "已删除分组")
     }
 
     private func presentMoveToGroupPicker(for item: HistoryPreviewItem) {
-        moveToGroupPickerTarget = MoveToGroupPickerTarget(itemID: item.id, currentGroupID: item.groupID)
+        groupUIState.presentMoveToGroupPicker(for: item)
     }
 
     private func addItem(_ id: ClipboardItem.ID?, toGroup groupID: ClipboardGroup.ID, named groupName: String? = nil) {
@@ -4382,7 +4351,7 @@ struct HistoryWindowView: View {
 
     private func openSearch() {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        selectedGroup = .all
+        groupUIState.selectedGroup = .all
         searchUIState.open(trigger: "search.toggleButton.open")
         inputState.setSearchVisible(true)
         recordHistoryInteraction(
@@ -4721,7 +4690,7 @@ struct HistoryWindowView: View {
         searchUIState.pendingTrigger = "stateChange"
         guard let request = searchCoordinator.prepareSearch(
             sourceItems: sourceItems,
-            selectedGroup: selectedGroup,
+            selectedGroup: groupUIState.selectedGroup,
             isSearchVisible: searchUIState.isVisible,
             searchText: searchUIState.text,
             criteria: searchUIState.criteria,
@@ -4892,7 +4861,7 @@ struct HistoryWindowView: View {
             visibleUpperBound: visibleUpperBound,
             preloadMargin: preloadMargin,
             existingItems: previewItemsState.filteredItems,
-            selectedGroup: selectedGroup,
+            selectedGroup: groupUIState.selectedGroup,
             isSearchVisible: searchUIState.isVisible,
             searchText: searchUIState.text,
             criteria: searchUIState.criteria,
@@ -5207,7 +5176,7 @@ struct HistoryWindowView: View {
         pendingDefaultFocusOnShow = true
         if request.resetToFirst {
             didRestoreRememberedViewport = true
-            HistoryScrollCoordinator.shared.discardSavedOffset(for: selectedGroup.storageValue)
+            HistoryScrollCoordinator.shared.discardSavedOffset(for: groupUIState.selectedGroup.storageValue)
             HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
             viewportStore.mode = .automatic
             viewportStore.visibleRect = CGRect(
@@ -5255,10 +5224,10 @@ struct HistoryWindowView: View {
         reason: ClipboardItemFocusRequest.Reason?,
         resetToAll: Bool
     ) {
-        if resetToAll, selectedGroup != .all {
-            selectedGroup = .all
+        if resetToAll, groupUIState.selectedGroup != .all {
+            groupUIState.selectedGroup = .all
             rememberSelectedGroup()
-            HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)
+            HistoryScrollCoordinator.shared.setScope(groupUIState.selectedGroup.storageValue)
         }
         if resetToAll, searchUIState.isVisible || isSearchActive {
             searchUIState.text = ""
@@ -5359,8 +5328,8 @@ struct HistoryWindowView: View {
     }
 
     private func resetFiltersForLatestItemFocus() {
-        if selectedGroup != .all {
-            selectedGroup = .all
+        if groupUIState.selectedGroup != .all {
+            groupUIState.selectedGroup = .all
             rememberSelectedGroup()
         }
 
@@ -5560,7 +5529,7 @@ struct HistoryWindowView: View {
     }
 
     private func handleGroupEditingKeyboardAction(_ action: HistoryKeyboardAction) -> Bool {
-        if groupRenameTargetID != nil {
+        if groupUIState.renameTargetID != nil {
             switch HistoryGroupRenameActionPolicy.action(for: action) {
             case .submit:
                 commitPendingRenameIfNeeded()
@@ -5582,11 +5551,11 @@ struct HistoryWindowView: View {
             handleGroupIconSearchEscape()
             return true
         case .delete:
-            return isGroupIconSearchFocused
+            return groupUIState.isIconSearchFocused
         case .appendSearchText, .beginComposedSearchInput, .copy, .copyPlainText, .paste, .pastePlainText, .togglePinned, .edit, .createText, .openSearch, .showSettings, .closeWindow, .toggleRecording:
             return true
         case .moveLeft, .moveRight, .togglePreview, .selectVisibleCard, .enterFirstSearchResult, .focusFirstSearchResult:
-            return isGroupIconSearchFocused
+            return groupUIState.isIconSearchFocused
         }
     }
 
@@ -5596,7 +5565,7 @@ struct HistoryWindowView: View {
         }
 
         if !searchUIState.isVisible {
-            selectedGroup = .all
+            groupUIState.selectedGroup = .all
             searchUIState.isVisible = true
             inputState.setSearchVisible(true)
         }
@@ -5611,7 +5580,7 @@ struct HistoryWindowView: View {
         }
 
         if !searchUIState.isVisible {
-            selectedGroup = .all
+            groupUIState.selectedGroup = .all
             searchUIState.isVisible = true
             inputState.setSearchVisible(true)
         }
@@ -5776,17 +5745,17 @@ struct HistoryWindowView: View {
             didClose = true
         }
 
-        if groupPendingDeletion != nil {
-            groupPendingDeletion = nil
+        if groupUIState.groupPendingDeletion != nil {
+            groupUIState.groupPendingDeletion = nil
             didClose = true
         }
 
-        if isClearConfirmationPresented {
-            isClearConfirmationPresented = false
+        if groupUIState.isClearConfirmationPresented {
+            groupUIState.isClearConfirmationPresented = false
             didClose = true
         }
 
-        if groupRenameTargetID != nil {
+        if groupUIState.renameTargetID != nil {
             cancelPendingGroupRename()
             didClose = true
         }
@@ -7254,27 +7223,6 @@ private struct SearchPanelWindowReader: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? {
             nil
         }
-    }
-}
-
-private struct MoveToGroupMenuEntry: Identifiable, Equatable {
-    let id: ClipboardGroup.ID
-    let name: String
-    let iconName: String
-
-    init(group: ClipboardGroup) {
-        self.id = group.id
-        self.name = group.name
-        self.iconName = group.iconName
-    }
-}
-
-private struct MoveToGroupPickerTarget: Identifiable, Equatable {
-    let itemID: ClipboardItem.ID
-    let currentGroupID: ClipboardGroup.ID?
-
-    var id: ClipboardItem.ID {
-        itemID
     }
 }
 
