@@ -43,28 +43,16 @@ struct HistoryWindowView: View {
     @State private var latestFocusRetryTask: Task<Void, Never>?
     @State private var hiddenResourceCheckpointTask: Task<Void, Never>?
     @State private var lastHiddenResourceCheckpointAt: CFAbsoluteTime = 0
-    @State private var windowWidth: CGFloat = 0
+    @State private var viewportState = HistoryWindowViewportState()
     @State private var focusState = HistoryWindowFocusState()
     @State private var pendingKeyboardFocusClearTask: Task<Void, Never>?
-    @State private var pendingItemScrollID: HistoryPreviewItem.ID?
-    @State private var pendingItemScrollRetryCount = 0
-    @State private var shouldResetHorizontalOffsetForPendingItemScroll = false
-    @State private var shouldAnimatePendingItemScroll = false
-    @State private var isPreparingPendingItemScrollMeasurement = false
     @State private var enteringItemIDs: Set<ClipboardItem.ID> = []
     @State private var enteringItemClearTask: Task<Void, Never>?
     @State private var entranceSheenItemIDs: Set<ClipboardItem.ID> = []
     @State private var entranceSheenStartTime: CFTimeInterval?
     @State private var entranceSheenClearTask: Task<Void, Never>?
-    @State private var didRestoreRememberedViewport = false
-    @State private var itemScrollRequestID = UUID()
     @State private var hoveredCardID: HistoryPreviewItem.ID?
     @State private var pressedCardID: HistoryPreviewItem.ID?
-    @State private var cardViewportFrames: [HistoryPreviewItem.ID: CGRect] = [:]
-    @State private var searchInteractionFrames: [CGRect] = []
-    @State private var searchControlScreenFrame: CGRect?
-    @State private var searchInteractionScreenFrames: [CGRect] = []
-    @State private var cardRailTopInWindow: CGFloat = 68
     @AppStorage("history.systemGroup.pinned.iconName") private var pinnedGroupIconName = "pin.fill"
     @AppStorage("history.systemGroup.pinned.colorHex") private var pinnedGroupColorHex = "#2E8CFF"
     @AppStorage("history.lastSelectedGroup") private var rememberedSelectedGroup = HistoryGroupSelection.all.storageValue
@@ -144,7 +132,7 @@ struct HistoryWindowView: View {
         guard let focusedID = HistoryRailRenderWindowPolicy.focusedID(
             pendingLatestFocusItemID: focusState.pendingLatestFocusItemID ?? focusState.pendingKeyboardFocusItemID,
             pendingProgrammaticJumpItemID: focusState.pendingProgrammaticJumpItemID,
-            pendingItemScrollID: pendingItemScrollID,
+            pendingItemScrollID: viewportState.pendingItemScrollID,
             selectedItemID: selectedItemID,
             visibleRect: viewportStore.visibleRect
         ),
@@ -333,35 +321,30 @@ struct HistoryWindowView: View {
                             GeometryReader { proxy in
                                 Color.clear
                                     .onAppear {
-                                        cardRailTopInWindow = proxy.frame(in: .named("historyWindow")).minY
+                                        viewportState.cardRailTopInWindow = proxy.frame(in: .named("historyWindow")).minY
                                     }
                                     .onChange(of: proxy.frame(in: .named("historyWindow")).minY) { minY in
-                                        cardRailTopInWindow = minY
+                                        viewportState.cardRailTopInWindow = minY
                                     }
                             }
                         )
-                        .onChange(of: itemScrollRequestID) { _ in
-                            guard let pendingItemScrollID else {
+                        .onChange(of: viewportState.itemScrollRequestID) { _ in
+                            guard let pendingItemScrollID = viewportState.pendingItemScrollID else {
                                 return
                             }
 
                             if applyPendingItemScrollIfMeasured(pendingItemScrollID) {
-                                self.pendingItemScrollID = nil
-                                pendingItemScrollRetryCount = 0
-                                shouldResetHorizontalOffsetForPendingItemScroll = false
-                                shouldAnimatePendingItemScroll = false
-                                isPreparingPendingItemScrollMeasurement = false
+                                viewportState.clearPendingItemScroll(resetHorizontalOffset: true)
                                 return
                             }
 
-                            guard !isPreparingPendingItemScrollMeasurement,
-                                  pendingItemScrollRetryCount < pendingItemScrollMaxRetryCount else {
+                            guard !viewportState.isPreparingPendingItemScrollMeasurement,
+                                  viewportState.pendingItemScrollRetryCount < pendingItemScrollMaxRetryCount else {
                                 return
                             }
 
                             if let targetOffset = programmaticJumpTargetOffset(for: pendingItemScrollID) {
-                                isPreparingPendingItemScrollMeasurement = true
-                                pendingItemScrollRetryCount += 1
+                                _ = viewportState.beginPendingItemScrollMeasurement(maxRetryCount: pendingItemScrollMaxRetryCount)
                                 viewportStore.resetForLatestFocus(
                                     offsetX: targetOffset,
                                     width: viewportStore.visibleRect.width,
@@ -370,11 +353,11 @@ struct HistoryWindowView: View {
 
                                 Task { @MainActor in
                                     await Task.yield()
-                                    guard self.pendingItemScrollID == pendingItemScrollID else {
+                                    guard self.viewportState.pendingItemScrollID == pendingItemScrollID else {
                                         return
                                     }
-                                    self.isPreparingPendingItemScrollMeasurement = false
-                                    self.itemScrollRequestID = UUID()
+                                    self.viewportState.finishPendingItemScrollMeasurement()
+                                    self.viewportState.itemScrollRequestID = UUID()
                                 }
                             }
                         }
@@ -389,7 +372,7 @@ struct HistoryWindowView: View {
             SearchOutsideWindowMouseDownObserver(
                 isEnabled: searchUIState.isVisible,
                 hostWindow: hostWindow,
-                excludedFrames: searchInteractionScreenFrames,
+                excludedFrames: viewportState.searchInteractionScreenFrames,
                 onMouseDown: closeSearchFromOutsideClick
             )
         )
@@ -413,26 +396,26 @@ struct HistoryWindowView: View {
             GeometryReader { proxy in
                 Color.clear
                     .onAppear {
-                        windowWidth = proxy.size.width
+                        viewportState.windowWidth = proxy.size.width
                     }
                     .onChange(of: proxy.size.width) { width in
-                        windowWidth = width
+                        viewportState.windowWidth = width
                     }
             }
         )
         .background(HistoryWindowHostWindowReader(window: $hostWindow))
         .coordinateSpace(name: "historyWindow")
         .onPreferenceChange(SearchInteractionFramePreferenceKey.self) { frames in
-            searchInteractionFrames = frames
+            viewportState.searchInteractionFrames = frames
         }
         .onPreferenceChange(CardViewportFramePreferenceKey.self) { frames in
-            cardViewportFrames = frames
+            viewportState.cardViewportFrames = frames
             followPreviewForCurrentScroll()
         }
-        .onChange(of: searchInteractionFrames) { _ in
+        .onChange(of: viewportState.searchInteractionFrames) { _ in
             refreshSearchInteractionScreenFrames()
         }
-        .onChange(of: searchControlScreenFrame) { _ in
+        .onChange(of: viewportState.searchControlScreenFrame) { _ in
             refreshSearchInteractionScreenFrames()
         }
         .onChange(of: searchUIState.isFilterPanelPresented) { _ in
@@ -498,7 +481,7 @@ struct HistoryWindowView: View {
         }
         .onChange(of: inputState.isWindowVisible) { isVisible in
             if isVisible {
-                didRestoreRememberedViewport = false
+                viewportState.didRestoreRememberedViewport = false
                 focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
                 syncLatestItemFocusIfNeeded(sourceItems: store.items)
                 restoreRememberedViewportIfNeeded()
@@ -583,7 +566,7 @@ struct HistoryWindowView: View {
         }
         .onChange(of: historyRailVisibleWindow) { _ in
             let visibleIDs = Set(renderedWindowItems.map(\.id))
-            cardViewportFrames = cardViewportFrames.filter { visibleIDs.contains($0.key) }
+            viewportState.cardViewportFrames = viewportState.cardViewportFrames.filter { visibleIDs.contains($0.key) }
         }
         .onChange(of: isSearchFocused) { isFocused in
             inputState.setTextInputFocused(isFocused)
@@ -1659,8 +1642,8 @@ struct HistoryWindowView: View {
         )
         .background(
             SearchInteractionScreenFrameReader(isActive: searchUIState.isVisible) { frame in
-                if searchControlScreenFrame != frame {
-                    searchControlScreenFrame = frame
+                if viewportState.searchControlScreenFrame != frame {
+                    viewportState.searchControlScreenFrame = frame
                 }
             }
         )
@@ -2782,16 +2765,16 @@ struct HistoryWindowView: View {
         focusState.pendingLatestFocusReason = nil
         focusState.pendingLatestFocusLockID = nil
         focusState.pendingProgrammaticJumpItemID = nil
-        pendingItemScrollID = nil
-        pendingItemScrollRetryCount = 0
+        viewportState.pendingItemScrollID = nil
+        viewportState.pendingItemScrollRetryCount = 0
         focusState.pendingKeyboardFocusItemID = nil
         pendingKeyboardFocusClearTask?.cancel()
         pendingKeyboardFocusClearTask = nil
         latestFocusRetryTask?.cancel()
         latestFocusRetryTask = nil
-        shouldResetHorizontalOffsetForPendingItemScroll = false
-        shouldAnimatePendingItemScroll = false
-        isPreparingPendingItemScrollMeasurement = false
+        viewportState.shouldResetHorizontalOffsetForPendingItemScroll = false
+        viewportState.shouldAnimatePendingItemScroll = false
+        viewportState.isPreparingPendingItemScrollMeasurement = false
         viewportStore.mode = .automatic
     }
 
@@ -3641,7 +3624,7 @@ struct HistoryWindowView: View {
            let targetOffset = latestClipboardFocusTargetOffset(for: id) {
             HistoryScrollCoordinator.shared.scrollToOffset(
                 targetOffset,
-                animated: shouldAnimatePendingItemScroll,
+                animated: viewportState.shouldAnimatePendingItemScroll,
                 suppressUserOffsetSave: true
             )
             if targetOffset <= 0.5 {
@@ -3658,10 +3641,10 @@ struct HistoryWindowView: View {
             if let frame = cardDocumentFrame(for: id),
                isFrameFullyVisible(frame) {
                 focusState.pendingProgrammaticJumpItemID = nil
-                pendingItemScrollID = nil
-                pendingItemScrollRetryCount = 0
-                shouldAnimatePendingItemScroll = false
-                isPreparingPendingItemScrollMeasurement = false
+                viewportState.pendingItemScrollID = nil
+                viewportState.pendingItemScrollRetryCount = 0
+                viewportState.shouldAnimatePendingItemScroll = false
+                viewportState.isPreparingPendingItemScrollMeasurement = false
                 finishLatestFocusIfNeeded(id)
                 return true
             }
@@ -3670,15 +3653,15 @@ struct HistoryWindowView: View {
 
         HistoryScrollCoordinator.shared.scrollToOffset(
             targetOffset,
-            animated: shouldAnimatePendingItemScroll,
+            animated: viewportState.shouldAnimatePendingItemScroll,
             suppressUserOffsetSave: focusState.pendingLatestFocusLockID == id
         )
-        if shouldResetHorizontalOffsetForPendingItemScroll,
+        if viewportState.shouldResetHorizontalOffsetForPendingItemScroll,
            targetOffset <= 0.5 {
             HistoryScrollCoordinator.shared.saveOffset(0)
         }
         scheduleSecondPendingItemScrollIfNeeded(id, targetOffset: targetOffset)
-        if !shouldResetHorizontalOffsetForPendingItemScroll,
+        if !viewportState.shouldResetHorizontalOffsetForPendingItemScroll,
            focusState.pendingLatestFocusItemID == id {
             focusState.pendingLatestFocusItemID = nil
             focusState.pendingLatestFocusTimestamp = nil
@@ -3699,18 +3682,18 @@ struct HistoryWindowView: View {
            let targetOffset = latestClipboardFocusTargetOffset(for: id) {
             HistoryScrollCoordinator.shared.scrollToOffset(
                 targetOffset,
-                animated: shouldAnimatePendingItemScroll,
+                animated: viewportState.shouldAnimatePendingItemScroll,
                 suppressUserOffsetSave: true
             )
             if targetOffset <= 0.5 {
                 HistoryScrollCoordinator.shared.saveOffset(0)
             }
             focusState.pendingProgrammaticJumpItemID = nil
-            pendingItemScrollID = nil
-            pendingItemScrollRetryCount = 0
-            shouldResetHorizontalOffsetForPendingItemScroll = false
-            shouldAnimatePendingItemScroll = false
-            isPreparingPendingItemScrollMeasurement = false
+            viewportState.pendingItemScrollID = nil
+            viewportState.pendingItemScrollRetryCount = 0
+            viewportState.shouldResetHorizontalOffsetForPendingItemScroll = false
+            viewportState.shouldAnimatePendingItemScroll = false
+            viewportState.isPreparingPendingItemScrollMeasurement = false
             finishLatestFocusIfSettled(id, targetOffset: targetOffset)
             return
         }
@@ -3719,10 +3702,10 @@ struct HistoryWindowView: View {
             if let frame = cardDocumentFrame(for: id),
                isFrameFullyVisible(frame) {
                 focusState.pendingProgrammaticJumpItemID = nil
-                pendingItemScrollID = nil
-                pendingItemScrollRetryCount = 0
-                shouldAnimatePendingItemScroll = false
-                isPreparingPendingItemScrollMeasurement = false
+                viewportState.pendingItemScrollID = nil
+                viewportState.pendingItemScrollRetryCount = 0
+                viewportState.shouldAnimatePendingItemScroll = false
+                viewportState.isPreparingPendingItemScrollMeasurement = false
                 finishLatestFocusIfNeeded(id)
             }
             return
@@ -3731,11 +3714,11 @@ struct HistoryWindowView: View {
         if let visibleRect = HistoryScrollCoordinator.shared.visibleDocumentRect,
            abs(visibleRect.minX - targetOffset) <= 0.5 {
             focusState.pendingProgrammaticJumpItemID = nil
-            pendingItemScrollID = nil
-            pendingItemScrollRetryCount = 0
-            shouldResetHorizontalOffsetForPendingItemScroll = false
-            shouldAnimatePendingItemScroll = false
-            isPreparingPendingItemScrollMeasurement = false
+            viewportState.pendingItemScrollID = nil
+            viewportState.pendingItemScrollRetryCount = 0
+            viewportState.shouldResetHorizontalOffsetForPendingItemScroll = false
+            viewportState.shouldAnimatePendingItemScroll = false
+            viewportState.isPreparingPendingItemScrollMeasurement = false
             if focusState.pendingLatestFocusItemID == id {
                 focusState.pendingLatestFocusItemID = nil
                 focusState.pendingLatestFocusTimestamp = nil
@@ -3751,12 +3734,12 @@ struct HistoryWindowView: View {
             suppressUserOffsetSave: focusState.pendingLatestFocusLockID == id
         )
         focusState.pendingProgrammaticJumpItemID = nil
-        pendingItemScrollID = nil
-        pendingItemScrollRetryCount = 0
-        shouldAnimatePendingItemScroll = false
-        isPreparingPendingItemScrollMeasurement = false
+        viewportState.pendingItemScrollID = nil
+        viewportState.pendingItemScrollRetryCount = 0
+        viewportState.shouldAnimatePendingItemScroll = false
+        viewportState.isPreparingPendingItemScrollMeasurement = false
         if focusState.pendingLatestFocusItemID == id,
-           !shouldResetHorizontalOffsetForPendingItemScroll {
+           !viewportState.shouldResetHorizontalOffsetForPendingItemScroll {
             focusState.pendingLatestFocusItemID = nil
             focusState.pendingLatestFocusTimestamp = nil
             focusState.pendingLatestFocusReason = nil
@@ -3942,10 +3925,10 @@ struct HistoryWindowView: View {
 
     private func cardViewportFrame(for id: HistoryPreviewItem.ID) -> CGRect? {
         HistoryPreviewFramePolicy.viewportFrame(
-            measuredFrame: cardViewportFrames[id],
+            measuredFrame: viewportState.cardViewportFrames[id],
             documentFrame: cardDocumentFrame(for: id),
             currentOffset: HistoryScrollCoordinator.shared.currentOffset,
-            cardRailTopInWindow: cardRailTopInWindow,
+            cardRailTopInWindow: viewportState.cardRailTopInWindow,
             selectedCardTopContentInset: selectedCardTopContentInset
         )
     }
@@ -3955,7 +3938,7 @@ struct HistoryWindowView: View {
         frame: CGRect,
         forceEdgePeekAlignment: Bool? = nil
     ) -> CGFloat {
-        if forceEdgePeekAlignment ?? shouldResetHorizontalOffsetForPendingItemScroll {
+        if forceEdgePeekAlignment ?? viewportState.shouldResetHorizontalOffsetForPendingItemScroll {
             return edgeRevealLeadingX(for: id, frame: frame)
         }
 
@@ -4090,7 +4073,7 @@ struct HistoryWindowView: View {
         if let pendingProgrammaticJumpItemID = focusState.pendingProgrammaticJumpItemID {
             retainedIDs.insert(pendingProgrammaticJumpItemID)
         }
-        if let pendingItemScrollID {
+        if let pendingItemScrollID = viewportState.pendingItemScrollID {
             retainedIDs.insert(pendingItemScrollID)
         }
 
@@ -4294,12 +4277,12 @@ struct HistoryWindowView: View {
     private func refreshSearchInteractionScreenFrames() {
         guard searchUIState.isVisible,
               let hostWindow else {
-            searchInteractionScreenFrames = []
+            viewportState.searchInteractionScreenFrames = []
             return
         }
 
         var frames: [CGRect] = []
-        if let searchControlScreenFrame {
+        if let searchControlScreenFrame = viewportState.searchControlScreenFrame {
             frames.append(searchControlScreenFrame.standardized.insetBy(dx: -6, dy: -6))
         }
 
@@ -4311,7 +4294,7 @@ struct HistoryWindowView: View {
             }
         }
 
-        searchInteractionScreenFrames = frames
+        viewportState.searchInteractionScreenFrames = frames
     }
 
     private func clearAndCloseSearch() {
@@ -4895,11 +4878,11 @@ struct HistoryWindowView: View {
         pendingKeyboardFocusClearTask?.cancel()
         focusState.pendingKeyboardFocusItemID = nil
         focusState.pendingProgrammaticJumpItemID = nil
-        pendingItemScrollID = nil
-        pendingItemScrollRetryCount = 0
-        shouldResetHorizontalOffsetForPendingItemScroll = false
-        shouldAnimatePendingItemScroll = false
-        isPreparingPendingItemScrollMeasurement = false
+        viewportState.pendingItemScrollID = nil
+        viewportState.pendingItemScrollRetryCount = 0
+        viewportState.shouldResetHorizontalOffsetForPendingItemScroll = false
+        viewportState.shouldAnimatePendingItemScroll = false
+        viewportState.isPreparingPendingItemScrollMeasurement = false
         viewportStore.mode = .firstPage
         let measuredVisibleRect = HistoryScrollCoordinator.shared.visibleDocumentRect
         viewportStore.visibleRect = CGRect(
@@ -4948,7 +4931,7 @@ struct HistoryWindowView: View {
         focusState.pendingLatestFocusTimestamp = focusCandidateTimestamp
         focusState.pendingLatestFocusReason = focusReason
         focusState.pendingLatestFocusLockID = focusCandidateID
-        shouldResetHorizontalOffsetForPendingItemScroll = true
+        viewportState.shouldResetHorizontalOffsetForPendingItemScroll = true
         HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
         resetVisibleRailWindowForLatestFocus(focusCandidateID)
         fulfillPendingLatestFocusIfPossible()
@@ -4972,7 +4955,7 @@ struct HistoryWindowView: View {
         focusState.pendingLatestFocusTimestamp = newestChangedItem.createdAt
         focusState.pendingLatestFocusReason = focusState.latestObservation?.id == newestChangedItem.id ? .refreshed : .inserted
         focusState.pendingLatestFocusLockID = newestChangedItem.id
-        shouldResetHorizontalOffsetForPendingItemScroll = true
+        viewportState.shouldResetHorizontalOffsetForPendingItemScroll = true
         HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
         resetVisibleRailWindowForLatestFocus(newestChangedItem.id)
         fulfillPendingLatestFocusIfPossible()
@@ -4991,7 +4974,7 @@ struct HistoryWindowView: View {
             focusState.pendingLatestFocusTimestamp = newestChangedItem.createdAt
             focusState.pendingLatestFocusReason = .refreshed
             focusState.pendingLatestFocusLockID = newestChangedItem.id
-            shouldResetHorizontalOffsetForPendingItemScroll = true
+            viewportState.shouldResetHorizontalOffsetForPendingItemScroll = true
             resetVisibleRailWindowForLatestFocus(newestChangedItem.id)
         }
 
@@ -5035,7 +5018,7 @@ struct HistoryWindowView: View {
         scheduleLatestProgrammaticTransition(
             to: pendingLatestFocusItemID,
             reason: focusState.pendingLatestFocusReason,
-            resetToAll: shouldResetHorizontalOffsetForPendingItemScroll,
+            resetToAll: viewportState.shouldResetHorizontalOffsetForPendingItemScroll,
             animateWhenPresented: inputState.isWindowPresentedSnapshot
         )
     }
@@ -5048,13 +5031,13 @@ struct HistoryWindowView: View {
     ) {
         selectedItemID = id
         focusState.scheduleProgrammaticJump(to: id, reason: reason)
-        shouldResetHorizontalOffsetForPendingItemScroll = resetToAll
-        shouldAnimatePendingItemScroll = animateWhenPresented && inputState.isWindowPresentedSnapshot
+        viewportState.shouldResetHorizontalOffsetForPendingItemScroll = resetToAll
+        viewportState.shouldAnimatePendingItemScroll = animateWhenPresented && inputState.isWindowPresentedSnapshot
         if resetToAll {
             HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
         }
         resetVisibleRailWindowForLatestFocus(id)
-        scrollToItemWhenRendered(id, animated: shouldAnimatePendingItemScroll)
+        scrollToItemWhenRendered(id, animated: viewportState.shouldAnimatePendingItemScroll)
         applyPendingProgrammaticJumpIfPossible()
         retryPendingLatestFocusJumpIfNeeded(id, remainingAttempts: 4)
     }
@@ -5091,7 +5074,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        shouldResetHorizontalOffsetForPendingItemScroll = false
+        viewportState.shouldResetHorizontalOffsetForPendingItemScroll = false
         latestFocusRetryTask?.cancel()
         latestFocusRetryTask = nil
     }
@@ -5157,7 +5140,7 @@ struct HistoryWindowView: View {
         clearPendingHistoryRailJumpState()
         focusState.pendingDefaultFocusOnShow = true
         if request.resetToFirst {
-            didRestoreRememberedViewport = true
+            viewportState.didRestoreRememberedViewport = true
             HistoryScrollCoordinator.shared.discardSavedOffset(for: groupUIState.selectedGroup.storageValue)
             HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
             viewportStore.mode = .automatic
@@ -5223,7 +5206,7 @@ struct HistoryWindowView: View {
 
         selectedItemID = itemID
         focusState.prepareLatestFocus(itemID: itemID, timestamp: timestamp, reason: reason)
-        shouldResetHorizontalOffsetForPendingItemScroll = resetToAll
+        viewportState.shouldResetHorizontalOffsetForPendingItemScroll = resetToAll
         if resetToAll {
             HistoryScrollCoordinator.shared.discardSavedOffset(for: HistoryGroupSelection.all.storageValue)
         }
@@ -5243,13 +5226,13 @@ struct HistoryWindowView: View {
     }
 
     private func scrollToItemWhenRendered(_ id: HistoryPreviewItem.ID, animated: Bool = false) {
-        pendingItemScrollID = id
-        pendingItemScrollRetryCount = 0
-        shouldAnimatePendingItemScroll = focusState.pendingProgrammaticJumpItemID == id ? animated : (animated || id == focusState.pendingLatestFocusItemID)
+        viewportState.pendingItemScrollID = id
+        viewportState.pendingItemScrollRetryCount = 0
+        viewportState.shouldAnimatePendingItemScroll = focusState.pendingProgrammaticJumpItemID == id ? animated : (animated || id == focusState.pendingLatestFocusItemID)
 
         Task { @MainActor in
             await Task.yield()
-            guard pendingItemScrollID == id,
+            guard viewportState.pendingItemScrollID == id,
                   containsFilteredItem(id) else {
                 return
             }
@@ -5261,12 +5244,12 @@ struct HistoryWindowView: View {
                     height: viewportStore.visibleRect.height
                 )
             }
-            itemScrollRequestID = UUID()
+            viewportState.itemScrollRequestID = UUID()
         }
     }
 
     private func scheduleSecondPendingItemScrollIfNeeded(_ id: HistoryPreviewItem.ID, targetOffset: CGFloat) {
-        guard shouldResetHorizontalOffsetForPendingItemScroll else {
+        guard viewportState.shouldResetHorizontalOffsetForPendingItemScroll else {
             return
         }
 
@@ -5293,12 +5276,12 @@ struct HistoryWindowView: View {
             }
 
             if focusState.pendingLatestFocusItemID == id,
-               pendingItemScrollID == nil {
+               viewportState.pendingItemScrollID == nil {
                 focusState.pendingLatestFocusItemID = nil
                 focusState.pendingLatestFocusTimestamp = nil
                 focusState.pendingLatestFocusReason = nil
                 focusState.pendingLatestFocusLockID = nil
-                shouldResetHorizontalOffsetForPendingItemScroll = false
+                viewportState.shouldResetHorizontalOffsetForPendingItemScroll = false
             }
         }
     }
@@ -5365,7 +5348,7 @@ struct HistoryWindowView: View {
     private func restoreRememberedViewportIfNeeded() {
         guard let rememberedID = rememberedSelectedItemUUID(),
               HistoryRememberedViewportRestorePolicy.canRestore(
-                didRestoreRememberedViewport: didRestoreRememberedViewport,
+                didRestoreRememberedViewport: viewportState.didRestoreRememberedViewport,
                 hasPendingLatestFocus: focusState.pendingLatestFocusItemID != nil,
                 hasPendingDefaultFocus: focusState.pendingDefaultFocusOnShow,
                 hasPendingPastedFocus: focusState.pendingPastedItemFocusOnNextShow != nil,
@@ -5375,7 +5358,7 @@ struct HistoryWindowView: View {
             return
         }
 
-        didRestoreRememberedViewport = true
+        viewportState.didRestoreRememberedViewport = true
         selectedItemID = rememberedID
         HistoryScrollCoordinator.shared.restoreSavedOffset()
     }
