@@ -81,6 +81,26 @@ Required regression tests:
   actual AppKit text first responder immediately, so the next Enter routes to
   card paste instead of being swallowed by the search field command handler.
 
+### Settings Update Check State
+
+`SettingsUpdateViewModel` owns the settings UI state for update checks and
+delegates network lookups to `GitHubReleaseUpdateChecker`.
+
+Update check contract:
+
+- The primary lookup uses the GitHub Releases API so update-available states can
+  include a direct DMG download URL when GitHub returns release asset metadata.
+- If the anonymous API request fails, including GitHub rate limiting, the
+  checker must fall back to the public `/releases/latest` page redirect and parse
+  the final tag URL. This fallback may not include a direct DMG URL, but it must
+  still report update availability and provide the release page URL.
+
+Required regression tests:
+
+- `GitHubReleaseUpdateCheckerTests.githubReleaseUpdateCheckerFallsBackToLatestPageWhenAPIIsRateLimited`
+  proves ordinary users are not blocked from update detection when the
+  unauthenticated GitHub API quota is exhausted.
+
 ---
 
 ## When to Use Global State

@@ -24,13 +24,16 @@ protocol AppUpdateChecking: Sendable {
 struct GitHubReleaseUpdateChecker: AppUpdateChecking {
     private let session: URLSession
     private let releaseURL: URL
+    private let latestReleasePageURL: URL
 
     init(
         session: URLSession = .shared,
-        releaseURL: URL = URL(string: "https://api.github.com/repos/wengbaby/ClipEase/releases/latest")!
+        releaseURL: URL = URL(string: "https://api.github.com/repos/wengbaby/ClipEase/releases/latest")!,
+        latestReleasePageURL: URL = URL(string: "https://github.com/wengbaby/ClipEase/releases/latest")!
     ) {
         self.session = session
         self.releaseURL = releaseURL
+        self.latestReleasePageURL = latestReleasePageURL
     }
 
     func check(currentVersion: String) async throws -> AppUpdateCheckResult {
@@ -38,14 +41,22 @@ struct GitHubReleaseUpdateChecker: AppUpdateChecking {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("ClipEase/\(currentVersion)", forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200..<300).contains(httpResponse.statusCode) else {
-            throw AppUpdateCheckError.invalidResponse
-        }
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return try await checkLatestReleasePage(currentVersion: currentVersion)
+            }
 
-        let release = try JSONDecoder.githubReleaseDecoder.decode(GitHubRelease.self, from: data)
-        return try Self.result(from: release, currentVersion: currentVersion)
+            let release = try JSONDecoder.githubReleaseDecoder.decode(GitHubRelease.self, from: data)
+            return try Self.result(from: release, currentVersion: currentVersion)
+        } catch {
+            do {
+                return try await checkLatestReleasePage(currentVersion: currentVersion)
+            } catch {
+                throw error
+            }
+        }
     }
 
     static func result(from release: GitHubRelease, currentVersion: String) throws -> AppUpdateCheckResult {
@@ -60,6 +71,25 @@ struct GitHubReleaseUpdateChecker: AppUpdateChecking {
                     releaseURL: release.htmlURL,
                     downloadURL: release.dmgAssetURL,
                     publishedAt: release.publishedAt
+                )
+            )
+        }
+
+        return .upToDate(version: currentVersion)
+    }
+
+    static func result(fromLatestReleasePageURL releaseURL: URL, currentVersion: String) throws -> AppUpdateCheckResult {
+        guard let latestVersion = GitHubRelease.versionString(from: releaseURL.absoluteString) else {
+            throw AppUpdateCheckError.missingReleaseVersion
+        }
+
+        if compareVersion(latestVersion, to: currentVersion) == .orderedDescending {
+            return .updateAvailable(
+                AppUpdateInfo(
+                    version: latestVersion,
+                    releaseURL: releaseURL,
+                    downloadURL: nil,
+                    publishedAt: nil
                 )
             )
         }
@@ -99,6 +129,21 @@ struct GitHubReleaseUpdateChecker: AppUpdateChecking {
                 return Int(digits) ?? 0
             }
     }
+
+    private func checkLatestReleasePage(currentVersion: String) async throws -> AppUpdateCheckResult {
+        var request = URLRequest(url: latestReleasePageURL, timeoutInterval: 8)
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+        request.setValue("ClipEase/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<400).contains(httpResponse.statusCode),
+              let finalURL = httpResponse.url ?? response.url else {
+            throw AppUpdateCheckError.invalidResponse
+        }
+
+        return try Self.result(fromLatestReleasePageURL: finalURL, currentVersion: currentVersion)
+    }
 }
 
 struct GitHubRelease: Decodable, Sendable {
@@ -126,7 +171,7 @@ struct GitHubRelease: Decodable, Sendable {
         case assets
     }
 
-    private static func versionString(from value: String) -> String? {
+    static func versionString(from value: String) -> String? {
         guard let range = value.range(
             of: #"\d+(?:\.\d+){1,3}"#,
             options: .regularExpression
