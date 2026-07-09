@@ -84,12 +84,13 @@ Required regression tests:
 ### History Window Presentation State
 
 Opening the history window must keep presentation-critical work out of the
-animation completion path. The global keyboard event tap must not be created
-during hidden preload because a pre-created session event tap can interfere with
-global hotkey delivery in some automation and permission states. Start the tap
-immediately before the history panel is ordered instead, then rely on its
-existing idempotent `start()` guard during finish. The tap must pass events
-through until `HistoryWindowInputState` reports the window is presented.
+animation path. The global keyboard event tap must not be created during hidden
+preload because a pre-created session event tap can interfere with global hotkey
+delivery in some automation and permission states. Do not start the tap before
+`orderFrontRegardless()` for animated opens; `keyboardEventTap.start()` has been
+observed to take more than a frame budget and should run from
+`finishShowingWindow()` after the panel animation completes. The tap must pass
+events through until `HistoryWindowInputState` reports the window is presented.
 Hidden/closing transitions should reset transient keyboard state without
 tearing down reusable resources that are expensive to recreate on the next open.
 
