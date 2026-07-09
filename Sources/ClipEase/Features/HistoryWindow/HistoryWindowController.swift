@@ -41,10 +41,18 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func preloadHistoryDataAfterLaunch() {
+        guard HistoryWindowLifecycleScheduler.shouldRunLaunchPreload(
+            hasPanel: panel != nil,
+            isWindowVisible: inputState.isWindowVisibleSnapshot,
+            isOpenAnimationActive: inputState.isOpenAnimationActiveSnapshot
+        ) else {
+            return
+        }
+
         let panel = panel ?? makePanel()
         self.panel = panel
         let targetFrame = frameForPanel()
-        panel.setFrame(hiddenFrame(for: targetFrame), display: false)
+        applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
         renderState.prepareForPreload(itemCount: store.items.count)
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(false)
@@ -90,6 +98,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let wasVisible = panel.isVisible
         let shouldAnimate = !wasVisible
         let hasPendingFocus = store.latestItemFocusRequest != nil
+        let latestFocusRequest = store.consumeLatestItemFocusRequest()
+        let hadPendingExplicitOffset = HistoryScrollCoordinator.shared.hasPendingExplicitOffset
         inputState.setOpenAnimationActive(shouldAnimate)
         HistoryWindowLifecycleDiagnostics.record(
             .openRequest,
@@ -103,14 +113,17 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.alphaValue = 1
         if shouldAnimate {
             renderState.prepareForShow(itemCount: store.items.count)
-            panel.setFrame(hiddenFrame(for: targetFrame), display: false)
+            applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
         } else {
             panel.disableScreenUpdatesUntilFlush()
             panel.setFrame(targetFrame, display: true)
         }
+        renderState.mark("panel-frame-ready")
 
         panel.orderFrontRegardless()
-        panel.makeKey()
+        if HistoryWindowLifecycleScheduler.shouldMakeKeyBeforeAnimation(shouldAnimate: shouldAnimate) {
+            panel.makeKey()
+        }
         renderState.mark("panel-ordered")
         HistoryWindowLifecycleDiagnostics.record(
             .openOrdered,
@@ -119,30 +132,15 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             shouldAnimate: shouldAnimate,
             hasPendingFocus: hasPendingFocus
         )
-        let latestFocusRequest = store.consumeLatestItemFocusRequest()
-        if let latestFocusRequest {
-            inputState.requestItemFocus(
-                latestFocusRequest.itemID,
-                resetToAll: true,
-                reason: latestFocusRequest.reason
+
+        if HistoryWindowLifecycleScheduler.shouldApplyPresentationStateBeforeAnimation(shouldAnimate: shouldAnimate) {
+            applyOpenPresentationState(
+                latestFocusRequest: latestFocusRequest,
+                hadPendingExplicitOffset: hadPendingExplicitOffset,
+                wasVisible: wasVisible,
+                shouldAnimate: shouldAnimate
             )
-        } else if !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
-            HistoryScrollCoordinator.shared.restoreSavedOffset()
         }
-        inputState.setWindowVisible(true)
-        inputState.setWindowPresented(true)
-        HistoryWindowLifecycleDiagnostics.record(
-            .openPresented,
-            itemCount: store.items.count,
-            wasVisible: wasVisible,
-            shouldAnimate: shouldAnimate,
-            hasPendingFocus: latestFocusRequest != nil
-        )
-        if latestFocusRequest == nil,
-           !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
-            inputState.requestDefaultFocus(resetToFirst: shouldAnimate)
-        }
-        store.setOCRInteractiveThrottleActive(true)
 
         guard shouldAnimate else {
             finishShowingWindow()
@@ -159,7 +157,14 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                     return
                 }
                 panel?.hasShadow = false
+                panel?.makeKey()
                 self?.finishShowingWindow()
+                self?.applyOpenPresentationState(
+                    latestFocusRequest: latestFocusRequest,
+                    hadPendingExplicitOffset: hadPendingExplicitOffset,
+                    wasVisible: wasVisible,
+                    shouldAnimate: shouldAnimate
+                )
             }
         }
     }
@@ -215,6 +220,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 self?.keyboardEventTap.stop()
                 self?.removeOutsideClickMonitor()
                 self?.closePreview()
+                panel?.setFrame(targetFrame, display: false)
                 panel?.orderOut(nil)
                 panel?.alphaValue = 1
                 panel?.hasShadow = false
@@ -247,6 +253,37 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         inputState.setOpenAnimationActive(false)
         keyboardEventTap.start()
         installOutsideClickMonitor()
+    }
+
+    private func applyOpenPresentationState(
+        latestFocusRequest: ClipboardItemFocusRequest?,
+        hadPendingExplicitOffset: Bool,
+        wasVisible: Bool,
+        shouldAnimate: Bool
+    ) {
+        if let latestFocusRequest {
+            inputState.requestItemFocus(
+                latestFocusRequest.itemID,
+                resetToAll: true,
+                reason: latestFocusRequest.reason
+            )
+        } else if !hadPendingExplicitOffset {
+            HistoryScrollCoordinator.shared.restoreSavedOffset()
+        }
+        inputState.setWindowVisible(true)
+        inputState.setWindowPresented(true)
+        HistoryWindowLifecycleDiagnostics.record(
+            .openPresented,
+            itemCount: store.items.count,
+            wasVisible: wasVisible,
+            shouldAnimate: shouldAnimate,
+            hasPendingFocus: latestFocusRequest != nil
+        )
+        if latestFocusRequest == nil,
+           !hadPendingExplicitOffset {
+            inputState.requestDefaultFocus(resetToFirst: shouldAnimate)
+        }
+        store.setOCRInteractiveThrottleActive(true)
     }
 
     private func makePanel() -> HistoryPanel {
@@ -351,6 +388,21 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func hiddenFrame(for frame: NSRect) -> NSRect {
         frame.offsetBy(dx: 0, dy: -panelAnimationDistance)
+    }
+
+    private func applyHiddenFrameIfNeeded(to panel: NSPanel, targetFrame: NSRect) {
+        let hiddenFrame = hiddenFrame(for: targetFrame)
+        guard HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
+            currentFrame: panel.frame,
+            targetFrame: hiddenFrame
+        ) else {
+            renderState.mark("panel-frame-reused")
+            return
+        }
+
+        renderState.mark("panel-frame-applying")
+        panel.setFrame(hiddenFrame, display: false)
+        renderState.mark("panel-frame-applied")
     }
 
     func pasteTargetApplication() -> NSRunningApplication? {

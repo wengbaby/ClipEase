@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import ClipEase
 
@@ -69,6 +70,67 @@ import Testing
         isWindowVisible: false,
         isWindowPresented: false,
         isOpenAnimationActive: false
+    ))
+}
+
+@Test func lifecycleSchedulerDefersPresentationStateUntilAnimatedOpenCompletes() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldApplyPresentationStateBeforeAnimation(
+        shouldAnimate: true
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldApplyPresentationStateBeforeAnimation(
+        shouldAnimate: false
+    ))
+}
+
+@Test func lifecycleSchedulerSkipsLaunchPreloadWhenPanelAlreadyExistsOrOpening() {
+    #expect(HistoryWindowLifecycleScheduler.shouldRunLaunchPreload(
+        hasPanel: false,
+        isWindowVisible: false,
+        isOpenAnimationActive: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldRunLaunchPreload(
+        hasPanel: true,
+        isWindowVisible: false,
+        isOpenAnimationActive: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldRunLaunchPreload(
+        hasPanel: false,
+        isWindowVisible: true,
+        isOpenAnimationActive: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldRunLaunchPreload(
+        hasPanel: false,
+        isWindowVisible: false,
+        isOpenAnimationActive: true
+    ))
+}
+
+@Test func lifecycleSchedulerDefersMakeKeyUntilAnimatedOpenCompletes() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldMakeKeyBeforeAnimation(
+        shouldAnimate: true
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldMakeKeyBeforeAnimation(
+        shouldAnimate: false
+    ))
+}
+
+@Test func lifecycleSchedulerSkipsRedundantHiddenFrameApplication() {
+    let frame = CGRect(x: 0, y: -360, width: 1440, height: 360)
+
+    #expect(!HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
+        currentFrame: frame,
+        targetFrame: frame
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
+        currentFrame: CGRect(x: 0, y: 0, width: 1440, height: 360),
+        targetFrame: frame
+    ))
+}
+
+@Test func lifecycleSchedulerTreatsOffscreenTopAlignedHiddenFrameAsReusable() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
+        currentFrame: CGRect(x: 0, y: -404, width: 1440, height: 404),
+        targetFrame: CGRect(x: 0, y: -360, width: 1440, height: 360)
     ))
 }
 
