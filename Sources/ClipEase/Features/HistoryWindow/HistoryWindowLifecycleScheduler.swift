@@ -176,17 +176,18 @@ enum HistoryWindowLifecycleScheduler {
     ) -> Bool {
         let hasMatchingHorizontalFrame = abs(currentFrame.minX - targetFrame.minX) <= tolerance &&
             abs(currentFrame.width - targetFrame.width) <= tolerance
+        let hasMatchingHeight = abs(currentFrame.height - targetFrame.height) <= tolerance
         let isTopAlignedOffscreenFrame = hasMatchingHorizontalFrame &&
-            abs(currentFrame.maxY - targetFrame.maxY) <= tolerance &&
-            currentFrame.height >= targetFrame.height
+            hasMatchingHeight &&
+            abs(currentFrame.maxY - targetFrame.maxY) <= tolerance
         if isTopAlignedOffscreenFrame {
             return false
         }
 
-        let isOriginAlignedTallerOffscreenFrame = hasMatchingHorizontalFrame &&
-            abs(currentFrame.minY - targetFrame.minY) <= tolerance &&
-            currentFrame.height >= targetFrame.height
-        if isOriginAlignedTallerOffscreenFrame {
+        let isOriginAlignedOffscreenFrame = hasMatchingHorizontalFrame &&
+            hasMatchingHeight &&
+            abs(currentFrame.minY - targetFrame.minY) <= tolerance
+        if isOriginAlignedOffscreenFrame {
             return false
         }
 

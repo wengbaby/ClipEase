@@ -348,15 +348,15 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerTreatsOffscreenTopAlignedHiddenFrameAsReusable() {
-    #expect(!HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
+@Test func lifecycleSchedulerRepairsOffscreenTopAlignedTallerHiddenFrame() {
+    #expect(HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
         currentFrame: CGRect(x: 0, y: -404, width: 1440, height: 404),
         targetFrame: CGRect(x: 0, y: -360, width: 1440, height: 360)
     ))
 }
 
-@Test func lifecycleSchedulerTreatsOffscreenOriginAlignedTallerHiddenFrameAsReusable() {
-    #expect(!HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
+@Test func lifecycleSchedulerRepairsOffscreenOriginAlignedTallerHiddenFrame() {
+    #expect(HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
         currentFrame: CGRect(x: 0, y: -360, width: 1440, height: 404),
         targetFrame: CGRect(x: 0, y: -360, width: 1440, height: 360)
     ))
