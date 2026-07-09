@@ -125,10 +125,13 @@ reintroduced, clipping/transparent-background preparation must be gated behind
 by a regression test that proves the normal frame-animation path does not set
 content-layer clipping or transparent panel state.
 
-Launch hidden preload should only prepare the reusable window shell and must not
-start preview warming. Preview warming from a hidden window is allowed after a
-real hide when the cache is stale, but launch-time hidden rebuilds can overlap a
-near-immediate user open and compete with first-frame presentation.
+Launch hidden preload should prepare the reusable window shell and may warm
+preview state only while the window is still hidden, not presented, not
+animating, and the preview cache is stale. Preview warming from a hidden window
+is also allowed after a real hide when the cache is stale. Visible presentation
+must still defer preview rebuild/search/accessibility work until the animation
+and presentation-recovery buffer have passed, so hidden warm work must never be
+moved back into the open animation path.
 
 ### Settings Update Check State
 

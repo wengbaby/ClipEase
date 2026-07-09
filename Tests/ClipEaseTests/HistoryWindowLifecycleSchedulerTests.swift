@@ -291,9 +291,9 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerSkipsPreviewWarmForPreloadedHiddenWindow() {
-    #expect(!HistoryWindowLifecycleScheduler.shouldWarmPreviewForPreloadedHiddenWindow(
-        isWindowVisible: true,
+@Test func lifecycleSchedulerWarmsPreviewForPreloadedHiddenWindowOnlyWhenHiddenAndStale() {
+    #expect(HistoryWindowLifecycleScheduler.shouldWarmPreviewForPreloadedHiddenWindow(
+        isWindowVisible: false,
         isWindowPresented: false,
         isOpenAnimationActive: false,
         hasSourceItems: true,
@@ -322,12 +322,12 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerSkipsLaunchHiddenPreviewWarmBeforePresentation() {
+@Test func lifecycleSchedulerSkipsLaunchHiddenPreviewWarmWhenThereAreNoItems() {
     #expect(!HistoryWindowLifecycleScheduler.shouldWarmPreviewForPreloadedHiddenWindow(
-        isWindowVisible: true,
+        isWindowVisible: false,
         isWindowPresented: false,
         isOpenAnimationActive: false,
-        hasSourceItems: true,
+        hasSourceItems: false,
         canSkipPreviewRebuild: false
     ))
 }
