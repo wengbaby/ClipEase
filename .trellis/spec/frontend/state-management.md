@@ -106,7 +106,10 @@ published, but remembered viewport restoration and focus handoff run after a
 single-frame presentation-recovery buffer. Preview rebuild, search refresh, and
 accessibility refresh must start after that recovery buffer so they do not
 compete with the final visible frame; the presented startup delay should remain
-at least 32ms longer than the presentation-recovery buffer.
+at least 32ms longer than the presentation-recovery buffer. Animated opens also
+defer keyboard event tap startup until presentation recovery completes. For
+non-animated opens, keyboard event tap startup may still run while finishing
+show.
 
 Window open/close slide animations should prefer a fixed panel frame with a
 temporary content-layer transform over animating the whole `NSPanel` frame.

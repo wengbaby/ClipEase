@@ -106,6 +106,14 @@ enum HistoryWindowLifecycleScheduler {
         false
     }
 
+    static func shouldStartKeyboardEventTapWhenFinishingShow(shouldAnimate: Bool) -> Bool {
+        !shouldAnimate
+    }
+
+    static func shouldStartKeyboardEventTapDuringPresentationRecovery(shouldAnimate: Bool) -> Bool {
+        shouldAnimate
+    }
+
     static func shouldApplyHiddenFrame(
         currentFrame: CGRect,
         targetFrame: CGRect,

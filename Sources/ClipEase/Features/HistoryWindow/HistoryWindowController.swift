@@ -180,7 +180,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         guard shouldAnimate else {
-            finishShowingWindow()
+            finishShowingWindow(shouldAnimate: shouldAnimate)
             return
         }
 
@@ -204,7 +204,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 panel.hasShadow = false
                 panel.makeKey()
                 self.renderState.mark("open-animation-complete")
-                self.finishShowingWindow()
+                self.finishShowingWindow(shouldAnimate: shouldAnimate)
                 self.applyOpenPresentationState(
                     latestFocusRequest: latestFocusRequest,
                     hadPendingExplicitOffset: hadPendingExplicitOffset,
@@ -234,7 +234,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 panel?.hasShadow = false
                 panel?.makeKey()
                 self?.renderState.mark("open-animation-complete")
-                self?.finishShowingWindow()
+                self?.finishShowingWindow(shouldAnimate: shouldAnimate)
                 self?.applyOpenPresentationState(
                     latestFocusRequest: latestFocusRequest,
                     hadPendingExplicitOffset: hadPendingExplicitOffset,
@@ -388,12 +388,16 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         isClosing = false
     }
 
-    private func finishShowingWindow() {
+    private func finishShowingWindow(shouldAnimate: Bool) {
         renderState.mark("finish-showing-start")
         inputState.setOpenAnimationActive(false)
         renderState.mark("finish-showing-animation-state-cleared")
-        keyboardEventTap.start()
-        renderState.mark("finish-showing-keyboard-tap-started")
+        if HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapWhenFinishingShow(
+            shouldAnimate: shouldAnimate
+        ) {
+            keyboardEventTap.start()
+            renderState.mark("finish-showing-keyboard-tap-started")
+        }
         installOutsideClickMonitor()
         renderState.mark("finish-showing-outside-monitor-installed")
     }
@@ -482,6 +486,12 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             inputState.requestDefaultFocus(resetToFirst: shouldAnimate)
         }
         renderState.mark("presentation-recovery-complete")
+        if HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapDuringPresentationRecovery(
+            shouldAnimate: shouldAnimate
+        ) {
+            keyboardEventTap.start()
+            renderState.mark("presentation-recovery-keyboard-tap-started")
+        }
     }
 
     private func makePanel() -> HistoryPanel {

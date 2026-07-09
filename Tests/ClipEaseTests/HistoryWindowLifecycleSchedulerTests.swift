@@ -239,6 +239,21 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerMovesAnimatedKeyboardTapStartToPresentationRecovery() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapWhenFinishingShow(
+        shouldAnimate: true
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapWhenFinishingShow(
+        shouldAnimate: false
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapDuringPresentationRecovery(
+        shouldAnimate: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapDuringPresentationRecovery(
+        shouldAnimate: false
+    ))
+}
+
 @Test func lifecycleSchedulerSkipsRedundantHiddenFrameApplication() {
     let frame = CGRect(x: 0, y: -360, width: 1440, height: 360)
 
