@@ -94,6 +94,12 @@ enum HistoryWindowLifecycleScheduler {
         abs(initialTranslationY) > tolerance
     }
 
+    static func shouldSynchronouslyFlushContentLayerBeforeOrdering(
+        usesContentLayerAnimation: Bool
+    ) -> Bool {
+        false
+    }
+
     static func shouldRefreshAccessibilityBeforeToggle(isWindowVisible: Bool) -> Bool {
         !isWindowVisible
     }

@@ -638,9 +638,13 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             ),
             for: panel
         )
-        panel.contentView?.needsLayout = true
-        panel.contentView?.layoutSubtreeIfNeeded()
-        panel.contentView?.displayIfNeeded()
+        if HistoryWindowLifecycleScheduler.shouldSynchronouslyFlushContentLayerBeforeOrdering(
+            usesContentLayerAnimation: shouldApplyTransformPreparation
+        ) {
+            panel.contentView?.needsLayout = true
+            panel.contentView?.layoutSubtreeIfNeeded()
+            panel.contentView?.displayIfNeeded()
+        }
         renderState.mark("content-layer-prepared-before-order")
     }
 

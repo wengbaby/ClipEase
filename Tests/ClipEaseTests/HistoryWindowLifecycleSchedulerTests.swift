@@ -215,6 +215,15 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerSkipsSynchronousContentFlushForTranslatedAnimationPreparation() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldSynchronouslyFlushContentLayerBeforeOrdering(
+        usesContentLayerAnimation: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldSynchronouslyFlushContentLayerBeforeOrdering(
+        usesContentLayerAnimation: false
+    ))
+}
+
 @Test func lifecycleSchedulerSkipsRedundantAccessibilityRefreshForVerifiedOrClosingToggle() {
     #expect(!HistoryWindowLifecycleScheduler.shouldRefreshAccessibilityBeforeToggle(
         isWindowVisible: true

@@ -119,6 +119,12 @@ more than a frame of main-thread preparation before the panel is ordered. This
 keeps the visible UI identical while avoiding repeated WindowServer work during
 panel movement.
 
+Do not synchronously force SwiftUI/AppKit layout or display while preparing the
+content layer before ordering the panel. `layoutSubtreeIfNeeded()` and
+`displayIfNeeded()` in that path have been observed to add more than a frame of
+main-thread work before the window appears; the animated path should only pin
+the final panel/content size and apply the temporary layer transform/clipping.
+
 Content-layer transform preparation may be the animated path only when the
 panel frame is pinned to the final target frame before ordering, the hosting
 view size is locked to that target frame, and completion always resets layer
