@@ -84,12 +84,14 @@ Required regression tests:
 ### History Window Presentation State
 
 Opening the history window must keep presentation-critical work out of the
-animation completion path. Expensive AppKit resources such as the global
-keyboard event tap should be installed during hidden preload when possible, and
-they must pass events through until `HistoryWindowInputState` reports the window
-is presented. Hidden/closing transitions should reset transient keyboard state
-without tearing down reusable resources that are expensive to recreate on the
-next open.
+animation completion path. The global keyboard event tap must not be created
+during hidden preload because a pre-created session event tap can interfere with
+global hotkey delivery in some automation and permission states. Start the tap
+immediately before the history panel is ordered instead, then rely on its
+existing idempotent `start()` guard during finish. The tap must pass events
+through until `HistoryWindowInputState` reports the window is presented.
+Hidden/closing transitions should reset transient keyboard state without
+tearing down reusable resources that are expensive to recreate on the next open.
 
 Preview rebuilds may run off the main actor while an open animation is active,
 but applying the rebuild result to SwiftUI state must wait until the animation
