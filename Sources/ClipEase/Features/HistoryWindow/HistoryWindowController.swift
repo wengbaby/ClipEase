@@ -55,7 +55,9 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let targetFrame = frameForPanel()
         applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
         renderState.prepareForPreload(itemCount: store.items.count)
-        inputState.setWindowVisible(true)
+        if HistoryWindowLifecycleScheduler.shouldPublishVisibleStateForLaunchPreload() {
+            inputState.setWindowVisible(true)
+        }
         inputState.setWindowPresented(false)
         PerformanceDiagnosticsService.shared.record(
             "history.preload.start",

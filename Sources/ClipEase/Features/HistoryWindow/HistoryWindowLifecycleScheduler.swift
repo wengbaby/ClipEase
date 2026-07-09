@@ -57,6 +57,10 @@ enum HistoryWindowLifecycleScheduler {
         !hasPanel && !isWindowVisible && !isOpenAnimationActive
     }
 
+    static func shouldPublishVisibleStateForLaunchPreload() -> Bool {
+        false
+    }
+
     static func shouldMakeKeyBeforeAnimation(shouldAnimate: Bool) -> Bool {
         !shouldAnimate
     }

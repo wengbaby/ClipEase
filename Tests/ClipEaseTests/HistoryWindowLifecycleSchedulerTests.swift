@@ -145,6 +145,10 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerKeepsLaunchPreloadShellOnly() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldPublishVisibleStateForLaunchPreload())
+}
+
 @Test func lifecycleSchedulerDefersMakeKeyUntilAnimatedOpenCompletes() {
     #expect(!HistoryWindowLifecycleScheduler.shouldMakeKeyBeforeAnimation(
         shouldAnimate: true
