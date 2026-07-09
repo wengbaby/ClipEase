@@ -142,6 +142,9 @@ When using content-layer animation, hidden/preloaded panels should remain at the
 target visible frame while ordered out. The open path should skip `setFrame`
 when the current frame already matches the target frame; do not reintroduce an
 offscreen panel frame for this animation path.
+After a content-layer close animation, repair the ordered-out panel back to the
+target visible frame during hidden cleanup so the next open does not need to
+move the panel frame before ordering.
 
 Launch hidden preload should prepare the reusable window shell and may warm
 preview state only while the window is still hidden, not presented, not

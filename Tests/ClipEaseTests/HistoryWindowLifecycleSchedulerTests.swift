@@ -215,6 +215,15 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerRepairsHiddenPanelTargetFrameAfterContentLayerClose() {
+    #expect(HistoryWindowLifecycleScheduler.shouldRepairHiddenPanelTargetFrameAfterClose(
+        usesContentLayerAnimation: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldRepairHiddenPanelTargetFrameAfterClose(
+        usesContentLayerAnimation: false
+    ))
+}
+
 @Test func lifecycleSchedulerSkipsMatchingTargetFrameApplication() {
     let targetFrame = CGRect(x: 0, y: 0, width: 1440, height: 360)
 

@@ -93,6 +93,12 @@ enum HistoryWindowLifecycleScheduler {
         usesContentLayerAnimation
     }
 
+    static func shouldRepairHiddenPanelTargetFrameAfterClose(
+        usesContentLayerAnimation: Bool
+    ) -> Bool {
+        usesContentLayerAnimation
+    }
+
     static func shouldApplyTargetFrame(
         currentFrame: CGRect,
         targetFrame: CGRect,

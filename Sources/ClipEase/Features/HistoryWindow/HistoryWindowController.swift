@@ -316,8 +316,14 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 panel?.orderOut(nil)
                 panel?.alphaValue = 1
                 panel?.hasShadow = false
-                if let panel {
-                    self?.resetHistoryContentLayerAnimationState(for: panel)
+                if let self,
+                   let panel {
+                    self.resetHistoryContentLayerAnimationState(for: panel)
+                    if HistoryWindowLifecycleScheduler.shouldRepairHiddenPanelTargetFrameAfterClose(
+                        usesContentLayerAnimation: true
+                    ) {
+                        self.applyTargetFrameIfNeeded(to: panel, targetFrame: self.frameForPanel())
+                    }
                 }
                 self?.store.setOCRInteractiveThrottleActive(false)
                 self?.isClosing = false
