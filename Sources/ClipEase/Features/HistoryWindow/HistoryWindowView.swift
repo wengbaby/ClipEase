@@ -2159,15 +2159,36 @@ struct HistoryWindowView: View {
 
     private func scheduleDeferredStartupWork(delayNanoseconds: UInt64) {
         deferredStartupTask?.cancel()
+        let wasOpenAnimationActive = inputState.isOpenAnimationActiveSnapshot
+        guard let startupDelayNanoseconds = HistoryWindowLifecycleScheduler.startupDelayNanoseconds(
+            requestedDelayNanoseconds: delayNanoseconds,
+            isWindowVisible: inputState.isWindowVisibleSnapshot,
+            isWindowPresented: inputState.isWindowPresentedSnapshot,
+            isOpenAnimationActive: wasOpenAnimationActive
+        ) else {
+            deferredStartupTask = nil
+            return
+        }
+
         deferredStartupTask = Task { @MainActor in
-            if delayNanoseconds > 0 {
-                try? await Task.sleep(nanoseconds: 32_000_000)
-                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            if startupDelayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: startupDelayNanoseconds)
             }
-            guard !Task.isCancelled else {
+            guard !Task.isCancelled,
+                  inputState.isWindowVisibleSnapshot,
+                  inputState.isWindowPresentedSnapshot else {
                 return
             }
 
+            HistoryWindowLifecycleDiagnostics.record(
+                .openDeferredStartup,
+                itemCount: store.items.count,
+                wasVisible: true,
+                shouldAnimate: wasOpenAnimationActive,
+                hasPendingFocus: focusState.pendingLatestFocusItemID != nil || focusState.pendingDefaultFocusOnShow,
+                visibleItemCount: renderedWindowItems.count,
+                previewItemCount: previewItemsState.allItems.count
+            )
             schedulePreviewItemsRebuild(from: store.items)
             refreshAccessibilityStateAfterFirstFrame()
             deferredStartupTask = nil

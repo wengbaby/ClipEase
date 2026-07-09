@@ -468,6 +468,7 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     private var searchVisible = false
     private var windowVisible = false
     private var windowPresented = false
+    private var openAnimationActive = false
     private var windowPinnedOpen = false
     private var presentedInputLayerActive = false
     private var appTextFirstResponderActive = false
@@ -514,6 +515,12 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
         return windowPresented
     }
 
+    var isOpenAnimationActiveSnapshot: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return openAnimationActive
+    }
+
     var isWindowPinnedOpenSnapshot: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -549,6 +556,7 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     }
 
     func notifyWindowWillHide() {
+        setOpenAnimationActive(false)
         setWindowPresented(false)
         setWindowVisible(false)
         windowHideRequestID = UUID()
@@ -607,6 +615,12 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func setOpenAnimationActive(_ isActive: Bool) {
+        lock.lock()
+        openAnimationActive = isActive
+        lock.unlock()
+    }
+
     func setWindowPinnedOpen(_ isPinned: Bool) {
         lock.lock()
         windowPinnedOpen = isPinned
@@ -654,6 +668,7 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
         setCommandKeyPressed(false)
         setTextInputFocused(false)
         setSearchVisible(false)
+        setOpenAnimationActive(false)
         setWindowVisible(false)
         setWindowPresented(false)
         setWindowPinnedOpen(false)

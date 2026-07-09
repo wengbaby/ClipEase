@@ -90,6 +90,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let wasVisible = panel.isVisible
         let shouldAnimate = !wasVisible
         let hasPendingFocus = store.latestItemFocusRequest != nil
+        inputState.setOpenAnimationActive(shouldAnimate)
         HistoryWindowLifecycleDiagnostics.record(
             .openRequest,
             itemCount: store.items.count,
@@ -166,6 +167,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     func close() {
         let wasVisible = panel?.isVisible == true
         let shouldAnimate = wasVisible && !isClosing
+        inputState.setOpenAnimationActive(false)
         HistoryWindowLifecycleDiagnostics.record(
             .closeRequest,
             itemCount: store.items.count,
@@ -230,6 +232,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func hideImmediatelyForAutoPaste() {
+        inputState.setOpenAnimationActive(false)
         inputState.notifyWindowWillHide()
         keyboardEventTap.stop()
         removeOutsideClickMonitor()
@@ -241,6 +244,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     private func finishShowingWindow() {
+        inputState.setOpenAnimationActive(false)
         keyboardEventTap.start()
         installOutsideClickMonitor()
     }

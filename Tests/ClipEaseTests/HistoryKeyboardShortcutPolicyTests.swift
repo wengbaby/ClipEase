@@ -824,3 +824,15 @@ import Testing
     #expect(inputState.isWindowVisible)
     #expect(inputState.windowHideRequestID != originalRequestID)
 }
+
+@Test @MainActor func openAnimationSnapshotIsClearedByWindowHide() {
+    let inputState = HistoryWindowInputState()
+
+    inputState.setOpenAnimationActive(true)
+
+    #expect(inputState.isOpenAnimationActiveSnapshot)
+
+    inputState.notifyWindowWillHide()
+
+    #expect(!inputState.isOpenAnimationActiveSnapshot)
+}

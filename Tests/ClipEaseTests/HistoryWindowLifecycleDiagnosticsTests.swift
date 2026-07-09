@@ -8,6 +8,7 @@ import Testing
         "history.window.open.ordered",
         "history.window.open.presented",
         "history.window.open.firstFrame",
+        "history.window.open.deferredStartup",
         "history.window.open.previewReady",
         "history.window.close.request",
         "history.window.close.animationComplete",

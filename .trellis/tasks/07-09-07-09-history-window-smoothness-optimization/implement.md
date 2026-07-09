@@ -87,3 +87,10 @@ Each code slice must:
 - Commit locally.
 
 The plan/documentation change is committed separately before code changes.
+
+## Progress
+
+- [x] Plan document committed.
+- [x] Slice 1 startup scheduling policy implemented, verified, and ready to commit.
+- [ ] Slice 2 close-time cancellation and coalescing.
+- [ ] Slice 3 final verification and app restart.

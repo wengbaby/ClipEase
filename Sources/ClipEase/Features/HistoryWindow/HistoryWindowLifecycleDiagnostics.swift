@@ -6,6 +6,7 @@ enum HistoryWindowLifecycleDiagnostics {
         case openOrdered
         case openPresented
         case openFirstFrame
+        case openDeferredStartup
         case openPreviewReady
         case closeRequest
         case closeAnimationComplete
@@ -21,6 +22,8 @@ enum HistoryWindowLifecycleDiagnostics {
                 "history.window.open.presented"
             case .openFirstFrame:
                 "history.window.open.firstFrame"
+            case .openDeferredStartup:
+                "history.window.open.deferredStartup"
             case .openPreviewReady:
                 "history.window.open.previewReady"
             case .closeRequest:
