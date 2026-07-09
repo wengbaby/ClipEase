@@ -629,17 +629,52 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func applyTargetFrameIfNeeded(to panel: NSPanel, targetFrame: NSRect) {
         lockHistoryContentSize(for: panel, size: targetFrame.size)
+        let beforeFrame = panel.frame
+        let beforeFrameMetadata = targetFrameDiagnosticsMetadata(
+            currentFrame: beforeFrame,
+            targetFrame: targetFrame
+        )
         guard HistoryWindowLifecycleScheduler.shouldApplyTargetFrame(
-            currentFrame: panel.frame,
+            currentFrame: beforeFrame,
             targetFrame: targetFrame
         ) else {
-            renderState.mark("panel-target-frame-reused")
+            renderState.mark("panel-target-frame-reused", metadata: beforeFrameMetadata)
             return
         }
 
-        renderState.mark("panel-target-frame-applying")
+        renderState.mark("panel-target-frame-applying", metadata: beforeFrameMetadata)
         panel.setFrame(targetFrame, display: false)
-        renderState.mark("panel-target-frame-applied")
+        renderState.mark(
+            "panel-target-frame-applied",
+            metadata: targetFrameDiagnosticsMetadata(
+                currentFrame: panel.frame,
+                targetFrame: targetFrame
+            )
+        )
+    }
+
+    private func targetFrameDiagnosticsMetadata(
+        currentFrame: NSRect,
+        targetFrame: NSRect
+    ) -> [String: String] {
+        [
+            "currentX": diagnosticFrameValue(currentFrame.minX),
+            "currentY": diagnosticFrameValue(currentFrame.minY),
+            "currentWidth": diagnosticFrameValue(currentFrame.width),
+            "currentHeight": diagnosticFrameValue(currentFrame.height),
+            "targetX": diagnosticFrameValue(targetFrame.minX),
+            "targetY": diagnosticFrameValue(targetFrame.minY),
+            "targetWidth": diagnosticFrameValue(targetFrame.width),
+            "targetHeight": diagnosticFrameValue(targetFrame.height),
+            "deltaX": diagnosticFrameValue(targetFrame.minX - currentFrame.minX),
+            "deltaY": diagnosticFrameValue(targetFrame.minY - currentFrame.minY),
+            "deltaWidth": diagnosticFrameValue(targetFrame.width - currentFrame.width),
+            "deltaHeight": diagnosticFrameValue(targetFrame.height - currentFrame.height)
+        ]
+    }
+
+    private func diagnosticFrameValue(_ value: CGFloat) -> String {
+        String(format: "%.1f", Double(value))
     }
 
     private func lockHistoryContentSize(for panel: NSPanel?, size: NSSize) {

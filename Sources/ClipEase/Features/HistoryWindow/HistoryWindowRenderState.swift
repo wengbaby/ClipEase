@@ -17,8 +17,8 @@ final class HistoryWindowRenderState: ObservableObject {
         performanceTrace = HistoryPerformanceTrace(label: "history-preload", itemCount: itemCount)
     }
 
-    func mark(_ name: String) {
-        performanceTrace?.mark(name)
+    func mark(_ name: String, metadata: [String: String] = [:]) {
+        performanceTrace?.mark(name, metadata: metadata)
     }
 
     func markAndFinish(_ name: String) {
