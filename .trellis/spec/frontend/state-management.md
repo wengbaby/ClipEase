@@ -135,6 +135,9 @@ the screen edge, or the top gap grows, revert to frame animation and add a
 layout regression before re-enabling it. Clipping/transparent-background
 preparation must remain gated behind
 `shouldApplyContentLayerTransformPreparation(initialTranslationY:)`.
+Repeated panel/content size locks for the same size must be idempotent no-ops;
+do not call through to AppKit/SwiftUI frame setters when the locked size already
+matches the current frame.
 
 Launch hidden preload should prepare the reusable window shell and may warm
 preview state only while the window is still hidden, not presented, not

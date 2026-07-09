@@ -16,9 +16,15 @@ final class HistoryWindowHostingView<Content: View>: NSHostingView<Content> {
         return bounds.size
     }
 
-    func lockContentSize(_ size: NSSize) {
+    @discardableResult
+    func lockContentSize(_ size: NSSize) -> Bool {
+        guard lockedContentSize != size || frame.size != size else {
+            return false
+        }
+
         lockedContentSize = size
         super.setFrameSize(size)
+        return true
     }
 
     override func setFrameSize(_ newSize: NSSize) {

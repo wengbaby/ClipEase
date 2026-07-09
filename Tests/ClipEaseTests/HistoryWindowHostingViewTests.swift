@@ -23,3 +23,14 @@ import Testing
     #expect(view.frame.size == NSSize(width: 1440, height: 360))
     #expect(view.fittingSize == NSSize(width: 1440, height: 360))
 }
+
+@MainActor
+@Test func historyWindowHostingViewSkipsUnchangedContentSizeLock() {
+    let view = HistoryWindowHostingView(rootView: Color.clear)
+    let size = NSSize(width: 1440, height: 360)
+
+    #expect(view.lockContentSize(size))
+    #expect(!view.lockContentSize(size))
+    #expect(view.frame.size == size)
+    #expect(view.fittingSize == size)
+}
