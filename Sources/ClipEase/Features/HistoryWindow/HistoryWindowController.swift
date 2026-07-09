@@ -120,6 +120,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         if shouldAnimate {
             renderState.prepareForShow(itemCount: store.items.count)
             applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
+            if HistoryWindowLifecycleScheduler.shouldPrepareContentLayerBeforeOrdering(
+                shouldAnimate: shouldAnimate
+            ) {
+                prepareHistoryContentLayerForAnimatedOrdering(panel)
+            }
         } else {
             panel.disableScreenUpdatesUntilFlush()
             lockHistoryContentSize(for: panel, size: targetFrame.size)
@@ -503,6 +508,14 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private func lockHistoryContentSize(for panel: NSPanel?, size: NSSize) {
         HistoryWindowPanelSizeLock.apply(to: panel, frameSize: size)
         (panel?.contentView as? HistoryWindowHostingView<HistoryWindowView>)?.lockContentSize(size)
+    }
+
+    private func prepareHistoryContentLayerForAnimatedOrdering(_ panel: NSPanel) {
+        setHistoryContentRasterization(true, for: panel)
+        panel.contentView?.needsLayout = true
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.contentView?.displayIfNeeded()
+        renderState.mark("content-layer-prepared-before-order")
     }
 
     private func setHistoryContentRasterization(_ isEnabled: Bool, for panel: NSPanel?) {

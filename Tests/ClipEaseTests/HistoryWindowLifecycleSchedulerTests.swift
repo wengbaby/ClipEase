@@ -167,6 +167,15 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerPreparesContentLayerBeforeAnimatedOrdering() {
+    #expect(HistoryWindowLifecycleScheduler.shouldPrepareContentLayerBeforeOrdering(
+        shouldAnimate: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldPrepareContentLayerBeforeOrdering(
+        shouldAnimate: false
+    ))
+}
+
 @Test func lifecycleSchedulerStartsKeyboardTapBeforeWindowOrdering() {
     #expect(HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
         shouldAnimate: true
