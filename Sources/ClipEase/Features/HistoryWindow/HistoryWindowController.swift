@@ -72,23 +72,30 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func toggle() {
-        guard accessibilityPermissionState.refresh() else {
-            appMenuController.showPermissionGuide()
-            return
-        }
-
         if let panel, panel.isVisible {
             close()
             return
         }
 
-        show()
-    }
-
-    func show() {
-        guard accessibilityPermissionState.refresh() else {
+        let shouldRefreshAccessibility = HistoryWindowLifecycleScheduler.shouldRefreshAccessibilityBeforeToggle(
+            isWindowVisible: false
+        )
+        guard !shouldRefreshAccessibility || accessibilityPermissionState.refresh() else {
             appMenuController.showPermissionGuide()
             return
+        }
+
+        show(accessibilityAlreadyVerified: true)
+    }
+
+    func show(accessibilityAlreadyVerified: Bool = false) {
+        if HistoryWindowLifecycleScheduler.shouldRefreshAccessibilityBeforeShow(
+            alreadyVerified: accessibilityAlreadyVerified
+        ) {
+            guard accessibilityPermissionState.refresh() else {
+                appMenuController.showPermissionGuide()
+                return
+            }
         }
 
         captureFrontmostApplicationIfNeeded()

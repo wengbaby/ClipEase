@@ -185,6 +185,21 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerSkipsRedundantAccessibilityRefreshForVerifiedOrClosingToggle() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldRefreshAccessibilityBeforeToggle(
+        isWindowVisible: true
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldRefreshAccessibilityBeforeToggle(
+        isWindowVisible: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldRefreshAccessibilityBeforeShow(
+        alreadyVerified: true
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldRefreshAccessibilityBeforeShow(
+        alreadyVerified: false
+    ))
+}
+
 @Test func lifecycleSchedulerStartsKeyboardTapBeforeWindowOrdering() {
     #expect(HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
         shouldAnimate: true

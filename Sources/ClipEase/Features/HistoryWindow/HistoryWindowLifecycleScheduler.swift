@@ -77,6 +77,14 @@ enum HistoryWindowLifecycleScheduler {
         shouldAnimate
     }
 
+    static func shouldRefreshAccessibilityBeforeToggle(isWindowVisible: Bool) -> Bool {
+        !isWindowVisible
+    }
+
+    static func shouldRefreshAccessibilityBeforeShow(alreadyVerified: Bool) -> Bool {
+        !alreadyVerified
+    }
+
     static func shouldStartKeyboardEventTapBeforeOrdering(shouldAnimate: Bool) -> Bool {
         true
     }
