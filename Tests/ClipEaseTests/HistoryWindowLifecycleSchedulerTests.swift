@@ -215,12 +215,53 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerOrdersHiddenPanelDuringLaunchPreloadForContentLayerAnimation() {
+    #expect(HistoryWindowLifecycleScheduler.shouldOrderHiddenPanelDuringLaunchPreload(
+        usesContentLayerAnimation: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldOrderHiddenPanelDuringLaunchPreload(
+        usesContentLayerAnimation: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldPublishVisibleStateForLaunchPreload())
+    #expect(!HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
+        shouldAnimate: true
+    ))
+}
+
 @Test func lifecycleSchedulerRepairsHiddenPanelTargetFrameAfterContentLayerClose() {
     #expect(HistoryWindowLifecycleScheduler.shouldRepairHiddenPanelTargetFrameAfterClose(
         usesContentLayerAnimation: true
     ))
     #expect(!HistoryWindowLifecycleScheduler.shouldRepairHiddenPanelTargetFrameAfterClose(
         usesContentLayerAnimation: false
+    ))
+}
+
+@Test func lifecycleSchedulerKeepsOrderedHiddenPanelForContentLayerClose() {
+    #expect(HistoryWindowLifecycleScheduler.shouldKeepPanelOrderedAfterClose(
+        usesContentLayerAnimation: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldKeepPanelOrderedAfterClose(
+        usesContentLayerAnimation: false
+    ))
+}
+
+@Test func lifecycleSchedulerTreatsOrderedHiddenPanelAsClosedForToggleAndOpenOrdering() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldCloseOnToggle(
+        isPanelOrdered: true,
+        isWindowVisible: false
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldCloseOnToggle(
+        isPanelOrdered: true,
+        isWindowVisible: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldOrderPanelBeforeOpen(
+        isPanelOrdered: true,
+        isWindowVisible: false
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldOrderPanelBeforeOpen(
+        isPanelOrdered: false,
+        isWindowVisible: false
     ))
 }
 

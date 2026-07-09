@@ -93,10 +93,36 @@ enum HistoryWindowLifecycleScheduler {
         usesContentLayerAnimation
     }
 
+    static func shouldOrderHiddenPanelDuringLaunchPreload(
+        usesContentLayerAnimation: Bool
+    ) -> Bool {
+        usesContentLayerAnimation
+    }
+
     static func shouldRepairHiddenPanelTargetFrameAfterClose(
         usesContentLayerAnimation: Bool
     ) -> Bool {
         usesContentLayerAnimation
+    }
+
+    static func shouldKeepPanelOrderedAfterClose(
+        usesContentLayerAnimation: Bool
+    ) -> Bool {
+        usesContentLayerAnimation
+    }
+
+    static func shouldCloseOnToggle(
+        isPanelOrdered: Bool,
+        isWindowVisible: Bool
+    ) -> Bool {
+        isPanelOrdered && isWindowVisible
+    }
+
+    static func shouldOrderPanelBeforeOpen(
+        isPanelOrdered: Bool,
+        isWindowVisible: Bool
+    ) -> Bool {
+        !isPanelOrdered || isWindowVisible
     }
 
     static func shouldApplyTargetFrame(

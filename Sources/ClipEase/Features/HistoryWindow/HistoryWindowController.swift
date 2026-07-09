@@ -65,6 +65,19 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
         }
         renderState.prepareForPreload(itemCount: store.items.count)
+        if HistoryWindowLifecycleScheduler.shouldOrderHiddenPanelDuringLaunchPreload(
+            usesContentLayerAnimation: usesContentLayerAnimation
+        ) {
+            prepareHistoryContentLayerForAnimatedOrdering(
+                panel,
+                initialTranslationY: -panelAnimationDistance
+            )
+            panel.ignoresMouseEvents = true
+            panel.hasShadow = false
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+            renderState.mark("preload-panel-ordered-hidden")
+        }
         if HistoryWindowLifecycleScheduler.shouldPublishVisibleStateForLaunchPreload() {
             inputState.setWindowVisible(true)
         }
@@ -81,7 +94,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func toggle() {
-        if let panel, panel.isVisible {
+        if let panel,
+           HistoryWindowLifecycleScheduler.shouldCloseOnToggle(
+               isPanelOrdered: panel.isVisible,
+               isWindowVisible: inputState.isWindowVisibleSnapshot
+           ) {
             close()
             return
         }
@@ -112,14 +129,17 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         presentationRecoveryTask = nil
         let panel = panel ?? makePanel()
         self.panel = panel
-        setHistoryContentRasterization(false, for: panel)
-        resetHistoryContentLayerAnimationState(for: panel)
+        let isReusingOrderedHiddenPanel = panel.isVisible && !inputState.isWindowVisibleSnapshot
+        if !isReusingOrderedHiddenPanel {
+            setHistoryContentRasterization(false, for: panel)
+            resetHistoryContentLayerAnimationState(for: panel)
+        }
         isClosing = false
         let targetFrame = frameForPanel()
         lastKnownPanelFrame = targetFrame
         GlobalStatusToastController.shared.updateHistoryWindowFrame(targetFrame, screen: panel.screen ?? NSScreen.clipeaseScreenContainingMouse ?? NSScreen.main)
         appMenuController.setStatusToastAnchorWindow(panel)
-        let wasVisible = panel.isVisible
+        let wasVisible = inputState.isWindowVisibleSnapshot
         let shouldAnimate = !wasVisible
         let hasPendingFocus = store.latestItemFocusRequest != nil
         let latestFocusRequest = store.consumeLatestItemFocusRequest()
@@ -138,6 +158,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         panel.hasShadow = false
         panel.alphaValue = 1
+        panel.ignoresMouseEvents = false
         if shouldAnimate {
             renderState.prepareForShow(itemCount: store.items.count)
             if shouldUseContentLayerAnimation {
@@ -165,11 +186,18 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             keyboardEventTap.start()
             renderState.mark("keyboard-tap-ready-before-order")
         }
-        panel.orderFrontRegardless()
+        if HistoryWindowLifecycleScheduler.shouldOrderPanelBeforeOpen(
+            isPanelOrdered: panel.isVisible,
+            isWindowVisible: wasVisible
+        ) {
+            panel.orderFrontRegardless()
+            renderState.mark("panel-ordered")
+        } else {
+            renderState.mark("panel-order-reused")
+        }
         if HistoryWindowLifecycleScheduler.shouldMakeKeyBeforeAnimation(shouldAnimate: shouldAnimate) {
             panel.makeKey()
         }
-        renderState.mark("panel-ordered")
         HistoryWindowLifecycleDiagnostics.record(
             .openOrdered,
             itemCount: store.items.count,
@@ -266,6 +294,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             shouldAnimate: shouldAnimate,
             hasPendingFocus: false
         )
+        renderState.finishTrace()
         guard let panel,
               panel.isVisible,
               !isClosing else {
@@ -313,12 +342,17 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 self?.keyboardEventTap.suspend()
                 self?.removeOutsideClickMonitor()
                 self?.closePreview()
-                panel?.orderOut(nil)
                 panel?.alphaValue = 1
                 panel?.hasShadow = false
+                panel?.ignoresMouseEvents = true
                 if let self,
                    let panel {
-                    self.resetHistoryContentLayerAnimationState(for: panel)
+                    if !HistoryWindowLifecycleScheduler.shouldKeepPanelOrderedAfterClose(
+                        usesContentLayerAnimation: true
+                    ) {
+                        panel.orderOut(nil)
+                        self.resetHistoryContentLayerAnimationState(for: panel)
+                    }
                     if HistoryWindowLifecycleScheduler.shouldRepairHiddenPanelTargetFrameAfterClose(
                         usesContentLayerAnimation: true
                     ) {
