@@ -616,7 +616,12 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     ) {
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        setHistoryContentRasterization(true, for: panel)
+        setHistoryContentRasterization(
+            HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
+                shouldAnimate: true
+            ),
+            for: panel
+        )
         setHistoryContentLayerTranslation(initialTranslationY, for: panel)
         panel.contentView?.layer?.masksToBounds = true
         panel.contentView?.needsLayout = true
