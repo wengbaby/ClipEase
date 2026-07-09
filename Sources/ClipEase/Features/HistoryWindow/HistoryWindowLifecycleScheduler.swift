@@ -87,6 +87,13 @@ enum HistoryWindowLifecycleScheduler {
         false
     }
 
+    static func shouldApplyContentLayerTransformPreparation(
+        initialTranslationY: CGFloat,
+        tolerance: CGFloat = 0.5
+    ) -> Bool {
+        abs(initialTranslationY) > tolerance
+    }
+
     static func shouldRefreshAccessibilityBeforeToggle(isWindowVisible: Bool) -> Bool {
         !isWindowVisible
     }

@@ -614,16 +614,20 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         _ panel: NSPanel,
         initialTranslationY: CGFloat = 0
     ) {
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
+        let shouldApplyTransformPreparation = HistoryWindowLifecycleScheduler
+            .shouldApplyContentLayerTransformPreparation(initialTranslationY: initialTranslationY)
+        if shouldApplyTransformPreparation {
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            setHistoryContentLayerTranslation(initialTranslationY, for: panel)
+            panel.contentView?.layer?.masksToBounds = true
+        }
         setHistoryContentRasterization(
             HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
                 shouldAnimate: true
             ),
             for: panel
         )
-        setHistoryContentLayerTranslation(initialTranslationY, for: panel)
-        panel.contentView?.layer?.masksToBounds = true
         panel.contentView?.needsLayout = true
         panel.contentView?.layoutSubtreeIfNeeded()
         panel.contentView?.displayIfNeeded()

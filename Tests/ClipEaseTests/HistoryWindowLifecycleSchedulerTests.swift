@@ -206,6 +206,15 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerAppliesContentLayerClippingOnlyForTranslatedAnimation() {
+    #expect(HistoryWindowLifecycleScheduler.shouldApplyContentLayerTransformPreparation(
+        initialTranslationY: -360
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldApplyContentLayerTransformPreparation(
+        initialTranslationY: 0
+    ))
+}
+
 @Test func lifecycleSchedulerSkipsRedundantAccessibilityRefreshForVerifiedOrClosingToggle() {
     #expect(!HistoryWindowLifecycleScheduler.shouldRefreshAccessibilityBeforeToggle(
         isWindowVisible: true
