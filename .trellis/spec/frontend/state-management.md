@@ -103,9 +103,10 @@ notification callback.
 Animated opens must separate presentation recovery from deferred startup work.
 After the panel animation completes, window-visible/window-presented state may be
 published, but remembered viewport restoration and focus handoff run after a
-short presentation-recovery buffer. Preview rebuild, search refresh, and
+single-frame presentation-recovery buffer. Preview rebuild, search refresh, and
 accessibility refresh must start after that recovery buffer so they do not
-compete with the final visible frame.
+compete with the final visible frame; the presented startup delay should remain
+at least 32ms longer than the presentation-recovery buffer.
 
 Window open/close slide animations should prefer a fixed panel frame with a
 temporary content-layer transform over animating the whole `NSPanel` frame.

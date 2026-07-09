@@ -11,7 +11,7 @@ import Testing
 }
 
 @Test func lifecycleSchedulerDefersPresentedStartupWorkOffPresentationCallback() {
-    #expect(HistoryWindowLifecycleScheduler.presentedStartupDelayNanoseconds == 96_000_000)
+    #expect(HistoryWindowLifecycleScheduler.presentedStartupDelayNanoseconds == 48_000_000)
 }
 
 @Test func lifecycleSchedulerRunsPresentedStartupAfterPresentationRecoveryBuffer() {
@@ -116,7 +116,7 @@ import Testing
 @Test func lifecycleSchedulerDefersPresentationRecoveryAfterAnimatedOpenCompletion() {
     #expect(HistoryWindowLifecycleScheduler.presentationRecoveryDelayNanoseconds(
         shouldAnimate: true
-    ) == 48_000_000)
+    ) == 16_000_000)
     #expect(HistoryWindowLifecycleScheduler.presentationRecoveryDelayNanoseconds(
         shouldAnimate: false
     ) == 0)
