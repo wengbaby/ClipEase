@@ -42,3 +42,40 @@ Restored history window frame animation layout path, limited content-layer clipp
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Remove remaining history open hot-path work
+
+**Date**: 2026-07-09
+**Task**: Remove remaining history open hot-path work
+**Branch**: `codex/history-architecture-stability-performance`
+
+### Summary
+
+Removed forced content-layer preparation from the history open path, deferred keyboard event tap startup until presentation finish, updated build numbers and specs, and verified focused/full tests plus release builds.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fe8eb40` | (see git log) |
+| `a14e621` | (see git log) |
+| `abb2478` | (see git log) |
+| `bcd5971` | (see git log) |
+| `57a14f9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
