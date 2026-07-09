@@ -106,6 +106,11 @@ short presentation-recovery buffer. Preview rebuild, search refresh, and
 accessibility refresh must start after that recovery buffer so they do not
 compete with the final visible frame.
 
+Window open/close frame animations should temporarily rasterize the history
+hosting content layer and reset rasterization immediately after the animation or
+hide cleanup. This keeps the visible UI identical while avoiding repeated
+SwiftUI/layer recomposition during panel movement.
+
 Launch hidden preload should only prepare the reusable window shell and must not
 start preview warming. Preview warming from a hidden window is allowed after a
 real hide when the cache is stale, but launch-time hidden rebuilds can overlap a

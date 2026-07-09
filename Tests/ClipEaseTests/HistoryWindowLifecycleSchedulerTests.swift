@@ -154,6 +154,15 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerRasterizesContentOnlyDuringWindowAnimation() {
+    #expect(HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
+        shouldAnimate: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
+        shouldAnimate: false
+    ))
+}
+
 @Test func lifecycleSchedulerStartsKeyboardTapBeforeWindowOrdering() {
     #expect(HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
         shouldAnimate: true

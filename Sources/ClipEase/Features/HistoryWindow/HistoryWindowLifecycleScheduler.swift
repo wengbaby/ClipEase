@@ -61,6 +61,10 @@ enum HistoryWindowLifecycleScheduler {
         !shouldAnimate
     }
 
+    static func shouldRasterizeContentDuringWindowAnimation(shouldAnimate: Bool) -> Bool {
+        shouldAnimate
+    }
+
     static func shouldStartKeyboardEventTapBeforeOrdering(shouldAnimate: Bool) -> Bool {
         true
     }

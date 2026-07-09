@@ -93,6 +93,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         presentationRecoveryTask = nil
         let panel = panel ?? makePanel()
         self.panel = panel
+        setHistoryContentRasterization(false, for: panel)
         isClosing = false
         let targetFrame = frameForPanel()
         lastKnownPanelFrame = targetFrame
@@ -155,12 +156,19 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             return
         }
 
+        setHistoryContentRasterization(
+            HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
+                shouldAnimate: shouldAnimate
+            ),
+            for: panel
+        )
         NSAnimationContext.runAnimationGroup { context in
             context.duration = panelAnimationDuration
             context.timingFunction = CAMediaTimingFunction(name: .linear)
             panel.animator().setFrame(targetFrame, display: false)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
+                self?.setHistoryContentRasterization(false, for: panel)
                 guard panel?.isVisible == true else {
                     return
                 }
@@ -200,6 +208,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             closePreview()
             panel?.orderOut(nil)
             panel?.hasShadow = false
+            setHistoryContentRasterization(false, for: panel)
             HistoryWindowLifecycleDiagnostics.record(
                 .closeCleanupComplete,
                 itemCount: store.items.count,
@@ -215,6 +224,12 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.hasShadow = false
         let targetFrame = hiddenFrame(for: frameForPanel())
         lockHistoryContentSize(for: panel, size: targetFrame.size)
+        setHistoryContentRasterization(
+            HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
+                shouldAnimate: shouldAnimate
+            ),
+            for: panel
+        )
         NSAnimationContext.runAnimationGroup { context in
             context.duration = panelAnimationDuration
             context.timingFunction = CAMediaTimingFunction(name: .linear)
@@ -237,6 +252,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 panel?.orderOut(nil)
                 panel?.alphaValue = 1
                 panel?.hasShadow = false
+                self?.setHistoryContentRasterization(false, for: panel)
                 self?.store.setOCRInteractiveThrottleActive(false)
                 self?.isClosing = false
                 HistoryWindowLifecycleDiagnostics.record(
@@ -260,6 +276,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         closePreview()
         panel?.orderOut(nil)
         panel?.hasShadow = false
+        setHistoryContentRasterization(false, for: panel)
         store.setOCRInteractiveThrottleActive(false)
         isClosing = false
     }
@@ -484,6 +501,24 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private func lockHistoryContentSize(for panel: NSPanel?, size: NSSize) {
         HistoryWindowPanelSizeLock.apply(to: panel, frameSize: size)
         (panel?.contentView as? HistoryWindowHostingView<HistoryWindowView>)?.lockContentSize(size)
+    }
+
+    private func setHistoryContentRasterization(_ isEnabled: Bool, for panel: NSPanel?) {
+        guard let contentView = panel?.contentView else {
+            return
+        }
+
+        contentView.wantsLayer = true
+        guard let layer = contentView.layer else {
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.shouldRasterize = isEnabled
+        layer.rasterizationScale = max(panel?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1, 1)
+        CATransaction.commit()
+        renderState.mark(isEnabled ? "content-rasterization-enabled" : "content-rasterization-disabled")
     }
 
     func pasteTargetApplication() -> NSRunningApplication? {
