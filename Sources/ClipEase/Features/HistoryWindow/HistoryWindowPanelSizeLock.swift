@@ -1,6 +1,12 @@
 import AppKit
 
 enum HistoryWindowPanelSizeLock {
+    static let unlockedContentMinSize = NSSize.zero
+    static let unlockedContentMaxSize = NSSize(
+        width: CGFloat.greatestFiniteMagnitude,
+        height: CGFloat.greatestFiniteMagnitude
+    )
+
     @MainActor
     @discardableResult
     static func apply(to panel: NSPanel?, frameSize: NSSize) -> Bool {
@@ -8,16 +14,13 @@ enum HistoryWindowPanelSizeLock {
             return false
         }
 
-        let contentSize = panel.contentRect(
-            forFrameRect: NSRect(origin: .zero, size: frameSize)
-        ).size
-        guard panel.contentMinSize != contentSize ||
-            panel.contentMaxSize != contentSize else {
+        guard panel.contentMinSize != unlockedContentMinSize ||
+            panel.contentMaxSize != unlockedContentMaxSize else {
             return false
         }
 
-        panel.contentMinSize = contentSize
-        panel.contentMaxSize = contentSize
+        panel.contentMinSize = unlockedContentMinSize
+        panel.contentMaxSize = unlockedContentMaxSize
         return true
     }
 }
