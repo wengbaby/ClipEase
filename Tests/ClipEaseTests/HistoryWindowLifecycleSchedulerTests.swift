@@ -138,6 +138,15 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerStartsKeyboardTapBeforeWindowOrdering() {
+    #expect(HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
+        shouldAnimate: true
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
+        shouldAnimate: false
+    ))
+}
+
 @Test func lifecycleSchedulerSkipsRedundantHiddenFrameApplication() {
     let frame = CGRect(x: 0, y: -360, width: 1440, height: 360)
 

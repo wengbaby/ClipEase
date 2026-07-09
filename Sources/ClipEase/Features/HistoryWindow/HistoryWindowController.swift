@@ -53,7 +53,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         self.panel = panel
         let targetFrame = frameForPanel()
         applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
-        keyboardEventTap.start()
         renderState.prepareForPreload(itemCount: store.items.count)
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(false)
@@ -122,6 +121,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
         renderState.mark("panel-frame-ready")
 
+        if HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(shouldAnimate: shouldAnimate) {
+            keyboardEventTap.start()
+            renderState.mark("keyboard-tap-ready-before-order")
+        }
         panel.orderFrontRegardless()
         if HistoryWindowLifecycleScheduler.shouldMakeKeyBeforeAnimation(shouldAnimate: shouldAnimate) {
             panel.makeKey()
