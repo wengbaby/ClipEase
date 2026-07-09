@@ -10,4 +10,4 @@
   - [x] Add failing tests for lifecycle event metadata construction and diagnostics display.
   - [x] Add diagnostics helper/types and wire into controller/view lifecycle points.
   - [x] Run focused tests, release build, bump version, commit.
-- [ ] Final verification: swift test, release build, build app bundle, restart app for manual acceptance.
+- [x] Final verification: swift test, release build, build app bundle, restart app for manual acceptance.
