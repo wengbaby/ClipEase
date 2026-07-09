@@ -188,8 +188,8 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerPreparesContentLayerBeforeAnimatedOrdering() {
-    #expect(HistoryWindowLifecycleScheduler.shouldPrepareContentLayerBeforeOrdering(
+@Test func lifecycleSchedulerSkipsForcedContentLayerPreparationBeforeFrameAnimation() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldPrepareContentLayerBeforeOrdering(
         shouldAnimate: true
     ))
     #expect(!HistoryWindowLifecycleScheduler.shouldPrepareContentLayerBeforeOrdering(

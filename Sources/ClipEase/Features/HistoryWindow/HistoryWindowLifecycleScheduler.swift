@@ -80,7 +80,7 @@ enum HistoryWindowLifecycleScheduler {
     }
 
     static func shouldPrepareContentLayerBeforeOrdering(shouldAnimate: Bool) -> Bool {
-        shouldAnimate
+        false
     }
 
     static func shouldUseContentLayerAnimation(shouldAnimate: Bool) -> Bool {
