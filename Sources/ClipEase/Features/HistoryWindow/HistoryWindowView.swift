@@ -56,7 +56,7 @@ struct HistoryWindowView: View {
     private let allHistoryGroupColor = Color(red: 0.18, green: 0.55, blue: 1.0)
     private let groupAppearancePopoverWidth: CGFloat = 304
     private let groupAppearanceIconGridHeight: CGFloat = 178
-    private let selectedCardTopContentInset: CGFloat = 6
+    private let selectedCardTopContentInset: CGFloat = HistoryWindowPanelMetrics.selectedCardTopContentInset
     private let horizontalContentPadding: CGFloat = 28
     private let horizontalCardSpacing: CGFloat = 20
     private let historyCardWidth: CGFloat = 250
@@ -69,7 +69,7 @@ struct HistoryWindowView: View {
     private let previewItemCacheRetainedItemCount = 20
     private let searchResultPageSize = 50
     private let hiddenResourceCheckpointMinimumInterval: CFTimeInterval = 10
-    private let hiddenHistoryPanelHeight: CGFloat = 360
+    private let hiddenHistoryPanelHeight: CGFloat = HistoryWindowPanelMetrics.height
     private let latestInsertedCardLeadingInset: CGFloat = 28
 
     private var selectedItemID: HistoryPreviewItem.ID? {
@@ -338,7 +338,7 @@ struct HistoryWindowView: View {
             }
             .frame(width: 0, height: 0)
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: HistoryWindowPanelMetrics.toolbarRailSpacing) {
                 toolbar
 
                 if items.isEmpty && store.items.isEmpty {
@@ -398,7 +398,7 @@ struct HistoryWindowView: View {
                     }
                 }
             }
-            .padding(.top, 18)
+            .padding(.top, HistoryWindowPanelMetrics.topPadding)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -676,10 +676,10 @@ struct HistoryWindowView: View {
                         .offset(x: cardDocumentX(for: item.id))
                 }
             }
-            .frame(width: historyRailContentWidth, height: 300, alignment: .topLeading)
+            .frame(width: historyRailContentWidth, height: HistoryWindowPanelMetrics.railFrameHeight, alignment: .topLeading)
             .padding(.top, selectedCardTopContentInset)
             .padding(.bottom, 8)
-            .padding(.bottom, 22)
+            .padding(.bottom, HistoryWindowPanelMetrics.railBottomPadding - 8)
         }
     }
 
@@ -1026,7 +1026,7 @@ struct HistoryWindowView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 22)
-        .frame(height: 36)
+        .frame(height: HistoryWindowPanelMetrics.toolbarHeight)
     }
 
     private var topTrack: some View {

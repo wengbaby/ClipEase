@@ -3,8 +3,8 @@ import SwiftUI
 
 @MainActor
 final class HistoryWindowController: NSObject, NSWindowDelegate {
-    private let panelHeight: CGFloat = 360
-    private let panelAnimationDistance: CGFloat = 360
+    private let panelHeight: CGFloat = HistoryWindowPanelMetrics.height
+    private let panelAnimationDistance: CGFloat = HistoryWindowPanelMetrics.animationDistance
     private let panelAnimationDuration: TimeInterval = 0.14
     private let panelBackgroundColor = NSColor(red: 0.78, green: 0.82, blue: 0.92, alpha: 1.0)
     private let store: ClipboardHistoryStore

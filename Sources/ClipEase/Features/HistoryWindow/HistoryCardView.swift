@@ -67,7 +67,7 @@ struct HistoryCardView: View, Equatable {
 
             footerView
         }
-        .frame(width: 250, height: 270)
+        .frame(width: 250, height: HistoryWindowPanelMetrics.cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(alignment: .bottomTrailing) {
             if let shortcutNumber {
