@@ -296,7 +296,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         inputState.requestWindowHideCleanup()
         panel.hasShadow = false
         let targetFrame = hiddenFrame(for: frameForPanel())
-        if HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(shouldAnimate: shouldAnimate) {
+        if HistoryWindowLifecycleScheduler.shouldUseContentLayerCloseAnimation(shouldAnimate: shouldAnimate) {
             contentLayerAnimationGeneration &+= 1
             let animationGeneration = contentLayerAnimationGeneration
             lockHistoryContentSize(for: panel, size: panel.frame.size)

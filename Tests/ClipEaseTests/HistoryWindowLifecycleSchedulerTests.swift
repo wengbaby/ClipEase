@@ -206,6 +206,15 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerUsesPanelFrameAnimationForClose() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldUseContentLayerCloseAnimation(
+        shouldAnimate: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldUseContentLayerCloseAnimation(
+        shouldAnimate: false
+    ))
+}
+
 @Test func lifecycleSchedulerKeepsHiddenPanelAtTargetFrameForContentLayerAnimation() {
     #expect(HistoryWindowLifecycleScheduler.shouldKeepHiddenPanelAtTargetFrame(
         usesContentLayerAnimation: true

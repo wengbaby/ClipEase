@@ -87,6 +87,10 @@ enum HistoryWindowLifecycleScheduler {
         shouldAnimate
     }
 
+    static func shouldUseContentLayerCloseAnimation(shouldAnimate: Bool) -> Bool {
+        false
+    }
+
     static func shouldKeepHiddenPanelAtTargetFrame(
         usesContentLayerAnimation: Bool
     ) -> Bool {
