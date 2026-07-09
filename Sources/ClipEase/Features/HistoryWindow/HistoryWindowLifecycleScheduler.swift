@@ -103,7 +103,7 @@ enum HistoryWindowLifecycleScheduler {
     }
 
     static func shouldStartKeyboardEventTapBeforeOrdering(shouldAnimate: Bool) -> Bool {
-        true
+        false
     }
 
     static func shouldApplyHiddenFrame(

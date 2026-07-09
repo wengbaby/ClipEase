@@ -230,11 +230,11 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerStartsKeyboardTapBeforeWindowOrdering() {
-    #expect(HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
+@Test func lifecycleSchedulerDefersKeyboardTapStartUntilFinishShowing() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
         shouldAnimate: true
     ))
-    #expect(HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
+    #expect(!HistoryWindowLifecycleScheduler.shouldStartKeyboardEventTapBeforeOrdering(
         shouldAnimate: false
     ))
 }
