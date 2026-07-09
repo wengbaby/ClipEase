@@ -461,6 +461,15 @@ struct HistoryWindowView: View {
         }
         .onAppear {
             renderState.mark("swiftui-appear")
+            HistoryWindowLifecycleDiagnostics.record(
+                .openFirstFrame,
+                itemCount: store.items.count,
+                wasVisible: inputState.isWindowVisibleSnapshot,
+                shouldAnimate: false,
+                hasPendingFocus: focusState.pendingLatestFocusItemID != nil || focusState.pendingDefaultFocusOnShow,
+                visibleItemCount: renderedWindowItems.count,
+                previewItemCount: previewItemsState.allItems.count
+            )
             HistoryWindowInputState.currentForTextEditing = inputState
             restoreRememberedGroupSelection()
             HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)
@@ -4487,6 +4496,15 @@ struct HistoryWindowView: View {
             )
             scheduleSearchUpdate(sourceItems: previewItemsState.allItems, immediate: true)
             convergeLatestClipboardFocusIfNeeded()
+            HistoryWindowLifecycleDiagnostics.record(
+                .openPreviewReady,
+                itemCount: store.items.count,
+                wasVisible: inputState.isWindowVisibleSnapshot,
+                shouldAnimate: false,
+                hasPendingFocus: focusState.pendingLatestFocusItemID != nil || focusState.pendingDefaultFocusOnShow,
+                visibleItemCount: renderedWindowItems.count,
+                previewItemCount: previewItemsState.allItems.count
+            )
             return
         }
 
@@ -4508,6 +4526,15 @@ struct HistoryWindowView: View {
             )
             scheduleSearchUpdate(sourceItems: previewItemsState.allItems, immediate: true)
             convergeLatestClipboardFocusIfNeeded()
+            HistoryWindowLifecycleDiagnostics.record(
+                .openPreviewReady,
+                itemCount: store.items.count,
+                wasVisible: inputState.isWindowVisibleSnapshot,
+                shouldAnimate: false,
+                hasPendingFocus: focusState.pendingLatestFocusItemID != nil || focusState.pendingDefaultFocusOnShow,
+                visibleItemCount: renderedWindowItems.count,
+                previewItemCount: previewItemsState.allItems.count
+            )
             return
         }
 
@@ -4624,6 +4651,15 @@ struct HistoryWindowView: View {
                     ]
                 )
                 renderState.mark("preview-items-ready count=\(previewItemsForSearch.count)")
+                HistoryWindowLifecycleDiagnostics.record(
+                    .openPreviewReady,
+                    itemCount: sourceItems.count,
+                    wasVisible: inputState.isWindowVisibleSnapshot,
+                    shouldAnimate: shouldAnimateRebuild,
+                    hasPendingFocus: focusState.pendingLatestFocusItemID != nil || focusState.pendingDefaultFocusOnShow,
+                    visibleItemCount: renderedWindowItems.count,
+                    previewItemCount: previewItemsForSearch.count
+                )
 
                 scheduleSearchUpdate(sourceItems: previewItemsForSearch, immediate: true)
                 if focusState.pendingLatestFocusItemID == nil,

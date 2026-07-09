@@ -36,6 +36,37 @@ import Testing
     #expect(text.range(of: "phase=filter")!.lowerBound < text.range(of: "query=abc")!.lowerBound)
 }
 
+@Test func settingsDiagnosticsDetailTextDisplaysHistoryWindowLifecycleMetadata() {
+    let event = PerformanceDiagnosticEvent(
+        name: HistoryWindowLifecycleDiagnostics.Event.openPreviewReady.name,
+        category: HistoryWindowLifecycleDiagnostics.category,
+        durationMS: 0,
+        itemCount: 42,
+        resultCount: 30,
+        metadata: HistoryWindowLifecycleDiagnostics.metadata(
+            itemCount: 42,
+            wasVisible: false,
+            shouldAnimate: true,
+            hasPendingFocus: true,
+            visibleItemCount: 12,
+            previewItemCount: 30
+        ),
+        isMainThread: true
+    )
+
+    let text = SettingsDiagnosticsViewModel.detailText(for: event)
+
+    #expect(text.contains("history"))
+    #expect(text.contains("main"))
+    #expect(text.contains("items=42"))
+    #expect(text.contains("results=30"))
+    #expect(text.contains("hasPendingFocus=true"))
+    #expect(text.contains("previewItemCount=30"))
+    #expect(text.contains("shouldAnimate=true"))
+    #expect(text.contains("visibleItemCount=12"))
+    #expect(text.contains("wasVisible=false"))
+}
+
 @Test func settingsDiagnosticsViewModelLimitsSlowAndRecentEvents() {
     let events = (0..<45).map { index in
         PerformanceDiagnosticEvent(

@@ -87,7 +87,16 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         lastKnownPanelFrame = targetFrame
         GlobalStatusToastController.shared.updateHistoryWindowFrame(targetFrame, screen: panel.screen ?? NSScreen.clipeaseScreenContainingMouse ?? NSScreen.main)
         appMenuController.setStatusToastAnchorWindow(panel)
-        let shouldAnimate = !panel.isVisible
+        let wasVisible = panel.isVisible
+        let shouldAnimate = !wasVisible
+        let hasPendingFocus = store.latestItemFocusRequest != nil
+        HistoryWindowLifecycleDiagnostics.record(
+            .openRequest,
+            itemCount: store.items.count,
+            wasVisible: wasVisible,
+            shouldAnimate: shouldAnimate,
+            hasPendingFocus: hasPendingFocus
+        )
 
         panel.hasShadow = false
         panel.alphaValue = 1
@@ -102,6 +111,13 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         panel.makeKey()
         renderState.mark("panel-ordered")
+        HistoryWindowLifecycleDiagnostics.record(
+            .openOrdered,
+            itemCount: store.items.count,
+            wasVisible: wasVisible,
+            shouldAnimate: shouldAnimate,
+            hasPendingFocus: hasPendingFocus
+        )
         let latestFocusRequest = store.consumeLatestItemFocusRequest()
         if let latestFocusRequest {
             inputState.requestItemFocus(
@@ -114,6 +130,13 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(true)
+        HistoryWindowLifecycleDiagnostics.record(
+            .openPresented,
+            itemCount: store.items.count,
+            wasVisible: wasVisible,
+            shouldAnimate: shouldAnimate,
+            hasPendingFocus: latestFocusRequest != nil
+        )
         if latestFocusRequest == nil,
            !HistoryScrollCoordinator.shared.hasPendingExplicitOffset {
             inputState.requestDefaultFocus(resetToFirst: shouldAnimate)
@@ -141,6 +164,15 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func close() {
+        let wasVisible = panel?.isVisible == true
+        let shouldAnimate = wasVisible && !isClosing
+        HistoryWindowLifecycleDiagnostics.record(
+            .closeRequest,
+            itemCount: store.items.count,
+            wasVisible: wasVisible,
+            shouldAnimate: shouldAnimate,
+            hasPendingFocus: false
+        )
         guard let panel,
               panel.isVisible,
               !isClosing else {
@@ -150,6 +182,13 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             closePreview()
             panel?.orderOut(nil)
             panel?.hasShadow = false
+            HistoryWindowLifecycleDiagnostics.record(
+                .closeCleanupComplete,
+                itemCount: store.items.count,
+                wasVisible: wasVisible,
+                shouldAnimate: false,
+                hasPendingFocus: false
+            )
             return
         }
 
@@ -163,6 +202,13 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             panel.animator().setFrame(targetFrame, display: false)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
+                HistoryWindowLifecycleDiagnostics.record(
+                    .closeAnimationComplete,
+                    itemCount: self?.store.items.count,
+                    wasVisible: true,
+                    shouldAnimate: true,
+                    hasPendingFocus: false
+                )
                 self?.inputState.notifyWindowWillHide()
                 self?.keyboardEventTap.stop()
                 self?.removeOutsideClickMonitor()
@@ -172,6 +218,13 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 panel?.hasShadow = false
                 self?.store.setOCRInteractiveThrottleActive(false)
                 self?.isClosing = false
+                HistoryWindowLifecycleDiagnostics.record(
+                    .closeCleanupComplete,
+                    itemCount: self?.store.items.count,
+                    wasVisible: true,
+                    shouldAnimate: true,
+                    hasPendingFocus: false
+                )
             }
         }
     }
