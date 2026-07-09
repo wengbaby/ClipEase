@@ -158,7 +158,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             renderState.mark("keyboard-tap-ready-before-order")
         }
         panel.orderFrontRegardless()
-        normalizeVisibleFrameIfNeeded(panel, targetFrame: targetFrame)
         if HistoryWindowLifecycleScheduler.shouldMakeKeyBeforeAnimation(shouldAnimate: shouldAnimate) {
             panel.makeKey()
         }
@@ -604,19 +603,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         renderState.mark("panel-frame-applying")
         panel.setFrame(hiddenFrame, display: false)
         renderState.mark("panel-frame-applied")
-    }
-
-    private func normalizeVisibleFrameIfNeeded(_ panel: NSPanel, targetFrame: NSRect) {
-        let normalizedFrame = HistoryWindowHiddenFrameNormalizer.normalizedFrame(
-            currentFrame: panel.frame,
-            targetFrame: targetFrame
-        )
-        guard normalizedFrame != panel.frame else {
-            return
-        }
-
-        panel.setFrame(normalizedFrame, display: false)
-        renderState.mark("visible-frame-normalized")
     }
 
     private func lockHistoryContentSize(for panel: NSPanel?, size: NSSize) {
