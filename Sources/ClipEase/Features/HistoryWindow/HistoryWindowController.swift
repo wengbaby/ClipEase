@@ -158,7 +158,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             renderState.mark("keyboard-tap-ready-before-order")
         }
         panel.orderFrontRegardless()
-        scheduleVisibleFrameNormalization(for: panel, targetFrame: targetFrame)
+        normalizeVisibleFrameIfNeeded(panel, targetFrame: targetFrame)
         if HistoryWindowLifecycleScheduler.shouldMakeKeyBeforeAnimation(shouldAnimate: shouldAnimate) {
             panel.makeKey()
         }
@@ -202,7 +202,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 }
 
                 self.resetHistoryContentLayerAnimationState(for: panel)
-                self.scheduleVisibleFrameNormalization(for: panel, targetFrame: targetFrame)
                 panel.hasShadow = false
                 panel.makeKey()
                 self.renderState.mark("open-animation-complete")
@@ -232,9 +231,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 self?.setHistoryContentRasterization(false, for: panel)
                 guard panel?.isVisible == true else {
                     return
-                }
-                if let panel {
-                    self?.scheduleVisibleFrameNormalization(for: panel, targetFrame: targetFrame)
                 }
                 panel?.hasShadow = false
                 panel?.makeKey()
@@ -608,32 +604,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         renderState.mark("panel-frame-applying")
         panel.setFrame(hiddenFrame, display: false)
         renderState.mark("panel-frame-applied")
-    }
-
-    private func scheduleVisibleFrameNormalization(for panel: NSPanel, targetFrame: NSRect) {
-        normalizeVisibleFrameIfNeeded(panel, targetFrame: targetFrame)
-        Task { @MainActor [weak self, weak panel] in
-            try? await Task.sleep(nanoseconds: 16_000_000)
-            guard let self,
-                  let panel,
-                  panel.isVisible,
-                  self.lastKnownPanelFrame == targetFrame else {
-                return
-            }
-
-            self.normalizeVisibleFrameIfNeeded(panel, targetFrame: targetFrame)
-        }
-        Task { @MainActor [weak self, weak panel] in
-            try? await Task.sleep(nanoseconds: 220_000_000)
-            guard let self,
-                  let panel,
-                  panel.isVisible,
-                  self.lastKnownPanelFrame == targetFrame else {
-                return
-            }
-
-            self.normalizeVisibleFrameIfNeeded(panel, targetFrame: targetFrame)
-        }
     }
 
     private func normalizeVisibleFrameIfNeeded(_ panel: NSPanel, targetFrame: NSRect) {
