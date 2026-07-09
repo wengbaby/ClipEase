@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import ClipEase
 
@@ -19,4 +20,25 @@ import Testing
 
     #expect(panel.contentMinSize == expectedContentSize)
     #expect(panel.contentMaxSize == expectedContentSize)
+}
+
+@MainActor
+@Test func historyWindowPanelSizeLockDoesNotGrowPanelFrameHeight() {
+    let panel = NSPanel(
+        contentRect: .zero,
+        styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+        backing: .buffered,
+        defer: false
+    )
+    let frame = NSRect(x: 0, y: 0, width: 1440, height: 360)
+    panel.contentView = HistoryWindowHostingView(rootView: Color.clear)
+
+    HistoryWindowPanelSizeLock.apply(to: panel, frameSize: frame.size)
+    (panel.contentView as? HistoryWindowHostingView<Color>)?.lockContentSize(frame.size)
+    panel.setFrame(frame, display: false)
+    panel.orderFrontRegardless()
+    panel.layoutIfNeeded()
+    panel.orderOut(nil)
+
+    #expect(panel.frame.size == frame.size)
 }
