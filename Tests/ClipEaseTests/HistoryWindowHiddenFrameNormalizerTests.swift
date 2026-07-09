@@ -23,3 +23,15 @@ import Testing
 
     #expect(normalized == frame)
 }
+
+@Test func frameNormalizerRestoresVisibleTargetHeightDrift() {
+    let currentFrame = NSRect(x: 0, y: 0, width: 3840, height: 404)
+    let targetFrame = NSRect(x: 0, y: 0, width: 3840, height: 360)
+
+    let normalized = HistoryWindowHiddenFrameNormalizer.normalizedFrame(
+        currentFrame: currentFrame,
+        targetFrame: targetFrame
+    )
+
+    #expect(normalized == targetFrame)
+}

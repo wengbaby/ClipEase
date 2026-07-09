@@ -13,4 +13,12 @@ enum HistoryWindowHiddenFrameNormalizer {
             height: targetHeight
         )
     }
+
+    static func normalizedFrame(currentFrame: CGRect, targetFrame: CGRect) -> CGRect {
+        guard currentFrame != targetFrame else {
+            return currentFrame
+        }
+
+        return targetFrame
+    }
 }
