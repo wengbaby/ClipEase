@@ -113,10 +113,11 @@ show.
 
 Window open/close slide animations should prefer a fixed panel frame with a
 temporary content-layer transform over animating the whole `NSPanel` frame.
-The hosting content layer should be rasterized during the transform and reset
-immediately after the animation or hide cleanup. This keeps the visible UI
-identical while avoiding repeated SwiftUI/layer recomposition and WindowServer
-work during panel movement.
+Do not rasterize the hosting content layer during this transform unless new
+diagnostics prove it is cheaper: enabling rasterization has been observed to add
+more than a frame of main-thread preparation before the panel is ordered. This
+keeps the visible UI identical while avoiding repeated WindowServer work during
+panel movement.
 
 Content-layer transform preparation may be the animated path only when the
 panel frame is pinned to the final target frame before ordering, the hosting

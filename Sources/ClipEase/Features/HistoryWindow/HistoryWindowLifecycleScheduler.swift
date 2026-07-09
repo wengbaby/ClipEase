@@ -6,7 +6,7 @@ enum HistoryWindowLifecycleScheduler {
     static let launchAccessibilityPromptDelayNanoseconds: UInt64 = 700_000_000
     static let presentedStartupDelayNanoseconds: UInt64 = 48_000_000
     static let animatedOpenStartupDelayNanoseconds: UInt64 = 180_000_000
-    static let animatedOpenPresentationRecoveryDelayNanoseconds: UInt64 = 16_000_000
+    static let animatedOpenPresentationRecoveryDelayNanoseconds: UInt64 = 0
 
     static func startupDelayNanoseconds(
         requestedDelayNanoseconds: UInt64,
@@ -66,7 +66,7 @@ enum HistoryWindowLifecycleScheduler {
     }
 
     static func shouldRasterizeContentDuringWindowAnimation(shouldAnimate: Bool) -> Bool {
-        shouldAnimate
+        false
     }
 
     static func shouldUpdateContentRasterization(

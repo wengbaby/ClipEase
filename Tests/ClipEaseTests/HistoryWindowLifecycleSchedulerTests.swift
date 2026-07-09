@@ -116,7 +116,7 @@ import Testing
 @Test func lifecycleSchedulerDefersPresentationRecoveryAfterAnimatedOpenCompletion() {
     #expect(HistoryWindowLifecycleScheduler.presentationRecoveryDelayNanoseconds(
         shouldAnimate: true
-    ) == 16_000_000)
+    ) == 0)
     #expect(HistoryWindowLifecycleScheduler.presentationRecoveryDelayNanoseconds(
         shouldAnimate: false
     ) == 0)
@@ -158,8 +158,8 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerRasterizesContentDuringTranslatedWindowAnimation() {
-    #expect(HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
+@Test func lifecycleSchedulerAvoidsRasterizingTranslatedWindowAnimationPreparation() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
         shouldAnimate: true
     ))
     #expect(!HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
