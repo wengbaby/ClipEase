@@ -113,6 +113,17 @@ immediately after the animation or hide cleanup. This keeps the visible UI
 identical while avoiding repeated SwiftUI/layer recomposition and WindowServer
 work during panel movement.
 
+Do not enable content-layer transform preparation as the default path unless a
+visual regression test or manual acceptance proves the layout is unchanged.
+`HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation` is currently
+expected to return `false` for animated opens because the translated content
+layer path changed the perceived top/bottom spacing: cards could appear flush
+with the screen edge and the top gap could grow. If the translated path is
+reintroduced, clipping/transparent-background preparation must be gated behind
+`shouldApplyContentLayerTransformPreparation(initialTranslationY:)` and covered
+by a regression test that proves the normal frame-animation path does not set
+content-layer clipping or transparent panel state.
+
 Launch hidden preload should only prepare the reusable window shell and must not
 start preview warming. Preview warming from a hidden window is allowed after a
 real hide when the cache is stale, but launch-time hidden rebuilds can overlap a
