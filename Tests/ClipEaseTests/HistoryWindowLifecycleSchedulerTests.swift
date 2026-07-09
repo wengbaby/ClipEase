@@ -11,7 +11,14 @@ import Testing
 }
 
 @Test func lifecycleSchedulerDefersPresentedStartupWorkOffPresentationCallback() {
-    #expect(HistoryWindowLifecycleScheduler.presentedStartupDelayNanoseconds == 32_000_000)
+    #expect(HistoryWindowLifecycleScheduler.presentedStartupDelayNanoseconds == 96_000_000)
+}
+
+@Test func lifecycleSchedulerRunsPresentedStartupAfterPresentationRecoveryBuffer() {
+    #expect(
+        HistoryWindowLifecycleScheduler.presentedStartupDelayNanoseconds >=
+            HistoryWindowLifecycleScheduler.animatedOpenPresentationRecoveryDelayNanoseconds + 32_000_000
+    )
 }
 
 @Test func lifecycleSchedulerDefersStartupPastAnimatedOpenBudget() {
@@ -104,6 +111,15 @@ import Testing
     #expect(HistoryWindowLifecycleScheduler.shouldApplyPresentationStateBeforeAnimation(
         shouldAnimate: false
     ))
+}
+
+@Test func lifecycleSchedulerDefersPresentationRecoveryAfterAnimatedOpenCompletion() {
+    #expect(HistoryWindowLifecycleScheduler.presentationRecoveryDelayNanoseconds(
+        shouldAnimate: true
+    ) == 48_000_000)
+    #expect(HistoryWindowLifecycleScheduler.presentationRecoveryDelayNanoseconds(
+        shouldAnimate: false
+    ) == 0)
 }
 
 @Test func lifecycleSchedulerSkipsLaunchPreloadWhenPanelAlreadyExistsOrOpening() {

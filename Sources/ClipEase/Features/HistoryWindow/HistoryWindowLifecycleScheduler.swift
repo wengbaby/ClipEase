@@ -4,8 +4,9 @@ import CoreGraphics
 enum HistoryWindowLifecycleScheduler {
     static let launchPreloadDelayNanoseconds: UInt64 = 0
     static let launchAccessibilityPromptDelayNanoseconds: UInt64 = 700_000_000
-    static let presentedStartupDelayNanoseconds: UInt64 = 32_000_000
+    static let presentedStartupDelayNanoseconds: UInt64 = 96_000_000
     static let animatedOpenStartupDelayNanoseconds: UInt64 = 180_000_000
+    static let animatedOpenPresentationRecoveryDelayNanoseconds: UInt64 = 48_000_000
 
     static func startupDelayNanoseconds(
         requestedDelayNanoseconds: UInt64,
@@ -42,6 +43,10 @@ enum HistoryWindowLifecycleScheduler {
 
     static func shouldApplyPresentationStateBeforeAnimation(shouldAnimate: Bool) -> Bool {
         !shouldAnimate
+    }
+
+    static func presentationRecoveryDelayNanoseconds(shouldAnimate: Bool) -> UInt64 {
+        shouldAnimate ? animatedOpenPresentationRecoveryDelayNanoseconds : 0
     }
 
     static func shouldRunLaunchPreload(

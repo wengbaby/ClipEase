@@ -24,6 +24,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private var isClosing = false
     private weak var previousFrontmostApplication: NSRunningApplication?
     private var lastKnownPanelFrame: NSRect?
+    private var presentationRecoveryTask: Task<Void, Never>?
 
     init(
         store: ClipboardHistoryStore,
@@ -88,6 +89,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         captureFrontmostApplicationIfNeeded()
+        presentationRecoveryTask?.cancel()
+        presentationRecoveryTask = nil
         let panel = panel ?? makePanel()
         self.panel = panel
         isClosing = false
@@ -176,6 +179,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func close() {
+        presentationRecoveryTask?.cancel()
+        presentationRecoveryTask = nil
         let wasVisible = panel?.isVisible == true
         let shouldAnimate = wasVisible && !isClosing
         inputState.setOpenAnimationActive(false)
@@ -246,6 +251,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func hideImmediatelyForAutoPaste() {
+        presentationRecoveryTask?.cancel()
+        presentationRecoveryTask = nil
         inputState.setOpenAnimationActive(false)
         inputState.notifyWindowWillHide()
         keyboardEventTap.suspend()
@@ -274,16 +281,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         shouldAnimate: Bool
     ) {
         renderState.mark("presentation-state-start")
-        if let latestFocusRequest {
-            inputState.requestItemFocus(
-                latestFocusRequest.itemID,
-                resetToAll: true,
-                reason: latestFocusRequest.reason
-            )
-        } else if !hadPendingExplicitOffset {
-            HistoryScrollCoordinator.shared.restoreSavedOffset()
-        }
-        renderState.mark("presentation-scroll-restored")
         inputState.setWindowVisible(true)
         renderState.mark("presentation-window-visible")
         inputState.setWindowPresented(true)
@@ -296,11 +293,71 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             shouldAnimate: shouldAnimate,
             hasPendingFocus: latestFocusRequest != nil
         )
+        store.setOCRInteractiveThrottleActive(true)
+        schedulePresentationRecovery(
+            latestFocusRequest: latestFocusRequest,
+            hadPendingExplicitOffset: hadPendingExplicitOffset,
+            shouldAnimate: shouldAnimate
+        )
+    }
+
+    private func schedulePresentationRecovery(
+        latestFocusRequest: ClipboardItemFocusRequest?,
+        hadPendingExplicitOffset: Bool,
+        shouldAnimate: Bool
+    ) {
+        let delayNanoseconds = HistoryWindowLifecycleScheduler.presentationRecoveryDelayNanoseconds(
+            shouldAnimate: shouldAnimate
+        )
+
+        guard delayNanoseconds > 0 else {
+            applyPresentationRecovery(
+                latestFocusRequest: latestFocusRequest,
+                hadPendingExplicitOffset: hadPendingExplicitOffset,
+                shouldAnimate: shouldAnimate
+            )
+            return
+        }
+
+        presentationRecoveryTask?.cancel()
+        presentationRecoveryTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
+            guard !Task.isCancelled,
+                  inputState.isWindowVisibleSnapshot,
+                  inputState.isWindowPresentedSnapshot else {
+                return
+            }
+
+            applyPresentationRecovery(
+                latestFocusRequest: latestFocusRequest,
+                hadPendingExplicitOffset: hadPendingExplicitOffset,
+                shouldAnimate: shouldAnimate
+            )
+            presentationRecoveryTask = nil
+        }
+    }
+
+    private func applyPresentationRecovery(
+        latestFocusRequest: ClipboardItemFocusRequest?,
+        hadPendingExplicitOffset: Bool,
+        shouldAnimate: Bool
+    ) {
+        renderState.mark("presentation-recovery-start")
+        if let latestFocusRequest {
+            inputState.requestItemFocus(
+                latestFocusRequest.itemID,
+                resetToAll: true,
+                reason: latestFocusRequest.reason
+            )
+        } else if !hadPendingExplicitOffset {
+            HistoryScrollCoordinator.shared.restoreSavedOffset()
+        }
+        renderState.mark("presentation-scroll-restored")
         if latestFocusRequest == nil,
            !hadPendingExplicitOffset {
             inputState.requestDefaultFocus(resetToFirst: shouldAnimate)
         }
-        store.setOCRInteractiveThrottleActive(true)
+        renderState.mark("presentation-recovery-complete")
     }
 
     private func makePanel() -> HistoryPanel {

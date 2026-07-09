@@ -99,6 +99,13 @@ budget has passed. Presented-state notifications should enqueue deferred
 startup work instead of synchronously rebuilding preview/search state inside the
 notification callback.
 
+Animated opens must separate presentation recovery from deferred startup work.
+After the panel animation completes, window-visible/window-presented state may be
+published, but remembered viewport restoration and focus handoff run after a
+short presentation-recovery buffer. Preview rebuild, search refresh, and
+accessibility refresh must start after that recovery buffer so they do not
+compete with the final visible frame.
+
 Launch hidden preload should only prepare the reusable window shell and must not
 start preview warming. Preview warming from a hidden window is allowed after a
 real hide when the cache is stale, but launch-time hidden rebuilds can overlap a
