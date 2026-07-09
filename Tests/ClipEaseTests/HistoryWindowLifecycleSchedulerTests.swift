@@ -134,15 +134,73 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerInvalidatesPreviewGenerationForHideCleanup() {
-    let nextGeneration = HistoryWindowLifecycleScheduler.previewGenerationAfterHideCleanup(
-        currentGeneration: 9
-    )
+@Test func lifecycleSchedulerTreatsOffscreenOriginAlignedTallerHiddenFrameAsReusable() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
+        currentFrame: CGRect(x: 0, y: -360, width: 1440, height: 404),
+        targetFrame: CGRect(x: 0, y: -360, width: 1440, height: 360)
+    ))
+}
 
-    #expect(nextGeneration == 10)
+@Test func lifecycleSchedulerKeepsPreviewBuildRunningDuringHideCleanup() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldCancelPreviewBuildForHide(
+        hasPendingPreviewBuild: true
+    ))
+    #expect(HistoryWindowLifecycleScheduler.previewGenerationAfterHideCleanup(
+        currentGeneration: 9,
+        hasPendingPreviewBuild: true
+    ) == 9)
+}
+
+@Test func lifecycleSchedulerWarmsPreviewAfterHideWhenPreviewStateIsStale() {
+    #expect(HistoryWindowLifecycleScheduler.shouldWarmPreviewAfterHide(
+        hasSourceItems: true,
+        canSkipPreviewRebuild: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldWarmPreviewAfterHide(
+        hasSourceItems: true,
+        canSkipPreviewRebuild: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldWarmPreviewAfterHide(
+        hasSourceItems: false,
+        canSkipPreviewRebuild: false
+    ))
+}
+
+@Test func lifecycleSchedulerWarmsPreviewForPreloadedHiddenWindowOnlyWhenStale() {
+    #expect(HistoryWindowLifecycleScheduler.shouldWarmPreviewForPreloadedHiddenWindow(
+        isWindowVisible: true,
+        isWindowPresented: false,
+        isOpenAnimationActive: false,
+        hasSourceItems: true,
+        canSkipPreviewRebuild: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldWarmPreviewForPreloadedHiddenWindow(
+        isWindowVisible: true,
+        isWindowPresented: true,
+        isOpenAnimationActive: false,
+        hasSourceItems: true,
+        canSkipPreviewRebuild: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldWarmPreviewForPreloadedHiddenWindow(
+        isWindowVisible: true,
+        isWindowPresented: false,
+        isOpenAnimationActive: true,
+        hasSourceItems: true,
+        canSkipPreviewRebuild: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldWarmPreviewForPreloadedHiddenWindow(
+        isWindowVisible: true,
+        isWindowPresented: false,
+        isOpenAnimationActive: false,
+        hasSourceItems: true,
+        canSkipPreviewRebuild: true
+    ))
+}
+
+@Test func previewBuildCoordinatorRejectsExplicitlyCanceledTask() {
     #expect(!HistoryPreviewBuildCoordinator.shouldApplyResult(
-        isTaskCancelled: false,
+        isTaskCancelled: true,
         generation: 9,
-        currentGeneration: nextGeneration
+        currentGeneration: 9
     ))
 }

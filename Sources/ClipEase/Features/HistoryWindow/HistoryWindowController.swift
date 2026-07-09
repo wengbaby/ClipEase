@@ -116,6 +116,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
         } else {
             panel.disableScreenUpdatesUntilFlush()
+            lockHistoryContentSize(for: panel, size: targetFrame.size)
             panel.setFrame(targetFrame, display: true)
         }
         renderState.mark("panel-frame-ready")
@@ -158,6 +159,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 }
                 panel?.hasShadow = false
                 panel?.makeKey()
+                self?.renderState.mark("open-animation-complete")
                 self?.finishShowingWindow()
                 self?.applyOpenPresentationState(
                     latestFocusRequest: latestFocusRequest,
@@ -202,7 +204,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         isClosing = true
         inputState.requestWindowHideCleanup()
         panel.hasShadow = false
-        let targetFrame = hiddenFrame(for: panel.frame)
+        let targetFrame = hiddenFrame(for: frameForPanel())
+        lockHistoryContentSize(for: panel, size: targetFrame.size)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = panelAnimationDuration
             context.timingFunction = CAMediaTimingFunction(name: .linear)
@@ -220,6 +223,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 self?.keyboardEventTap.stop()
                 self?.removeOutsideClickMonitor()
                 self?.closePreview()
+                self?.lockHistoryContentSize(for: panel, size: targetFrame.size)
                 panel?.setFrame(targetFrame, display: false)
                 panel?.orderOut(nil)
                 panel?.alphaValue = 1
@@ -272,6 +276,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(true)
+        renderState.mark("open-presented")
         HistoryWindowLifecycleDiagnostics.record(
             .openPresented,
             itemCount: store.items.count,
@@ -364,7 +369,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             self?.inputState.setPreviewKeyWindowActive(isKey)
         }
 
-        let hostingView = NSHostingView(rootView: contentView)
+        let hostingView = HistoryWindowHostingView(rootView: contentView)
+        hostingView.autoresizingMask = [.width, .height]
         hostingView.focusRingType = .none
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = panelBackgroundColor.cgColor
@@ -392,6 +398,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func applyHiddenFrameIfNeeded(to panel: NSPanel, targetFrame: NSRect) {
         let hiddenFrame = hiddenFrame(for: targetFrame)
+        lockHistoryContentSize(for: panel, size: hiddenFrame.size)
         guard HistoryWindowLifecycleScheduler.shouldApplyHiddenFrame(
             currentFrame: panel.frame,
             targetFrame: hiddenFrame
@@ -403,6 +410,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         renderState.mark("panel-frame-applying")
         panel.setFrame(hiddenFrame, display: false)
         renderState.mark("panel-frame-applied")
+    }
+
+    private func lockHistoryContentSize(for panel: NSPanel?, size: NSSize) {
+        HistoryWindowPanelSizeLock.apply(to: panel, frameSize: size)
+        (panel?.contentView as? HistoryWindowHostingView<HistoryWindowView>)?.lockContentSize(size)
     }
 
     func pasteTargetApplication() -> NSRunningApplication? {

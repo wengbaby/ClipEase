@@ -817,11 +817,14 @@ import Testing
 @Test @MainActor func windowHideCleanupCanBeRequestedBeforeWindowVisibilityChanges() {
     let inputState = HistoryWindowInputState()
     inputState.setWindowVisible(true)
+    inputState.setWindowPresented(true)
     let originalRequestID = inputState.windowHideRequestID
 
     inputState.requestWindowHideCleanup()
 
     #expect(inputState.isWindowVisible)
+    #expect(!inputState.isWindowPresented)
+    #expect(!inputState.isWindowPresentedSnapshot)
     #expect(inputState.windowHideRequestID != originalRequestID)
 }
 

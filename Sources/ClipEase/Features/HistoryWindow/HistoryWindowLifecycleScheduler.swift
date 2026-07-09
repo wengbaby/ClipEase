@@ -63,13 +63,52 @@ enum HistoryWindowLifecycleScheduler {
             return false
         }
 
+        let isOriginAlignedTallerOffscreenFrame = hasMatchingHorizontalFrame &&
+            abs(currentFrame.minY - targetFrame.minY) <= tolerance &&
+            currentFrame.height >= targetFrame.height
+        if isOriginAlignedTallerOffscreenFrame {
+            return false
+        }
+
         return abs(currentFrame.minX - targetFrame.minX) > tolerance ||
             abs(currentFrame.minY - targetFrame.minY) > tolerance ||
             abs(currentFrame.width - targetFrame.width) > tolerance ||
             abs(currentFrame.height - targetFrame.height) > tolerance
     }
 
-    static func previewGenerationAfterHideCleanup(currentGeneration: UInt64) -> UInt64 {
-        currentGeneration &+ 1
+    static func shouldCancelPreviewBuildForHide(hasPendingPreviewBuild: Bool) -> Bool {
+        false
+    }
+
+    static func shouldWarmPreviewAfterHide(
+        hasSourceItems: Bool,
+        canSkipPreviewRebuild: Bool
+    ) -> Bool {
+        hasSourceItems && !canSkipPreviewRebuild
+    }
+
+    static func shouldWarmPreviewForPreloadedHiddenWindow(
+        isWindowVisible: Bool,
+        isWindowPresented: Bool,
+        isOpenAnimationActive: Bool,
+        hasSourceItems: Bool,
+        canSkipPreviewRebuild: Bool
+    ) -> Bool {
+        isWindowVisible &&
+            !isWindowPresented &&
+            !isOpenAnimationActive &&
+            hasSourceItems &&
+            !canSkipPreviewRebuild
+    }
+
+    static func previewGenerationAfterHideCleanup(
+        currentGeneration: UInt64,
+        hasPendingPreviewBuild: Bool = false
+    ) -> UInt64 {
+        guard shouldCancelPreviewBuildForHide(hasPendingPreviewBuild: hasPendingPreviewBuild) else {
+            return currentGeneration
+        }
+
+        return currentGeneration &+ 1
     }
 }

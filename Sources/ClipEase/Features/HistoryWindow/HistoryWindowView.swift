@@ -69,6 +69,7 @@ struct HistoryWindowView: View {
     private let previewItemCacheRetainedItemCount = 20
     private let searchResultPageSize = 50
     private let hiddenResourceCheckpointMinimumInterval: CFTimeInterval = 10
+    private let hiddenHistoryPanelHeight: CGFloat = 360
     private let latestInsertedCardLeadingInset: CGFloat = 28
 
     private var selectedItemID: HistoryPreviewItem.ID? {
@@ -487,6 +488,7 @@ struct HistoryWindowView: View {
                 focusRequestedLatestItem(request)
             }
             focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
+            warmPreviewItemsForPreloadedHiddenWindowIfNeeded()
             scheduleDeferredStartupWork()
         }
         .onDisappear {
@@ -520,9 +522,20 @@ struct HistoryWindowView: View {
                 syncLatestItemFocusIfNeeded(sourceItems: store.items)
                 restoreRememberedViewportIfNeeded()
                 rebuildPreviewItemsIfNeededForVisibleWindow()
+                warmPreviewItemsForPreloadedHiddenWindowIfNeeded()
             } else {
                 noteHistoryWindowHidden()
             }
+        }
+        .onChange(of: inputState.isWindowPresented) { isPresented in
+            guard isPresented else {
+                return
+            }
+
+            if !store.items.isEmpty {
+                schedulePreviewItemsRebuild(from: store.items)
+            }
+            refreshAccessibilityStateAfterFirstFrame()
         }
         .onChange(of: store.groups) { _ in
             refreshMoveToGroupMenuSnapshot()
@@ -2113,17 +2126,29 @@ struct HistoryWindowView: View {
     }
 
     private func noteHistoryWindowHidden() {
+        let sourceItems = store.items
+        let sourceGeneration = store.itemsMutationGeneration
         PerformanceDiagnosticsService.shared.record(
             "history.hidden.keepWarm",
             category: "history",
             durationMS: 0,
-            itemCount: store.items.count,
+            itemCount: sourceItems.count,
             resultCount: previewItemsState.allItems.count,
             metadata: [
                 "reason": "window.hidden",
                 "cacheStored": "\(previewItemsState.previewItemCache.count)"
             ]
         )
+        if HistoryWindowLifecycleScheduler.shouldWarmPreviewAfterHide(
+            hasSourceItems: !sourceItems.isEmpty,
+            canSkipPreviewRebuild: canSkipPreviewRebuild(
+                sourceItems: sourceItems,
+                sourceGeneration: sourceGeneration
+            )
+        ) {
+            schedulePreviewItemsRebuild(from: sourceItems)
+        }
+
         let now = CFAbsoluteTimeGetCurrent()
         if now - lastHiddenResourceCheckpointAt >= hiddenResourceCheckpointMinimumInterval {
             lastHiddenResourceCheckpointAt = now
@@ -2139,6 +2164,40 @@ struct HistoryWindowView: View {
                 hiddenResourceCheckpointTask = nil
             }
         }
+    }
+
+    private func warmPreviewItemsForPreloadedHiddenWindowIfNeeded() {
+        guard previewBuildTask == nil else {
+            return
+        }
+
+        let sourceItems = store.items
+        let sourceGeneration = store.itemsMutationGeneration
+        guard HistoryWindowLifecycleScheduler.shouldWarmPreviewForPreloadedHiddenWindow(
+            isWindowVisible: inputState.isWindowVisibleSnapshot,
+            isWindowPresented: inputState.isWindowPresentedSnapshot,
+            isOpenAnimationActive: inputState.isOpenAnimationActiveSnapshot,
+            hasSourceItems: !sourceItems.isEmpty,
+            canSkipPreviewRebuild: canSkipPreviewRebuild(
+                sourceItems: sourceItems,
+                sourceGeneration: sourceGeneration
+            )
+        ) else {
+            return
+        }
+
+        PerformanceDiagnosticsService.shared.record(
+            "history.preload.previewWarm",
+            category: "history",
+            durationMS: 0,
+            itemCount: sourceItems.count,
+            resultCount: previewItemsState.allItems.count,
+            metadata: [
+                "reason": "preloaded.hidden",
+                "cacheStored": "\(previewItemsState.previewItemCache.count)"
+            ]
+        )
+        schedulePreviewItemsRebuild(from: sourceItems)
     }
 
     private func rebuildPreviewItemsIfNeededForVisibleWindow() {
@@ -2159,10 +2218,17 @@ struct HistoryWindowView: View {
     private func cancelPresentationWorkForHide() {
         deferredStartupTask?.cancel()
         deferredStartupTask = nil
+        guard HistoryWindowLifecycleScheduler.shouldCancelPreviewBuildForHide(
+            hasPendingPreviewBuild: previewBuildTask != nil
+        ) else {
+            return
+        }
+
         previewBuildTask?.cancel()
         previewBuildTask = nil
         previewBuildGeneration = HistoryWindowLifecycleScheduler.previewGenerationAfterHideCleanup(
-            currentGeneration: previewBuildGeneration
+            currentGeneration: previewBuildGeneration,
+            hasPendingPreviewBuild: true
         )
     }
 
@@ -4694,6 +4760,7 @@ struct HistoryWindowView: View {
                     visibleItemCount: renderedWindowItems.count,
                     previewItemCount: previewItemsForSearch.count
                 )
+                normalizeHiddenWindowFrameAfterPreviewWarmIfNeeded()
 
                 scheduleSearchUpdate(sourceItems: previewItemsForSearch, immediate: true)
                 if focusState.pendingLatestFocusItemID == nil,
@@ -4716,6 +4783,24 @@ struct HistoryWindowView: View {
         sourceGeneration: UInt64
     ) -> Bool {
         previewItemsState.canSkipPreviewRebuild(sourceItems: sourceItems, sourceGeneration: sourceGeneration)
+    }
+
+    private func normalizeHiddenWindowFrameAfterPreviewWarmIfNeeded() {
+        guard !inputState.isWindowVisibleSnapshot,
+              let hostWindow else {
+            return
+        }
+
+        let normalizedFrame = HistoryWindowHiddenFrameNormalizer.normalizedFrame(
+            currentFrame: hostWindow.frame,
+            targetHeight: hiddenHistoryPanelHeight
+        )
+        guard normalizedFrame != hostWindow.frame else {
+            return
+        }
+
+        hostWindow.setFrame(normalizedFrame, display: false)
+        renderState.mark("hidden-frame-normalized")
     }
 
     private func scheduleSearchUpdate(

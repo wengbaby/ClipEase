@@ -563,6 +563,7 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     }
 
     func requestWindowHideCleanup() {
+        setWindowPresented(false)
         windowHideRequestID = UUID()
     }
 
