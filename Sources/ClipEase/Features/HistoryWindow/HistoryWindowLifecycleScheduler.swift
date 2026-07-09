@@ -73,6 +73,10 @@ enum HistoryWindowLifecycleScheduler {
         shouldAnimate
     }
 
+    static func shouldUseContentLayerAnimation(shouldAnimate: Bool) -> Bool {
+        shouldAnimate
+    }
+
     static func shouldStartKeyboardEventTapBeforeOrdering(shouldAnimate: Bool) -> Bool {
         true
     }

@@ -25,6 +25,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private weak var previousFrontmostApplication: NSRunningApplication?
     private var lastKnownPanelFrame: NSRect?
     private var presentationRecoveryTask: Task<Void, Never>?
+    private var contentLayerAnimationGeneration: UInt64 = 0
 
     init(
         store: ClipboardHistoryStore,
@@ -96,6 +97,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let panel = panel ?? makePanel()
         self.panel = panel
         setHistoryContentRasterization(false, for: panel)
+        resetHistoryContentLayerAnimationState(for: panel)
         isClosing = false
         let targetFrame = frameForPanel()
         lastKnownPanelFrame = targetFrame
@@ -106,6 +108,9 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let hasPendingFocus = store.latestItemFocusRequest != nil
         let latestFocusRequest = store.consumeLatestItemFocusRequest()
         let hadPendingExplicitOffset = HistoryScrollCoordinator.shared.hasPendingExplicitOffset
+        let shouldUseContentLayerAnimation = HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(
+            shouldAnimate: shouldAnimate
+        )
         inputState.setOpenAnimationActive(shouldAnimate)
         HistoryWindowLifecycleDiagnostics.record(
             .openRequest,
@@ -119,11 +124,20 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.alphaValue = 1
         if shouldAnimate {
             renderState.prepareForShow(itemCount: store.items.count)
-            applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
-            if HistoryWindowLifecycleScheduler.shouldPrepareContentLayerBeforeOrdering(
-                shouldAnimate: shouldAnimate
-            ) {
-                prepareHistoryContentLayerForAnimatedOrdering(panel)
+            if shouldUseContentLayerAnimation {
+                lockHistoryContentSize(for: panel, size: targetFrame.size)
+                panel.setFrame(targetFrame, display: false)
+                prepareHistoryContentLayerForAnimatedOrdering(
+                    panel,
+                    initialTranslationY: -panelAnimationDistance
+                )
+            } else {
+                applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
+                if HistoryWindowLifecycleScheduler.shouldPrepareContentLayerBeforeOrdering(
+                    shouldAnimate: shouldAnimate
+                ) {
+                    prepareHistoryContentLayerForAnimatedOrdering(panel)
+                }
             }
         } else {
             panel.disableScreenUpdatesUntilFlush()
@@ -160,6 +174,37 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         guard shouldAnimate else {
             finishShowingWindow()
+            return
+        }
+
+        if shouldUseContentLayerAnimation {
+            contentLayerAnimationGeneration &+= 1
+            let animationGeneration = contentLayerAnimationGeneration
+            animateHistoryContentLayerTranslation(
+                panel,
+                from: -panelAnimationDistance,
+                to: 0,
+                key: "history.open.contentTranslation",
+                generation: animationGeneration
+            ) { [weak self, weak panel] in
+                guard let self,
+                      let panel,
+                      panel.isVisible else {
+                    return
+                }
+
+                self.resetHistoryContentLayerAnimationState(for: panel)
+                panel.hasShadow = false
+                panel.makeKey()
+                self.renderState.mark("open-animation-complete")
+                self.finishShowingWindow()
+                self.applyOpenPresentationState(
+                    latestFocusRequest: latestFocusRequest,
+                    hadPendingExplicitOffset: hadPendingExplicitOffset,
+                    wasVisible: wasVisible,
+                    shouldAnimate: shouldAnimate
+                )
+            }
             return
         }
 
@@ -230,6 +275,50 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         inputState.requestWindowHideCleanup()
         panel.hasShadow = false
         let targetFrame = hiddenFrame(for: frameForPanel())
+        if HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(shouldAnimate: shouldAnimate) {
+            contentLayerAnimationGeneration &+= 1
+            let animationGeneration = contentLayerAnimationGeneration
+            lockHistoryContentSize(for: panel, size: frameForPanel().size)
+            prepareHistoryContentLayerForAnimatedOrdering(panel)
+            animateHistoryContentLayerTranslation(
+                panel,
+                from: 0,
+                to: -panelAnimationDistance,
+                key: "history.close.contentTranslation",
+                generation: animationGeneration
+            ) { [weak self, weak panel] in
+                HistoryWindowLifecycleDiagnostics.record(
+                    .closeAnimationComplete,
+                    itemCount: self?.store.items.count,
+                    wasVisible: true,
+                    shouldAnimate: true,
+                    hasPendingFocus: false
+                )
+                self?.inputState.notifyWindowWillHide()
+                self?.keyboardEventTap.suspend()
+                self?.removeOutsideClickMonitor()
+                self?.closePreview()
+                self?.lockHistoryContentSize(for: panel, size: targetFrame.size)
+                panel?.setFrame(targetFrame, display: false)
+                panel?.orderOut(nil)
+                panel?.alphaValue = 1
+                panel?.hasShadow = false
+                if let panel {
+                    self?.resetHistoryContentLayerAnimationState(for: panel)
+                }
+                self?.store.setOCRInteractiveThrottleActive(false)
+                self?.isClosing = false
+                HistoryWindowLifecycleDiagnostics.record(
+                    .closeCleanupComplete,
+                    itemCount: self?.store.items.count,
+                    wasVisible: true,
+                    shouldAnimate: true,
+                    hasPendingFocus: false
+                )
+            }
+            return
+        }
+
         lockHistoryContentSize(for: panel, size: targetFrame.size)
         setHistoryContentRasterization(
             HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
@@ -276,6 +365,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     func hideImmediatelyForAutoPaste() {
         presentationRecoveryTask?.cancel()
         presentationRecoveryTask = nil
+        contentLayerAnimationGeneration &+= 1
         inputState.setOpenAnimationActive(false)
         inputState.notifyWindowWillHide()
         keyboardEventTap.suspend()
@@ -283,6 +373,9 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         closePreview()
         panel?.orderOut(nil)
         panel?.hasShadow = false
+        if let panel {
+            resetHistoryContentLayerAnimationState(for: panel)
+        }
         setHistoryContentRasterization(false, for: panel)
         store.setOCRInteractiveThrottleActive(false)
         isClosing = false
@@ -510,12 +603,82 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         (panel?.contentView as? HistoryWindowHostingView<HistoryWindowView>)?.lockContentSize(size)
     }
 
-    private func prepareHistoryContentLayerForAnimatedOrdering(_ panel: NSPanel) {
+    private func prepareHistoryContentLayerForAnimatedOrdering(
+        _ panel: NSPanel,
+        initialTranslationY: CGFloat = 0
+    ) {
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
         setHistoryContentRasterization(true, for: panel)
+        setHistoryContentLayerTranslation(initialTranslationY, for: panel)
+        panel.contentView?.layer?.masksToBounds = true
         panel.contentView?.needsLayout = true
         panel.contentView?.layoutSubtreeIfNeeded()
         panel.contentView?.displayIfNeeded()
         renderState.mark("content-layer-prepared-before-order")
+    }
+
+    private func animateHistoryContentLayerTranslation(
+        _ panel: NSPanel,
+        from startTranslationY: CGFloat,
+        to endTranslationY: CGFloat,
+        key: String,
+        generation: UInt64,
+        completion: @MainActor @escaping () -> Void
+    ) {
+        guard let layer = panel.contentView?.layer else {
+            completion()
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = CATransform3DMakeTranslation(0, endTranslationY, 0)
+        CATransaction.commit()
+
+        let animation = CABasicAnimation(keyPath: "transform.translation.y")
+        animation.fromValue = startTranslationY
+        animation.toValue = endTranslationY
+        animation.duration = panelAnimationDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .linear)
+        layer.add(animation, forKey: key)
+
+        Task { @MainActor [weak self, weak panel] in
+            let durationSeconds = self?.panelAnimationDuration ?? 0
+            let durationNanoseconds = UInt64(durationSeconds * 1_000_000_000)
+            if durationNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: durationNanoseconds)
+            }
+            guard let self,
+                  let panel,
+                  self.contentLayerAnimationGeneration == generation else {
+                return
+            }
+
+            panel.contentView?.layer?.removeAnimation(forKey: key)
+            completion()
+        }
+    }
+
+    private func resetHistoryContentLayerAnimationState(for panel: NSPanel) {
+        panel.contentView?.layer?.removeAnimation(forKey: "history.open.contentTranslation")
+        panel.contentView?.layer?.removeAnimation(forKey: "history.close.contentTranslation")
+        setHistoryContentLayerTranslation(0, for: panel)
+        panel.contentView?.layer?.masksToBounds = false
+        panel.backgroundColor = panelBackgroundColor
+        panel.isOpaque = true
+        setHistoryContentRasterization(false, for: panel)
+    }
+
+    private func setHistoryContentLayerTranslation(_ translationY: CGFloat, for panel: NSPanel?) {
+        guard let layer = panel?.contentView?.layer else {
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = CATransform3DMakeTranslation(0, translationY, 0)
+        CATransaction.commit()
     }
 
     private func setHistoryContentRasterization(_ isEnabled: Bool, for panel: NSPanel?) {
