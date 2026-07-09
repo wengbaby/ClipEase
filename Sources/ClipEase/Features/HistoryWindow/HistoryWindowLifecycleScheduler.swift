@@ -23,4 +23,16 @@ enum HistoryWindowLifecycleScheduler {
 
         return max(requestedDelayNanoseconds, animatedOpenStartupDelayNanoseconds)
     }
+
+    static func shouldScheduleVisibleRebuild(
+        isWindowVisible: Bool,
+        isWindowPresented: Bool,
+        isOpenAnimationActive: Bool
+    ) -> Bool {
+        isWindowVisible && (isWindowPresented || isOpenAnimationActive)
+    }
+
+    static func previewGenerationAfterHideCleanup(currentGeneration: UInt64) -> UInt64 {
+        currentGeneration &+ 1
+    }
 }

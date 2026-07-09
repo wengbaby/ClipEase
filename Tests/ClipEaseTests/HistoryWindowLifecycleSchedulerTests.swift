@@ -48,3 +48,39 @@ import Testing
         isOpenAnimationActive: false
     ) == nil)
 }
+
+@Test func lifecycleSchedulerAllowsVisibleRebuildOnlyWhenPresentedOrAnimating() {
+    #expect(HistoryWindowLifecycleScheduler.shouldScheduleVisibleRebuild(
+        isWindowVisible: true,
+        isWindowPresented: true,
+        isOpenAnimationActive: false
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldScheduleVisibleRebuild(
+        isWindowVisible: true,
+        isWindowPresented: false,
+        isOpenAnimationActive: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldScheduleVisibleRebuild(
+        isWindowVisible: true,
+        isWindowPresented: false,
+        isOpenAnimationActive: false
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldScheduleVisibleRebuild(
+        isWindowVisible: false,
+        isWindowPresented: false,
+        isOpenAnimationActive: false
+    ))
+}
+
+@Test func lifecycleSchedulerInvalidatesPreviewGenerationForHideCleanup() {
+    let nextGeneration = HistoryWindowLifecycleScheduler.previewGenerationAfterHideCleanup(
+        currentGeneration: 9
+    )
+
+    #expect(nextGeneration == 10)
+    #expect(!HistoryPreviewBuildCoordinator.shouldApplyResult(
+        isTaskCancelled: false,
+        generation: 9,
+        currentGeneration: nextGeneration
+    ))
+}

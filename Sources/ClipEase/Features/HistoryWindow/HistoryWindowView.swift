@@ -492,9 +492,7 @@ struct HistoryWindowView: View {
         .onDisappear {
             cancelPendingGroupRename()
             closeInactiveSearchBeforeHiding()
-            deferredStartupTask?.cancel()
-            previewBuildTask?.cancel()
-            previewBuildGeneration &+= 1
+            cancelPresentationWorkForHide()
             searchCoordinator.cancelAll()
             searchVisibilityTask?.cancel()
             preheatTask?.cancel()
@@ -590,6 +588,7 @@ struct HistoryWindowView: View {
             focusRequestedLatestItem(request)
         }
         .onChange(of: inputState.windowHideRequestID) { _ in
+            cancelPresentationWorkForHide()
             HistoryScrollCoordinator.shared.captureCurrentOffset()
             rememberedScrollOffsetsByScopeData = HistoryScrollCoordinator.shared.savedOffsetsStorageValue()
             rememberSelectedItem(immediate: true)
@@ -2143,7 +2142,11 @@ struct HistoryWindowView: View {
     }
 
     private func rebuildPreviewItemsIfNeededForVisibleWindow() {
-        guard inputState.isWindowVisibleSnapshot,
+        guard HistoryWindowLifecycleScheduler.shouldScheduleVisibleRebuild(
+                isWindowVisible: inputState.isWindowVisibleSnapshot,
+                isWindowPresented: inputState.isWindowPresentedSnapshot,
+                isOpenAnimationActive: inputState.isOpenAnimationActiveSnapshot
+              ),
               !store.items.isEmpty else {
             return
         }
@@ -2151,6 +2154,16 @@ struct HistoryWindowView: View {
         if previewItemsState.allItems.isEmpty || previewItemsState.filteredItems.isEmpty {
             scheduleDeferredStartupWork(delayNanoseconds: previewItemsState.allItems.isEmpty ? 0 : 32_000_000)
         }
+    }
+
+    private func cancelPresentationWorkForHide() {
+        deferredStartupTask?.cancel()
+        deferredStartupTask = nil
+        previewBuildTask?.cancel()
+        previewBuildTask = nil
+        previewBuildGeneration = HistoryWindowLifecycleScheduler.previewGenerationAfterHideCleanup(
+            currentGeneration: previewBuildGeneration
+        )
     }
 
     private func scheduleDeferredStartupWork() {
