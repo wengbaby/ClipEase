@@ -66,7 +66,7 @@ enum HistoryWindowLifecycleScheduler {
     }
 
     static func shouldRasterizeContentDuringWindowAnimation(shouldAnimate: Bool) -> Bool {
-        false
+        shouldAnimate
     }
 
     static func shouldUpdateContentRasterization(
@@ -84,7 +84,7 @@ enum HistoryWindowLifecycleScheduler {
     }
 
     static func shouldUseContentLayerAnimation(shouldAnimate: Bool) -> Bool {
-        false
+        shouldAnimate
     }
 
     static func shouldApplyContentLayerTransformPreparation(

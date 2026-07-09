@@ -158,8 +158,8 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerAvoidsRasterizingContentDuringWindowAnimation() {
-    #expect(!HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
+@Test func lifecycleSchedulerRasterizesContentDuringTranslatedWindowAnimation() {
+    #expect(HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
         shouldAnimate: true
     ))
     #expect(!HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
@@ -197,8 +197,8 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerKeepsWindowFrameAnimationForLayoutStability() {
-    #expect(!HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(
+@Test func lifecycleSchedulerUsesContentLayerAnimationOnlyForAnimatedPresentation() {
+    #expect(HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(
         shouldAnimate: true
     ))
     #expect(!HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(
