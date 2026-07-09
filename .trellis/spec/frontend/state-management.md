@@ -99,6 +99,11 @@ budget has passed. Presented-state notifications should enqueue deferred
 startup work instead of synchronously rebuilding preview/search state inside the
 notification callback.
 
+Launch hidden preload should only prepare the reusable window shell and must not
+start preview warming. Preview warming from a hidden window is allowed after a
+real hide when the cache is stale, but launch-time hidden rebuilds can overlap a
+near-immediate user open and compete with first-frame presentation.
+
 ### Settings Update Check State
 
 `SettingsUpdateViewModel` owns the settings UI state for update checks and

@@ -105,11 +105,7 @@ enum HistoryWindowLifecycleScheduler {
         hasSourceItems: Bool,
         canSkipPreviewRebuild: Bool
     ) -> Bool {
-        isWindowVisible &&
-            !isWindowPresented &&
-            !isOpenAnimationActive &&
-            hasSourceItems &&
-            !canSkipPreviewRebuild
+        false
     }
 
     static func previewGenerationAfterHideCleanup(
