@@ -698,10 +698,20 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             return
         }
 
+        let targetScale = max(panel?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1, 1)
+        guard HistoryWindowLifecycleScheduler.shouldUpdateContentRasterization(
+            currentIsRasterized: layer.shouldRasterize,
+            targetIsRasterized: isEnabled,
+            currentScale: layer.rasterizationScale,
+            targetScale: targetScale
+        ) else {
+            return
+        }
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.shouldRasterize = isEnabled
-        layer.rasterizationScale = max(panel?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1, 1)
+        layer.rasterizationScale = targetScale
         CATransaction.commit()
         renderState.mark(isEnabled ? "content-rasterization-enabled" : "content-rasterization-disabled")
     }

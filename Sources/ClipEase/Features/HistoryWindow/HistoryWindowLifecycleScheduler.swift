@@ -66,7 +66,17 @@ enum HistoryWindowLifecycleScheduler {
     }
 
     static func shouldRasterizeContentDuringWindowAnimation(shouldAnimate: Bool) -> Bool {
-        shouldAnimate
+        false
+    }
+
+    static func shouldUpdateContentRasterization(
+        currentIsRasterized: Bool,
+        targetIsRasterized: Bool,
+        currentScale: CGFloat,
+        targetScale: CGFloat,
+        scaleTolerance: CGFloat = 0.01
+    ) -> Bool {
+        currentIsRasterized != targetIsRasterized || abs(currentScale - targetScale) > scaleTolerance
     }
 
     static func shouldPrepareContentLayerBeforeOrdering(shouldAnimate: Bool) -> Bool {

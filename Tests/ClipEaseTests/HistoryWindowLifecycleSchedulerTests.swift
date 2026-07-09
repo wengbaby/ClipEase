@@ -158,12 +158,33 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerRasterizesContentOnlyDuringWindowAnimation() {
-    #expect(HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
+@Test func lifecycleSchedulerAvoidsRasterizingContentDuringWindowAnimation() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
         shouldAnimate: true
     ))
     #expect(!HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
         shouldAnimate: false
+    ))
+}
+
+@Test func lifecycleSchedulerSkipsUnchangedContentRasterizationUpdates() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldUpdateContentRasterization(
+        currentIsRasterized: false,
+        targetIsRasterized: false,
+        currentScale: 2,
+        targetScale: 2
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldUpdateContentRasterization(
+        currentIsRasterized: false,
+        targetIsRasterized: true,
+        currentScale: 2,
+        targetScale: 2
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldUpdateContentRasterization(
+        currentIsRasterized: true,
+        targetIsRasterized: true,
+        currentScale: 1,
+        targetScale: 2
     ))
 }
 
