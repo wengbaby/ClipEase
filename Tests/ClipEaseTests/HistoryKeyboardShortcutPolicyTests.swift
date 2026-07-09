@@ -2,6 +2,23 @@ import Foundation
 import Testing
 @testable import ClipEase
 
+private final class LockedNotificationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
 @Test func deleteCommandIsBlockedWhileTextInputIsActive() {
     #expect(!HistoryKeyboardShortcutPolicy.allowsHistoryCommand(
         .delete,
@@ -826,6 +843,32 @@ import Testing
     #expect(!inputState.isWindowPresented)
     #expect(!inputState.isWindowPresentedSnapshot)
     #expect(inputState.windowHideRequestID != originalRequestID)
+}
+
+@Test @MainActor func windowPresentedChangePostsTargetedNotificationOnlyWhenValueChanges() {
+    let inputState = HistoryWindowInputState()
+    let notificationCount = LockedNotificationCounter()
+    let observer = NotificationCenter.default.addObserver(
+        forName: HistoryWindowInputState.windowPresentedDidChangeNotification,
+        object: inputState,
+        queue: nil
+    ) { _ in
+        notificationCount.increment()
+    }
+    defer {
+        NotificationCenter.default.removeObserver(observer)
+    }
+
+    inputState.setWindowPresented(true)
+    inputState.setWindowPresented(true)
+    inputState.setWindowPresented(false)
+
+    #expect(notificationCount.value == 2)
+}
+
+@Test func keyboardEventTapHandlesEventsOnlyAfterWindowIsPresented() {
+    #expect(!HistoryKeyboardEventTap.shouldHandleEvent(isWindowPresented: false))
+    #expect(HistoryKeyboardEventTap.shouldHandleEvent(isWindowPresented: true))
 }
 
 @Test @MainActor func openAnimationSnapshotIsClearedByWindowHide() {

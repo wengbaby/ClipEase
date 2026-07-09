@@ -53,6 +53,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         self.panel = panel
         let targetFrame = frameForPanel()
         applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
+        keyboardEventTap.start()
         renderState.prepareForPreload(itemCount: store.items.count)
         inputState.setWindowVisible(true)
         inputState.setWindowPresented(false)
@@ -186,7 +187,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
               panel.isVisible,
               !isClosing else {
             inputState.notifyWindowWillHide()
-            keyboardEventTap.stop()
+            keyboardEventTap.suspend()
             removeOutsideClickMonitor()
             closePreview()
             panel?.orderOut(nil)
@@ -220,7 +221,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                     hasPendingFocus: false
                 )
                 self?.inputState.notifyWindowWillHide()
-                self?.keyboardEventTap.stop()
+                self?.keyboardEventTap.suspend()
                 self?.removeOutsideClickMonitor()
                 self?.closePreview()
                 self?.lockHistoryContentSize(for: panel, size: targetFrame.size)
@@ -244,7 +245,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     func hideImmediatelyForAutoPaste() {
         inputState.setOpenAnimationActive(false)
         inputState.notifyWindowWillHide()
-        keyboardEventTap.stop()
+        keyboardEventTap.suspend()
         removeOutsideClickMonitor()
         closePreview()
         panel?.orderOut(nil)
@@ -254,9 +255,13 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     private func finishShowingWindow() {
+        renderState.mark("finish-showing-start")
         inputState.setOpenAnimationActive(false)
+        renderState.mark("finish-showing-animation-state-cleared")
         keyboardEventTap.start()
+        renderState.mark("finish-showing-keyboard-tap-started")
         installOutsideClickMonitor()
+        renderState.mark("finish-showing-outside-monitor-installed")
     }
 
     private func applyOpenPresentationState(
@@ -265,6 +270,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         wasVisible: Bool,
         shouldAnimate: Bool
     ) {
+        renderState.mark("presentation-state-start")
         if let latestFocusRequest {
             inputState.requestItemFocus(
                 latestFocusRequest.itemID,
@@ -274,8 +280,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         } else if !hadPendingExplicitOffset {
             HistoryScrollCoordinator.shared.restoreSavedOffset()
         }
+        renderState.mark("presentation-scroll-restored")
         inputState.setWindowVisible(true)
+        renderState.mark("presentation-window-visible")
         inputState.setWindowPresented(true)
+        renderState.mark("presentation-window-presented")
         renderState.mark("open-presented")
         HistoryWindowLifecycleDiagnostics.record(
             .openPresented,

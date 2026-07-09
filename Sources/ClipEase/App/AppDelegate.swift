@@ -70,12 +70,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         clipboardMonitor.start()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            if !accessibilityPermissionState.refresh() {
-                appMenuController.showPermissionGuide()
-                return
+            let delay = HistoryWindowLifecycleScheduler.launchPreloadDelayNanoseconds
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            } else {
+                await Task.yield()
             }
             historyWindowController.preloadHistoryDataAfterLaunch()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: HistoryWindowLifecycleScheduler.launchAccessibilityPromptDelayNanoseconds)
+            if !accessibilityPermissionState.refresh() {
+                appMenuController.showPermissionGuide()
+            }
         }
 
         if CommandLine.arguments.contains("--show-settings") {

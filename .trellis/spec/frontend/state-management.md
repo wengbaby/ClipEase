@@ -81,6 +81,22 @@ Required regression tests:
   actual AppKit text first responder immediately, so the next Enter routes to
   card paste instead of being swallowed by the search field command handler.
 
+### History Window Presentation State
+
+Opening the history window must keep presentation-critical work out of the
+animation completion path. Expensive AppKit resources such as the global
+keyboard event tap should be installed during hidden preload when possible, and
+they must pass events through until `HistoryWindowInputState` reports the window
+is presented. Hidden/closing transitions should reset transient keyboard state
+without tearing down reusable resources that are expensive to recreate on the
+next open.
+
+Preview rebuilds may run off the main actor while an open animation is active,
+but applying the rebuild result to SwiftUI state must wait until the animation
+budget has passed. Presented-state notifications should enqueue deferred
+startup work instead of synchronously rebuilding preview/search state inside the
+notification callback.
+
 ### Settings Update Check State
 
 `SettingsUpdateViewModel` owns the settings UI state for update checks and

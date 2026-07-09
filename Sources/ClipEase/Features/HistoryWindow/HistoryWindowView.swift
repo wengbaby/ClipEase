@@ -527,15 +527,19 @@ struct HistoryWindowView: View {
                 noteHistoryWindowHidden()
             }
         }
-        .onChange(of: inputState.isWindowPresented) { isPresented in
-            guard isPresented else {
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: HistoryWindowInputState.windowPresentedDidChangeNotification,
+                object: inputState
+            )
+        ) { _ in
+            guard inputState.isWindowPresentedSnapshot else {
                 return
             }
 
-            if !store.items.isEmpty {
-                schedulePreviewItemsRebuild(from: store.items)
-            }
-            refreshAccessibilityStateAfterFirstFrame()
+            scheduleDeferredStartupWork(
+                delayNanoseconds: HistoryWindowLifecycleScheduler.presentedStartupDelayNanoseconds
+            )
         }
         .onChange(of: store.groups) { _ in
             refreshMoveToGroupMenuSnapshot()
@@ -4677,6 +4681,21 @@ struct HistoryWindowView: View {
 
             guard !Task.isCancelled else {
                 return
+            }
+
+            let previewApplyDelayNanoseconds = await MainActor.run {
+                HistoryWindowLifecycleScheduler.previewApplyDelayNanoseconds(
+                    isOpenAnimationActive: inputState.isOpenAnimationActiveSnapshot
+                )
+            }
+            if previewApplyDelayNanoseconds > 0 {
+                await MainActor.run {
+                    renderState.mark("preview-apply-deferred-for-open-animation")
+                }
+                try? await Task.sleep(nanoseconds: previewApplyDelayNanoseconds)
+                guard !Task.isCancelled else {
+                    return
+                }
             }
 
             await MainActor.run {

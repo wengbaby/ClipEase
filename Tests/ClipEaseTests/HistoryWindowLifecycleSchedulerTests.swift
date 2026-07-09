@@ -2,6 +2,18 @@ import CoreGraphics
 import Testing
 @testable import ClipEase
 
+@Test func lifecycleSchedulerSchedulesLaunchPreloadOnNextMainActorTurn() {
+    #expect(HistoryWindowLifecycleScheduler.launchPreloadDelayNanoseconds == 0)
+}
+
+@Test func lifecycleSchedulerKeepsAccessibilityPromptDelayedAfterLaunch() {
+    #expect(HistoryWindowLifecycleScheduler.launchAccessibilityPromptDelayNanoseconds == 700_000_000)
+}
+
+@Test func lifecycleSchedulerDefersPresentedStartupWorkOffPresentationCallback() {
+    #expect(HistoryWindowLifecycleScheduler.presentedStartupDelayNanoseconds == 32_000_000)
+}
+
 @Test func lifecycleSchedulerDefersStartupPastAnimatedOpenBudget() {
     let delay = HistoryWindowLifecycleScheduler.startupDelayNanoseconds(
         requestedDelayNanoseconds: 0,
@@ -71,6 +83,18 @@ import Testing
         isWindowPresented: false,
         isOpenAnimationActive: false
     ))
+}
+
+@Test func lifecycleSchedulerDefersPreviewApplyDuringAnimatedOpen() {
+    #expect(HistoryWindowLifecycleScheduler.previewApplyDelayNanoseconds(
+        isOpenAnimationActive: true
+    ) == HistoryWindowLifecycleScheduler.animatedOpenStartupDelayNanoseconds)
+}
+
+@Test func lifecycleSchedulerAppliesPreviewImmediatelyOutsideAnimatedOpen() {
+    #expect(HistoryWindowLifecycleScheduler.previewApplyDelayNanoseconds(
+        isOpenAnimationActive: false
+    ) == 0)
 }
 
 @Test func lifecycleSchedulerDefersPresentationStateUntilAnimatedOpenCompletes() {

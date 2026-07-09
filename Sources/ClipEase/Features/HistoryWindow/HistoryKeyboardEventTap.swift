@@ -17,6 +17,10 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         keyWindow = window
     }
 
+    static func shouldHandleEvent(isWindowPresented: Bool) -> Bool {
+        isWindowPresented
+    }
+
     func start() {
         guard eventTap == nil else {
             return
@@ -45,6 +49,12 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         CGEvent.tapEnable(tap: tap, enable: true)
     }
 
+    func suspend() {
+        DispatchQueue.main.async { [weak inputState] in
+            inputState?.resetTransientState()
+        }
+    }
+
     func stop() {
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
@@ -70,6 +80,13 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             }
             return Unmanaged.passUnretained(event)
 
+        default:
+            guard Self.shouldHandleEvent(isWindowPresented: inputState?.isWindowPresentedSnapshot == true) else {
+                return Unmanaged.passUnretained(event)
+            }
+        }
+
+        switch type {
         case .flagsChanged:
             let isCommandPressed = event.flags.contains(.maskCommand)
             DispatchQueue.main.async { [weak inputState] in

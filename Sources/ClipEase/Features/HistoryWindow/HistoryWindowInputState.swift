@@ -452,6 +452,7 @@ struct HistoryDefaultFocusRequest: Equatable {
 
 final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     @MainActor static weak var currentForTextEditing: HistoryWindowInputState?
+    static let windowPresentedDidChangeNotification = Notification.Name("HistoryWindowInputState.windowPresentedDidChange")
 
     @Published private(set) var isCommandKeyPressed = false
     @Published private(set) var request: HistoryKeyboardRequest?
@@ -459,7 +460,7 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     @Published private(set) var defaultFocusRequest: HistoryDefaultFocusRequest?
     @Published private(set) var windowHideRequestID = UUID()
     @Published private(set) var isWindowVisible = false
-    @Published private(set) var isWindowPresented = false
+    private(set) var isWindowPresented = false
     @Published private(set) var isPreviewContentActive = false
     @Published private(set) var isWindowPinnedOpen = false
 
@@ -613,6 +614,10 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
 
         if isWindowPresented != isPresented {
             isWindowPresented = isPresented
+            NotificationCenter.default.post(
+                name: Self.windowPresentedDidChangeNotification,
+                object: self
+            )
         }
     }
 
