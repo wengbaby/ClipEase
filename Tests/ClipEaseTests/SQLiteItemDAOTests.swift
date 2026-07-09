@@ -99,6 +99,39 @@ import Testing
     #expect(orderedItems.first?.fileReferences.first?.fileSize == 1024)
 }
 
+@Test func sqliteClipboardStoreLoadsContentHashAcrossSourcesWhenSourceBundleIsNil() throws {
+    let fixture = try SQLiteItemDAOFixture.make()
+    defer { fixture.remove() }
+
+    let targetApp = SourceAppInfo(
+        name: "Target",
+        bundleID: "com.example.target",
+        iconName: "app.fill",
+        iconFileName: nil,
+        headerColorHex: "#2E8CFF"
+    )
+    let otherApp = SourceAppInfo(
+        name: "Other",
+        bundleID: "com.example.other",
+        iconName: "app.fill",
+        iconFileName: nil,
+        headerColorHex: "#8E8E93"
+    )
+    var first = ClipboardItem.text("same text", sourceApp: targetApp)
+    first.createdAt = Date(timeIntervalSince1970: 100)
+    var second = ClipboardItem.text("same text", sourceApp: otherApp)
+    second.createdAt = Date(timeIntervalSince1970: 200)
+
+    try fixture.store.replaceAllItems(with: [first, second])
+
+    let items = try fixture.store.loadItems(
+        contentHash: try #require(first.contentHash),
+        sourceBundleID: nil
+    )
+
+    #expect(Set(items.map(\.sourceBundleID)) == [targetApp.bundleID, otherApp.bundleID])
+}
+
 @Test func sqliteItemDAODeletesItemsAndItemsInGroups() throws {
     let fixture = try SQLiteItemDAOFixture.make()
     defer { fixture.remove() }

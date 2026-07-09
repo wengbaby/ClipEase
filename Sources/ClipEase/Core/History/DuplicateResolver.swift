@@ -4,11 +4,11 @@ enum DuplicateResolver {
     static func contentKey(for item: ClipboardItem) -> String {
         switch item.type {
         case .image:
-            "\(sourceKey(for: item)):\(item.imageHash ?? item.id.uuidString)"
+            "image:\(item.imageHash ?? item.id.uuidString)"
         case .file:
-            fileContentKey(for: item.fileReferences, sourceBundleID: item.sourceBundleID)
+            fileContentKey(for: item.fileReferences)
         case .text, .link, .color:
-            "\(sourceKey(for: item)):\(item.text)"
+            "text:\(normalizedText(for: item))"
         }
     }
 
@@ -41,16 +41,15 @@ enum DuplicateResolver {
     }
 
     private static func fileContentKey(
-        for references: [ClipboardFileReference],
-        sourceBundleID: String?
+        for references: [ClipboardFileReference]
     ) -> String {
         let paths = references.map { reference in
             "\(reference.orderIndex):\(reference.path)"
         }.joined(separator: "\u{1F}")
-        return "\(sourceBundleID ?? "unknown"):files:\(paths)"
+        return "files:\(paths)"
     }
 
-    private static func sourceKey(for item: ClipboardItem) -> String {
-        item.sourceBundleID ?? "unknown"
+    private static func normalizedText(for item: ClipboardItem) -> String {
+        item.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

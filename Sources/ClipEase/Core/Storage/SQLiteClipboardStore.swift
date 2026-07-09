@@ -172,18 +172,16 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         try createSchema(in: database)
         try recordSchemaVersion(in: database)
 
-        let sourcePredicate: String
+        var whereSQL = "clipboard_items.is_deleted = 0 AND clipboard_items.content_hash = ?"
         var values: [SQLiteValue] = [.text(contentHash)]
         if let sourceBundleID {
-            sourcePredicate = "clipboard_items.source_bundle_id = ?"
+            whereSQL += " AND clipboard_items.source_bundle_id = ?"
             values.append(.text(sourceBundleID))
-        } else {
-            sourcePredicate = "clipboard_items.source_bundle_id IS NULL"
         }
 
         return try SQLiteItemDAO.loadItems(
             in: database,
-            whereSQL: "clipboard_items.is_deleted = 0 AND clipboard_items.content_hash = ? AND \(sourcePredicate)",
+            whereSQL: whereSQL,
             values: values,
             orderSQL: Self.defaultItemOrderSQL
         )

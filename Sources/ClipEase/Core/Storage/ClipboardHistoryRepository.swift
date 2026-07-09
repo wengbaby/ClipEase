@@ -102,8 +102,14 @@ extension ClipboardHistoryRepository {
     }
 
     func loadItems(contentHash: String, sourceBundleID: String?) throws -> [ClipboardItem] {
-        try loadSnapshot().items.filter {
-            $0.contentHash == contentHash && $0.sourceBundleID == sourceBundleID
+        try loadSnapshot().items.filter { item in
+            guard item.contentHash == contentHash else {
+                return false
+            }
+            guard let sourceBundleID else {
+                return true
+            }
+            return item.sourceBundleID == sourceBundleID
         }
     }
 

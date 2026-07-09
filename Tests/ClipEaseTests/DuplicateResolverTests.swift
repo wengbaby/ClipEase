@@ -2,38 +2,74 @@ import Foundation
 import Testing
 @testable import ClipEase
 
-@Test func duplicateResolverBuildsTextHashWithSourceBundleID() {
-    let item = ClipboardItem.text("same text", sourceApp: .clipease)
+@Test func duplicateResolverBuildsSourceAgnosticTextHash() {
+    let first = ClipboardItem.text("same text", sourceApp: .clipease)
+    let second = ClipboardItem.text("same text", sourceApp: SourceAppInfo(
+        name: "Other",
+        bundleID: "com.example.other",
+        iconName: "app.fill",
+        iconFileName: nil,
+        headerColorHex: "#8E8E93"
+    ))
 
-    #expect(DuplicateResolver.contentKey(for: item) == "com.clipease.app:same text")
+    #expect(DuplicateResolver.contentKey(for: first) == "text:same text")
+    #expect(DuplicateResolver.contentKey(for: second) == DuplicateResolver.contentKey(for: first))
 }
 
-@Test func duplicateResolverBuildsImageHashWithFallbackID() {
-    let image = ClipboardItem.image(
+@Test func duplicateResolverBuildsSourceAgnosticImageHashWithFallbackID() {
+    let first = ClipboardItem.image(
         fileName: "image.png",
         width: 128,
         height: 128,
         hash: "image-hash",
         sourceApp: .clipease
     )
+    let second = ClipboardItem.image(
+        fileName: "image-copy.png",
+        width: 128,
+        height: 128,
+        hash: "image-hash",
+        sourceApp: SourceAppInfo(
+            name: "Other",
+            bundleID: "com.example.other",
+            iconName: "app.fill",
+            iconFileName: nil,
+            headerColorHex: "#8E8E93"
+        )
+    )
 
-    #expect(DuplicateResolver.contentKey(for: image) == "com.clipease.app:image-hash")
+    #expect(DuplicateResolver.contentKey(for: first) == "image:image-hash")
+    #expect(DuplicateResolver.contentKey(for: second) == DuplicateResolver.contentKey(for: first))
 }
 
-@Test func duplicateResolverBuildsFileHashFromOrderedPaths() {
+@Test func duplicateResolverBuildsSourceAgnosticFileHashFromOrderedPaths() {
     let itemID = UUID()
-    let file = ClipboardItem.file(
+    let first = ClipboardItem.file(
         references: [
             ClipboardFileReference(itemID: itemID, orderIndex: 2, path: "/tmp/b.txt"),
             ClipboardFileReference(itemID: itemID, orderIndex: 0, path: "/tmp/a.txt")
         ],
         sourceApp: .clipease
     )
+    let second = ClipboardItem.file(
+        references: [
+            ClipboardFileReference(itemID: UUID(), orderIndex: 4, path: "/tmp/b.txt"),
+            ClipboardFileReference(itemID: UUID(), orderIndex: 1, path: "/tmp/a.txt")
+        ],
+        sourceApp: SourceAppInfo(
+            name: "Other",
+            bundleID: "com.example.other",
+            iconName: "app.fill",
+            iconFileName: nil,
+            headerColorHex: "#8E8E93"
+        )
+    )
 
     #expect(
-        DuplicateResolver.contentKey(for: file)
-        == "com.clipease.app:files:0:/tmp/b.txt\u{1F}1:/tmp/a.txt"
+        DuplicateResolver.contentKey(for: first)
+        == "files:0:/tmp/b.txt\u{1F}1:/tmp/a.txt"
     )
+    #expect(DuplicateResolver.contentKey(for: second) == DuplicateResolver.contentKey(for: first))
 }
 
 @Test func duplicateResolverMergesDuplicateItemsKeepingFirstOccurrence() {

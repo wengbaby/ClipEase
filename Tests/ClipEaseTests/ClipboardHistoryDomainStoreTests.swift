@@ -44,6 +44,31 @@ import Testing
     #expect(domainStore.itemIDs(forContentKey: DuplicateResolver.contentKey(for: second)) == [second.id])
 }
 
+@Test func clipboardHistoryDomainStoreTracksRecentHashesAcrossSources() {
+    let targetApp = SourceAppInfo(
+        name: "Target",
+        bundleID: "com.example.target",
+        iconName: "app.fill",
+        iconFileName: nil,
+        headerColorHex: "#2E8CFF"
+    )
+    let otherApp = SourceAppInfo(
+        name: "Other",
+        bundleID: "com.example.other",
+        iconName: "app.fill",
+        iconFileName: nil,
+        headerColorHex: "#8E8E93"
+    )
+    let first = ClipboardItem.text("same text", sourceApp: targetApp)
+    let second = ClipboardItem.text("same text", sourceApp: otherApp)
+
+    var domainStore = ClipboardHistoryDomainStore()
+    domainStore.rebuildRecentHashes(for: [first])
+    domainStore.addRecentHash(for: second)
+
+    #expect(domainStore.itemIDs(forContentKey: DuplicateResolver.contentKey(for: first)) == [first.id, second.id])
+}
+
 @Test func clipboardHistoryDomainStoreUpdatesGroupCountOnMove() {
     let oldID = UUID()
     let newID = UUID()

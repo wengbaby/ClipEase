@@ -1078,7 +1078,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
         return persistence.loadItems(
             contentHash: contentHash,
-            sourceBundleID: item.sourceBundleID
+            sourceBundleID: nil
         )
     }
 

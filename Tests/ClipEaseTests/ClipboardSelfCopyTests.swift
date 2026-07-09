@@ -38,6 +38,42 @@ import Testing
 }
 
 @MainActor
+@Test func sameTextFromDifferentSourcesReplacesOldItemAndKeepsPinnedGroupState() {
+    let store = ClipboardHistoryStore(persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository()))
+    let targetApp = SourceAppInfo(
+        name: "Target",
+        bundleID: "com.example.target",
+        iconName: "app.fill",
+        iconFileName: nil,
+        headerColorHex: "#2E8CFF"
+    )
+    let otherApp = SourceAppInfo(
+        name: "Other",
+        bundleID: "com.example.other",
+        iconName: "message.fill",
+        iconFileName: "other.png",
+        headerColorHex: "#8E8E93"
+    )
+    let group = store.createGroup()
+
+    store.addText("same text", sourceApp: targetApp)
+    let oldID = store.items.first?.id
+    store.togglePinned(for: oldID)
+    store.addItem(oldID, toGroup: group.id)
+
+    store.addText("same text", sourceApp: otherApp)
+
+    #expect(store.items.count == 1)
+    #expect(store.items.first?.id != oldID)
+    #expect(store.items.first?.sourceBundleID == otherApp.bundleID)
+    #expect(store.items.first?.sourceAppName == otherApp.name)
+    #expect(store.items.first?.iconFileName == otherApp.iconFileName)
+    #expect(store.items.first?.isPinned == true)
+    #expect(store.items.first?.groupID == group.id)
+    #expect(store.itemCount(inGroup: group.id) == 1)
+}
+
+@MainActor
 @Test func skippedClipboardFilesAreNotAddedToHistory() throws {
     let store = ClipboardHistoryStore(persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository()))
     let fileURL = FileManager.default.temporaryDirectory
