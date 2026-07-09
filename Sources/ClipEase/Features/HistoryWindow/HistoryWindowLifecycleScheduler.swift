@@ -84,7 +84,7 @@ enum HistoryWindowLifecycleScheduler {
     }
 
     static func shouldUseContentLayerAnimation(shouldAnimate: Bool) -> Bool {
-        shouldAnimate
+        false
     }
 
     static func shouldRefreshAccessibilityBeforeToggle(isWindowVisible: Bool) -> Bool {

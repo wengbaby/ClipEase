@@ -197,8 +197,8 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerUsesContentLayerAnimationForAnimatedWindowTransitions() {
-    #expect(HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(
+@Test func lifecycleSchedulerKeepsWindowFrameAnimationForLayoutStability() {
+    #expect(!HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(
         shouldAnimate: true
     ))
     #expect(!HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(
