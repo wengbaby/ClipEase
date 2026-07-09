@@ -54,7 +54,16 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let panel = panel ?? makePanel()
         self.panel = panel
         let targetFrame = frameForPanel()
-        applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
+        let usesContentLayerAnimation = HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(
+            shouldAnimate: true
+        )
+        if HistoryWindowLifecycleScheduler.shouldKeepHiddenPanelAtTargetFrame(
+            usesContentLayerAnimation: usesContentLayerAnimation
+        ) {
+            applyTargetFrameIfNeeded(to: panel, targetFrame: targetFrame)
+        } else {
+            applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
+        }
         renderState.prepareForPreload(itemCount: store.items.count)
         if HistoryWindowLifecycleScheduler.shouldPublishVisibleStateForLaunchPreload() {
             inputState.setWindowVisible(true)
@@ -132,8 +141,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         if shouldAnimate {
             renderState.prepareForShow(itemCount: store.items.count)
             if shouldUseContentLayerAnimation {
-                lockHistoryContentSize(for: panel, size: targetFrame.size)
-                panel.setFrame(targetFrame, display: false)
+                applyTargetFrameIfNeeded(to: panel, targetFrame: targetFrame)
                 prepareHistoryContentLayerForAnimatedOrdering(
                     panel,
                     initialTranslationY: -panelAnimationDistance
@@ -285,7 +293,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         if HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(shouldAnimate: shouldAnimate) {
             contentLayerAnimationGeneration &+= 1
             let animationGeneration = contentLayerAnimationGeneration
-            lockHistoryContentSize(for: panel, size: frameForPanel().size)
+            lockHistoryContentSize(for: panel, size: panel.frame.size)
             prepareHistoryContentLayerForAnimatedOrdering(panel)
             animateHistoryContentLayerTranslation(
                 panel,
@@ -305,8 +313,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 self?.keyboardEventTap.suspend()
                 self?.removeOutsideClickMonitor()
                 self?.closePreview()
-                self?.lockHistoryContentSize(for: panel, size: targetFrame.size)
-                panel?.setFrame(targetFrame, display: false)
                 panel?.orderOut(nil)
                 panel?.alphaValue = 1
                 panel?.hasShadow = false
@@ -613,6 +619,21 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         renderState.mark("panel-frame-applying")
         panel.setFrame(hiddenFrame, display: false)
         renderState.mark("panel-frame-applied")
+    }
+
+    private func applyTargetFrameIfNeeded(to panel: NSPanel, targetFrame: NSRect) {
+        lockHistoryContentSize(for: panel, size: targetFrame.size)
+        guard HistoryWindowLifecycleScheduler.shouldApplyTargetFrame(
+            currentFrame: panel.frame,
+            targetFrame: targetFrame
+        ) else {
+            renderState.mark("panel-target-frame-reused")
+            return
+        }
+
+        renderState.mark("panel-target-frame-applying")
+        panel.setFrame(targetFrame, display: false)
+        renderState.mark("panel-target-frame-applied")
     }
 
     private func lockHistoryContentSize(for panel: NSPanel?, size: NSSize) {

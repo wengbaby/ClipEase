@@ -87,6 +87,23 @@ enum HistoryWindowLifecycleScheduler {
         shouldAnimate
     }
 
+    static func shouldKeepHiddenPanelAtTargetFrame(
+        usesContentLayerAnimation: Bool
+    ) -> Bool {
+        usesContentLayerAnimation
+    }
+
+    static func shouldApplyTargetFrame(
+        currentFrame: CGRect,
+        targetFrame: CGRect,
+        tolerance: CGFloat = 0.5
+    ) -> Bool {
+        abs(currentFrame.minX - targetFrame.minX) > tolerance ||
+            abs(currentFrame.minY - targetFrame.minY) > tolerance ||
+            abs(currentFrame.width - targetFrame.width) > tolerance ||
+            abs(currentFrame.height - targetFrame.height) > tolerance
+    }
+
     static func shouldApplyContentLayerTransformPreparation(
         initialTranslationY: CGFloat,
         tolerance: CGFloat = 0.5

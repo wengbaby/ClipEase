@@ -206,6 +206,28 @@ import Testing
     ))
 }
 
+@Test func lifecycleSchedulerKeepsHiddenPanelAtTargetFrameForContentLayerAnimation() {
+    #expect(HistoryWindowLifecycleScheduler.shouldKeepHiddenPanelAtTargetFrame(
+        usesContentLayerAnimation: true
+    ))
+    #expect(!HistoryWindowLifecycleScheduler.shouldKeepHiddenPanelAtTargetFrame(
+        usesContentLayerAnimation: false
+    ))
+}
+
+@Test func lifecycleSchedulerSkipsMatchingTargetFrameApplication() {
+    let targetFrame = CGRect(x: 0, y: 0, width: 1440, height: 360)
+
+    #expect(!HistoryWindowLifecycleScheduler.shouldApplyTargetFrame(
+        currentFrame: targetFrame,
+        targetFrame: targetFrame
+    ))
+    #expect(HistoryWindowLifecycleScheduler.shouldApplyTargetFrame(
+        currentFrame: targetFrame.offsetBy(dx: 0, dy: -360),
+        targetFrame: targetFrame
+    ))
+}
+
 @Test func lifecycleSchedulerAppliesContentLayerClippingOnlyForTranslatedAnimation() {
     #expect(HistoryWindowLifecycleScheduler.shouldApplyContentLayerTransformPreparation(
         initialTranslationY: -360

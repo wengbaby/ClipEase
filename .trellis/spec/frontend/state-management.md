@@ -138,6 +138,10 @@ preparation must remain gated behind
 Repeated panel/content size locks for the same size must be idempotent no-ops;
 do not call through to AppKit/SwiftUI frame setters when the locked size already
 matches the current frame.
+When using content-layer animation, hidden/preloaded panels should remain at the
+target visible frame while ordered out. The open path should skip `setFrame`
+when the current frame already matches the target frame; do not reintroduce an
+offscreen panel frame for this animation path.
 
 Launch hidden preload should prepare the reusable window shell and may warm
 preview state only while the window is still hidden, not presented, not
