@@ -65,19 +65,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             applyHiddenFrameIfNeeded(to: panel, targetFrame: targetFrame)
         }
         renderState.prepareForPreload(itemCount: store.items.count)
-        if HistoryWindowLifecycleScheduler.shouldOrderHiddenPanelDuringLaunchPreload(
-            usesContentLayerAnimation: usesContentLayerAnimation
-        ) {
-            prepareHistoryContentLayerForAnimatedOrdering(
-                panel,
-                initialTranslationY: -panelAnimationDistance
-            )
-            panel.ignoresMouseEvents = true
-            panel.hasShadow = false
-            panel.alphaValue = 1
-            panel.orderFrontRegardless()
-            renderState.mark("preload-panel-ordered-hidden")
-        }
         if HistoryWindowLifecycleScheduler.shouldPublishVisibleStateForLaunchPreload() {
             inputState.setWindowVisible(true)
         }
@@ -129,17 +116,14 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         presentationRecoveryTask = nil
         let panel = panel ?? makePanel()
         self.panel = panel
-        let isReusingOrderedHiddenPanel = panel.isVisible && !inputState.isWindowVisibleSnapshot
-        if !isReusingOrderedHiddenPanel {
-            setHistoryContentRasterization(false, for: panel)
-            resetHistoryContentLayerAnimationState(for: panel)
-        }
+        setHistoryContentRasterization(false, for: panel)
+        resetHistoryContentLayerAnimationState(for: panel)
         isClosing = false
         let targetFrame = frameForPanel()
         lastKnownPanelFrame = targetFrame
         GlobalStatusToastController.shared.updateHistoryWindowFrame(targetFrame, screen: panel.screen ?? NSScreen.clipeaseScreenContainingMouse ?? NSScreen.main)
         appMenuController.setStatusToastAnchorWindow(panel)
-        let wasVisible = inputState.isWindowVisibleSnapshot
+        let wasVisible = panel.isVisible
         let shouldAnimate = !wasVisible
         let hasPendingFocus = store.latestItemFocusRequest != nil
         let latestFocusRequest = store.consumeLatestItemFocusRequest()
@@ -186,15 +170,8 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             keyboardEventTap.start()
             renderState.mark("keyboard-tap-ready-before-order")
         }
-        if HistoryWindowLifecycleScheduler.shouldOrderPanelBeforeOpen(
-            isPanelOrdered: panel.isVisible,
-            isWindowVisible: wasVisible
-        ) {
-            panel.orderFrontRegardless()
-            renderState.mark("panel-ordered")
-        } else {
-            renderState.mark("panel-order-reused")
-        }
+        panel.orderFrontRegardless()
+        renderState.mark("panel-ordered")
         if HistoryWindowLifecycleScheduler.shouldMakeKeyBeforeAnimation(shouldAnimate: shouldAnimate) {
             panel.makeKey()
         }
