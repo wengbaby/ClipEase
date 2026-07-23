@@ -14,6 +14,7 @@ DerivedData/
 /dev-logs/
 /design/
 /docs/
+/prototypes/
 /scripts/*
 !/scripts/
 !/scripts/build-app.sh
