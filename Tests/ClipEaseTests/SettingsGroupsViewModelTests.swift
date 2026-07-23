@@ -26,17 +26,6 @@ import Testing
     })
 }
 
-@Test func settingsGroupsBulkDeleteRequiresConfirmationOnlyWhenSelectedGroupHasItems() {
-    let first = UUID()
-    let second = UUID()
-
-    #expect(SettingsGroupsViewModel.bulkDeleteDecision(selectedIDs: [], itemCount: { _ in 0 }) == .none)
-    #expect(SettingsGroupsViewModel.bulkDeleteDecision(selectedIDs: [first], itemCount: { _ in 0 }) == .deleteImmediately)
-    #expect(SettingsGroupsViewModel.bulkDeleteDecision(selectedIDs: [first, second]) { id in
-        id == second ? 1 : 0
-    } == .confirm)
-}
-
 private extension ClipboardGroup {
     static func fixture(
         name: String,

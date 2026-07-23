@@ -13,7 +13,7 @@ final class HelpWindowController: NSObject, NSWindowDelegate {
         }
 
         let window = HelpWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 660),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false

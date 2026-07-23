@@ -82,30 +82,6 @@ final class SettingsHistoryDataViewModel: ObservableObject {
         }
     }
 
-    func cleanOrphanedAttachments(
-        items: [ClipboardItem],
-        showStatus: @escaping (String) -> Void
-    ) {
-        isCleaningOrphanedAttachments = true
-
-        Task {
-            let result = await Task.detached(priority: .utility) {
-                OrphanedAttachmentCleaner.clean(items: items)
-            }.value
-            let usageText = await Task.detached(priority: .utility) {
-                StorageUsageCalculator.formattedApplicationSupportSize()
-            }.value
-
-            storageUsageText = usageText
-            isCleaningOrphanedAttachments = false
-            if result.removedFiles > 0 {
-                showStatus("已清理 \(result.removedFiles) 个文件，释放 \(result.formattedRemovedSize)")
-            } else {
-                showStatus("没有可清理的孤立附件")
-            }
-        }
-    }
-
     func checkHistoryDataHealth(
         items: [ClipboardItem],
         showProgress: (String) -> Void,
@@ -119,28 +95,6 @@ final class SettingsHistoryDataViewModel: ObservableObject {
                 HistoryDataHealthChecker.check(items: items)
             }.value
 
-            isCheckingHistoryData = false
-            completion(report)
-        }
-    }
-
-    func repairHistoryData(
-        items: [ClipboardItem],
-        showProgress: (String) -> Void,
-        completion: @escaping (HistoryDataRepairReport) -> Void
-    ) {
-        isCheckingHistoryData = true
-        showProgress("正在修复数据...")
-
-        Task {
-            let report = await Task.detached(priority: .utility) {
-                HistoryDataHealthChecker.repair(items: items)
-            }.value
-            let usageText = await Task.detached(priority: .utility) {
-                StorageUsageCalculator.formattedApplicationSupportSize()
-            }.value
-
-            storageUsageText = usageText
             isCheckingHistoryData = false
             completion(report)
         }

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -12,6 +13,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let globalShortcutSettings: GlobalShortcutSettings
     private let accessibilityPermissionState: AccessibilityPermissionState
     private let pasteExecutor: PasteExecutor
+    private let appearanceSettings: AppearanceSettings
+    private var appearanceObservation: AnyCancellable?
     private var window: SettingsWindow?
 
     init(
@@ -21,7 +24,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         ignoredAppSettings: IgnoredAppSettings,
         globalShortcutSettings: GlobalShortcutSettings,
         accessibilityPermissionState: AccessibilityPermissionState,
-        pasteExecutor: PasteExecutor
+        pasteExecutor: PasteExecutor,
+        appearanceSettings: AppearanceSettings = .shared
     ) {
         self.store = store
         self.recordingController = recordingController
@@ -30,7 +34,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.globalShortcutSettings = globalShortcutSettings
         self.accessibilityPermissionState = accessibilityPermissionState
         self.pasteExecutor = pasteExecutor
+        self.appearanceSettings = appearanceSettings
         super.init()
+        appearanceObservation = appearanceSettings.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                AppearanceWindowApplicator.apply(appearanceSettings.windowAppearance, to: self?.window)
+            }
+        }
     }
 
     func show() {
@@ -47,7 +57,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             ignoredAppSettings: ignoredAppSettings,
             globalShortcutSettings: globalShortcutSettings,
             accessibilityPermissionState: accessibilityPermissionState,
-            pasteExecutor: pasteExecutor
+            appearanceSettings: appearanceSettings,
+            pasteExecutor: pasteExecutor,
+            clipboardWriter: .generalTextWriter(registerSelfWrite: { [weak store] changeCount, payload in
+                store?.registerSelfWrite(changeCount: changeCount, payload: payload)
+            })
         )
         let window = SettingsWindow(
             contentRect: NSRect(origin: .zero, size: defaultWindowSize),
@@ -56,6 +70,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         window.title = "轻贴设置"
+        AppearanceWindowApplicator.apply(appearanceSettings.windowAppearance, to: window)
         window.minSize = minimumWindowSize
         window.contentView = NSHostingView(rootView: settingsView)
         window.center()
@@ -68,6 +83,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        AppearanceWindowApplicator.apply(appearanceSettings.windowAppearance, to: window)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

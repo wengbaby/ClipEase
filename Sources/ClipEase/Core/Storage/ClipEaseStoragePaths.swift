@@ -85,16 +85,17 @@ enum ClipEaseStoragePaths {
     }
 
     static func appIconsDirectory(fileManager: FileManager = .default) throws -> URL {
-        try applicationSupportDirectory(fileManager: fileManager)
-            .appendingPathComponent("AppIcons", isDirectory: true)
+        try liveAttachmentDirectory(named: "AppIcons", fileManager: fileManager)
     }
 
     static func appIconFileURL(
         fileName: String,
         fileManager: FileManager = .default
     ) throws -> URL {
-        try appIconsDirectory(fileManager: fileManager)
-            .appendingPathComponent(fileName)
+        try attachmentFileURL(
+            fileName: fileName,
+            in: appIconsDirectory(fileManager: fileManager)
+        )
     }
 
     static func validAttachmentBaseName(_ fileName: String) throws -> String {

@@ -21,8 +21,9 @@ struct HistoryPreviewPopoverView: View {
     let onCopyPath: () -> Void
     let onCopyRGB: () -> Void
     let onDetachDrag: () -> PreviewHeaderDragCompletion?
-    @State private var previewImage: PreviewImage?
-    @State private var filePreviewImage: PreviewImage?
+    let clipboardWriter: ClipboardWriteCoordinator
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @Environment(\.displayScale) private var displayScale
     @State private var selectedFileReferenceID: ClipboardFileReference.ID?
     @State private var isOCRHighlightEnabled = false
     @State private var isLinkPreviewLoading = false
@@ -34,12 +35,14 @@ struct HistoryPreviewPopoverView: View {
 
             if showsArrow {
                 Triangle()
-                    .fill(Color(red: 0.94, green: 0.95, blue: 0.98))
+                    .fill(appearanceSettings.cardStyle.materialTheme.gradient)
+                    .opacity(previewArrowOpacity)
                     .frame(width: 26, height: 14)
                     .padding(.leading, arrowX - 13)
             }
         }
         .frame(width: size.width, height: size.height + (showsArrow ? 14 : 0), alignment: .topLeading)
+        .preferredColorScheme(appearanceSettings.preferredColorScheme)
     }
 
     private var popoverBody: some View {
@@ -63,7 +66,13 @@ struct HistoryPreviewPopoverView: View {
             footer
         }
         .frame(width: size.width, height: size.height)
-        .background(Color(red: 0.94, green: 0.95, blue: 0.98))
+        .background {
+            ZStack {
+                Color(nsColor: .windowBackgroundColor)
+                appearanceSettings.materialTheme.gradient
+                    .opacity(appearanceSettings.windowEffectOpacity * 0.62)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .transition(.opacity.combined(with: .scale(scale: 0.985)))
     }
@@ -77,7 +86,7 @@ struct HistoryPreviewPopoverView: View {
                     HStack(spacing: 8) {
                         ForEach(badges, id: \.self) { badge in
                             Button {
-                                ClipboardWriteCoordinator.generalTextWriter().writeText(badge)
+                                Self.copyOCRBadge(badge, using: clipboardWriter)
                                 ClipEaseSoundPlayer.shared.playCopyFeedback()
                             } label: {
                                 Text(badge)
@@ -90,11 +99,11 @@ struct HistoryPreviewPopoverView: View {
                             .buttonStyle(PreviewBadgeButtonStyle())
                             .contextMenu {
                                 Button("复制") {
-                                    ClipboardWriteCoordinator.generalTextWriter().writeText(badge)
+                                    Self.copyOCRBadge(badge, using: clipboardWriter)
                                     ClipEaseSoundPlayer.shared.playCopyFeedback()
                                 }
                                 Button("分享") {
-                                    ClipboardWriteCoordinator.generalTextWriter().writeText(badge)
+                                    Self.copyOCRBadge(badge, using: clipboardWriter)
                                     ClipEaseSoundPlayer.shared.playCopyFeedback()
                                 }
                             }
@@ -105,6 +114,18 @@ struct HistoryPreviewPopoverView: View {
                 }
             }
         }
+    }
+
+    @discardableResult
+    static func copyOCRBadge(
+        _ badge: String,
+        using clipboardWriter: ClipboardWriteCoordinator
+    ) -> Bool {
+        clipboardWriter.writeText(badge)
+    }
+
+    private var previewArrowOpacity: Double {
+        appearanceSettings.cardStyle.materialTheme.surfaceOpacity * appearanceSettings.cardEffectOpacity
     }
 
     private var header: some View {
@@ -236,14 +257,6 @@ struct HistoryPreviewPopoverView: View {
             }
         case .image:
             imageContent
-                .task(id: isContentReady) {
-                    guard isContentReady, item.type == .image else {
-                        previewImage = nil
-                        return
-                    }
-
-                    previewImage = await loadImage()
-                }
                 .overlay(alignment: .bottomTrailing) {
                     ocrToggleButton
                         .padding(12)
@@ -253,20 +266,14 @@ struct HistoryPreviewPopoverView: View {
 
     private var imageContent: some View {
         ZStack {
-            if isContentReady, let image = previewImage {
-                LiveTextImagePreview(
-                    image: image.image,
-                    url: image.url,
-                    isHighlighted: isOCRHighlightEnabled
-                )
-                .frame(width: imageContentSize.width, height: imageContentSize.height)
-                .transition(.opacity)
-            } else {
-                Image(systemName: "photo")
-                    .font(.system(size: 52, weight: .regular))
-                    .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
-                    .transition(.opacity)
-            }
+            HistoryPreviewImageLoadView(
+                request: historyImageLoadRequest,
+                isActive: isContentReady,
+                isHighlighted: isOCRHighlightEnabled,
+                placeholderStyle: .history
+            )
+            .frame(width: imageContentSize.width, height: imageContentSize.height)
+            .transition(.opacity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
@@ -285,6 +292,28 @@ struct HistoryPreviewPopoverView: View {
         let footerHeight: CGFloat = 41
         let dividerHeight: CGFloat = 2
         return headerHeight + footerHeight + dividerHeight
+    }
+
+    private var historyImageLoadRequest: HistoryPreviewImageLoadRequest? {
+        guard let fileName = item.imageFileName else {
+            return nil
+        }
+        let preferredPointSize: NSSize?
+        if let width = item.imageWidth,
+           let height = item.imageHeight,
+           width > 0,
+           height > 0 {
+            preferredPointSize = NSSize(width: width, height: height)
+        } else {
+            preferredPointSize = nil
+        }
+        return HistoryPreviewImageLoadRequestBuilder.historyImage(
+            fileName: fileName,
+            contentPointSize: imageContentSize,
+            displayScale: displayScale,
+            preferredPointSize: preferredPointSize,
+            isActive: isContentReady
+        )
     }
 
     private var ocrToggleButton: some View {
@@ -414,7 +443,7 @@ struct HistoryPreviewPopoverView: View {
                 Divider()
 
                 fileReferenceList(references)
-                    .frame(width: min(240, max(180, size.width * 0.32)))
+                    .frame(width: fileReferenceSidebarWidth)
             }
 
             if isOCRHighlightEnabled {
@@ -456,22 +485,44 @@ struct HistoryPreviewPopoverView: View {
     }
 
     private func fileImagePreview(_ reference: ClipboardFileReference) -> some View {
-        ZStack {
-            if let filePreviewImage,
-               filePreviewImage.url.path == reference.path {
-                LiveTextImagePreview(
-                    image: filePreviewImage.image,
-                    url: filePreviewImage.url,
-                    isHighlighted: isOCRHighlightEnabled
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                previewPlaceholder
-            }
-        }
-        .task(id: reference.path) {
-            filePreviewImage = await loadPreviewImage(url: URL(fileURLWithPath: reference.path))
-        }
+        HistoryPreviewImageLoadView(
+            request: fileImageLoadRequest(reference),
+            isActive: isContentReady,
+            isHighlighted: isOCRHighlightEnabled,
+            placeholderStyle: .file
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var fileReferenceSidebarWidth: CGFloat {
+        min(240, max(180, size.width * 0.32))
+    }
+
+    private var fileImageContentPointSize: CGSize {
+        CGSize(
+            width: max(1, size.width - fileReferenceSidebarWidth - 1),
+            height: imageContentSize.height
+        )
+    }
+
+    private func fileImageLoadRequest(
+        _ reference: ClipboardFileReference
+    ) -> HistoryPreviewImageLoadRequest? {
+        let modifiedIdentity = reference.modifiedAt.map {
+            String($0.timeIntervalSinceReferenceDate.bitPattern, radix: 16)
+        } ?? "none"
+        let cacheIdentity = [
+            reference.id.uuidString,
+            reference.fileSize.map(String.init) ?? "none",
+            modifiedIdentity
+        ].joined(separator: ":")
+        return HistoryPreviewImageLoadRequestBuilder.fileImage(
+            url: URL(fileURLWithPath: reference.path),
+            cacheIdentity: cacheIdentity,
+            contentPointSize: fileImageContentPointSize,
+            displayScale: displayScale,
+            isActive: isContentReady
+        )
     }
 
     private func fileReferenceList(_ references: [ClipboardFileReference]) -> some View {
@@ -762,42 +813,6 @@ struct HistoryPreviewPopoverView: View {
         .padding(.vertical, 10)
     }
 
-    private func loadImage() async -> PreviewImage? {
-        guard let imageFileName = item.imageFileName,
-              let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
-            return nil
-        }
-
-        return await loadPreviewImage(url: imageURL, preferredSize: {
-            guard let width = item.imageWidth,
-                  let height = item.imageHeight,
-                  width > 0,
-                  height > 0 else {
-                return nil
-            }
-            return NSSize(width: width, height: height)
-        }())
-    }
-
-    private func loadPreviewImage(url imageURL: URL, preferredSize: NSSize? = nil) async -> PreviewImage? {
-        let data = await Task.detached(priority: .utility) {
-            try? Data(contentsOf: imageURL)
-        }.value
-
-        guard let data else {
-            return nil
-        }
-
-        guard let image = NSImage(data: data) else {
-            return nil
-        }
-        if let preferredSize {
-            image.size = preferredSize
-        }
-
-        return PreviewImage(image: image, url: imageURL)
-    }
-
     private func rgbText(from components: ClipEaseColorComponents) -> String {
         let red = Int(round(components.red * 255))
         let green = Int(round(components.green * 255))
@@ -815,11 +830,6 @@ private struct Triangle: Shape {
         path.closeSubpath()
         return path
     }
-}
-
-private struct PreviewImage {
-    let image: NSImage
-    let url: URL
 }
 
 private struct PreviewHeaderDragRegion: NSViewRepresentable {
@@ -976,118 +986,6 @@ private struct PreviewFileReferenceButtonBody: View {
     }
 }
 
-private struct FileTextPreviewView: NSViewRepresentable {
-    let url: URL
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let textView = FileInteractiveTextView()
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 16, height: 16)
-        textView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.textColor = NSColor.labelColor
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.autoresizingMask = [.width]
-        textView.string = "正在读取文件内容..."
-
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = .white
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.documentView = textView
-        context.coordinator.load(url: url, in: textView)
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView,
-              context.coordinator.url != url else {
-            return
-        }
-
-        context.coordinator.url = url
-        textView.string = "正在读取文件内容..."
-        context.coordinator.load(url: url, in: textView)
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(url: url)
-    }
-
-    nonisolated private static func text(from url: URL) async -> String {
-        await Task.detached(priority: .utility) {
-            textSynchronously(from: url)
-        }.value
-    }
-
-    nonisolated private static func textSynchronously(from url: URL) -> String {
-        if let attributedString = try? NSAttributedString(
-            url: url,
-            options: [.documentType: NSAttributedString.DocumentType.rtf],
-            documentAttributes: nil
-        ), attributedString.length > 0 {
-            return attributedString.string
-        }
-
-        if let text = try? String(contentsOf: url, encoding: .utf8) {
-            return text
-        }
-
-        if let text = try? String(contentsOf: url, encoding: .unicode) {
-            return text
-        }
-
-        return "无法读取文件内容"
-    }
-
-    @MainActor
-    final class Coordinator {
-        var url: URL
-        private var loadTask: Task<Void, Never>?
-
-        init(url: URL) {
-            self.url = url
-        }
-
-        func load(url: URL, in textView: NSTextView) {
-            loadTask?.cancel()
-            let expectedURL = url
-            loadTask = Task { @MainActor [weak self, weak textView] in
-                let text = await FileTextPreviewView.text(from: url)
-                guard !Task.isCancelled,
-                      self?.url == expectedURL,
-                      let textView else {
-                    return
-                }
-
-                textView.string = text
-            }
-        }
-
-        deinit {
-            loadTask?.cancel()
-        }
-    }
-}
-
-private final class FileInteractiveTextView: NSTextView {
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        super.mouseDown(with: event)
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        super.rightMouseDown(with: event)
-    }
-}
-
 private struct FilePDFPreviewView: NSViewRepresentable {
     let url: URL
 
@@ -1145,7 +1043,7 @@ private struct FilePDFPreviewView: NSViewRepresentable {
 }
 
 @available(macOS 13.0, *)
-private struct LiveTextImagePreview: NSViewRepresentable {
+struct LiveTextImagePreview: NSViewRepresentable {
     let image: NSImage
     let url: URL
     let isHighlighted: Bool
@@ -1155,13 +1053,21 @@ private struct LiveTextImagePreview: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> LiveTextImagePreviewView {
-        let view = LiveTextImagePreviewView()
+        let view = LiveTextImagePreviewView(frame: .zero)
         view.configure(image: image, url: url, isHighlighted: isHighlighted, coordinator: context.coordinator)
         return view
     }
 
     func updateNSView(_ view: LiveTextImagePreviewView, context: Context) {
         view.configure(image: image, url: url, isHighlighted: isHighlighted, coordinator: context.coordinator)
+    }
+
+    static func dismantleNSView(
+        _ view: LiveTextImagePreviewView,
+        coordinator: Coordinator
+    ) {
+        view.dismantle()
+        coordinator.containerView = nil
     }
 
     @MainActor
@@ -1176,15 +1082,29 @@ private struct LiveTextImagePreview: NSViewRepresentable {
 
 @available(macOS 13.0, *)
 @MainActor
-private final class LiveTextImagePreviewView: NSView {
+final class LiveTextImagePreviewView: NSView {
     private let imageView = NSImageView()
+    private let overlayDelegate: LiveTextOverlayDelegate
     private let overlayView: ImageAnalysisOverlayView
-    private let analyzer = ImageAnalyzer()
+    private let analyzer: any LiveTextImageAnalyzing
+    private let analysisLifecycle = LiveTextAnalysisLifecycle<LiveTextAnalysisValue>()
     private var representedURL: URL?
-    private var analysisTask: Task<Void, Never>?
+    private var isDismantled = false
 
-    override init(frame frameRect: NSRect) {
+    override convenience init(frame frameRect: NSRect) {
+        self.init(
+            frame: frameRect,
+            analyzer: SystemLiveTextImageAnalyzer()
+        )
+    }
+
+    init(
+        frame frameRect: NSRect,
+        analyzer: any LiveTextImageAnalyzing
+    ) {
+        self.analyzer = analyzer
         let delegate = LiveTextOverlayDelegate()
+        overlayDelegate = delegate
         overlayView = ImageAnalysisOverlayView(delegate)
         super.init(frame: frameRect)
         delegate.containerView = self
@@ -1231,6 +1151,9 @@ private final class LiveTextImagePreviewView: NSView {
         isHighlighted: Bool,
         coordinator: LiveTextImagePreview.Coordinator
     ) {
+        guard !isDismantled else {
+            return
+        }
         coordinator.containerView = self
         if imageView.image !== image {
             imageView.image = image
@@ -1244,42 +1167,48 @@ private final class LiveTextImagePreviewView: NSView {
         }
         representedURL = url
         overlayView.analysis = nil
-        analysisTask?.cancel()
 
-        guard ImageAnalyzer.isSupported else {
+        guard analyzer.isSupported else {
+            analysisLifecycle.cancel()
             return
         }
 
-        let analysisImage = image
-        analysisTask = Task { [weak self] in
-            guard let self else {
-                return
-            }
-            var configuration = ImageAnalyzer.Configuration([.text])
-            configuration.locales = preferredOCRLocales()
-            do {
-                let analysis = try await analyzer.analyze(
-                    analysisImage,
-                    orientation: .up,
-                    configuration: configuration
-                )
-                await MainActor.run {
-                    guard self.representedURL == url else {
-                        return
-                    }
-                    self.overlayView.analysis = analysis
-                    self.overlayView.selectableItemsHighlighted = isHighlighted
-                    self.overlayView.setContentsRectNeedsUpdate()
+        let analyzer = self.analyzer
+        let request = LiveTextAnalysisRequest(
+            image: image,
+            locales: preferredOCRLocales()
+        )
+        analysisLifecycle.replace(
+            operation: {
+                try await analyzer.analyze(request)
+            },
+            apply: { [weak self] result in
+                guard let self else {
+                    return
                 }
-            } catch {
-                await MainActor.run {
-                    guard self.representedURL == url else {
-                        return
-                    }
+                switch result {
+                case .success(let value):
+                    self.overlayView.analysis = value.analysis
+                    self.overlayView.setContentsRectNeedsUpdate()
+                case .failure:
                     self.overlayView.analysis = nil
                 }
             }
+        )
+    }
+
+    func dismantle() {
+        guard !isDismantled else {
+            return
         }
+        isDismantled = true
+        representedURL = nil
+        analysisLifecycle.dismantle()
+        overlayView.analysis = nil
+        overlayView.trackingImageView = nil
+        overlayView.delegate = nil
+        overlayDelegate.containerView = nil
+        imageView.image = nil
     }
 
     private func preferredOCRLocales() -> [String] {

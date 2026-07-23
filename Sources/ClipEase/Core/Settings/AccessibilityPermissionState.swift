@@ -4,6 +4,7 @@ import ApplicationServices
 @MainActor
 final class AccessibilityPermissionState: ObservableObject {
     @Published private(set) var isTrusted = false
+    private let isProcessTrusted: (Bool) -> Bool
 
     var currentAppURL: URL {
         Bundle.main.bundleURL
@@ -13,20 +14,22 @@ final class AccessibilityPermissionState: ObservableObject {
         currentAppURL.path
     }
 
-    init() {
+    init(isProcessTrusted: ((Bool) -> Bool)? = nil) {
+        self.isProcessTrusted = isProcessTrusted ?? { promptIfNeeded in
+            if promptIfNeeded {
+                let options = [
+                    "AXTrustedCheckOptionPrompt": true
+                ] as CFDictionary
+                return AXIsProcessTrustedWithOptions(options)
+            }
+            return AXIsProcessTrustedWithOptions(nil)
+        }
         refresh()
     }
 
     @discardableResult
     func refresh(promptIfNeeded: Bool = false) -> Bool {
-        if promptIfNeeded {
-            let options = [
-                "AXTrustedCheckOptionPrompt": true
-            ] as CFDictionary
-            isTrusted = AXIsProcessTrustedWithOptions(options)
-        } else {
-            isTrusted = AXIsProcessTrustedWithOptions(nil)
-        }
+        isTrusted = isProcessTrusted(promptIfNeeded)
 
         return isTrusted
     }
@@ -43,7 +46,8 @@ final class AccessibilityPermissionState: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([currentAppURL])
     }
 
-    func copyCurrentAppPath() {
-        ClipboardWriteCoordinator.generalTextWriter().writeText(currentAppPath)
+    @discardableResult
+    func copyCurrentAppPath(using clipboardWriter: ClipboardWriteCoordinator) -> Bool {
+        clipboardWriter.writeText(currentAppPath)
     }
 }

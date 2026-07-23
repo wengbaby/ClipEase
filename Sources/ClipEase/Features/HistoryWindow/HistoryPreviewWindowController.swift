@@ -4,6 +4,7 @@ import SwiftUI
 
 @MainActor
 final class HistoryPreviewWindowController {
+    private let clipboardWriter: ClipboardWriteCoordinator
     private var panel: NSPanel?
     private var outsideClickMonitor: Any?
     private var localOutsideClickMonitor: Any?
@@ -29,6 +30,10 @@ final class HistoryPreviewWindowController {
     private let bloomOpenDuration: TimeInterval = 0.34
     private let bloomCloseDuration: TimeInterval = 0.22
 
+    init(clipboardWriter: ClipboardWriteCoordinator) {
+        self.clipboardWriter = clipboardWriter
+    }
+
     var frame: CGRect? {
         panel?.frame
     }
@@ -39,6 +44,11 @@ final class HistoryPreviewWindowController {
 
     var isAttachedVisible: Bool {
         panel?.isVisible == true
+    }
+
+    func applyAppearance(_ appearance: NSAppearance?) {
+        panel?.appearance = appearance
+        detachedPanels.values.forEach { $0.appearance = appearance }
     }
 
     var isRecordingSuppressionActive: Bool {
@@ -228,6 +238,14 @@ final class HistoryPreviewWindowController {
         close(allowDetached: false)
     }
 
+    static func releaseHostedContent(from panel: NSPanel?) {
+        guard let panel else {
+            return
+        }
+        panel.contentView = NSView()
+        panel.contentView?.alphaValue = 1
+    }
+
     func close(allowDetached: Bool) {
         let parentWindow = parentWindow
         removeOutsideClickMonitor()
@@ -241,6 +259,7 @@ final class HistoryPreviewWindowController {
         guard let panel, panel.isVisible else {
             isAttachedClosing = false
             panel?.orderOut(nil)
+            Self.releaseHostedContent(from: panel)
             parentWindow?.makeKey()
             return
         }
@@ -264,8 +283,7 @@ final class HistoryPreviewWindowController {
             panel?.contentView?.layer?.transform = CATransform3DIdentity
             panel?.orderOut(nil)
             parentWindow?.makeKey()
-            panel?.contentView = NSView()
-            panel?.contentView?.alphaValue = 1
+            Self.releaseHostedContent(from: panel)
         }
     }
 
@@ -371,6 +389,7 @@ final class HistoryPreviewWindowController {
             defer: false
         )
         panel.isReleasedWhenClosed = false
+        panel.appearance = AppearanceSettings.shared.windowAppearance
         panel.hidesOnDeactivate = false
         panel.backgroundColor = .clear
         panel.isOpaque = false
@@ -464,8 +483,10 @@ final class HistoryPreviewWindowController {
                 onCopyMarkdown: configuration.onCopyMarkdown,
                 onCopyPath: configuration.onCopyPath,
                 onCopyRGB: configuration.onCopyRGB,
-                onDetachDrag: onDetachDrag
+                onDetachDrag: onDetachDrag,
+                clipboardWriter: clipboardWriter
             )
+            .preferredColorScheme(AppearanceSettings.shared.preferredColorScheme)
         )
     }
 
@@ -939,7 +960,7 @@ struct HistoryPreviewPlacementPolicy {
     }
 }
 
-private final class HistoryPreviewPanel: NSPanel {
+final class HistoryPreviewPanel: NSPanel {
     var onKeyStateChange: ((Bool) -> Void)?
     var onEscape: (() -> Void)?
     var isDetachedPreview = false
@@ -970,6 +991,9 @@ private final class HistoryPreviewPanel: NSPanel {
         }
 
         switch characters {
+        case "w" where isDetachedPreview:
+            onEscape?()
+            return true
         case "a":
             return sendStandardEditAction(#selector(NSResponder.selectAll(_:)))
         case "c":

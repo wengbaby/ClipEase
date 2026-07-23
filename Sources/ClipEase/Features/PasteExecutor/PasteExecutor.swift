@@ -7,18 +7,21 @@ final class PasteExecutor {
     private let store: ClipboardHistoryStore
     private let permissionState: AccessibilityPermissionState
     private let soundPlayer: ClipEaseSoundPlayer
+    private let clipboardWriterOverride: ClipboardWriteCoordinator?
     var beforeAutoPaste: (() -> Void)?
 
     init(
         store: ClipboardHistoryStore,
         permissionState: AccessibilityPermissionState,
         pasteboard: NSPasteboard = .general,
-        soundPlayer: ClipEaseSoundPlayer = .shared
+        soundPlayer: ClipEaseSoundPlayer = .shared,
+        clipboardWriter: ClipboardWriteCoordinator? = nil
     ) {
         self.store = store
         self.permissionState = permissionState
         self.pasteboard = pasteboard
         self.soundPlayer = soundPlayer
+        clipboardWriterOverride = clipboardWriter
     }
 
     var canAutoPaste: Bool {
@@ -26,12 +29,13 @@ final class PasteExecutor {
     }
 
     private var clipboardWriter: ClipboardWriteCoordinator {
-        ClipboardWriteCoordinator(
+        if let clipboardWriterOverride {
+            return clipboardWriterOverride
+        }
+        return ClipboardWriteCoordinator(
             pasteboard: pasteboard,
-            skipText: store.skipNextClipboardText,
-            skipImage: store.skipNextClipboardImage,
-            skipImageHash: store.skipNextClipboardImageHash,
-            skipFiles: store.skipNextClipboardFiles
+            registerSelfWrite: store.registerSelfWrite,
+            registerPendingImageSelfWrite: store.registerPendingImageSelfWrite
         )
     }
 
@@ -166,11 +170,11 @@ final class PasteExecutor {
     }
 
     func copyImageToPasteboard(_ image: NSImage, skipText: String?) -> PasteboardCopyResult {
-        if let skipText {
-            store.skipNextClipboardText(skipText)
-        }
-        let imageHash = StoredClipboardImage.hash(for: image)
-        guard clipboardWriter.writeImage(image, imageHash: imageHash) else {
+        guard clipboardWriter.writeImage(
+            image,
+            imageHash: nil,
+            supplementalText: skipText
+        ) else {
             return .failed("无法写入图片到剪贴板")
         }
         return .copied

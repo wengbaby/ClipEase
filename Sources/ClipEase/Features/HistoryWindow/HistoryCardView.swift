@@ -9,8 +9,11 @@ struct HistoryCardView: View, Equatable {
     let isHovered: Bool
     let isPressed: Bool
     let isEnteringLatestItem: Bool
+    let isSelected: Bool
+    let visualState: HistoryCardVisualState
     let onClick: () -> Void
     let onDoubleClick: () -> Void
+    let onPreview: () -> Void
     let onRightMouseDown: () -> Void
     let onMenu: () -> NSMenu
     let onFileDragStatus: (String) -> Void
@@ -25,7 +28,9 @@ struct HistoryCardView: View, Equatable {
             lhs.isShortcutOverlayVisible == rhs.isShortcutOverlayVisible &&
             lhs.isHovered == rhs.isHovered &&
             lhs.isPressed == rhs.isPressed &&
-            lhs.isEnteringLatestItem == rhs.isEnteringLatestItem
+            lhs.isEnteringLatestItem == rhs.isEnteringLatestItem &&
+            lhs.isSelected == rhs.isSelected &&
+            lhs.visualState == rhs.visualState
     }
 
     var body: some View {
@@ -34,7 +39,7 @@ struct HistoryCardView: View, Equatable {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 5) {
                         Text(item.kind)
-                            .font(.system(size: 16, weight: .bold))
+                            .font(cardFont(size: 16))
 
                         if item.isPinned {
                             Image(systemName: "pin.fill")
@@ -45,7 +50,7 @@ struct HistoryCardView: View, Equatable {
                     }
 
                     Text(item.time)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(cardFont(size: 13))
                 }
 
                 Spacer()
@@ -59,20 +64,26 @@ struct HistoryCardView: View, Equatable {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
-            .background(item.headerColor)
+            .background {
+                cardHeaderBackground
+            }
 
             preview
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.white)
+                .background {
+                    cardContentBackground
+                }
 
             footerView
         }
         .frame(width: 250, height: HistoryWindowPanelMetrics.cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(AdaptiveGlassCardSurface(visualState: visualState))
+        .shadow(color: cardShadowColor, radius: cardShadowRadius, y: cardShadowRadius > 0 ? 4 : 0)
         .overlay(alignment: .bottomTrailing) {
             if let shortcutNumber {
                 Text("\(shortcutNumber)")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(cardFont(size: 15))
                     .foregroundStyle(.white)
                     .frame(width: 30, height: 30)
                     .background(Color.black.opacity(0.62))
@@ -84,11 +95,14 @@ struct HistoryCardView: View, Equatable {
         .animation(.easeOut(duration: 0.10), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
         .animation(.easeOut(duration: 0.22), value: isEnteringLatestItem)
+        .accessibilityHidden(true)
         .overlay(
             CardDragSourceView(
                 item: item,
+                isSelected: isSelected,
                 onClick: onClick,
                 onDoubleClick: onDoubleClick,
+                onPreview: onPreview,
                 onRightMouseDown: onRightMouseDown,
                 onMenu: onMenu,
                 onInvalid: {
@@ -102,6 +116,44 @@ struct HistoryCardView: View, Equatable {
                 onMouseExitedWindow: onMouseExitedWindow
             )
         )
+    }
+
+    @ViewBuilder
+    private var cardHeaderBackground: some View {
+        ZStack {
+            visualState.cardStyle.materialTheme.gradient
+            item.headerColor.opacity(visualState.environment.cardHeaderColorIntensity)
+        }
+    }
+
+    @ViewBuilder
+    private var cardContentBackground: some View {
+        visualState.cardStyle.materialTheme.gradient
+            .opacity(visualState.environment.cardEffectOpacity * 0.54)
+    }
+
+    private var cardShadowColor: Color {
+        switch visualState.cardStyle {
+        case .deepSpace, .obsidian: Color.black.opacity(0.42)
+        case .holographic, .prism, .aurora: .purple.opacity(0.38)
+        case .jelly, .sunset, .amber: .pink.opacity(0.30)
+        default: .clear
+        }
+    }
+
+    private var cardShadowRadius: CGFloat {
+        switch visualState.cardStyle {
+        case .deepSpace, .obsidian, .holographic, .prism, .aurora, .jelly, .sunset, .amber:
+            visualState.isHovered ? 14 : 8
+        default:
+            0
+        }
+    }
+
+    private func cardFont(size: Double) -> Font {
+        var typography = visualState.environment.cardTypography
+        typography.size = size * typography.size / 16
+        return typography.swiftUIFont
     }
 
     @ViewBuilder
@@ -171,11 +223,11 @@ struct HistoryCardView: View, Equatable {
 
             VStack(spacing: 8) {
                 Text(item.preview)
-                    .font(.system(size: 30, weight: .bold))
+                    .font(cardFont(size: 30))
 
                 if let components {
                     Text(rgbText(from: components))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(cardFont(size: 13))
                 }
             }
             .foregroundStyle(components?.readableTextColor ?? .white)
@@ -196,12 +248,13 @@ struct HistoryCardView: View, Equatable {
                 RichTextCardPreview(
                     fileName: richTextFileName,
                     fallbackText: item.preview,
-                    searchQuery: searchQuery
+                    searchQuery: searchQuery,
+                    font: cardFont(size: 16)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 highlightedText(item.preview, baseColor: Color(red: 0.12, green: 0.14, blue: 0.17))
-                    .font(.system(size: 16, weight: .regular))
+                    .font(cardFont(size: 16))
                     .lineLimit(textPreviewLineLimit)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
@@ -284,14 +337,14 @@ struct HistoryCardView: View, Equatable {
     private var linkFooter: some View {
         VStack(spacing: 2) {
             Text(linkFooterTitle)
-                .font(.system(size: 13, weight: .bold))
+                .font(cardFont(size: 13))
                 .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.19))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity)
 
             Text(linkFooterURL)
-                .font(.system(size: 12, weight: .medium))
+                .font(cardFont(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -350,7 +403,7 @@ struct HistoryCardView: View, Equatable {
             linkFooter
         } else {
             Text(item.footer)
-                .font(.system(size: 13, weight: .medium))
+                .font(cardFont(size: 13))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
@@ -363,7 +416,7 @@ struct HistoryCardView: View, Equatable {
     private var fileFooter: some View {
         if isMultiFilePreview {
             Text(fileFooterText)
-                .font(.system(size: 13, weight: .medium))
+                .font(cardFont(size: 13))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -374,7 +427,7 @@ struct HistoryCardView: View, Equatable {
                 .background(Color.white)
         } else {
             Text(fileFooterText)
-                .font(.system(size: 13, weight: .medium))
+                .font(cardFont(size: 13))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
@@ -494,7 +547,6 @@ private struct AsyncSourceIconView: View {
 
     @State private var icon: NSImage?
     @State private var representedFileName: String?
-    @State private var loadTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -514,15 +566,10 @@ private struct AsyncSourceIconView: View {
         .task(id: iconFileName) {
             await loadIconIfNeeded()
         }
-        .onDisappear {
-            loadTask?.cancel()
-            loadTask = nil
-        }
     }
 
     @MainActor
     private func loadIconIfNeeded() async {
-        loadTask?.cancel()
         representedFileName = iconFileName
 
         guard let iconFileName else {
@@ -537,21 +584,18 @@ private struct AsyncSourceIconView: View {
         }
 
         icon = nil
-        loadTask = Task.detached(priority: .utility) {
-            let loadedIcon = HistoryCardAssetLoadGate.shared.load {
-                HistoryCardAssetLoader.loadSourceIcon(fileName: iconFileName)
-            }
-            await MainActor.run {
-                guard representedFileName == iconFileName else {
-                    return
-                }
-
-                if let loadedIcon {
-                    ImageMemoryCache.shared.store(loadedIcon, for: cacheKey)
-                }
-                icon = loadedIcon
-            }
+        guard let request = HistoryImageAssetRequest.sourceIcon(
+            fileName: iconFileName,
+            priority: .visible
+        ) else {
+            return
         }
+        let asset = try? await HistoryImageAssetLoader.shared.loadVisible(request)
+        guard !Task.isCancelled,
+              representedFileName == iconFileName else {
+            return
+        }
+        icon = asset?.image
     }
 }
 
@@ -566,7 +610,6 @@ private struct AsyncCardImageView: View {
 
     @State private var image: NSImage?
     @State private var representedFileName: String?
-    @State private var loadTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -580,10 +623,6 @@ private struct AsyncCardImageView: View {
         }
         .task(id: imageFileName) {
             await loadImageIfNeeded()
-        }
-        .onDisappear {
-            loadTask?.cancel()
-            loadTask = nil
         }
     }
 
@@ -608,7 +647,6 @@ private struct AsyncCardImageView: View {
 
     @MainActor
     private func loadImageIfNeeded() async {
-        loadTask?.cancel()
         representedFileName = imageFileName
 
         guard let imageFileName else {
@@ -623,21 +661,18 @@ private struct AsyncCardImageView: View {
         }
 
         image = nil
-        loadTask = Task.detached(priority: .utility) {
-            let loadedImage = HistoryCardAssetLoadGate.shared.load {
-                HistoryCardAssetLoader.loadImageThumbnail(fileName: imageFileName)
-            }
-            await MainActor.run {
-                guard representedFileName == imageFileName else {
-                    return
-                }
-
-                if let loadedImage {
-                    ImageMemoryCache.shared.store(loadedImage, for: cacheKey)
-                }
-                image = loadedImage
-            }
+        guard let request = HistoryImageAssetRequest.cardThumbnail(
+            fileName: imageFileName,
+            priority: .visible
+        ) else {
+            return
         }
+        let asset = try? await HistoryImageAssetLoader.shared.loadVisible(request)
+        guard !Task.isCancelled,
+              representedFileName == imageFileName else {
+            return
+        }
+        image = asset?.image
     }
 }
 
@@ -655,51 +690,11 @@ final class HistoryCardAssetLoadGate: @unchecked Sendable {
     }
 }
 
-private enum HistoryCardAssetLoader {
-    static func loadSourceIcon(fileName: String) -> NSImage? {
-        guard let iconURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: fileName) else {
-            return nil
-        }
-
-        return NSImage(contentsOf: iconURL).map {
-            ClipEaseAppIcon.roundedImage($0, size: NSSize(width: 64, height: 64))
-        }
-    }
-
-    static func loadImageThumbnail(fileName: String) -> NSImage? {
-        guard let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(fileName: fileName),
-              let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: fileName) else {
-            return nil
-        }
-
-        if let thumbnail = NSImage(contentsOf: thumbnailURL) {
-            return thumbnail
-        }
-
-        guard let image = NSImage(contentsOf: imageURL) else {
-            return nil
-        }
-
-        guard let thumbnail = image.clipeaseCardThumbnail(maxPixelSize: CGSize(width: 500, height: 360)),
-              let thumbnailData = thumbnail.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: thumbnailData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            return image
-        }
-
-        try? FileManager.default.createDirectory(
-            at: thumbnailURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try? pngData.write(to: thumbnailURL, options: [.atomic])
-        return thumbnail
-    }
-}
-
 private struct RichTextCardPreview: View {
     let fileName: String
     let fallbackText: String
     let searchQuery: String
+    let font: Font
 
     @State private var attributedText: AttributedString?
     @State private var representedKey = ""
@@ -707,7 +702,7 @@ private struct RichTextCardPreview: View {
 
     var body: some View {
         Text(attributedText ?? fallbackAttributedText)
-            .font(.system(size: 16, weight: .regular))
+            .font(font)
             .lineLimit(9)
             .truncationMode(.tail)
             .multilineTextAlignment(.leading)
@@ -942,10 +937,81 @@ final class RichTextCardPreviewCache {
     }
 }
 
-private struct FileCardDragSourceView: NSViewRepresentable {
+struct HistoryCardAccessibilityContent: Equatable {
+    static let maximumValueLength = 240
+
+    let label: String
+    let value: String
+    let isSelected: Bool
+
+    init(item: HistoryPreviewItem, isSelected: Bool) {
+        var labelParts = [Self.normalized(item.kind)]
+        let sourceAppName = Self.normalized(item.sourceAppName)
+        if !sourceAppName.isEmpty {
+            labelParts.append("来自 \(sourceAppName)")
+        }
+        if item.isPinned {
+            labelParts.append("已置顶")
+        }
+
+        label = labelParts.filter { !$0.isEmpty }.joined(separator: "，")
+        value = Self.capped(Self.summary(for: item))
+        self.isSelected = isSelected
+    }
+
+    private static func summary(for item: HistoryPreviewItem) -> String {
+        switch item.type {
+        case .text, .color:
+            return firstNonempty(item.preview, item.footer)
+        case .image:
+            return firstNonempty(item.preview, item.footer, item.kind)
+        case .link:
+            let title = normalized(item.linkTitle ?? "")
+            let url = firstNonempty(item.preview, item.footer)
+            if !title.isEmpty, title != url {
+                return "\(title)，\(url)"
+            }
+            return firstNonempty(title, url, item.kind)
+        case .file:
+            let names = item.filePreviewReferences.compactMap { reference -> String? in
+                let displayName = normalized(reference.displayName)
+                if !displayName.isEmpty {
+                    return displayName
+                }
+                let path = normalized(reference.path)
+                return path.isEmpty ? nil : path
+            }
+            if names.count > 1 {
+                return "\(names.count) 个项目：\(names.joined(separator: "、"))"
+            }
+            return firstNonempty(names.first ?? "", item.preview, item.footer, item.kind)
+        }
+    }
+
+    private static func firstNonempty(_ candidates: String...) -> String {
+        candidates.lazy
+            .map(normalized)
+            .first(where: { !$0.isEmpty }) ?? ""
+    }
+
+    private static func normalized(_ text: String) -> String {
+        text.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+    }
+
+    private static func capped(_ text: String) -> String {
+        guard text.count > maximumValueLength else {
+            return text
+        }
+        return String(text.prefix(maximumValueLength - 1)) + "…"
+    }
+}
+
+struct FileCardDragSourceView: NSViewRepresentable {
     let item: HistoryPreviewItem
+    let isSelected: Bool
     let onClick: () -> Void
     let onDoubleClick: () -> Void
+    let onPreview: () -> Void
     let onRightMouseDown: () -> Void
     let onMenu: () -> NSMenu
     let onInvalid: () -> Void
@@ -956,9 +1022,20 @@ private struct FileCardDragSourceView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> FileCardDragSourceNSView {
         let view = FileCardDragSourceNSView()
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: FileCardDragSourceNSView, context: Context) {
+        configure(nsView)
+    }
+
+    func configure(_ view: FileCardDragSourceNSView) {
         view.item = item
+        view.accessibilityContent = HistoryCardAccessibilityContent(item: item, isSelected: isSelected)
         view.onClick = onClick
         view.onDoubleClick = onDoubleClick
+        view.onPreview = onPreview
         view.onRightMouseDown = onRightMouseDown
         view.onMenu = onMenu
         view.onInvalid = onInvalid
@@ -966,20 +1043,6 @@ private struct FileCardDragSourceView: NSViewRepresentable {
         view.onHoverChanged = onHoverChanged
         view.onPressChanged = onPressChanged
         view.onMouseExitedWindow = onMouseExitedWindow
-        return view
-    }
-
-    func updateNSView(_ nsView: FileCardDragSourceNSView, context: Context) {
-        nsView.item = item
-        nsView.onClick = onClick
-        nsView.onDoubleClick = onDoubleClick
-        nsView.onRightMouseDown = onRightMouseDown
-        nsView.onMenu = onMenu
-        nsView.onInvalid = onInvalid
-        nsView.onPartial = onPartial
-        nsView.onHoverChanged = onHoverChanged
-        nsView.onPressChanged = onPressChanged
-        nsView.onMouseExitedWindow = onMouseExitedWindow
     }
 
     static func dismantleNSView(_ nsView: FileCardDragSourceNSView, coordinator: ()) {
@@ -1025,7 +1088,7 @@ private final class CardDragPasteboardWriter: NSObject, NSPasteboardWriting {
     }
 }
 
-private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
+final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     private enum PendingCardDragPayload {
         case file([NSDraggingItem], fallbackIconName: String)
         case generic(NSDraggingItem, fallbackIconName: String)
@@ -1049,8 +1112,10 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     }
 
     var item: HistoryPreviewItem?
+    var accessibilityContent: HistoryCardAccessibilityContent?
     var onClick: (() -> Void)?
     var onDoubleClick: (() -> Void)?
+    var onPreview: (() -> Void)?
     var onRightMouseDown: (() -> Void)?
     var onMenu: (() -> NSMenu)?
     var onInvalid: (() -> Void)?
@@ -1058,6 +1123,9 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     var onHoverChanged: ((Bool) -> Void)?
     var onPressChanged: ((Bool) -> Void)?
     var onMouseExitedWindow: (() -> Void)?
+    var accessibilityMenuPresenter: (NSMenu, NSView) -> Void = { menu, view in
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: view.bounds.maxY), in: view)
+    }
 
     private var mouseDownEvent: NSEvent?
     private var trackingArea: NSTrackingArea?
@@ -1076,6 +1144,69 @@ private final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         wantsLayer = true
+    }
+
+    override var acceptsFirstResponder: Bool {
+        false
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        true
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .button
+    }
+
+    override func accessibilityLabel() -> String? {
+        accessibilityContent?.label
+    }
+
+    override func accessibilityValue() -> Any? {
+        accessibilityContent?.value
+    }
+
+    override func isAccessibilitySelected() -> Bool {
+        accessibilityContent?.isSelected == true
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        []
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let onDoubleClick else {
+            return false
+        }
+        onClick?()
+        onDoubleClick()
+        return true
+    }
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard onPreview != nil else {
+            return []
+        }
+        return [
+            NSAccessibilityCustomAction(name: "预览") { [weak self] in
+                guard let self,
+                      let onPreview = self.onPreview else {
+                    return false
+                }
+                self.onClick?()
+                onPreview()
+                return true
+            }
+        ]
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        onRightMouseDown?()
+        guard let menu = onMenu?() else {
+            return false
+        }
+        accessibilityMenuPresenter(menu, self)
+        return true
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -1580,6 +1711,7 @@ private final class CardDragPreviewWindowController {
             backing: .buffered,
             defer: false
         )
+        panel.appearance = AppearanceSettings.shared.windowAppearance
         panel.level = .screenSaver
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.backgroundColor = .clear

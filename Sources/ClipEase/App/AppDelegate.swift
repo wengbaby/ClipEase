@@ -95,9 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        historyStore?.flushPendingSave()
         globalHotKeyController?.stop()
         clipboardMonitor?.stop()
+        historyWindowController?.shutdown()
+        historyStore?.flushPendingSave()
+        PerformanceDiagnosticsService.shared.shutdown()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

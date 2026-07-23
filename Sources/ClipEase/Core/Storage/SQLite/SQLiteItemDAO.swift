@@ -1,6 +1,8 @@
 import Foundation
 
 enum SQLiteItemDAO {
+    private static let queryBatchSize = 400
+
     static func loadItems(
         in database: SQLiteDatabase,
         whereSQL: String,
@@ -60,12 +62,96 @@ enum SQLiteItemDAO {
             return []
         }
 
-        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
-        let itemRows = try database.query(
-            "SELECT item_id FROM group_items WHERE group_id IN (\(placeholders))",
-            values: ids.map { .text($0.uuidString) }
+        var itemIDs: Set<ClipboardItem.ID> = []
+        for batch in uuidStringBatches(ids) {
+            let placeholders = placeholders(count: batch.count)
+            let itemRows = try database.query(
+                "SELECT item_id FROM group_items WHERE group_id IN (\(placeholders))",
+                values: batch.map(SQLiteValue.text)
+            )
+            itemIDs.formUnion(itemRows.compactMap { UUID(uuidString: $0.requiredText("item_id")) })
+        }
+        return itemIDs
+    }
+
+    static func referencedAttachments(
+        in candidates: ClipboardAttachmentCleanup,
+        database: SQLiteDatabase
+    ) throws -> ClipboardAttachmentCleanup {
+        ClipboardAttachmentCleanup(
+            imageFileNames: try referencedFileNames(
+                assetType: "image",
+                candidates: candidates.imageFileNames,
+                database: database
+            ),
+            richTextFileNames: try referencedFileNames(
+                assetType: "rich_text",
+                candidates: candidates.richTextFileNames,
+                database: database
+            )
         )
-        return Set(itemRows.compactMap { UUID(uuidString: $0.requiredText("item_id")) })
+    }
+
+    static func attachmentCleanup(
+        forItemIDs ids: Set<ClipboardItem.ID>,
+        database: SQLiteDatabase
+    ) throws -> ClipboardAttachmentCleanup {
+        guard !ids.isEmpty else {
+            return .empty
+        }
+
+        var cleanup = ClipboardAttachmentCleanup.empty
+        for batch in uuidStringBatches(ids) {
+            let placeholders = placeholders(count: batch.count)
+            let rows = try database.query(
+                """
+                SELECT DISTINCT asset_type, file_name
+                FROM item_assets
+                WHERE item_id IN (\(placeholders))
+                  AND asset_type IN ('image', 'rich_text')
+                """,
+                values: batch.map(SQLiteValue.text)
+            )
+            cleanup = cleanup.union(attachmentCleanup(from: rows))
+        }
+        return cleanup
+    }
+
+    static func attachmentCleanup(
+        forItemsInGroups ids: Set<ClipboardGroup.ID>,
+        database: SQLiteDatabase
+    ) throws -> ClipboardAttachmentCleanup {
+        guard !ids.isEmpty else {
+            return .empty
+        }
+
+        var cleanup = ClipboardAttachmentCleanup.empty
+        for batch in uuidStringBatches(ids) {
+            let placeholders = placeholders(count: batch.count)
+            let rows = try database.query(
+                """
+                SELECT DISTINCT item_assets.asset_type, item_assets.file_name
+                FROM item_assets
+                INNER JOIN group_items ON group_items.item_id = item_assets.item_id
+                WHERE group_items.group_id IN (\(placeholders))
+                  AND item_assets.asset_type IN ('image', 'rich_text')
+                """,
+                values: batch.map(SQLiteValue.text)
+            )
+            cleanup = cleanup.union(attachmentCleanup(from: rows))
+        }
+        return cleanup
+    }
+
+    static func allAttachmentCleanup(database: SQLiteDatabase) throws -> ClipboardAttachmentCleanup {
+        let rows = try database.query(
+            """
+            SELECT DISTINCT asset_type, file_name
+            FROM item_assets
+            WHERE asset_type IN ('image', 'rich_text')
+            """
+        )
+        return attachmentCleanup(from: rows)
     }
 
     static func deleteItems(with ids: Set<ClipboardItem.ID>, in database: SQLiteDatabase) throws {
@@ -73,11 +159,13 @@ enum SQLiteItemDAO {
             return
         }
 
-        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
-        try database.execute(
-            "DELETE FROM clipboard_items WHERE id IN (\(placeholders))",
-            values: ids.map { .text($0.uuidString) }
-        )
+        for batch in uuidStringBatches(ids) {
+            let placeholders = placeholders(count: batch.count)
+            try database.execute(
+                "DELETE FROM clipboard_items WHERE id IN (\(placeholders))",
+                values: batch.map(SQLiteValue.text)
+            )
+        }
     }
 
     static func deleteItems(inGroups ids: Set<ClipboardGroup.ID>, in database: SQLiteDatabase) throws {
@@ -85,16 +173,18 @@ enum SQLiteItemDAO {
             return
         }
 
-        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
-        try database.execute(
-            """
-            DELETE FROM clipboard_items
-            WHERE id IN (
-                SELECT item_id FROM group_items WHERE group_id IN (\(placeholders))
+        for batch in uuidStringBatches(ids) {
+            let placeholders = placeholders(count: batch.count)
+            try database.execute(
+                """
+                DELETE FROM clipboard_items
+                WHERE id IN (
+                    SELECT item_id FROM group_items WHERE group_id IN (\(placeholders))
+                )
+                """,
+                values: batch.map(SQLiteValue.text)
             )
-            """,
-            values: ids.map { .text($0.uuidString) }
-        )
+        }
     }
 
     static func insert(_ item: ClipboardItem, in database: SQLiteDatabase) throws {
@@ -224,6 +314,76 @@ enum SQLiteItemDAO {
         }
 
         return assetsByItemID
+    }
+
+    private static func referencedFileNames(
+        assetType: String,
+        candidates: Set<String>,
+        database: SQLiteDatabase
+    ) throws -> Set<String> {
+        guard !candidates.isEmpty else {
+            return []
+        }
+
+        let sortedCandidates = candidates.sorted()
+        var referenced: Set<String> = []
+        var startIndex = 0
+
+        while startIndex < sortedCandidates.count {
+            let endIndex = min(startIndex + queryBatchSize, sortedCandidates.count)
+            let batch = Array(sortedCandidates[startIndex..<endIndex])
+            let placeholders = placeholders(count: batch.count)
+            let rows = try database.query(
+                """
+                SELECT DISTINCT file_name
+                FROM item_assets
+                WHERE asset_type = ?
+                  AND file_name IN (\(placeholders))
+                """,
+                values: [.text(assetType)] + batch.map(SQLiteValue.text)
+            )
+            referenced.formUnion(rows.map { $0.requiredText("file_name") })
+            startIndex = endIndex
+        }
+
+        return referenced
+    }
+
+    private static func attachmentCleanup(from rows: [SQLiteRow]) -> ClipboardAttachmentCleanup {
+        var imageFileNames: Set<String> = []
+        var richTextFileNames: Set<String> = []
+
+        for row in rows {
+            switch row.requiredText("asset_type") {
+            case "image":
+                imageFileNames.insert(row.requiredText("file_name"))
+            case "rich_text":
+                richTextFileNames.insert(row.requiredText("file_name"))
+            default:
+                continue
+            }
+        }
+
+        return ClipboardAttachmentCleanup(
+            imageFileNames: imageFileNames,
+            richTextFileNames: richTextFileNames
+        )
+    }
+
+    private static func uuidStringBatches(_ ids: Set<UUID>) -> [[String]] {
+        let sortedIDs = ids.map(\.uuidString).sorted()
+        var batches: [[String]] = []
+        var startIndex = 0
+        while startIndex < sortedIDs.count {
+            let endIndex = min(startIndex + queryBatchSize, sortedIDs.count)
+            batches.append(Array(sortedIDs[startIndex..<endIndex]))
+            startIndex = endIndex
+        }
+        return batches
+    }
+
+    private static func placeholders(count: Int) -> String {
+        Array(repeating: "?", count: count).joined(separator: ",")
     }
 
     private static func loadFileReferencesByItemID(

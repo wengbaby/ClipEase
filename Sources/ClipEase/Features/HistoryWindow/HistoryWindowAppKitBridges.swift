@@ -11,26 +11,24 @@ struct SearchOutsideWindowMouseDownObserver: NSViewRepresentable {
         let view = ObservingView()
         view.coordinator = context.coordinator
         context.coordinator.view = view
-        context.coordinator.isEnabled = isEnabled
         context.coordinator.hostWindow = hostWindow
         context.coordinator.excludedFrames = excludedFrames
         context.coordinator.onMouseDown = onMouseDown
-        context.coordinator.installMonitor()
+        context.coordinator.setEnabled(isEnabled)
         return view
     }
 
     func updateNSView(_ nsView: ObservingView, context: Context) {
         nsView.coordinator = context.coordinator
         context.coordinator.view = nsView
-        context.coordinator.isEnabled = isEnabled
         context.coordinator.hostWindow = hostWindow
         context.coordinator.excludedFrames = excludedFrames
         context.coordinator.onMouseDown = onMouseDown
-        context.coordinator.installMonitorIfNeeded()
+        context.coordinator.setEnabled(isEnabled)
     }
 
     static func dismantleNSView(_ nsView: ObservingView, coordinator: Coordinator) {
-        coordinator.removeMonitor()
+        coordinator.dismantle()
     }
 
     func makeCoordinator() -> Coordinator {
@@ -40,33 +38,54 @@ struct SearchOutsideWindowMouseDownObserver: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         weak var view: ObservingView?
-        var isEnabled = false
+        private(set) var isEnabled = false
         weak var hostWindow: NSWindow?
         var excludedFrames: [CGRect] = []
         var onMouseDown: (() -> Void)?
-        private var monitor: Any?
-
-        func installMonitor() {
-            removeMonitor()
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-                self?.handle(event)
-                return event
+        private let injectedMonitorLifecycle: HistoryEventMonitorLifecycle?
+        private var isDismantled = false
+        private lazy var monitorLifecycle = injectedMonitorLifecycle ?? HistoryEventMonitorLifecycle(
+            install: { [weak self] in
+                guard let self,
+                      let monitor = NSEvent.addLocalMonitorForEvents(
+                          matching: [.leftMouseDown, .rightMouseDown],
+                          handler: { [weak self] event in
+                              self?.handle(event)
+                              return event
+                          }
+                      ) else {
+                    return []
+                }
+                return [monitor]
+            },
+            remove: { monitor in
+                NSEvent.removeMonitor(monitor)
             }
+        )
+
+        init(monitorLifecycle: HistoryEventMonitorLifecycle? = nil) {
+            injectedMonitorLifecycle = monitorLifecycle
         }
 
-        func installMonitorIfNeeded() {
-            guard monitor == nil else {
+        func setEnabled(_ enabled: Bool) {
+            guard !isDismantled else {
                 return
             }
-
-            installMonitor()
+            isEnabled = enabled
+            monitorLifecycle.setEnabled(enabled)
         }
 
-        func removeMonitor() {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
+        func dismantle() {
+            guard !isDismantled else {
+                return
             }
+            isDismantled = true
+            isEnabled = false
+            onMouseDown = nil
+            excludedFrames = []
+            hostWindow = nil
+            view = nil
+            monitorLifecycle.dismantle()
         }
 
         @MainActor
@@ -191,40 +210,77 @@ struct HorizontalScrollWheelRedirector: NSViewRepresentable {
     }
 
     let scope: Scope
+    let isEnabled: Bool
+
+    init(scope: Scope, isEnabled: Bool = true) {
+        self.scope = scope
+        self.isEnabled = isEnabled
+    }
 
     func makeNSView(context: Context) -> ScrollRedirectView {
         let view = ScrollRedirectView(scope: scope)
-        DispatchQueue.main.async {
-            view.updateCoordinatorBindingIfNeeded()
-            view.installMonitorIfNeeded()
-        }
+        view.setEnabled(isEnabled)
         return view
     }
 
     func updateNSView(_ nsView: ScrollRedirectView, context: Context) {
         nsView.scope = scope
-        DispatchQueue.main.async {
-            nsView.updateCoordinatorBindingIfNeeded()
-            nsView.installMonitorIfNeeded()
-        }
+        nsView.setEnabled(isEnabled)
+        nsView.updateCoordinatorBindingIfNeeded()
     }
 
     static func dismantleNSView(_ nsView: ScrollRedirectView, coordinator: ()) {
-        nsView.removeMonitor()
+        nsView.dismantle()
     }
 
     final class ScrollRedirectView: NSView {
         var scope: Scope
-        private var localMonitor: Any?
+        private let injectedMonitorLifecycle: HistoryEventMonitorLifecycle?
+        private var isDismantled = false
+        private lazy var monitorLifecycle = injectedMonitorLifecycle ?? HistoryEventMonitorLifecycle(
+            install: { [weak self] in
+                guard let self,
+                      let monitor = NSEvent.addLocalMonitorForEvents(
+                          matching: .scrollWheel,
+                          handler: { [weak self] event in
+                              guard let self,
+                                    self.redirect(event) else {
+                                  return event
+                              }
+                              return nil
+                          }
+                      ) else {
+                    return []
+                }
+                return [monitor]
+            },
+            remove: { monitor in
+                NSEvent.removeMonitor(monitor)
+            }
+        )
 
-        init(scope: Scope) {
+        init(
+            scope: Scope,
+            monitorLifecycle: HistoryEventMonitorLifecycle? = nil
+        ) {
             self.scope = scope
+            injectedMonitorLifecycle = monitorLifecycle
             super.init(frame: .zero)
         }
 
         required init?(coder: NSCoder) {
             self.scope = .auxiliaryRail
+            injectedMonitorLifecycle = nil
             super.init(coder: coder)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard !isDismantled,
+                  window != nil else {
+                return
+            }
+            updateCoordinatorBindingIfNeeded()
         }
 
         func updateCoordinatorBindingIfNeeded() {
@@ -235,26 +291,22 @@ struct HorizontalScrollWheelRedirector: NSViewRepresentable {
             updateCardRailCoordinatorIfNeeded(scrollView)
         }
 
-        func installMonitorIfNeeded() {
-            guard localMonitor == nil else {
+        func setEnabled(_ enabled: Bool) {
+            guard !isDismantled else {
                 return
             }
-
-            localMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                guard let self,
-                      self.redirect(event) else {
-                    return event
-                }
-
-                return nil
+            monitorLifecycle.setEnabled(enabled)
+            if enabled {
+                updateCoordinatorBindingIfNeeded()
             }
         }
 
-        func removeMonitor() {
-            if let localMonitor {
-                NSEvent.removeMonitor(localMonitor)
-                self.localMonitor = nil
+        func dismantle() {
+            guard !isDismantled else {
+                return
             }
+            isDismantled = true
+            monitorLifecycle.dismantle()
         }
 
         override func scrollWheel(with event: NSEvent) {
@@ -301,18 +353,7 @@ struct HorizontalScrollWheelRedirector: NSViewRepresentable {
         }
 
         private func horizontalScrollView(at locationInWindow: NSPoint) -> NSScrollView? {
-            if let scrollView = horizontalScrollableEnclosingScrollView() {
-                let point = scrollView.convert(locationInWindow, from: nil)
-                guard scrollView.bounds.contains(point) else {
-                    return nil
-                }
-
-                return scrollView
-            }
-
-            let localPoint = convert(locationInWindow, from: nil)
-            guard bounds.contains(localPoint),
-                  let contentView = window?.contentView else {
+            guard let contentView = window?.contentView else {
                 return nil
             }
 
@@ -321,13 +362,24 @@ struct HorizontalScrollWheelRedirector: NSViewRepresentable {
                 return nil
             }
 
-            var candidate: NSView? = hitView
-            while let view = candidate {
-                if let scrollView = view as? NSScrollView,
+            let hitScrollView = nearestHorizontalScrollView(from: hitView)
+            guard let enclosingScrollView = horizontalScrollableEnclosingScrollView() else {
+                return hitScrollView
+            }
+
+            // A parent redirector must not consume wheel input meant for a
+            // nested horizontal surface such as the search-token rail.
+            return hitScrollView === enclosingScrollView ? hitScrollView : nil
+        }
+
+        private func nearestHorizontalScrollView(from view: NSView) -> NSScrollView? {
+            var candidate: NSView? = view
+            while let currentView = candidate {
+                if let scrollView = currentView as? NSScrollView,
                    isHorizontallyScrollable(scrollView) {
                     return scrollView
                 }
-                candidate = view.superview
+                candidate = currentView.superview
             }
 
             return nil
@@ -362,19 +414,21 @@ struct HistoryWindowHostWindowReader: NSViewRepresentable {
     func makeNSView(context: Context) -> WindowReaderView {
         let view = WindowReaderView()
         view.onWindowChange = { window in
-            self.window = window
+            if self.window !== window {
+                self.window = window
+            }
         }
         return view
     }
 
     func updateNSView(_ nsView: WindowReaderView, context: Context) {
         nsView.onWindowChange = { window in
-            self.window = window
+            if self.window !== window {
+                self.window = window
+            }
         }
 
-        DispatchQueue.main.async {
-            nsView.reportWindow()
-        }
+        nsView.reportWindowSoon()
     }
 
     final class WindowReaderView: NSView {
@@ -382,11 +436,14 @@ struct HistoryWindowHostWindowReader: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            reportWindow()
+            reportWindowSoon()
         }
 
-        func reportWindow() {
-            onWindowChange?(window)
+        func reportWindowSoon() {
+            let window = window
+            DispatchQueue.main.async { [weak self] in
+                self?.onWindowChange?(window)
+            }
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {

@@ -1,10 +1,46 @@
 import AppKit
+import Combine
 import Foundation
 
-enum PreviewAssetPreheater {
-    static let defaultBatchSize = 18
+struct PreviewAssetPreheatAsset: @unchecked Sendable {
+    let cacheKey: String
+    let image: NSImage
+}
 
-    static func itemsToPreheat(
+@MainActor
+final class PreviewAssetPreheater: ObservableObject {
+    typealias Loader = @Sendable (HistoryPreviewItem) async -> [PreviewAssetPreheatAsset]
+    typealias Publisher = @MainActor @Sendable (PreviewAssetPreheatAsset) -> Void
+
+    nonisolated static let defaultBatchSize = 18
+
+    private let initialDelayNanoseconds: UInt64
+    private let interBatchDelayNanoseconds: UInt64
+    private let loader: Loader
+    private let publisher: Publisher
+    private var task: Task<Void, Never>?
+    private var generation: UInt64 = 0
+    private var isEnabled = false
+
+    init(
+        initialDelayNanoseconds: UInt64 = 260_000_000,
+        interBatchDelayNanoseconds: UInt64 = 80_000_000,
+        loader: @escaping Loader = PreviewAssetPreheater.loadAssets,
+        publisher: @escaping Publisher = { asset in
+            ImageMemoryCache.shared.store(asset.image, for: asset.cacheKey)
+        }
+    ) {
+        self.initialDelayNanoseconds = initialDelayNanoseconds
+        self.interBatchDelayNanoseconds = interBatchDelayNanoseconds
+        self.loader = loader
+        self.publisher = publisher
+    }
+
+    deinit {
+        task?.cancel()
+    }
+
+    nonisolated static func itemsToPreheat(
         items: [HistoryPreviewItem],
         visibleWindow: Range<Int>,
         sideBuffer: Int = 8
@@ -18,106 +54,162 @@ enum PreviewAssetPreheater {
         return Array(items[preheatStart..<preheatEnd])
     }
 
-    static func schedule(
-        existingTask: inout Task<Void, Never>?,
+    func setEnabled(_ enabled: Bool) {
+        guard isEnabled != enabled else {
+            return
+        }
+        isEnabled = enabled
+        if !enabled {
+            invalidateCurrentTask()
+        }
+    }
+
+    @discardableResult
+    func schedule(
         items: [HistoryPreviewItem],
         visibleWindow: Range<Int>,
-        batchSize: Int = Self.defaultBatchSize
-    ) {
-        existingTask?.cancel()
-        let itemsToPreheat = itemsToPreheat(items: items, visibleWindow: visibleWindow)
-        guard !itemsToPreheat.isEmpty else {
-            existingTask = nil
-            return
+        batchSize: Int = PreviewAssetPreheater.defaultBatchSize
+    ) -> Task<Void, Never>? {
+        guard isEnabled else {
+            return nil
         }
 
-        existingTask = Task.detached(priority: .utility) {
-            try? await Task.sleep(nanoseconds: 260_000_000)
-            guard !Task.isCancelled else {
-                return
+        task?.cancel()
+        generation &+= 1
+        let requestedGeneration = generation
+        let requestedItems = Self.itemsToPreheat(
+            items: items,
+            visibleWindow: visibleWindow
+        ).filter(Self.hasPreheatableAsset)
+        guard !requestedItems.isEmpty else {
+            task = nil
+            return nil
+        }
+
+        let loader = self.loader
+        let initialDelayNanoseconds = self.initialDelayNanoseconds
+        let interBatchDelayNanoseconds = self.interBatchDelayNanoseconds
+        let effectiveBatchSize = max(1, batchSize)
+        let newTask = Task.detached(priority: .utility) { [weak self] in
+            if initialDelayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: initialDelayNanoseconds)
             }
 
-            for batchStart in stride(from: 0, to: itemsToPreheat.count, by: batchSize) {
-                guard !Task.isCancelled else {
-                    return
-                }
-
-                let batchEnd = min(batchStart + batchSize, itemsToPreheat.count)
-                for item in itemsToPreheat[batchStart..<batchEnd] {
-                    guard !Task.isCancelled else {
-                        return
+            if !Task.isCancelled,
+               await self?.isCurrent(requestedGeneration) == true {
+                for batchStart in stride(
+                    from: 0,
+                    to: requestedItems.count,
+                    by: effectiveBatchSize
+                ) {
+                    guard !Task.isCancelled,
+                          await self?.isCurrent(requestedGeneration) == true else {
+                        break
                     }
 
-                    await preheatImageThumbnailInBackground(for: item)
-                    await preheatSourceIconInBackground(for: item)
-                    await preheatRichTextInBackground(for: item)
+                    let batchEnd = min(
+                        batchStart + effectiveBatchSize,
+                        requestedItems.count
+                    )
+                    for item in requestedItems[batchStart..<batchEnd] {
+                        guard !Task.isCancelled,
+                              await self?.isCurrent(requestedGeneration) == true else {
+                            break
+                        }
+
+                        let assets = await loader(item)
+                        guard !Task.isCancelled,
+                              await self?.publishIfCurrent(
+                                assets,
+                                generation: requestedGeneration
+                              ) == true else {
+                            break
+                        }
+                    }
+
+                    if interBatchDelayNanoseconds > 0,
+                       batchEnd < requestedItems.count {
+                        try? await Task.sleep(nanoseconds: interBatchDelayNanoseconds)
+                    }
                 }
-                try? await Task.sleep(nanoseconds: 80_000_000)
             }
+
+            await self?.finish(generation: requestedGeneration)
         }
+        task = newTask
+        return newTask
     }
 
-    private static func preheatImageThumbnailInBackground(for item: HistoryPreviewItem) async {
-        guard let imageFileName = item.imageFileName,
-              let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(fileName: imageFileName),
-              let imageURL = try? ClipEaseStoragePaths.imageFileURL(fileName: imageFileName) else {
-            return
-        }
-
-        let cacheKey = "history-thumbnail:\(imageFileName)"
-        let isCached = await MainActor.run {
-            ImageMemoryCache.shared.cachedImage(for: cacheKey) != nil
-        }
-        guard !isCached else {
-            return
-        }
-
-        let image = HistoryCardAssetLoadGate.shared.load {
-            NSImage(contentsOf: thumbnailURL) ?? NSImage(contentsOf: imageURL)
-        }
-        if let image {
-            await MainActor.run {
-                ImageMemoryCache.shared.store(image, for: cacheKey)
-            }
-        }
+    private func invalidateCurrentTask() {
+        generation &+= 1
+        task?.cancel()
+        task = nil
     }
 
-    private static func preheatSourceIconInBackground(for item: HistoryPreviewItem) async {
-        guard let iconFileName = item.iconFileName,
-              let iconURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: iconFileName) else {
-            return
-        }
-
-        let cacheKey = "app-icon:\(iconFileName)"
-        let isCached = await MainActor.run {
-            ImageMemoryCache.shared.cachedImage(for: cacheKey) != nil
-        }
-        guard !isCached else {
-            return
-        }
-
-        let image = HistoryCardAssetLoadGate.shared.load {
-            NSImage(contentsOf: iconURL).map {
-                ClipEaseAppIcon.roundedImage($0, size: NSSize(width: 64, height: 64))
-            }
-        }
-        if let image {
-            await MainActor.run {
-                ImageMemoryCache.shared.store(image, for: cacheKey)
-            }
-        }
+    private func isCurrent(_ requestedGeneration: UInt64) -> Bool {
+        isEnabled && generation == requestedGeneration
     }
 
-    private static func preheatRichTextInBackground(for item: HistoryPreviewItem) async {
-        guard let richTextFileName = item.richTextFileName else {
+    private func publishIfCurrent(
+        _ assets: [PreviewAssetPreheatAsset],
+        generation requestedGeneration: UInt64
+    ) -> Bool {
+        guard !Task.isCancelled,
+              isCurrent(requestedGeneration) else {
+            return false
+        }
+        assets.forEach(publisher)
+        return true
+    }
+
+    private func finish(generation requestedGeneration: UInt64) {
+        guard generation == requestedGeneration else {
             return
         }
+        task = nil
+    }
 
-        _ = HistoryCardAssetLoadGate.shared.load {
-            RichTextCardPreviewCache.loadAttributedString(
-                fileName: richTextFileName,
-                fallbackText: item.preview
+    nonisolated private static func hasPreheatableAsset(
+        _ item: HistoryPreviewItem
+    ) -> Bool {
+        item.imageFileName != nil || item.iconFileName != nil
+    }
+
+    nonisolated private static func loadAssets(
+        for item: HistoryPreviewItem
+    ) async -> [PreviewAssetPreheatAsset] {
+        var assets: [PreviewAssetPreheatAsset] = []
+
+        if let imageFileName = item.imageFileName,
+           let request = HistoryImageAssetRequest.cardThumbnail(
+            fileName: imageFileName,
+            priority: .preheat
+           ),
+           !Task.isCancelled,
+           let asset = try? await HistoryImageAssetLoader.shared.load(request) {
+            assets.append(
+                PreviewAssetPreheatAsset(
+                    cacheKey: asset.cacheKey,
+                    image: asset.image
+                )
             )
         }
+
+        if let iconFileName = item.iconFileName,
+           let request = HistoryImageAssetRequest.sourceIcon(
+            fileName: iconFileName,
+            priority: .preheat
+           ),
+           !Task.isCancelled,
+           let asset = try? await HistoryImageAssetLoader.shared.load(request) {
+            assets.append(
+                PreviewAssetPreheatAsset(
+                    cacheKey: asset.cacheKey,
+                    image: asset.image
+                )
+            )
+        }
+
+        return assets
     }
 }

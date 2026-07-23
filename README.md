@@ -86,31 +86,6 @@ scripts/build-app.sh --bump none --run
     └── bump_version.py
 ```
 
-## 支持与交流
-
-欢迎扫码加入 轻贴ClipEase 交流群，反馈问题、交流使用体验或提出新功能建议：
-
-<p>
-  <img src="docs/images/WechatQun.png" alt="轻贴ClipEase 交流群" width="260">
-</p>
-
-可以请我喝杯咖啡，或者随手赞赏支持一下，谢谢！
-
-<table>
-  <tr>
-    <td align="center">
-      <img src="docs/images/Alipay.jpg" alt="支付宝赞赏" width="260">
-    </td>
-    <td align="center">
-      <img src="docs/images/WeChat.png" alt="微信赞赏" width="260">
-    </td>
-  </tr>
-  <tr>
-    <td align="center">支付宝赞赏</td>
-    <td align="center">微信赞赏</td>
-  </tr>
-</table>
-
 ## 许可证
 
 本项目仅供学习和个人使用。

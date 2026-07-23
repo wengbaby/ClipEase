@@ -2,6 +2,18 @@ import Foundation
 
 struct SQLiteClipboardStore: ClipboardHistoryRepository {
     static let currentSchemaVersion = 4
+    private static let mutationBatchSize = 400
+    private static let retentionEligibilitySQL = """
+        clipboard_items.is_deleted = 0
+        AND clipboard_items.is_pinned = 0
+        AND clipboard_items.created_at < ?
+        AND NOT EXISTS (
+            SELECT 1
+            FROM group_items
+            INNER JOIN groups ON groups.id = group_items.group_id
+            WHERE group_items.item_id = clipboard_items.id
+        )
+        """
     private static let defaultItemOrderSQL = """
         clipboard_items.is_pinned DESC,
         clipboard_items.created_at DESC,
@@ -24,16 +36,8 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func initialize() throws {
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
-        defer { database.close() }
-
-        try database.execute("PRAGMA journal_mode = WAL")
-        try database.execute("PRAGMA foreign_keys = ON")
-        try database.execute("PRAGMA user_version = \(Self.currentSchemaVersion)")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
+        let database = try openReadyDatabase()
+        database.close()
     }
 
     func replaceAllItems(with items: [ClipboardItem]) throws {
@@ -41,17 +45,12 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func replaceAllItems(with items: [ClipboardItem], groups: [ClipboardGroup]) throws {
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
 
-        try database.execute("PRAGMA foreign_keys = ON")
         try database.execute("BEGIN IMMEDIATE TRANSACTION")
 
         do {
-            try createSchema(in: database)
-            try recordSchemaVersion(in: database)
             try database.execute("DELETE FROM group_items")
             try database.execute("DELETE FROM groups")
             try database.execute("DELETE FROM item_ocr_results")
@@ -85,14 +84,8 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func loadSnapshot() throws -> ClipboardHistorySnapshot {
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
-
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
 
         let groups = try SQLiteGroupDAO.loadGroups(in: database)
         let items = try SQLiteItemDAO.loadItems(
@@ -110,14 +103,8 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return []
         }
 
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
-
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
 
         return try SQLiteItemDAO.loadItems(
             in: database,
@@ -131,24 +118,13 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
     func loadSnapshot(itemLimit: Int, offset: Int) throws -> ClipboardHistorySnapshot {
         guard itemLimit > 0 else {
-            try createParentDirectory()
-            try resetLegacyDatabaseIfNeeded()
-            let database = try SQLiteDatabase(url: databaseURL)
+            let database = try openReadyDatabase()
             defer { database.close() }
-            try database.execute("PRAGMA foreign_keys = ON")
-            try createSchema(in: database)
-            try recordSchemaVersion(in: database)
             return ClipboardHistorySnapshot(items: [], groups: try SQLiteGroupDAO.loadGroups(in: database))
         }
 
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
-
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
 
         let groups = try SQLiteGroupDAO.loadGroups(in: database)
         let items = try SQLiteItemDAO.loadItems(
@@ -163,14 +139,8 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func loadItems(contentHash: String, sourceBundleID: String?) throws -> [ClipboardItem] {
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
-
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
 
         var whereSQL = "clipboard_items.is_deleted = 0 AND clipboard_items.content_hash = ?"
         var values: [SQLiteValue] = [.text(contentHash)]
@@ -194,28 +164,17 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return []
         }
 
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
-
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
 
         let ids = try SQLiteSearchIndexDAO.searchItemIDs(query, in: database)
         return try SQLiteItemDAO.loadItems(withOrderedIDs: ids, orderSQL: Self.defaultItemOrderSQL, in: database)
     }
 
     func prepareSearchIndex() throws {
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
 
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
         try SQLiteSearchIndexDAO.ensureReady(in: database)
     }
 
@@ -228,14 +187,9 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return
         }
 
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
 
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
         try database.execute("BEGIN IMMEDIATE TRANSACTION")
 
         do {
@@ -255,14 +209,9 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws {
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
 
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
         try database.execute("BEGIN IMMEDIATE TRANSACTION")
 
         do {
@@ -279,51 +228,164 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         }
     }
 
-    func deleteItems(with ids: Set<ClipboardItem.ID>, deletingGroups groupIDs: Set<ClipboardGroup.ID>) throws {
-        guard !ids.isEmpty || !groupIDs.isEmpty else {
-            return
-        }
-
-        try createParentDirectory()
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+    @discardableResult
+    func compensateImportedItem(
+        insertedItemID: ClipboardItem.ID,
+        restoring displacedItems: [ClipboardItem]
+    ) throws -> ClipboardAttachmentCleanup {
+        let database = try openReadyDatabase()
         defer { database.close() }
 
-        try database.execute("PRAGMA foreign_keys = ON")
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
         try database.execute("BEGIN IMMEDIATE TRANSACTION")
-
         do {
-            try deleteItems(with: ids, in: database)
-            try deleteItems(inGroups: groupIDs, in: database)
-            try SQLiteGroupDAO.deleteGroups(with: groupIDs, in: database)
+            let cleanup = try SQLiteItemDAO.attachmentCleanup(
+                forItemIDs: [insertedItemID],
+                database: database
+            )
+            try deleteItems(with: [insertedItemID], in: database)
+            for item in displacedItems {
+                let currentRowExists = try !database.query(
+                    "SELECT id FROM clipboard_items WHERE id = ? LIMIT 1",
+                    values: [.text(item.id.uuidString)]
+                ).isEmpty
+                guard !currentRowExists else { continue }
+                try insertItem(item, in: database)
+                if item.groupID != nil {
+                    try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
+                }
+            }
             try database.execute("COMMIT")
+            return cleanup
         } catch {
             try? database.execute("ROLLBACK")
             throw error
         }
     }
 
-    func deleteAllItemsAndGroups() throws {
-        try createParentDirectory()
-        try removeExistingDatabaseFiles()
-        try deleteHistoryStorageDirectories()
-        try initialize()
+    @discardableResult
+    func deleteItems(
+        with ids: Set<ClipboardItem.ID>,
+        deletingGroups groupIDs: Set<ClipboardGroup.ID>
+    ) throws -> ClipboardAttachmentCleanup {
+        guard !ids.isEmpty || !groupIDs.isEmpty else {
+            return .empty
+        }
+
+        let database = try openReadyDatabase()
+        defer { database.close() }
+
+        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+
+        do {
+            let cleanup = try SQLiteItemDAO
+                .attachmentCleanup(forItemIDs: ids, database: database)
+                .union(SQLiteItemDAO.attachmentCleanup(forItemsInGroups: groupIDs, database: database))
+            try deleteItems(with: ids, in: database)
+            try deleteItems(inGroups: groupIDs, in: database)
+            try deleteGroups(with: groupIDs, in: database)
+            try database.execute("COMMIT")
+            return cleanup
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    @discardableResult
+    func deleteAllItems(
+        preserving groups: [ClipboardGroup]
+    ) throws -> ClipboardAttachmentCleanup {
+        let database = try openReadyDatabase()
+        defer { database.close() }
+
+        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+
+        do {
+            let cleanup = try SQLiteItemDAO.allAttachmentCleanup(database: database)
+            try database.execute("DELETE FROM group_items")
+            try database.execute("DELETE FROM item_ocr_results")
+            try database.execute("DELETE FROM item_assets")
+            try database.execute("DELETE FROM clipboard_item_files")
+            try database.execute("DELETE FROM clipboard_items_fts")
+            try database.execute("DELETE FROM clipboard_search_index_state")
+            try database.execute("DELETE FROM clipboard_items")
+            try database.execute("DELETE FROM groups")
+            try SQLiteGroupDAO.upsert(groups, in: database)
+            try database.execute("COMMIT")
+            return cleanup
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    @discardableResult
+    func deleteExpiredItems(before cutoff: Date) throws -> ClipboardAttachmentCleanup {
+        try deleteExpiredItemsWithResult(before: cutoff).cleanup
+    }
+
+    func deleteExpiredItemsWithResult(
+        before cutoff: Date
+    ) throws -> ClipboardHistoryRetentionDeletionResult {
+        let database = try openReadyDatabase()
+        defer { database.close() }
+
+        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            let values: [SQLiteValue] = [.double(cutoff.timeIntervalSince1970)]
+            let itemRows = try database.query(
+                """
+                SELECT clipboard_items.id
+                FROM clipboard_items
+                WHERE \(Self.retentionEligibilitySQL)
+                """,
+                values: values
+            )
+            let itemIDs = Set(itemRows.compactMap { UUID(uuidString: $0.requiredText("id")) })
+            let protectedGroupIDs = Set(try SQLiteGroupDAO.loadGroups(in: database).map(\.id))
+            let cleanup = try SQLiteItemDAO.attachmentCleanup(forItemIDs: itemIDs, database: database)
+            for batch in idBatches(itemIDs) {
+                try SQLiteSearchIndexDAO.delete(with: batch, in: database)
+            }
+            try database.execute(
+                "DELETE FROM clipboard_items WHERE \(Self.retentionEligibilitySQL)",
+                values: values
+            )
+            try database.execute("COMMIT")
+            return ClipboardHistoryRetentionDeletionResult(
+                cleanup: cleanup,
+                removedItemIDs: itemIDs,
+                protectedGroupIDs: protectedGroupIDs
+            )
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
+        }
     }
 
     func compactIfNeeded(policy: ClipboardDatabaseCompactionPolicy) throws -> ClipboardDatabaseCompactionResult {
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
 
         return try SQLiteDatabaseCompactor.compactIfNeeded(database: database, policy: policy)
     }
 
     func countItems() throws -> Int {
-        try resetLegacyDatabaseIfNeeded()
-        let database = try SQLiteDatabase(url: databaseURL)
+        let database = try openReadyDatabase()
         defer { database.close() }
         return try database.queryInt("SELECT COUNT(*) FROM clipboard_items")
+    }
+
+    func referencedAttachments(
+        in candidates: ClipboardAttachmentCleanup
+    ) throws -> ClipboardAttachmentCleanup {
+        guard !candidates.isEmpty else {
+            return .empty
+        }
+
+        let database = try openReadyDatabase()
+        defer { database.close() }
+        return try SQLiteItemDAO.referencedAttachments(in: candidates, database: database)
     }
 
     func resetToEmptyStore() throws {
@@ -340,6 +402,89 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             at: databaseURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+    }
+
+    private func openReadyDatabase() throws -> SQLiteDatabase {
+        try createParentDirectory()
+        let databaseExisted = fileManager.fileExists(atPath: databaseURL.path)
+        let database = try SQLiteDatabase(url: databaseURL)
+
+        let userVersion: Int
+        do {
+            userVersion = try database.queryInt("PRAGMA user_version")
+        } catch {
+            database.close()
+            throw error
+        }
+
+        guard userVersion <= Self.currentSchemaVersion else {
+            database.close()
+            throw SQLiteStoreError.incompatibleSchemaVersion(
+                found: userVersion,
+                supported: Self.currentSchemaVersion
+            )
+        }
+
+        if databaseExisted, userVersion < Self.currentSchemaVersion {
+            database.close()
+            try migrateLegacyDatabase(from: userVersion)
+            return try openCurrentDatabase()
+        }
+
+        do {
+            try configureReadyDatabase(
+                database,
+                createsSchema: userVersion < Self.currentSchemaVersion
+            )
+            return database
+        } catch {
+            database.close()
+            throw error
+        }
+    }
+
+    private func openCurrentDatabase() throws -> SQLiteDatabase {
+        let database = try SQLiteDatabase(url: databaseURL)
+        do {
+            let userVersion = try database.queryInt("PRAGMA user_version")
+            guard userVersion == Self.currentSchemaVersion else {
+                throw SQLiteStoreError.incompatibleSchemaVersion(
+                    found: userVersion,
+                    supported: Self.currentSchemaVersion
+                )
+            }
+            try configureReadyDatabase(database, createsSchema: false)
+            return database
+        } catch {
+            database.close()
+            throw error
+        }
+    }
+
+    private func configureReadyDatabase(
+        _ database: SQLiteDatabase,
+        createsSchema: Bool
+    ) throws {
+        try database.execute("PRAGMA foreign_keys = ON")
+        try ensureWALMode(in: database)
+        guard createsSchema else {
+            return
+        }
+
+        try createSchema(in: database)
+        try recordSchemaVersion(in: database)
+    }
+
+    private func ensureWALMode(in database: SQLiteDatabase) throws {
+        let currentMode = try database.query("PRAGMA journal_mode")
+            .first?
+            .requiredText("journal_mode")
+            .lowercased()
+        guard currentMode != "wal" else {
+            return
+        }
+
+        try database.execute("PRAGMA journal_mode = WAL")
     }
 
     private func removeExistingDatabaseFiles() throws {
@@ -370,18 +515,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         }
     }
 
-    private func resetLegacyDatabaseIfNeeded() throws {
-        guard fileManager.fileExists(atPath: databaseURL.path) else {
-            return
-        }
-
-        let database = try SQLiteDatabase(url: databaseURL)
-        let userVersion = try database.queryInt("PRAGMA user_version")
-        database.close()
-        guard userVersion < Self.currentSchemaVersion else {
-            return
-        }
-
+    private func migrateLegacyDatabase(from userVersion: Int) throws {
         let backupManager = SQLiteBackupManager(fileManager: fileManager)
         let backup = try backupManager.backupDatabaseFiles(for: databaseURL, reason: "schema-\(userVersion)-to-\(Self.currentSchemaVersion)")
         do {
@@ -434,7 +568,9 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return
         }
 
-        try SQLiteSearchIndexDAO.delete(with: ids, in: database)
+        for batch in idBatches(ids) {
+            try SQLiteSearchIndexDAO.delete(with: batch, in: database)
+        }
         try SQLiteItemDAO.deleteItems(with: ids, in: database)
     }
 
@@ -444,8 +580,32 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         }
 
         let itemIDs = try SQLiteItemDAO.loadItemIDs(inGroups: ids, in: database)
-        try SQLiteSearchIndexDAO.delete(with: itemIDs, in: database)
+        for batch in idBatches(itemIDs) {
+            try SQLiteSearchIndexDAO.delete(with: batch, in: database)
+        }
         try SQLiteItemDAO.deleteItems(inGroups: ids, in: database)
+    }
+
+    private func deleteGroups(with ids: Set<ClipboardGroup.ID>, in database: SQLiteDatabase) throws {
+        guard !ids.isEmpty else {
+            return
+        }
+
+        for batch in idBatches(ids) {
+            try SQLiteGroupDAO.deleteGroups(with: batch, in: database)
+        }
+    }
+
+    private func idBatches<ID: Hashable>(_ ids: Set<ID>) -> [Set<ID>] where ID: CustomStringConvertible {
+        let sortedIDs = ids.sorted { $0.description < $1.description }
+        var batches: [Set<ID>] = []
+        var startIndex = 0
+        while startIndex < sortedIDs.count {
+            let endIndex = min(startIndex + Self.mutationBatchSize, sortedIDs.count)
+            batches.append(Set(sortedIDs[startIndex..<endIndex]))
+            startIndex = endIndex
+        }
+        return batches
     }
 
     private func insertItem(_ item: ClipboardItem, in database: SQLiteDatabase) throws {

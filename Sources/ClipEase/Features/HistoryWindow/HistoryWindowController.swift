@@ -1,23 +1,73 @@
 import AppKit
+import Combine
 import SwiftUI
+
+@MainActor
+protocol HistoryWindowEventMonitorBackend: AnyObject {
+    func addGlobalMonitor(
+        matching mask: NSEvent.EventTypeMask,
+        handler: @escaping (NSEvent) -> Void
+    ) -> Any?
+    func addLocalMonitor(
+        matching mask: NSEvent.EventTypeMask,
+        handler: @escaping (NSEvent) -> NSEvent?
+    ) -> Any?
+    func removeMonitor(_ monitor: Any)
+}
+
+@MainActor
+protocol HistoryWindowOpenAnimationCompletionDriver: AnyObject {
+    func scheduleCompletion(_ completion: @escaping @MainActor () -> Void)
+}
+
+@MainActor
+private final class SystemHistoryWindowEventMonitorBackend: HistoryWindowEventMonitorBackend {
+    static let shared = SystemHistoryWindowEventMonitorBackend()
+
+    private init() {}
+
+    func addGlobalMonitor(
+        matching mask: NSEvent.EventTypeMask,
+        handler: @escaping (NSEvent) -> Void
+    ) -> Any? {
+        NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler)
+    }
+
+    func addLocalMonitor(
+        matching mask: NSEvent.EventTypeMask,
+        handler: @escaping (NSEvent) -> NSEvent?
+    ) -> Any? {
+        NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
+    }
+
+    func removeMonitor(_ monitor: Any) {
+        NSEvent.removeMonitor(monitor)
+    }
+}
 
 @MainActor
 final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let panelHeight: CGFloat = HistoryWindowPanelMetrics.height
     private let panelAnimationDistance: CGFloat = HistoryWindowPanelMetrics.animationDistance
     private let panelAnimationDuration: TimeInterval = 0.14
-    private let panelBackgroundColor = NSColor(red: 0.78, green: 0.82, blue: 0.92, alpha: 1.0)
+    private var accessibilityDisplayOptionsObserver: NSObjectProtocol?
     private let store: ClipboardHistoryStore
     private let pasteExecutor: PasteExecutor
     private let accessibilityPermissionState: AccessibilityPermissionState
     private let recordingController: RecordingController
     private let appMenuController: AppMenuController
-    private let previewWindowController = HistoryPreviewWindowController()
+    private let previewWindowController: HistoryPreviewWindowController
     private let previewState = HistoryPreviewState()
     private let renderState = HistoryWindowRenderState()
-    private let inputState = HistoryWindowInputState()
+    private let inputState: HistoryWindowInputState
     private let keyboardRouter = HistoryKeyboardActionRouter()
-    private lazy var keyboardEventTap = HistoryKeyboardEventTap(inputState: inputState)
+    private let keyboardEventTap: HistoryKeyboardEventTap
+    private let eventMonitorBackend: any HistoryWindowEventMonitorBackend
+    private let panelFactory: (() -> HistoryPanel)?
+    private let openAnimationCompletionDriver: (any HistoryWindowOpenAnimationCompletionDriver)?
+    private let setOCRInteractiveThrottleActive: (Bool) -> Void
+    private let appearanceSettings: AppearanceSettings
+    private var appearanceObservation: AnyCancellable?
     private var panel: HistoryPanel?
     private var outsideClickMonitor: Any?
     private var localOutsideClickMonitor: Any?
@@ -26,23 +76,88 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private var lastKnownPanelFrame: NSRect?
     private var presentationRecoveryTask: Task<Void, Never>?
     private var contentLayerAnimationGeneration: UInt64 = 0
+    private var isShutDown = false
 
     init(
         store: ClipboardHistoryStore,
         pasteExecutor: PasteExecutor,
         accessibilityPermissionState: AccessibilityPermissionState,
         recordingController: RecordingController,
-        appMenuController: AppMenuController
+        appMenuController: AppMenuController,
+        inputState: HistoryWindowInputState? = nil,
+        keyboardEventTapBackend: (any HistoryKeyboardEventTapBackend)? = nil,
+        eventMonitorBackend: (any HistoryWindowEventMonitorBackend)? = nil,
+        panelFactory: (() -> HistoryPanel)? = nil,
+        openAnimationCompletionDriver: (any HistoryWindowOpenAnimationCompletionDriver)? = nil,
+        setOCRInteractiveThrottleActive: ((Bool) -> Void)? = nil,
+        appearanceSettings: AppearanceSettings = .shared
     ) {
+        let resolvedInputState = inputState ?? HistoryWindowInputState()
         self.store = store
         self.pasteExecutor = pasteExecutor
         self.accessibilityPermissionState = accessibilityPermissionState
         self.recordingController = recordingController
         self.appMenuController = appMenuController
+        self.previewWindowController = HistoryPreviewWindowController(
+            clipboardWriter: .generalTextWriter(registerSelfWrite: { [weak store] changeCount, payload in
+                store?.registerSelfWrite(changeCount: changeCount, payload: payload)
+            })
+        )
+        self.inputState = resolvedInputState
+        if let keyboardEventTapBackend {
+            self.keyboardEventTap = HistoryKeyboardEventTap(
+                inputState: resolvedInputState,
+                backend: keyboardEventTapBackend
+            )
+        } else {
+            self.keyboardEventTap = HistoryKeyboardEventTap(inputState: resolvedInputState)
+        }
+        self.eventMonitorBackend = eventMonitorBackend ?? SystemHistoryWindowEventMonitorBackend.shared
+        self.panelFactory = panelFactory
+        self.openAnimationCompletionDriver = openAnimationCompletionDriver
+        self.setOCRInteractiveThrottleActive = setOCRInteractiveThrottleActive ?? { isActive in
+            store.setOCRInteractiveThrottleActive(isActive)
+        }
+        self.appearanceSettings = appearanceSettings
         super.init()
+        installAccessibilityDisplayOptionsObserver()
+        appearanceObservation = appearanceSettings.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.applyAppearancePreference()
+            }
+        }
+    }
+
+    func shutdown() {
+        guard !isShutDown else {
+            return
+        }
+
+        isShutDown = true
+        removeAccessibilityDisplayOptionsObserver()
+        appearanceObservation = nil
+        presentationRecoveryTask?.cancel()
+        presentationRecoveryTask = nil
+        contentLayerAnimationGeneration &+= 1
+        keyboardEventTap.stop()
+        removeOutsideClickMonitor()
+        closePreview()
+        inputState.notifyWindowWillHide()
+        panel?.orderOut(nil)
+        panel?.hasShadow = false
+        if let panel {
+            resetHistoryContentLayerAnimationState(for: panel)
+        }
+        setHistoryContentRasterization(false, for: panel)
+        setOCRInteractiveThrottleActive(false)
+        isClosing = false
     }
 
     func preloadHistoryDataAfterLaunch() {
+        guard !isShutDown else {
+            return
+        }
+
         guard HistoryWindowLifecycleScheduler.shouldRunLaunchPreload(
             hasPanel: panel != nil,
             isWindowVisible: inputState.isWindowVisibleSnapshot,
@@ -81,6 +196,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func toggle() {
+        guard !isShutDown else {
+            return
+        }
+
         if let panel,
            HistoryWindowLifecycleScheduler.shouldCloseOnToggle(
                isPanelOrdered: panel.isVisible,
@@ -102,6 +221,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func show(accessibilityAlreadyVerified: Bool = false) {
+        guard !isShutDown else {
+            return
+        }
+
         if HistoryWindowLifecycleScheduler.shouldRefreshAccessibilityBeforeShow(
             alreadyVerified: accessibilityAlreadyVerified
         ) {
@@ -197,6 +320,37 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             return
         }
 
+        let completeOpenAnimation: @MainActor (Bool) -> Void = { [weak self, weak panel] resetsContentLayerState in
+            guard let self,
+                  !self.isShutDown,
+                  let panel else {
+                return
+            }
+
+            if resetsContentLayerState {
+                self.resetHistoryContentLayerAnimationState(for: panel)
+            } else {
+                self.setHistoryContentRasterization(false, for: panel)
+            }
+            panel.hasShadow = false
+            panel.makeKey()
+            self.renderState.mark("open-animation-complete")
+            self.finishShowingWindow(shouldAnimate: shouldAnimate)
+            self.applyOpenPresentationState(
+                latestFocusRequest: latestFocusRequest,
+                hadPendingExplicitOffset: hadPendingExplicitOffset,
+                wasVisible: wasVisible,
+                shouldAnimate: shouldAnimate
+            )
+        }
+
+        if let openAnimationCompletionDriver {
+            openAnimationCompletionDriver.scheduleCompletion {
+                completeOpenAnimation(true)
+            }
+            return
+        }
+
         if shouldUseContentLayerAnimation {
             contentLayerAnimationGeneration &+= 1
             let animationGeneration = contentLayerAnimationGeneration
@@ -206,24 +360,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 to: 0,
                 key: "history.open.contentTranslation",
                 generation: animationGeneration
-            ) { [weak self, weak panel] in
-                guard let self,
-                      let panel,
-                      panel.isVisible else {
+            ) { [weak panel] in
+                guard panel?.isVisible == true else {
                     return
                 }
-
-                self.resetHistoryContentLayerAnimationState(for: panel)
-                panel.hasShadow = false
-                panel.makeKey()
-                self.renderState.mark("open-animation-complete")
-                self.finishShowingWindow(shouldAnimate: shouldAnimate)
-                self.applyOpenPresentationState(
-                    latestFocusRequest: latestFocusRequest,
-                    hadPendingExplicitOffset: hadPendingExplicitOffset,
-                    wasVisible: wasVisible,
-                    shouldAnimate: shouldAnimate
-                )
+                completeOpenAnimation(true)
             }
             return
         }
@@ -238,22 +379,12 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             context.duration = panelAnimationDuration
             context.timingFunction = CAMediaTimingFunction(name: .linear)
             panel.animator().setFrame(targetFrame, display: false)
-        } completionHandler: { [weak self, weak panel] in
-            Task { @MainActor in
-                self?.setHistoryContentRasterization(false, for: panel)
+        } completionHandler: {
+            Task { @MainActor [weak panel] in
                 guard panel?.isVisible == true else {
                     return
                 }
-                panel?.hasShadow = false
-                panel?.makeKey()
-                self?.renderState.mark("open-animation-complete")
-                self?.finishShowingWindow(shouldAnimate: shouldAnimate)
-                self?.applyOpenPresentationState(
-                    latestFocusRequest: latestFocusRequest,
-                    hadPendingExplicitOffset: hadPendingExplicitOffset,
-                    wasVisible: wasVisible,
-                    shouldAnimate: shouldAnimate
-                )
+                completeOpenAnimation(false)
             }
         }
     }
@@ -336,7 +467,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                         self.applyTargetFrameIfNeeded(to: panel, targetFrame: self.frameForPanel())
                     }
                 }
-                self?.store.setOCRInteractiveThrottleActive(false)
+                self?.setOCRInteractiveThrottleActive(false)
                 self?.isClosing = false
                 HistoryWindowLifecycleDiagnostics.record(
                     .closeCleanupComplete,
@@ -379,7 +510,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 panel?.alphaValue = 1
                 panel?.hasShadow = false
                 self?.setHistoryContentRasterization(false, for: panel)
-                self?.store.setOCRInteractiveThrottleActive(false)
+                self?.setOCRInteractiveThrottleActive(false)
                 self?.isClosing = false
                 HistoryWindowLifecycleDiagnostics.record(
                     .closeCleanupComplete,
@@ -407,11 +538,15 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             resetHistoryContentLayerAnimationState(for: panel)
         }
         setHistoryContentRasterization(false, for: panel)
-        store.setOCRInteractiveThrottleActive(false)
+        setOCRInteractiveThrottleActive(false)
         isClosing = false
     }
 
     private func finishShowingWindow(shouldAnimate: Bool) {
+        guard !isShutDown else {
+            return
+        }
+
         renderState.mark("finish-showing-start")
         inputState.setOpenAnimationActive(false)
         renderState.mark("finish-showing-animation-state-cleared")
@@ -431,6 +566,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         wasVisible: Bool,
         shouldAnimate: Bool
     ) {
+        guard !isShutDown else {
+            return
+        }
+
         renderState.mark("presentation-state-start")
         inputState.setWindowVisible(true)
         renderState.mark("presentation-window-visible")
@@ -444,7 +583,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             shouldAnimate: shouldAnimate,
             hasPendingFocus: latestFocusRequest != nil
         )
-        store.setOCRInteractiveThrottleActive(true)
+        setOCRInteractiveThrottleActive(true)
         schedulePresentationRecovery(
             latestFocusRequest: latestFocusRequest,
             hadPendingExplicitOffset: hadPendingExplicitOffset,
@@ -457,6 +596,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         hadPendingExplicitOffset: Bool,
         shouldAnimate: Bool
     ) {
+        guard !isShutDown else {
+            return
+        }
+
         let delayNanoseconds = HistoryWindowLifecycleScheduler.presentationRecoveryDelayNanoseconds(
             shouldAnimate: shouldAnimate
         )
@@ -474,6 +617,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         presentationRecoveryTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: delayNanoseconds)
             guard !Task.isCancelled,
+                  !isShutDown,
                   inputState.isWindowVisibleSnapshot,
                   inputState.isWindowPresentedSnapshot else {
                 return
@@ -493,6 +637,10 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         hadPendingExplicitOffset: Bool,
         shouldAnimate: Bool
     ) {
+        guard !isShutDown else {
+            return
+        }
+
         renderState.mark("presentation-recovery-start")
         if let latestFocusRequest {
             inputState.requestItemFocus(
@@ -518,6 +666,14 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     private func makePanel() -> HistoryPanel {
+        if let panelFactory {
+            let panel = panelFactory()
+            AppearanceWindowApplicator.apply(appearanceSettings.windowAppearance, to: panel)
+            keyboardEventTap.setKeyWindow(panel)
+            panel.delegate = self
+            return panel
+        }
+
         let contentView = HistoryWindowView(
             store: store,
             previewState: previewState,
@@ -550,6 +706,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
+        AppearanceWindowApplicator.apply(appearanceSettings.windowAppearance, to: panel)
 
         keyboardEventTap.setKeyWindow(panel)
         panel.delegate = self
@@ -588,8 +745,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.titlebarAppearsTransparent = true
         panel.isMovable = false
         panel.animationBehavior = .none
-        panel.backgroundColor = panelBackgroundColor
-        panel.isOpaque = true
         panel.hasShadow = false
         previewWindowController.onKeyStateChange = { [weak self] isKey in
             self?.inputState.setPreviewKeyWindowActive(isKey)
@@ -599,11 +754,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         hostingView.autoresizingMask = [.width, .height]
         hostingView.focusRingType = .none
         hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = panelBackgroundColor.cgColor
         hostingView.layer?.borderWidth = 0
         hostingView.layer?.shadowOpacity = 0
         hostingView.layer?.masksToBounds = false
         panel.contentView = hostingView
+        applyPanelMaterialState(to: panel)
         return panel
     }
 
@@ -768,9 +923,73 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         panel.contentView?.layer?.removeAnimation(forKey: "history.close.contentTranslation")
         setHistoryContentLayerTranslation(0, for: panel)
         panel.contentView?.layer?.masksToBounds = false
-        panel.backgroundColor = panelBackgroundColor
-        panel.isOpaque = true
+        applyPanelMaterialState(to: panel)
         setHistoryContentRasterization(false, for: panel)
+    }
+
+    private func installAccessibilityDisplayOptionsObserver() {
+        accessibilityDisplayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshPanelMaterialState()
+            }
+        }
+    }
+
+    private func removeAccessibilityDisplayOptionsObserver() {
+        guard let accessibilityDisplayOptionsObserver else {
+            return
+        }
+
+        NSWorkspace.shared.notificationCenter.removeObserver(accessibilityDisplayOptionsObserver)
+        self.accessibilityDisplayOptionsObserver = nil
+    }
+
+    private func refreshPanelMaterialState() {
+        guard let panel else {
+            return
+        }
+
+        applyPanelMaterialState(to: panel)
+    }
+
+    private func applyPanelMaterialState(to panel: NSPanel) {
+        let environment = HistoryGlassEnvironment(
+            supportsNativeGlass: HistoryGlassRuntime.supportsNativeGlass,
+            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
+            isDarkMode: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua]) == .darkAqua,
+            isWindowActive: panel.isKeyWindow,
+            prefersLiquidGlass: appearanceSettings.usesLiquidGlass,
+            prefersGlassMotion: appearanceSettings.glassMotionEnabled,
+            materialTheme: appearanceSettings.materialTheme,
+            windowEffectOpacity: appearanceSettings.windowEffectOpacity,
+            cardEffectOpacity: appearanceSettings.cardEffectOpacity,
+            cardHeaderColorIntensity: appearanceSettings.cardHeaderColorIntensity,
+            groupColorIntensity: appearanceSettings.groupColorIntensity,
+            toolbarTextContrast: appearanceSettings.toolbarTextContrast,
+            cardTypography: appearanceSettings.typography(for: .card)
+        )
+        let plan = HistoryGlassPolicy.resolve(role: .panel, environment: environment)
+        let backingState = HistoryGlassPanelBackingPolicy.resolve(plan: plan)
+        let backgroundColor: NSColor = backingState.isOpaque ? .windowBackgroundColor : .clear
+
+        panel.isOpaque = backingState.isOpaque
+        panel.backgroundColor = backgroundColor
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layer?.backgroundColor = backgroundColor.cgColor
+    }
+
+    private func applyAppearancePreference() {
+        AppearanceWindowApplicator.apply(appearanceSettings.windowAppearance, to: panel)
+        previewWindowController.applyAppearance(appearanceSettings.windowAppearance)
+        if let panel {
+            applyPanelMaterialState(to: panel)
+        }
     }
 
     private func setHistoryContentLayerTranslation(_ translationY: CGFloat, for panel: NSPanel?) {
@@ -830,13 +1049,17 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     private func installOutsideClickMonitor() {
+        guard !isShutDown else {
+            return
+        }
+
         removeOutsideClickMonitor()
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
+        outsideClickMonitor = eventMonitorBackend.addGlobalMonitor(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
             Task { @MainActor in
                 self?.closeIfClickIsOutsideHistory(event)
             }
         }
-        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
+        localOutsideClickMonitor = eventMonitorBackend.addLocalMonitor(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
             self?.closeIfClickIsOutsideHistory(event)
             return event
         }
@@ -844,11 +1067,11 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func removeOutsideClickMonitor() {
         if let outsideClickMonitor {
-            NSEvent.removeMonitor(outsideClickMonitor)
+            eventMonitorBackend.removeMonitor(outsideClickMonitor)
             self.outsideClickMonitor = nil
         }
         if let localOutsideClickMonitor {
-            NSEvent.removeMonitor(localOutsideClickMonitor)
+            eventMonitorBackend.removeMonitor(localOutsideClickMonitor)
             self.localOutsideClickMonitor = nil
         }
     }
@@ -1020,7 +1243,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        ClipboardWriteCoordinator.generalTextWriter(skipText: store.skipNextClipboardText)
+        ClipboardWriteCoordinator.generalTextWriter(registerSelfWrite: store.registerSelfWrite)
             .writeText(text)
         ClipEaseSoundPlayer.shared.playCopyFeedback()
     }
@@ -1052,7 +1275,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         }
 
         let pathsText = paths.joined(separator: "\n")
-        ClipboardWriteCoordinator.generalTextWriter(skipText: store.skipNextClipboardText)
+        ClipboardWriteCoordinator.generalTextWriter(registerSelfWrite: store.registerSelfWrite)
             .writeText(pathsText)
         ClipEaseSoundPlayer.shared.playCopyFeedback()
         showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")

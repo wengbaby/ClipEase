@@ -11,6 +11,7 @@ enum SQLiteStoreError: Error, LocalizedError {
     case executeFailed(String)
     case bindFailed(String)
     case queryReturnedNoRows
+    case incompatibleSchemaVersion(found: Int, supported: Int)
 
     var errorDescription: String? {
         switch self {
@@ -24,11 +25,15 @@ enum SQLiteStoreError: Error, LocalizedError {
             "SQLite bind failed: \(message)"
         case .queryReturnedNoRows:
             "SQLite query returned no rows"
+        case .incompatibleSchemaVersion(let found, let supported):
+            "SQLite schema version \(found) is newer than supported version \(supported)"
         }
     }
 }
 
 final class SQLiteConnection {
+    static let defaultBusyTimeoutMilliseconds = 5_000
+
     private var handle: OpaquePointer?
 
     init(url: URL) throws {
@@ -37,6 +42,13 @@ final class SQLiteConnection {
             let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
             sqlite3_close(handle)
             throw SQLiteStoreError.openFailed(message)
+        }
+
+        guard sqlite3_busy_timeout(handle, Int32(Self.defaultBusyTimeoutMilliseconds)) == SQLITE_OK else {
+            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
+            sqlite3_close(handle)
+            handle = nil
+            throw SQLiteStoreError.executeFailed(message)
         }
     }
 

@@ -3,201 +3,82 @@ import Testing
 @testable import ClipEase
 
 @MainActor
-@Test func skippedClipboardTextIsConsumedOnce() {
-    let store = ClipboardHistoryStore(persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository()))
-
-    store.skipNextClipboardText("  self copy  ")
-
-    #expect(store.consumeSkippedClipboardText("self copy"))
-    #expect(!store.consumeSkippedClipboardText("self copy"))
-}
-
-@MainActor
-@Test func skippedClipboardTextIsNotAddedToHistory() {
-    let store = ClipboardHistoryStore(persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository()))
-
-    store.skipNextClipboardText("self copy")
-    store.addText("self copy", sourceApp: .clipease)
-
-    #expect(store.items.isEmpty)
-}
-
-@MainActor
-@Test func latestItemFocusRequestIsConsumedOnce() {
-    let store = ClipboardHistoryStore(persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository()))
-
-    store.addText("first", sourceApp: .clipease)
-    let firstRequest = store.consumeLatestItemFocusRequest()
-
-    #expect(firstRequest?.itemID == store.items.first?.id)
-    #expect(store.consumeLatestItemFocusRequest() == nil)
-
-    store.addText("second", sourceApp: .clipease)
-
-    #expect(store.consumeLatestItemFocusRequest()?.itemID == store.items.first?.id)
-}
-
-@MainActor
-@Test func sameTextFromDifferentSourcesReplacesOldItemAndKeepsPinnedGroupState() {
-    let store = ClipboardHistoryStore(persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository()))
-    let targetApp = SourceAppInfo(
-        name: "Target",
-        bundleID: "com.example.target",
-        iconName: "app.fill",
-        iconFileName: nil,
-        headerColorHex: "#2E8CFF"
+@Test func storeConsumesRegisteredClipboardTextOnce() {
+    let store = ClipboardHistoryStore(
+        persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository())
     )
-    let otherApp = SourceAppInfo(
-        name: "Other",
-        bundleID: "com.example.other",
-        iconName: "message.fill",
-        iconFileName: "other.png",
-        headerColorHex: "#8E8E93"
-    )
-    let group = store.createGroup()
 
-    store.addText("same text", sourceApp: targetApp)
-    let oldID = store.items.first?.id
-    store.togglePinned(for: oldID)
-    store.addItem(oldID, toGroup: group.id)
+    store.registerSelfWrite(changeCount: 101, payload: .text("self copy"))
 
-    store.addText("same text", sourceApp: otherApp)
-
-    #expect(store.items.count == 1)
-    #expect(store.items.first?.id != oldID)
-    #expect(store.items.first?.sourceBundleID == otherApp.bundleID)
-    #expect(store.items.first?.sourceAppName == otherApp.name)
-    #expect(store.items.first?.iconFileName == otherApp.iconFileName)
-    #expect(store.items.first?.isPinned == true)
-    #expect(store.items.first?.groupID == group.id)
-    #expect(store.itemCount(inGroup: group.id) == 1)
+    #expect(store.consumeSelfWrite(changeCount: 101, payload: .text("self copy")))
+    #expect(!store.consumeSelfWrite(changeCount: 101, payload: .text("self copy")))
 }
 
-@MainActor
-@Test func skippedClipboardFilesAreNotAddedToHistory() throws {
-    let store = ClipboardHistoryStore(persistence: ClipboardHistoryPersistence(repository: EmptyClipboardHistoryRepository()))
-    let fileURL = FileManager.default.temporaryDirectory
-        .appendingPathComponent("clipease-self-file-\(UUID().uuidString).txt")
-    try Data("file".utf8).write(to: fileURL)
-    defer { try? FileManager.default.removeItem(at: fileURL) }
-
-    store.skipNextClipboardFiles([fileURL])
-    store.addFiles([fileURL], sourceApp: .clipease)
-
-    #expect(store.items.isEmpty)
-}
-
-@Test func clipboardSelfWriteGuardConsumesValuesOnce() {
+@Test func clipboardSelfWriteGuardConsumesMatchingValuesOnce() {
     let guardStore = ClipboardSelfWriteGuard()
     let fileURL = URL(fileURLWithPath: "/tmp/clipease-guard.txt")
 
-    guardStore.skipText("  text  ")
-    guardStore.skipImageHash("image-hash")
-    guardStore.skipFiles([fileURL])
+    guardStore.register(changeCount: 1, payload: .text("text"))
+    guardStore.register(changeCount: 2, payload: .imageHash("image-hash"))
+    guardStore.register(changeCount: 3, payload: .files([fileURL]))
 
-    #expect(guardStore.consumeText("text"))
-    #expect(!guardStore.consumeText("text"))
-    #expect(guardStore.consumeImageHash("image-hash"))
-    #expect(!guardStore.consumeImageHash("image-hash"))
-    #expect(guardStore.consumeFiles([fileURL]))
-    #expect(!guardStore.consumeFiles([fileURL]))
+    #expect(guardStore.consume(changeCount: 1, payload: .text("text")))
+    #expect(!guardStore.consume(changeCount: 1, payload: .text("text")))
+    #expect(guardStore.consume(changeCount: 2, payload: .imageHash("image-hash")))
+    #expect(!guardStore.consume(changeCount: 2, payload: .imageHash("image-hash")))
+    #expect(guardStore.consume(changeCount: 3, payload: .files([fileURL])))
+    #expect(!guardStore.consume(changeCount: 3, payload: .files([fileURL])))
 }
 
-@Test func pasteboardWriterKeepsRichTextAndPlainText() {
+@MainActor
+@Test func pasteboardWriterKeepsRichTextPlainTextAndRegistersSelfWrite() {
     let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipEaseTests-\(UUID().uuidString)"))
     let richTextData = Data("{\\rtf1 rich}".utf8)
-    var skippedText: String?
+    var registeredPayload: ClipboardSelfWritePayload?
 
     let didWrite = PasteboardWriter.writeText(
         "rich",
         to: pasteboard,
         richTextData: richTextData,
-        skipRecording: { skippedText = $0 }
+        registerSelfWrite: { _, payload in registeredPayload = payload }
     )
 
     #expect(didWrite)
-    #expect(skippedText == "rich")
+    #expect(registeredPayload == .richText("rich"))
     #expect(pasteboard.string(forType: .string) == "rich")
     #expect(pasteboard.data(forType: .rtf) == richTextData)
 }
 
-@Test func clipboardWriteCoordinatorWritesTextAndRegistersSkip() {
+@MainActor
+@Test func clipboardWriteCoordinatorWritesTextAndRegistersSelfWrite() {
     let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipEaseTests-\(UUID().uuidString)"))
-    var skippedText: String?
+    var registeredPayload: ClipboardSelfWritePayload?
     let coordinator = ClipboardWriteCoordinator(
         pasteboard: pasteboard,
-        skipText: { skippedText = $0 },
-        skipImage: { _ in },
-        skipImageHash: { _ in },
-        skipFiles: { _ in }
+        registerSelfWrite: { _, payload in registeredPayload = payload }
     )
 
     let didWrite = coordinator.writeText("  self copy  ")
 
     #expect(didWrite)
-    #expect(skippedText == "self copy")
+    #expect(registeredPayload == .text("self copy"))
     #expect(pasteboard.string(forType: .string) == "self copy")
 }
 
-@Test func clipboardWriteCoordinatorWritesFilesAndRegistersSkip() {
+@MainActor
+@Test func clipboardWriteCoordinatorWritesFilesAndRegistersSelfWrite() {
     let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipEaseTests-\(UUID().uuidString)"))
     let url = URL(fileURLWithPath: "/tmp/clipease-test-\(UUID().uuidString).txt")
-    var skippedFiles: [URL] = []
+    var registeredPayload: ClipboardSelfWritePayload?
     let coordinator = ClipboardWriteCoordinator(
         pasteboard: pasteboard,
-        skipText: { _ in },
-        skipImage: { _ in },
-        skipImageHash: { _ in },
-        skipFiles: { skippedFiles = $0 }
+        registerSelfWrite: { _, payload in registeredPayload = payload }
     )
 
     let didWrite = coordinator.writeFileURLs([url])
 
     #expect(didWrite)
-    #expect(skippedFiles == [url])
-}
-
-@Test func clipboardWriteCoordinatorWritesImageAndRegistersSkip() {
-    let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipEaseTests-\(UUID().uuidString)"))
-    let item = ClipboardItem.image(
-        fileName: "test.png",
-        width: 2,
-        height: 2,
-        hash: "image-hash",
-        sourceApp: .clipease
-    )
-    var skippedImageID: ClipboardItem.ID?
-    let coordinator = ClipboardWriteCoordinator(
-        pasteboard: pasteboard,
-        skipText: { _ in },
-        skipImage: { skippedImageID = $0.id },
-        skipImageHash: { _ in },
-        skipFiles: { _ in }
-    )
-    let image = NSImage(size: NSSize(width: 2, height: 2))
-
-    let didWrite = coordinator.writeImage(image, item: item)
-
-    #expect(didWrite)
-    #expect(skippedImageID == item.id)
-}
-
-@Test func clipboardWriteCoordinatorWritesImageHashAndRegistersSkip() {
-    let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipEaseTests-\(UUID().uuidString)"))
-    var skippedImageHash: String?
-    let coordinator = ClipboardWriteCoordinator(
-        pasteboard: pasteboard,
-        skipText: { _ in },
-        skipImage: { skippedImageHash = $0.imageHash },
-        skipImageHash: { skippedImageHash = $0 },
-        skipFiles: { _ in }
-    )
-    let image = NSImage(size: NSSize(width: 2, height: 2))
-
-    let didWrite = coordinator.writeImage(image, imageHash: "raw-image-hash")
-
-    #expect(didWrite)
-    #expect(skippedImageHash == "raw-image-hash")
+    #expect(registeredPayload == .files([url]))
 }
 
 private struct EmptyClipboardHistoryRepository: ClipboardHistoryRepository {

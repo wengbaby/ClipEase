@@ -20,19 +20,20 @@ final class HistoryPreviewCoordinator: ObservableObject {
         pendingFollowItemID = itemID
     }
 
+    @discardableResult
     func scheduleFollow(
         itemID: ClipboardItem.ID,
         isPreviewVisible: @escaping @MainActor () -> Bool,
         currentPreviewItemID: @escaping @MainActor () -> ClipboardItem.ID?,
         frameForItem: @escaping @MainActor (ClipboardItem.ID) -> CGRect?,
         onMovePreview: @escaping @MainActor (CGRect) -> Void
-    ) {
+    ) -> Task<Void, Never>? {
         pendingFollowItemID = itemID
-        guard followTask == nil else {
-            return
+        if let followTask {
+            return followTask
         }
 
-        followTask = Task { @MainActor in
+        let task = Task { @MainActor in
             var targetID = itemID
             for delay in retryDelaysNanoseconds {
                 try? await Task.sleep(nanoseconds: delay)
@@ -53,5 +54,7 @@ final class HistoryPreviewCoordinator: ObservableObject {
             pendingFollowItemID = nil
             followTask = nil
         }
+        followTask = task
+        return task
     }
 }

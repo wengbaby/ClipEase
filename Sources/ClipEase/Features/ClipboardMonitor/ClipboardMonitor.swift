@@ -1,14 +1,211 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
-private enum RichTextPasteboardPayload: Sendable {
+enum ClipboardRichTextPasteboardPayload: Sendable {
     case rtf(data: Data, fallbackPlainText: String?)
     case html(data: Data, fallbackPlainText: String?)
+
+    var data: Data {
+        switch self {
+        case .rtf(let data, _), .html(let data, _):
+            data
+        }
+    }
+
+    var fallbackPlainText: String? {
+        switch self {
+        case .rtf(_, let fallbackPlainText), .html(_, let fallbackPlainText):
+            fallbackPlainText
+        }
+    }
 }
 
-private struct RichTextImportResult: Sendable {
+struct ClipboardRichTextImportResult: Sendable {
     let data: Data
     let plainText: String
+}
+
+typealias ClipboardRichTextImporter = @Sendable (
+    ClipboardRichTextPasteboardPayload
+) async -> ClipboardRichTextImportResult?
+
+enum ClipboardMonitorPayloadImportRequest: Sendable {
+    case image(data: Data, declaredTypeIdentifier: String)
+    case richText(ClipboardRichTextPasteboardPayload)
+}
+
+enum ClipboardMonitorPayloadImportResult: Sendable {
+    case image(ClipboardImportedImage)
+    case richText(ClipboardRichTextImportResult?)
+}
+
+extension ClipboardMonitorPayloadImportResult {
+    static func image(_ storedImage: StoredClipboardImage) -> ClipboardMonitorPayloadImportResult {
+        .image(ClipboardImportedImage(storedImage: storedImage, fingerprint: nil))
+    }
+}
+
+private enum ClipboardMonitorPreparedImport: Sendable {
+    case image(ClipboardImportedImage)
+    case richText(ClipboardRichTextImportResult)
+    case completed(storedType: String, payloadByteCount: Int)
+}
+
+typealias ClipboardMonitorPayloadImporter = @Sendable (
+    ClipboardMonitorPayloadImportRequest
+) async throws -> ClipboardMonitorPayloadImportResult
+
+enum ClipboardMonitorImportDiagnosticEvent: Equatable, Sendable {
+    case success(capturedType: String)
+    case failure(capturedType: String)
+}
+
+enum ClipboardMonitorPayloadImportRunnerEvent: Equatable, Sendable {
+    case started(UUID)
+    case finished(UUID)
+}
+
+typealias ClipboardMonitorImportDiagnosticRecorder = @MainActor (
+    ClipboardMonitorImportDiagnosticEvent
+) -> Void
+
+typealias ClipboardMonitorPayloadImportRunnerEventRecorder = @Sendable (
+    ClipboardMonitorPayloadImportRunnerEvent
+) -> Void
+
+struct ClipboardMonitorPayloadImportPumpDiagnostics: Equatable, Sendable {
+    let hasActiveImport: Bool
+    let hasPendingImport: Bool
+    let ownedRequestCount: Int
+}
+
+private final class ClipboardMonitorPayloadImportCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isFinished = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    lazy var task: Task<Void, Never> = Task.detached { [weak self] in
+        await self?.waitUntilFinished()
+    }
+
+    func finish() {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            guard !isFinished else {
+                return []
+            }
+            isFinished = true
+            defer { self.waiters.removeAll() }
+            return self.waiters
+        }
+        waiters.forEach { $0.resume() }
+    }
+
+    private func waitUntilFinished() async {
+        if lock.withLock({ isFinished }) {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock { () -> Bool in
+                guard !isFinished else {
+                    return true
+                }
+                waiters.append(continuation)
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+}
+
+private struct ClipboardMonitorPayloadImportContext: Sendable {
+    let id: UUID
+    let sourceApp: SourceAppInfo
+    let changeCount: Int
+    let startedAt: CFAbsoluteTime
+    let capturedType: String
+    let generation: UInt64
+    let authority: ClipboardImportAuthority
+}
+
+private final class ClipboardMonitorActivePayloadImport: @unchecked Sendable {
+    let context: ClipboardMonitorPayloadImportContext
+    let completion: ClipboardMonitorPayloadImportCompletion
+    var task: Task<Void, Never>?
+
+    init(
+        context: ClipboardMonitorPayloadImportContext,
+        completion: ClipboardMonitorPayloadImportCompletion
+    ) {
+        self.context = context
+        self.completion = completion
+    }
+}
+
+private struct ClipboardMonitorPendingPayloadImport: Sendable {
+    let request: ClipboardMonitorPayloadImportRequest
+    let context: ClipboardMonitorPayloadImportContext
+    let completion: ClipboardMonitorPayloadImportCompletion
+}
+
+@MainActor
+protocol ClipboardMonitorTimerToken: AnyObject {
+    var timeInterval: TimeInterval { get }
+    func invalidate()
+}
+
+extension Timer: ClipboardMonitorTimerToken {}
+
+@MainActor
+struct ClipboardMonitorTimerScheduler {
+    typealias Handler = @MainActor () -> Void
+    typealias Schedule = (TimeInterval, @escaping Handler) -> any ClipboardMonitorTimerToken
+
+    let schedule: Schedule
+
+    init(_ schedule: @escaping Schedule) {
+        self.schedule = schedule
+    }
+
+    static let live = ClipboardMonitorTimerScheduler { interval, handler in
+        Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            Task { @MainActor in handler() }
+        }
+    }
+}
+
+private enum ClipboardPasteboardSnapshot {
+    case text(String, fastPath: Bool)
+    case files([URL])
+    case richText(ClipboardRichTextPasteboardPayload)
+    case image(data: Data, declaredTypeIdentifier: String)
+    case unsupported
+
+    var selfWritePayload: ClipboardSelfWritePayload? {
+        switch self {
+        case .text(let text, _):
+            .text(text)
+        case .files(let urls):
+            .files(urls)
+        case .richText(let payload):
+            payload.fallbackPlainText.map(ClipboardSelfWritePayload.richText)
+        case .image, .unsupported:
+            nil
+        }
+    }
+}
+
+struct ClipboardMonitorPasteboardReadSnapshot {
+    let changeCount: Int
+    let types: Set<NSPasteboard.PasteboardType>
+    let strings: [NSPasteboard.PasteboardType: String]
+    let data: [NSPasteboard.PasteboardType: Data]
+    let fileURLs: [URL]
+
+    func string(forType type: NSPasteboard.PasteboardType) -> String? { strings[type] }
+    func data(forType type: NSPasteboard.PasteboardType) -> Data? { data[type] }
 }
 
 struct ClipboardPollingPolicy: Sendable {
@@ -40,28 +237,111 @@ final class ClipboardMonitor {
 
     private let pasteboard: NSPasteboard
     private let store: ClipboardHistoryStore
-    private let recordingController: RecordingController
-    private let ignoredAppSettings: IgnoredAppSettings
     private let pollingPolicy: ClipboardPollingPolicy
+    private let sourceAppProvider: () -> SourceAppInfo
+    private let isPaused: () -> Bool
+    private let isIgnored: (String?) -> Bool
+    private let timerScheduler: ClipboardMonitorTimerScheduler
+    private let pasteboardSnapshotProvider: (@MainActor () -> ClipboardMonitorPasteboardReadSnapshot)?
+    private let payloadImporter: ClipboardMonitorPayloadImporter
+    private let payloadImportRunnerEventRecorder: ClipboardMonitorPayloadImportRunnerEventRecorder
+    private let importDiagnosticRecorder: ClipboardMonitorImportDiagnosticRecorder
     var shouldSuppressRecording: (() -> Bool)?
-    private var timer: Timer?
+    private var timer: (any ClipboardMonitorTimerToken)?
     private var lastChangeCount: Int
+    private var stableSourceApp: SourceAppInfo
     private var unchangedPollCount = 0
-    private var richTextImportTask: Task<Void, Never>?
+    private var activePayloadImport: ClipboardMonitorActivePayloadImport?
+    private var pendingPayloadImports: [ClipboardMonitorPendingPayloadImport] = []
 
-    init(
+    var hasActivePayloadImportForTesting: Bool {
+        activePayloadImport != nil
+    }
+
+    var hasCurrentImportAuthorityForTesting: Bool {
+        activePayloadImport?.context.authority.isCurrent == true
+    }
+
+    var payloadImportPumpDiagnosticsForTesting: ClipboardMonitorPayloadImportPumpDiagnostics {
+        ClipboardMonitorPayloadImportPumpDiagnostics(
+            hasActiveImport: activePayloadImport != nil,
+            hasPendingImport: !pendingPayloadImports.isEmpty,
+            ownedRequestCount: (activePayloadImport == nil ? 0 : 1) + pendingPayloadImports.count
+        )
+    }
+    private var payloadImportGeneration: UInt64 = 0
+
+    convenience init(
         store: ClipboardHistoryStore,
         recordingController: RecordingController,
         ignoredAppSettings: IgnoredAppSettings,
         pasteboard: NSPasteboard = .general,
         pollingPolicy: ClipboardPollingPolicy = .default
     ) {
+        self.init(
+            store: store,
+            pasteboard: pasteboard,
+            pollingPolicy: pollingPolicy,
+            sourceAppProvider: { Self.monitoredSourceApp(SourceAppInfo.current) },
+            isPaused: { recordingController.isPaused },
+            isIgnored: { ignoredAppSettings.contains(bundleID: $0) }
+        )
+    }
+
+    init(
+        store: ClipboardHistoryStore,
+        pasteboard: NSPasteboard,
+        pollingPolicy: ClipboardPollingPolicy = .default,
+        sourceAppProvider: @escaping () -> SourceAppInfo,
+        isPaused: @escaping () -> Bool,
+        isIgnored: @escaping (String?) -> Bool,
+        timerScheduler: ClipboardMonitorTimerScheduler = .live,
+        pasteboardSnapshotProvider: (@MainActor () -> ClipboardMonitorPasteboardReadSnapshot)? = nil,
+        richTextImporter: ClipboardRichTextImporter? = nil,
+        payloadImporter: ClipboardMonitorPayloadImporter? = nil,
+        payloadImportRunnerEventRecorder: @escaping ClipboardMonitorPayloadImportRunnerEventRecorder = { _ in },
+        importDiagnosticRecorder: @escaping ClipboardMonitorImportDiagnosticRecorder = { _ in }
+    ) {
         self.store = store
-        self.recordingController = recordingController
-        self.ignoredAppSettings = ignoredAppSettings
         self.pollingPolicy = pollingPolicy
         self.pasteboard = pasteboard
-        self.lastChangeCount = pasteboard.changeCount
+        self.sourceAppProvider = sourceAppProvider
+        self.isPaused = isPaused
+        self.isIgnored = isIgnored
+        self.timerScheduler = timerScheduler
+        self.pasteboardSnapshotProvider = pasteboardSnapshotProvider
+        self.payloadImportRunnerEventRecorder = payloadImportRunnerEventRecorder
+        self.importDiagnosticRecorder = importDiagnosticRecorder
+        if let payloadImporter {
+            self.payloadImporter = payloadImporter
+        } else {
+            let boundedImporter = store.makeClipboardPayloadImporter()
+            self.payloadImporter = { request in
+                switch request {
+                case .image(let data, let declaredTypeIdentifier):
+                    return .image(try await boundedImporter.importImageForMonitor(
+                        data,
+                        declaredTypeIdentifier: declaredTypeIdentifier
+                    ))
+                case .richText(let payload):
+                    if let richTextImporter {
+                        return .richText(await richTextImporter(payload))
+                    }
+                    return .richText(try await boundedImporter.importRichText(payload))
+                }
+            }
+        }
+        self.lastChangeCount = pasteboardSnapshotProvider?().changeCount ?? pasteboard.changeCount
+        self.stableSourceApp = Self.monitoredSourceApp(sourceAppProvider())
+    }
+
+    deinit {
+        activePayloadImport?.context.authority.invalidate()
+        activePayloadImport?.task?.cancel()
+        for pending in pendingPayloadImports {
+            pending.context.authority.invalidate()
+            pending.completion.finish()
+        }
     }
 
     func start() {
@@ -74,13 +354,8 @@ final class ClipboardMonitor {
 
     private func scheduleTimer(interval: TimeInterval) {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(
-            withTimeInterval: interval,
-            repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.poll()
-            }
+        timer = timerScheduler.schedule(interval) { [weak self] in
+            self?.pollNow()
         }
     }
 
@@ -95,45 +370,71 @@ final class ClipboardMonitor {
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        if let timer {
+            timer.invalidate()
+            self.timer = nil
+        }
         unchangedPollCount = 0
-        richTextImportTask?.cancel()
-        richTextImportTask = nil
+        payloadImportGeneration &+= 1
+        invalidateActivePayloadImport()
+        clearPendingPayloadImports()
     }
 
-    private func poll() {
+    @discardableResult
+    func pollNow() -> Task<Void, Never>? {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        let currentChangeCount = pasteboard.changeCount
+        let currentSourceApp = Self.monitoredSourceApp(sourceAppProvider())
+        let suppliedSnapshot = pasteboardSnapshotProvider?()
+        let currentChangeCount = suppliedSnapshot?.changeCount ?? pasteboard.changeCount
         guard currentChangeCount != lastChangeCount else {
+            stableSourceApp = currentSourceApp
             unchangedPollCount += 1
             updatePollingIntervalForCurrentActivity()
-            return
+            return nil
         }
 
         unchangedPollCount = 0
         updatePollingIntervalForCurrentActivity()
         lastChangeCount = currentChangeCount
-        richTextImportTask?.cancel()
-        richTextImportTask = nil
+        payloadImportGeneration &+= 1
         let changeDetectedAt = CFAbsoluteTimeGetCurrent()
-        guard shouldSuppressRecording?() != true else {
-            return
-        }
-        guard !recordingController.isPaused else {
-            return
-        }
-
-        let sourceApp = monitoredSourceApp
-        let sourceResolvedAt = CFAbsoluteTimeGetCurrent()
-        guard !ignoredAppSettings.contains(bundleID: sourceApp.bundleID) else {
-            return
-        }
-
-        let availableTypes = Set(pasteboard.types ?? [])
+        let availableTypes = suppliedSnapshot?.types ?? Set(pasteboard.types ?? [])
+        let snapshot = pasteboardSnapshot(availableTypes: availableTypes, suppliedSnapshot: suppliedSnapshot)
         let typesLoadedAt = CFAbsoluteTimeGetCurrent()
-        if shouldCapturePlainTextFirst(availableTypes),
-           let text = pasteboard.string(forType: .string) {
+        guard !store.consumeSelfWrite(
+            changeCount: currentChangeCount,
+            payload: snapshot.selfWritePayload
+        ) else {
+            return nil
+        }
+        guard shouldSuppressRecording?() != true else {
+            return nil
+        }
+        guard !isPaused() else {
+            return nil
+        }
+
+        let sourceApp = currentSourceApp
+        let sourceResolvedAt = CFAbsoluteTimeGetCurrent()
+        guard !isIgnored(sourceApp.bundleID) else {
+            return nil
+        }
+
+        if case .image(let data, let declaredTypeIdentifier) = snapshot {
+            let task = schedulePayloadImport(
+                request: .image(data: data, declaredTypeIdentifier: declaredTypeIdentifier),
+                sourceApp: sourceApp,
+                changeCount: currentChangeCount,
+                startedAt: startedAt,
+                capturedType: "image",
+                generation: payloadImportGeneration
+            )
+            recordPollDuration(startedAt: startedAt, capturedType: "image.scheduled")
+            return task
+        }
+
+        switch snapshot {
+        case .text(let text, let fastPath):
             let payloadLoadedAt = CFAbsoluteTimeGetCurrent()
             store.addText(text, sourceApp: sourceApp)
             recordPollDuration(
@@ -142,62 +443,89 @@ final class ClipboardMonitor {
                 sourceResolvedAt: sourceResolvedAt,
                 typesLoadedAt: typesLoadedAt,
                 payloadLoadedAt: payloadLoadedAt,
-                capturedType: "text.fastPath"
+                capturedType: fastPath ? "text.fastPath" : "text"
             )
-            return
-        }
-
-        let fileURLs = localFileURLsFromPasteboard(availableTypes: availableTypes)
-        if !fileURLs.isEmpty {
-            guard !store.consumeSkippedClipboardFiles(fileURLs) else {
-                return
-            }
-
+            return nil
+        case .files(let fileURLs):
             store.addFiles(fileURLs, sourceApp: sourceApp)
             recordPollDuration(startedAt: startedAt, capturedType: "file")
-            return
-        }
-
-        if pasteboardHasRichTextTypes(availableTypes),
-           let rtfData = pasteboard.data(forType: .rtf) {
-            scheduleRichTextImport(
-                payload: .rtf(data: rtfData, fallbackPlainText: pasteboard.string(forType: .string)),
+            return nil
+        case .richText(let payload):
+            let capturedType: String
+            switch payload {
+            case .rtf:
+                capturedType = "rtf"
+            case .html:
+                capturedType = "html"
+            }
+            let task = schedulePayloadImport(
+                request: .richText(payload),
                 sourceApp: sourceApp,
                 changeCount: currentChangeCount,
                 startedAt: startedAt,
-                capturedType: "rtf"
+                capturedType: capturedType,
+                generation: payloadImportGeneration
             )
-            recordPollDuration(startedAt: startedAt, capturedType: "rtf.scheduled")
-            return
+            recordPollDuration(startedAt: startedAt, capturedType: "\(capturedType).scheduled")
+            return task
+        case .image:
+            return nil
+        case .unsupported:
+            return nil
+        }
+    }
+
+    private func pasteboardSnapshot(
+        availableTypes: Set<NSPasteboard.PasteboardType>,
+        suppliedSnapshot: ClipboardMonitorPasteboardReadSnapshot? = nil
+    ) -> ClipboardPasteboardSnapshot {
+        let string: (NSPasteboard.PasteboardType) -> String?
+        let data: (NSPasteboard.PasteboardType) -> Data?
+        if let suppliedSnapshot {
+            string = { suppliedSnapshot.string(forType: $0) }
+            data = { suppliedSnapshot.data(forType: $0) }
+        } else {
+            string = { self.pasteboard.string(forType: $0) }
+            data = { self.pasteboard.data(forType: $0) }
+        }
+        if shouldCapturePlainTextFirst(availableTypes),
+           let text = string(.string) {
+            return .text(text, fastPath: true)
+        }
+
+        let fileURLs = suppliedSnapshot?.fileURLs ?? localFileURLsFromPasteboard(availableTypes: availableTypes)
+        if !fileURLs.isEmpty {
+            return .files(fileURLs)
+        }
+
+        if pasteboardHasRichTextTypes(availableTypes),
+           let rtfData = data(.rtf) {
+            return .richText(.rtf(
+                data: rtfData,
+                fallbackPlainText: string(.string)
+            ))
         }
 
         if pasteboardHasImageTypes(availableTypes),
-           let image = pasteboard.readObjects(
-            forClasses: [NSImage.self],
-            options: nil
-        )?.first as? NSImage {
-            store.addImage(image, sourceApp: sourceApp)
-            recordPollDuration(startedAt: startedAt, capturedType: "image")
-            return
+           let imagePayload = encodedImagePayload(availableTypes: availableTypes, suppliedSnapshot: suppliedSnapshot) {
+            return .image(
+                data: imagePayload.data,
+                declaredTypeIdentifier: imagePayload.type.rawValue
+            )
         }
 
         if pasteboardHasRichTextTypes(availableTypes),
-           let htmlData = pasteboard.data(forType: .html) {
-            scheduleRichTextImport(
-                payload: .html(data: htmlData, fallbackPlainText: pasteboard.string(forType: .string)),
-                sourceApp: sourceApp,
-                changeCount: currentChangeCount,
-                startedAt: startedAt,
-                capturedType: "html"
-            )
-            recordPollDuration(startedAt: startedAt, capturedType: "html.scheduled")
-            return
+           let htmlData = data(.html) {
+            return .richText(.html(
+                data: htmlData,
+                fallbackPlainText: string(.string)
+            ))
         }
 
-        if let text = pasteboard.string(forType: .string) {
-            store.addText(text, sourceApp: sourceApp)
-            recordPollDuration(startedAt: startedAt, capturedType: "text")
+        if let text = string(.string) {
+            return .text(text, fastPath: false)
         }
+        return .unsupported
     }
 
     private func recordPollDuration(startedAt: CFAbsoluteTime, capturedType: String) {
@@ -237,60 +565,338 @@ final class ClipboardMonitor {
         String(format: "%.3f", seconds * 1_000)
     }
 
-    private func scheduleRichTextImport(
-        payload: RichTextPasteboardPayload,
+    private func schedulePayloadImport(
+        request: ClipboardMonitorPayloadImportRequest,
         sourceApp: SourceAppInfo,
         changeCount: Int,
         startedAt: CFAbsoluteTime,
-        capturedType: String
-    ) {
-        richTextImportTask?.cancel()
-        richTextImportTask = Task.detached(priority: .utility) { [weak self] in
-            let parseStartedAt = CFAbsoluteTimeGetCurrent()
-            let result: RichTextImportResult?
-            switch payload {
-            case .rtf(let data, let fallbackPlainText):
-                result = Self.richTextFromRTFData(data, fallbackPlainText: fallbackPlainText)
-            case .html(let data, let fallbackPlainText):
-                result = Self.richTextFromHTMLData(data, fallbackPlainText: fallbackPlainText)
-            }
+        capturedType: String,
+        generation: UInt64
+    ) -> Task<Void, Never> {
+        let pending = ClipboardMonitorPendingPayloadImport(
+            request: request,
+            context: ClipboardMonitorPayloadImportContext(
+                id: UUID(),
+                sourceApp: sourceApp,
+                changeCount: changeCount,
+                startedAt: startedAt,
+                capturedType: capturedType,
+                generation: generation,
+                authority: ClipboardImportAuthority()
+            ),
+            completion: ClipboardMonitorPayloadImportCompletion()
+        )
+        guard activePayloadImport != nil else {
+            startPayloadImport(pending)
+            return pending.completion.task
+        }
 
-            guard !Task.isCancelled,
-                  let result else {
-                return
-            }
+        pendingPayloadImports.append(pending)
+        return pending.completion.task
+    }
 
-            let parsedAt = CFAbsoluteTimeGetCurrent()
-            await MainActor.run { [weak self] in
-                guard let self,
-                      !Task.isCancelled,
-                      self.lastChangeCount == changeCount else {
-                    return
-                }
+    private func startPayloadImport(_ pending: ClipboardMonitorPendingPayloadImport) {
+        precondition(activePayloadImport == nil)
+        let active = ClipboardMonitorActivePayloadImport(
+            context: pending.context,
+            completion: pending.completion
+        )
+        activePayloadImport = active
 
-                let storedType: String
-                if result.data.isEmpty || self.shouldCaptureRichTextAsPlainText(result.plainText) {
-                    self.store.addText(result.plainText, sourceApp: sourceApp)
-                    storedType = "\(capturedType)AsText"
-                } else {
-                    self.store.addRichText(
-                        result.data,
-                        plainText: result.plainText,
-                        sourceApp: sourceApp
+        let importer = payloadImporter
+        let store = store
+        let context = pending.context
+        let completion = pending.completion
+        let runnerEventRecorder = payloadImportRunnerEventRecorder
+        runnerEventRecorder(.started(context.id))
+        let task = Task.detached(priority: .utility) { [weak self] in
+            await Self.runPayloadImport(
+                pending.request,
+                importer: importer,
+                store: store,
+                context: context,
+                prepare: { [weak self] result in
+                    await self?.preparePayloadImport(result, context: context)
+                },
+                recordSuccess: { [weak self] completion, parseStartedAt, parsedAt in
+                    await self?.finishPayloadImport(
+                        completion,
+                        startedAt: context.startedAt,
+                        parseStartedAt: parseStartedAt,
+                        parsedAt: parsedAt,
+                        context: context
                     )
-                    storedType = capturedType
+                },
+                recordFailure: { [weak self] error, payloadByteCount in
+                    await self?.completePayloadImportFailure(
+                        error,
+                        payloadByteCount: payloadByteCount,
+                        context: context
+                    )
+                },
+                didFinish: { [weak self] in
+                    runnerEventRecorder(.finished(context.id))
+                    await self?.completeActivePayloadImport(ifCurrent: context.id)
                 }
+            )
+            completion.finish()
+        }
+        active.task = task
+    }
 
-                self.recordRichTextImportDuration(
-                    startedAt: startedAt,
-                    parseStartedAt: parseStartedAt,
-                    parsedAt: parsedAt,
-                    capturedType: storedType,
-                    payloadByteCount: result.data.count
-                )
-                self.richTextImportTask = nil
+    private func invalidateActivePayloadImport() {
+        activePayloadImport?.context.authority.invalidate()
+        activePayloadImport?.task?.cancel()
+    }
+
+    private func clearPendingPayloadImports() {
+        for pending in pendingPayloadImports {
+            pending.context.authority.invalidate()
+            pending.completion.finish()
+        }
+        pendingPayloadImports.removeAll()
+    }
+
+    private func completeActivePayloadImport(ifCurrent taskID: UUID) {
+        guard let active = activePayloadImport,
+              active.context.id == taskID else {
+            return
+        }
+        active.completion.finish()
+        activePayloadImport = nil
+        guard !pendingPayloadImports.isEmpty else {
+            return
+        }
+        let pending = pendingPayloadImports.removeFirst()
+        startPayloadImport(pending)
+    }
+
+    nonisolated private static func runPayloadImport(
+        _ request: ClipboardMonitorPayloadImportRequest,
+        importer: @escaping ClipboardMonitorPayloadImporter,
+        store: ClipboardHistoryStore,
+        context: ClipboardMonitorPayloadImportContext,
+        prepare: @escaping @Sendable (ClipboardMonitorPayloadImportResult) async -> ClipboardMonitorPreparedImport?,
+        recordSuccess: @escaping @Sendable (
+            (storedType: String, payloadByteCount: Int),
+            CFAbsoluteTime,
+            CFAbsoluteTime
+        ) async -> Void,
+        recordFailure: @escaping @Sendable (Error, Int) async -> Void,
+        didFinish: @escaping @Sendable () async -> Void
+    ) async {
+        let parseStartedAt = CFAbsoluteTimeGetCurrent()
+        let result: ClipboardMonitorPayloadImportResult
+        do {
+            result = try await importer(request)
+        } catch is CancellationError {
+            await didFinish()
+            return
+        } catch {
+            if !Task.isCancelled {
+                await recordFailure(error, request.payloadByteCount)
+            }
+            await didFinish()
+            return
+        }
+
+        guard !Task.isCancelled else {
+            await rollbackImportedImageIfNeeded(result, store: store)
+            await didFinish()
+            return
+        }
+
+        let parsedAt = CFAbsoluteTimeGetCurrent()
+        guard let prepared = await prepare(result) else {
+            await rollbackImportedImageIfNeeded(result, store: store)
+            await didFinish()
+            return
+        }
+
+        do {
+            if let completion = try await commitPreparedPayloadImport(
+                prepared,
+                store: store,
+                sourceApp: context.sourceApp,
+                authority: context.authority,
+                capturedType: context.capturedType
+            ) {
+                await recordSuccess(completion, parseStartedAt, parsedAt)
+            }
+        } catch is CancellationError {
+            // Cancellation is advisory once an import has reached Store work.
+        } catch {
+            if !Task.isCancelled {
+                await recordFailure(error, 0)
             }
         }
+        await didFinish()
+    }
+
+    nonisolated private static func rollbackImportedImageIfNeeded(
+        _ result: ClipboardMonitorPayloadImportResult,
+        store: ClipboardHistoryStore
+    ) async {
+        if case .image(let importedImage) = result {
+            await store.rollbackImportedClipboardImage(importedImage.storedImage)
+        }
+    }
+
+    private func preparePayloadImport(
+        _ result: ClipboardMonitorPayloadImportResult,
+        context: ClipboardMonitorPayloadImportContext
+    ) async -> ClipboardMonitorPreparedImport? {
+        guard isCurrentPayloadImport(context) else {
+            return nil
+        }
+
+        switch result {
+        case .image(let importedImage):
+            let isSelfWrite: Bool
+            if let fingerprint = importedImage.fingerprint {
+                isSelfWrite = await store.consumeImageSelfWrite(
+                    changeCount: context.changeCount,
+                    fingerprint: fingerprint
+                )
+            } else {
+                isSelfWrite = false
+            }
+            guard isCurrentPayloadImport(context),
+                  !isSelfWrite else {
+                return nil
+            }
+            return .image(importedImage)
+        case .richText(let richTextResult):
+            guard let richTextResult else {
+                return nil
+            }
+            if richTextResult.data.isEmpty || shouldCaptureRichTextAsPlainText(richTextResult.plainText) {
+                store.addText(richTextResult.plainText, sourceApp: context.sourceApp)
+                return .completed(
+                    storedType: "\(context.capturedType)AsText",
+                    payloadByteCount: richTextResult.data.count
+                )
+            }
+            return .richText(richTextResult)
+        }
+    }
+
+    nonisolated private static func commitPreparedPayloadImport(
+        _ prepared: ClipboardMonitorPreparedImport,
+        store: ClipboardHistoryStore,
+        sourceApp: SourceAppInfo,
+        authority: ClipboardImportAuthority,
+        capturedType: String
+    ) async throws -> (storedType: String, payloadByteCount: Int)? {
+        switch prepared {
+        case .image(let importedImage):
+            guard try await store.addImage(
+                importedImage.storedImage,
+                sourceApp: sourceApp,
+                importAuthority: authority
+            ) != nil else { return nil }
+            return (capturedType, 0)
+        case .richText(let result):
+            guard try await store.addRichText(
+                result.data,
+                plainText: result.plainText,
+                sourceApp: sourceApp,
+                importAuthority: authority
+            ) != nil else { return nil }
+            return (capturedType, result.data.count)
+        case .completed(let storedType, let payloadByteCount):
+            return (storedType, payloadByteCount)
+        }
+    }
+
+    private func finishPayloadImport(
+        _ completion: (storedType: String, payloadByteCount: Int),
+        startedAt: CFAbsoluteTime,
+        parseStartedAt: CFAbsoluteTime,
+        parsedAt: CFAbsoluteTime,
+        context: ClipboardMonitorPayloadImportContext
+    ) {
+        guard isMatchingPayloadImport(context) else { return }
+        recordRichTextImportDuration(
+            startedAt: startedAt,
+            parseStartedAt: parseStartedAt,
+            parsedAt: parsedAt,
+            capturedType: completion.storedType,
+            payloadByteCount: completion.payloadByteCount
+        )
+        importDiagnosticRecorder(.success(capturedType: completion.storedType))
+    }
+
+    private func recordPayloadImportStoreFailure(
+        _ error: Error,
+        context: ClipboardMonitorPayloadImportContext
+    ) {
+        guard isMatchingPayloadImport(context) else { return }
+        PerformanceDiagnosticsService.shared.recordError(
+            "clipboard.richText.import.failed",
+            category: "clipboard",
+            error: error,
+            metadata: ["capturedType": context.capturedType, "payloadBytes": "0"]
+        )
+        NSLog("ClipEase failed to import rich text from clipboard: \(error.localizedDescription)")
+    }
+
+    private func completePayloadImportFailure(
+        _ error: Error,
+        payloadByteCount: Int,
+        context: ClipboardMonitorPayloadImportContext
+    ) {
+        guard isCurrentPayloadImport(context) else { return }
+        importDiagnosticRecorder(.failure(capturedType: context.capturedType))
+        PerformanceDiagnosticsService.shared.recordError(
+            "clipboard.richText.import.failed",
+            category: "clipboard",
+            error: error,
+            metadata: [
+                "capturedType": context.capturedType,
+                "payloadBytes": "\(payloadByteCount)"
+            ]
+        )
+        NSLog("ClipEase failed to import clipboard payload: \(error.localizedDescription)")
+    }
+
+    private func isCurrentPayloadImport(_ context: ClipboardMonitorPayloadImportContext) -> Bool {
+        isMatchingPayloadImport(context) && context.authority.isCurrent
+    }
+
+    private func isMatchingPayloadImport(_ context: ClipboardMonitorPayloadImportContext) -> Bool {
+        !Task.isCancelled && activePayloadImport?.context.id == context.id
+    }
+
+    private func encodedImagePayload(
+        availableTypes: Set<NSPasteboard.PasteboardType>,
+        suppliedSnapshot: ClipboardMonitorPasteboardReadSnapshot? = nil
+    ) -> (data: Data, type: NSPasteboard.PasteboardType)? {
+        let preferredTypes: [NSPasteboard.PasteboardType] = [
+            Self.publicPNGType,
+            .tiff,
+            Self.publicTIFFType,
+            Self.publicJPEGType,
+        ]
+        let genericImageTypes = availableTypes
+            .filter { type in
+                UTType(type.rawValue)?.conforms(to: .image) == true
+            }
+            .sorted { $0.rawValue.localizedCaseInsensitiveCompare($1.rawValue) == .orderedAscending }
+        var visitedTypes = Set<NSPasteboard.PasteboardType>()
+        for type in preferredTypes + genericImageTypes
+        where visitedTypes.insert(type).inserted && availableTypes.contains(type) {
+            let data: Data?
+            if let suppliedSnapshot {
+                data = suppliedSnapshot.data(forType: type)
+            } else {
+                data = pasteboard.data(forType: type)
+            }
+            if let data {
+                return (data, type)
+            }
+        }
+        return nil
     }
 
     private func recordRichTextImportDuration(
@@ -326,10 +932,19 @@ final class ClipboardMonitor {
         ColorParser.hexColor(from: text) != nil || URLParser.url(from: text) != nil
     }
 
+    nonisolated static let defaultRichTextImporter: ClipboardRichTextImporter = { payload in
+        switch payload {
+        case .rtf(let data, let fallbackPlainText):
+            richTextFromRTFData(data, fallbackPlainText: fallbackPlainText)
+        case .html(let data, let fallbackPlainText):
+            richTextFromHTMLData(data, fallbackPlainText: fallbackPlainText)
+        }
+    }
+
     nonisolated private static func richTextFromRTFData(
         _ data: Data,
         fallbackPlainText: String?
-    ) -> RichTextImportResult? {
+    ) -> ClipboardRichTextImportResult? {
         guard let plainText = plainTextForRichTextData(
             data,
             documentType: .rtf
@@ -338,17 +953,17 @@ final class ClipboardMonitor {
             return nil
         }
 
-        return RichTextImportResult(data: data, plainText: plainText)
+        return ClipboardRichTextImportResult(data: data, plainText: plainText)
     }
 
     nonisolated private static func richTextFromHTMLData(
         _ data: Data,
         fallbackPlainText: String?
-    ) -> RichTextImportResult? {
+    ) -> ClipboardRichTextImportResult? {
         guard let attributedString = attributedString(from: data, documentType: .html) else {
             if let fallbackPlainText,
                !fallbackPlainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return RichTextImportResult(data: Data(), plainText: fallbackPlainText)
+                return ClipboardRichTextImportResult(data: Data(), plainText: fallbackPlainText)
             }
             return nil
         }
@@ -362,7 +977,7 @@ final class ClipboardMonitor {
             return nil
         }
 
-        return RichTextImportResult(data: rtfData, plainText: plainText)
+        return ClipboardRichTextImportResult(data: rtfData, plainText: plainText)
     }
 
     nonisolated private static func plainTextForRichTextData(
@@ -406,9 +1021,15 @@ final class ClipboardMonitor {
         }
     }
 
-    private var monitoredSourceApp: SourceAppInfo {
-        let current = SourceAppInfo.current
-        return current.isClipEase ? .clipease : current
+    private static func monitoredSourceApp(_ current: SourceAppInfo) -> SourceAppInfo {
+        current.isClipEase ? .clipease : current
+    }
+
+    private static func isSameSource(_ lhs: SourceAppInfo, _ rhs: SourceAppInfo) -> Bool {
+        if lhs.bundleID != nil || rhs.bundleID != nil {
+            return lhs.bundleID == rhs.bundleID
+        }
+        return lhs.name == rhs.name
     }
 
     private func fileURLsFromReadObjects(options: [NSPasteboard.ReadingOptionKey: Any]) -> [URL] {
@@ -486,7 +1107,8 @@ final class ClipboardMonitor {
         types.contains(.tiff) ||
             types.contains(Self.publicPNGType) ||
             types.contains(Self.publicTIFFType) ||
-            types.contains(Self.publicJPEGType)
+            types.contains(Self.publicJPEGType) ||
+            types.contains { UTType($0.rawValue)?.conforms(to: .image) == true }
     }
 
     private func itemHasPathBackedFileSemanticTypes(_ item: NSPasteboardItem) -> Bool {
@@ -589,5 +1211,16 @@ final class ClipboardMonitor {
         }
 
         return URL(fileURLWithPath: normalizedPath).standardizedFileURL
+    }
+}
+
+private extension ClipboardMonitorPayloadImportRequest {
+    var payloadByteCount: Int {
+        switch self {
+        case .image(let data, _):
+            data.count
+        case .richText(let payload):
+            payload.data.count
+        }
     }
 }

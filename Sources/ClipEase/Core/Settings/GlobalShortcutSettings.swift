@@ -74,9 +74,10 @@ final class GlobalShortcutSettings: ObservableObject {
         let savedKeyCode = userDefaults.object(forKey: Self.keyCodeKey) as? Int
         let savedModifiers = userDefaults.object(forKey: Self.modifiersKey) as? Int
         self.shortcut = GlobalShortcut(
-            keyCode: UInt16(savedKeyCode ?? Int(Self.defaultShortcut.keyCode)),
-            modifiers: UInt32(savedModifiers ?? Int(Self.defaultShortcut.modifiers))
+            keyCode: savedKeyCode.flatMap(UInt16.init(exactly:)) ?? Self.defaultShortcut.keyCode,
+            modifiers: savedModifiers.flatMap(UInt32.init(exactly:)) ?? Self.defaultShortcut.modifiers
         )
+        save()
     }
 
     @discardableResult

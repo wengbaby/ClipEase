@@ -1,54 +1,61 @@
+import CoreFoundation
 import Foundation
-
-struct LinkMetadata: Sendable {
-    let title: String?
-    let imageData: Data?
-}
 
 struct LinkPageMetadata: Sendable {
     let title: String?
     let html: String
+    let finalURL: URL
 }
 
-enum LinkTitleFetcher {
-    static func title(for url: URL) async -> String? {
-        await pageMetadata(for: url)?.title
+struct LinkTitleFetcher: Sendable {
+    private let httpClient: any LinkMetadataHTTPFetching
+    private let imageDecoder: LinkPreviewImageDecoder
+
+    init(
+        httpClient: any LinkMetadataHTTPFetching,
+        imageDecoder: LinkPreviewImageDecoder = LinkPreviewImageDecoder()
+    ) {
+        self.httpClient = httpClient
+        self.imageDecoder = imageDecoder
     }
 
-    static func metadata(for url: URL) async -> LinkMetadata {
-        guard let pageMetadata = await pageMetadata(for: url) else {
-            return LinkMetadata(title: nil, imageData: nil)
-        }
-
-        return LinkMetadata(
-            title: pageMetadata.title,
-            imageData: await fetchPreviewImage(from: pageMetadata.html, baseURL: url)
-        )
+    static func live() -> LinkTitleFetcher {
+        LinkTitleFetcher(httpClient: LinkMetadataHTTPClient.live())
     }
 
-    static func previewImageData(from pageMetadata: LinkPageMetadata, baseURL: URL) async -> Data? {
-        await fetchPreviewImage(from: pageMetadata.html, baseURL: baseURL)
-    }
-
-    static func pageMetadata(for url: URL) async -> LinkPageMetadata? {
-        var request = URLRequest(url: url, timeoutInterval: 4)
-        request.setValue(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X) ClipEase/1.0",
-            forHTTPHeaderField: "User-Agent"
-        )
-
+    func loadPageMetadata(for url: URL) async -> LinkPageMetadata? {
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200..<400).contains(httpResponse.statusCode),
-                  let html = String(data: data.prefix(256_000), encoding: .utf8)
-                    ?? String(data: data.prefix(256_000), encoding: .ascii) else {
+            let response = try await httpClient.fetch(url, as: .page)
+            guard let html = String(data: response.data, encoding: .utf8)
+                    ?? String(data: response.data, encoding: .ascii) else {
                 return nil
             }
 
             return LinkPageMetadata(
-                title: extractTitle(from: html),
-                html: html
+                title: Self.extractTitle(from: html),
+                html: html,
+                finalURL: response.finalURL
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    func loadPreviewImage(
+        from pageMetadata: LinkPageMetadata
+    ) async -> LinkPreviewDecodedImage? {
+        guard let imageURL = Self.extractPreviewImageURL(
+            from: pageMetadata.html,
+            baseURL: pageMetadata.finalURL
+        ) else {
+            return nil
+        }
+
+        do {
+            let response = try await httpClient.fetch(imageURL, as: .image)
+            return try imageDecoder.decode(
+                response.data,
+                declaredMIMEType: response.mimeType
             )
         } catch {
             return nil
@@ -73,32 +80,6 @@ enum LinkTitleFetcher {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         return title.isEmpty ? nil : decodeHTMLEntities(title)
-    }
-
-    private static func fetchPreviewImage(from html: String, baseURL: URL) async -> Data? {
-        guard let imageURL = extractPreviewImageURL(from: html, baseURL: baseURL),
-              ["http", "https"].contains(imageURL.scheme?.lowercased()) else {
-            return nil
-        }
-
-        var request = URLRequest(url: imageURL, timeoutInterval: 4)
-        request.setValue(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X) ClipEase/1.0",
-            forHTTPHeaderField: "User-Agent"
-        )
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200..<400).contains(httpResponse.statusCode),
-                  data.count <= 5_000_000 else {
-                return nil
-            }
-
-            return data
-        } catch {
-            return nil
-        }
     }
 
     private static func extractPreviewImageURL(from html: String, baseURL: URL) -> URL? {
@@ -168,19 +149,15 @@ enum LinkTitleFetcher {
     }
 
     private static func decodeHTMLEntities(_ text: String) -> String {
-        guard let data = text.data(using: .utf8),
-              let attributedString = try? NSAttributedString(
-                data: data,
-                options: [
-                    .documentType: NSAttributedString.DocumentType.html,
-                    .characterEncoding: String.Encoding.utf8.rawValue
-                ],
-                documentAttributes: nil
+        guard text.contains("&"),
+              let decoded = CFXMLCreateStringByUnescapingEntities(
+                nil,
+                text as CFString,
+                nil
               ) else {
             return text
         }
-
-        return attributedString.string
+        return decoded as String
     }
 }
 

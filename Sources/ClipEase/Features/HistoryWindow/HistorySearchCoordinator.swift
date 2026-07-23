@@ -46,9 +46,6 @@ final class HistorySearchCoordinator: ObservableObject {
         pageSize: Int,
         targetResultCount: Int? = nil
     ) -> HistoryPreparedSearchRequest? {
-        searchTask?.cancel()
-        generation &+= 1
-
         let currentGroup: HistoryGroupSelection = isSearchVisible ? .all : selectedGroup
         let isSearchActive = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             criteria.hasActiveFilters
@@ -68,6 +65,8 @@ final class HistorySearchCoordinator: ObservableObject {
             return nil
         }
 
+        searchTask?.cancel()
+        generation &+= 1
         lastRequestSignature = requestSignature
         loadMoreTask?.cancel()
         loadMoreTask = nil
@@ -96,14 +95,15 @@ final class HistorySearchCoordinator: ObservableObject {
         canLoadMoreResults = false
     }
 
+    @discardableResult
     func startSearch(
         request: HistoryPreparedSearchRequest,
         immediate: Bool,
         debounceNanoseconds: UInt64,
         repositorySearch: @escaping @Sendable (ClipboardSearchQuery) -> [ClipboardItem],
         onResult: @escaping @MainActor (HistorySearchCoordinatorResult) -> Void
-    ) {
-        searchTask = Task(priority: .userInitiated) {
+    ) -> Task<Void, Never> {
+        let task = Task(priority: .userInitiated) {
             if !immediate {
                 try? await Task.sleep(nanoseconds: debounceNanoseconds)
             }
@@ -154,6 +154,8 @@ final class HistorySearchCoordinator: ObservableObject {
                 ))
             }
         }
+        searchTask = task
+        return task
     }
 
     nonisolated private static func searchAndFilterInitialResults(
@@ -212,6 +214,7 @@ final class HistorySearchCoordinator: ObservableObject {
         )
     }
 
+    @discardableResult
     func loadMoreIfNeeded(
         visibleUpperBound: Int,
         preloadMargin: Int,
@@ -223,25 +226,25 @@ final class HistorySearchCoordinator: ObservableObject {
         pageSize: Int,
         repositorySearch: @escaping @Sendable (ClipboardSearchQuery) -> [ClipboardItem],
         onResult: @escaping @MainActor (HistorySearchFilterResult) -> Void
-    ) {
+    ) -> Task<Void, Never>? {
         guard canLoadMoreResults,
               loadMoreTask == nil,
               visibleUpperBound + preloadMargin >= existingItems.count else {
-            return
+            return nil
         }
 
         let currentGroup: HistoryGroupSelection = isSearchVisible ? .all : selectedGroup
         guard !HistorySearchController.usesUnfilteredSearchSource(
             selectedGroup: currentGroup,
             searchText: searchText,
-            criteria: criteria
+              criteria: criteria
         ) else {
-            return
+            return nil
         }
 
         let currentGeneration = generation
         let offset = loadedRepositoryResultCount
-        loadMoreTask = Task(priority: .userInitiated) {
+        let task = Task(priority: .userInitiated) {
             let repositoryItems = await Task.detached(priority: .userInitiated) {
                 repositorySearch(
                     ClipboardSearchQuery(
@@ -297,6 +300,8 @@ final class HistorySearchCoordinator: ObservableObject {
                 onResult(result)
             }
         }
+        loadMoreTask = task
+        return task
     }
 
     nonisolated static func mergedRepositoryPreviewItems(

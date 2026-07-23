@@ -1,17 +1,36 @@
 import Foundation
 
 struct PerformanceDiagnosticsRetentionPolicy: Equatable, Sendable {
+    static let retentionDaysBounds = 1...30
+    static let maxLogSizeMBBounds = 1...100
+    static let bytesPerMiB = 1_024 * 1_024
+
     static let defaultPolicy = PerformanceDiagnosticsRetentionPolicy(
         retentionDays: 3,
-        maxBytes: 5 * 1_024 * 1_024
+        maxLogSizeMB: 5
     )
 
     let retentionDays: Int
     let maxBytes: Int
 
     init(retentionDays: Int, maxBytes: Int) {
-        self.retentionDays = max(1, retentionDays)
+        self.retentionDays = Self.normalizedRetentionDays(retentionDays)
         self.maxBytes = max(1, maxBytes)
+    }
+
+    init(retentionDays: Int, maxLogSizeMB: Int) {
+        self.init(
+            retentionDays: retentionDays,
+            maxBytes: Self.normalizedMaxLogSizeMB(maxLogSizeMB) * Self.bytesPerMiB
+        )
+    }
+
+    static func normalizedRetentionDays(_ value: Int) -> Int {
+        min(max(value, retentionDaysBounds.lowerBound), retentionDaysBounds.upperBound)
+    }
+
+    static func normalizedMaxLogSizeMB(_ value: Int) -> Int {
+        min(max(value, maxLogSizeMBBounds.lowerBound), maxLogSizeMBBounds.upperBound)
     }
 }
 
@@ -88,7 +107,7 @@ struct PerformanceDiagnosticsStore {
         let database = try SQLiteDatabase(url: databaseURL)
         defer { database.close() }
 
-        let cutoff = now.addingTimeInterval(TimeInterval(-policy.retentionDays * 24 * 60 * 60))
+        let cutoff = now.addingTimeInterval(-TimeInterval(policy.retentionDays) * 24 * 60 * 60)
         try database.execute(
             "DELETE FROM performance_events WHERE timestamp < ?",
             values: [.double(cutoff.timeIntervalSince1970)]

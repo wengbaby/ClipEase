@@ -1,12 +1,29 @@
 import AppKit
 import CryptoKit
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 struct StoredClipboardImage: Sendable {
     let fileName: String
     let width: Int
     let height: Int
     let hash: String
+    let reservation: ClipboardAttachmentReservation?
+
+    init(
+        fileName: String,
+        width: Int,
+        height: Int,
+        hash: String,
+        reservation: ClipboardAttachmentReservation? = nil
+    ) {
+        self.fileName = fileName
+        self.width = width
+        self.height = height
+        self.hash = hash
+        self.reservation = reservation
+    }
 
     static func hash(for imageData: Data) -> String {
         SHA256.hash(data: imageData)
@@ -21,38 +38,159 @@ struct StoredClipboardImage: Sendable {
 
 struct StoredRichText: Sendable {
     let fileName: String
+    let reservation: ClipboardAttachmentReservation?
+
+    init(fileName: String, reservation: ClipboardAttachmentReservation? = nil) {
+        self.fileName = fileName
+        self.reservation = reservation
+    }
 }
 
+struct RichTextStagingHandle: @unchecked Sendable {
+    let fileName: String
+    let fileURL: URL
+}
+
+struct ClipboardImageStagingSource: @unchecked Sendable {
+    let cgImage: CGImage
+}
+
+enum ClipboardImageStagingError: Error, Equatable {
+    case encodingFailed
+    case outputTooLarge
+    case writeFailed
+    case thumbnailFailed
+}
+
+private final class ClipboardHistoryFileManagerReference: @unchecked Sendable {
+    let value: FileManager
+
+    init(_ value: FileManager) {
+        self.value = value
+    }
+}
+
+struct ClipboardAttachmentCleanup: Equatable, Sendable {
+    static let empty = ClipboardAttachmentCleanup()
+
+    let imageFileNames: Set<String>
+    let richTextFileNames: Set<String>
+
+    init(
+        imageFileNames: Set<String> = [],
+        richTextFileNames: Set<String> = []
+    ) {
+        self.imageFileNames = imageFileNames
+        self.richTextFileNames = richTextFileNames
+    }
+
+    init(
+        items: [ClipboardItem],
+        preservingImageFileNames: Set<String> = [],
+        preservingRichTextFileNames: Set<String> = []
+    ) {
+        imageFileNames = Set(items.compactMap(\.imageFileName))
+            .subtracting(preservingImageFileNames)
+        richTextFileNames = Set(items.compactMap(\.richTextFileName))
+            .subtracting(preservingRichTextFileNames)
+    }
+
+    var isEmpty: Bool {
+        imageFileNames.isEmpty && richTextFileNames.isEmpty
+    }
+
+    func union(_ other: ClipboardAttachmentCleanup) -> ClipboardAttachmentCleanup {
+        ClipboardAttachmentCleanup(
+            imageFileNames: imageFileNames.union(other.imageFileNames),
+            richTextFileNames: richTextFileNames.union(other.richTextFileNames)
+        )
+    }
+
+    func subtracting(_ other: ClipboardAttachmentCleanup) -> ClipboardAttachmentCleanup {
+        ClipboardAttachmentCleanup(
+            imageFileNames: imageFileNames.subtracting(other.imageFileNames),
+            richTextFileNames: richTextFileNames.subtracting(other.richTextFileNames)
+        )
+    }
+}
+
+// The repository existential is not Sendable. Existing repository calls retain
+// their caller-owned serialization; detached image staging captures only the
+// file manager, reservation registry, and staging hook, and never the repository.
 struct ClipboardHistoryPersistence: @unchecked Sendable {
     private static let thumbnailMaxPixelSize = CGSize(width: 500, height: 360)
 
     private let fileManager: FileManager
     private let repository: any ClipboardHistoryRepository
+    private let richTextWriter: @Sendable (Data, RichTextStagingHandle) async throws -> Void
+    private let richTextFileName: @Sendable () -> String
+    private let imageStagingWillWrite: @Sendable () -> Void
+    let attachmentReservations: ClipboardAttachmentReservationRegistry
 
     init(
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        richTextWriter: (@Sendable (Data, RichTextStagingHandle) async throws -> Void)? = nil,
+        richTextFileName: @escaping @Sendable () -> String = { "\(UUID().uuidString).rtf" },
+        imageStagingWillWrite: @escaping @Sendable () -> Void = {},
+        attachmentReservations: ClipboardAttachmentReservationRegistry? = nil
     ) {
         self.fileManager = fileManager
+        let attachmentReservations = attachmentReservations ?? ClipboardAttachmentReservationRegistry()
+        self.attachmentReservations = attachmentReservations
         let sqliteURL = (try? ClipEaseStoragePaths.sqliteStoreURL(fileManager: fileManager))
             ?? URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ClipEase.sqlite")
         self.repository = SQLiteClipboardStore(databaseURL: sqliteURL, fileManager: fileManager)
+        let fileManagerReference = ClipboardHistoryFileManagerReference(fileManager)
+        self.richTextWriter = richTextWriter ?? { data, handle in
+            try await Task.detached(priority: .utility) {
+                try fileManagerReference.value.createDirectory(
+                    at: handle.fileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: handle.fileURL, options: [.atomic])
+            }.value
+        }
+        self.richTextFileName = richTextFileName
+        self.imageStagingWillWrite = imageStagingWillWrite
     }
 
     init(
         fileManager: FileManager = .default,
-        repository: any ClipboardHistoryRepository
+        repository: any ClipboardHistoryRepository,
+        richTextWriter: (@Sendable (Data, RichTextStagingHandle) async throws -> Void)? = nil,
+        richTextFileName: @escaping @Sendable () -> String = { "\(UUID().uuidString).rtf" },
+        imageStagingWillWrite: @escaping @Sendable () -> Void = {},
+        attachmentReservations: ClipboardAttachmentReservationRegistry? = nil
     ) {
         self.fileManager = fileManager
         self.repository = repository
+        let attachmentReservations = attachmentReservations ?? ClipboardAttachmentReservationRegistry()
+        self.attachmentReservations = attachmentReservations
+        let fileManagerReference = ClipboardHistoryFileManagerReference(fileManager)
+        self.richTextWriter = richTextWriter ?? { data, handle in
+            try await Task.detached(priority: .utility) {
+                try fileManagerReference.value.createDirectory(
+                    at: handle.fileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: handle.fileURL, options: [.atomic])
+            }.value
+        }
+        self.richTextFileName = richTextFileName
+        self.imageStagingWillWrite = imageStagingWillWrite
     }
 
     func loadSnapshot() -> ClipboardHistorySnapshot {
         do {
-            return try repository.loadSnapshot()
+            return try loadSnapshotOrThrow()
         } catch {
             NSLog("ClipEase failed to load clipboard history: \(error.localizedDescription)")
             return ClipboardHistorySnapshot(items: [], groups: [])
         }
+    }
+
+    func loadSnapshotOrThrow() throws -> ClipboardHistorySnapshot {
+        try repository.loadSnapshot()
     }
 
     func loadSnapshot(itemLimit: Int, offset: Int = 0) -> ClipboardHistorySnapshot {
@@ -123,12 +261,41 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         try repository.upsertItem(item, deleting: deletedIDs, groups: groups)
     }
 
-    func deleteItemsOrThrow(with ids: Set<ClipboardItem.ID>, deletingGroups groupIDs: Set<ClipboardGroup.ID>) throws {
+    @discardableResult
+    func compensateImportedItemOrThrow(
+        insertedItemID: ClipboardItem.ID,
+        restoring displacedItems: [ClipboardItem]
+    ) throws -> ClipboardAttachmentCleanup {
+        try repository.compensateImportedItem(
+            insertedItemID: insertedItemID,
+            restoring: displacedItems
+        )
+    }
+
+    @discardableResult
+    func deleteItemsOrThrow(
+        with ids: Set<ClipboardItem.ID>,
+        deletingGroups groupIDs: Set<ClipboardGroup.ID>
+    ) throws -> ClipboardAttachmentCleanup {
         try repository.deleteItems(with: ids, deletingGroups: groupIDs)
     }
 
-    func deleteAllItemsAndGroupsOrThrow() throws {
-        try repository.deleteAllItemsAndGroups()
+    @discardableResult
+    func deleteAllItemsOrThrow(
+        preserving groups: [ClipboardGroup]
+    ) throws -> ClipboardAttachmentCleanup {
+        try repository.deleteAllItems(preserving: groups)
+    }
+
+    @discardableResult
+    func deleteExpiredItemsOrThrow(before cutoff: Date) throws -> ClipboardAttachmentCleanup {
+        try repository.deleteExpiredItems(before: cutoff)
+    }
+
+    func deleteExpiredItemsWithResultOrThrow(
+        before cutoff: Date
+    ) throws -> ClipboardHistoryRetentionDeletionResult {
+        try repository.deleteExpiredItemsWithResult(before: cutoff)
     }
 
     func compactDatabaseIfNeededOrThrow(
@@ -149,6 +316,9 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
 
         let hash = StoredClipboardImage.hash(for: imageData)
         let fileName = "\(UUID().uuidString).png"
+        let reservation = attachmentReservations.reserve(
+            ClipboardAttachmentCleanup(imageFileNames: [fileName])
+        )
 
         do {
             let directoryURL = try ClipEaseStoragePaths.imagesDirectory(fileManager: fileManager)
@@ -163,10 +333,164 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
                 fileName: fileName,
                 width: bitmap.pixelsWide,
                 height: bitmap.pixelsHigh,
-                hash: hash
+                hash: hash,
+                reservation: reservation
             )
         } catch {
+            reservation?.release()
             NSLog("ClipEase failed to save clipboard image: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    func stageImage(
+        _ source: ClipboardImageStagingSource,
+        maximumPNGBytes: Int
+    ) async throws -> StoredClipboardImage {
+        let fileManager = self.fileManager
+        let attachmentReservations = self.attachmentReservations
+        let imageStagingWillWrite = self.imageStagingWillWrite
+        let operation = Task.detached(priority: .utility) {
+            let fileName = "\(UUID().uuidString).png"
+            var reservation: ClipboardAttachmentReservation?
+            do {
+                try Task.checkCancellation()
+                reservation = attachmentReservations.reserve(
+                    ClipboardAttachmentCleanup(imageFileNames: [fileName])
+                )
+                try Task.checkCancellation()
+                guard let imageData = Self.pngData(for: source.cgImage) else {
+                    throw ClipboardImageStagingError.encodingFailed
+                }
+                guard imageData.count <= max(0, maximumPNGBytes) else {
+                    throw ClipboardImageStagingError.outputTooLarge
+                }
+                let hash = StoredClipboardImage.hash(for: imageData)
+                try Task.checkCancellation()
+                guard let thumbnail = Self.thumbnail(
+                    for: source.cgImage,
+                    maxPixelSize: Self.thumbnailMaxPixelSize
+                ),
+                let thumbnailData = Self.pngData(for: thumbnail) else {
+                    throw ClipboardImageStagingError.thumbnailFailed
+                }
+
+                imageStagingWillWrite()
+                try Task.checkCancellation()
+
+                do {
+                    let directoryURL = try ClipEaseStoragePaths.imagesDirectory(fileManager: fileManager)
+                    try fileManager.createDirectory(
+                        at: directoryURL,
+                        withIntermediateDirectories: true
+                    )
+                    try imageData.write(
+                        to: directoryURL.appendingPathComponent(fileName),
+                        options: .atomic
+                    )
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    throw ClipboardImageStagingError.writeFailed
+                }
+
+                try Task.checkCancellation()
+                do {
+                    let directoryURL = try ClipEaseStoragePaths.thumbnailsDirectory(fileManager: fileManager)
+                    try fileManager.createDirectory(
+                        at: directoryURL,
+                        withIntermediateDirectories: true
+                    )
+                    try thumbnailData.write(
+                        to: directoryURL.appendingPathComponent(fileName),
+                        options: .atomic
+                    )
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let error as ClipboardImageStagingError {
+                    throw error
+                } catch {
+                    throw ClipboardImageStagingError.thumbnailFailed
+                }
+
+                try Task.checkCancellation()
+                return StoredClipboardImage(
+                    fileName: fileName,
+                    width: source.cgImage.width,
+                    height: source.cgImage.height,
+                    hash: hash,
+                    reservation: reservation
+                )
+            } catch {
+                Self.rollbackOwnedStagedImage(
+                    fileName: fileName,
+                    fileManager: fileManager,
+                    reservation: reservation
+                )
+                throw error
+            }
+        }
+
+        return try await withTaskCancellationHandler {
+            try await operation.value
+        } onCancel: {
+            operation.cancel()
+        }
+    }
+
+    private static func rollbackOwnedStagedImage(
+        fileName: String,
+        fileManager: FileManager,
+        reservation: ClipboardAttachmentReservation?
+    ) {
+        defer { reservation?.release() }
+        if let imageURL = try? ClipEaseStoragePaths.imageFileURL(
+            fileName: fileName,
+            fileManager: fileManager
+        ) {
+            try? fileManager.removeItem(at: imageURL)
+        }
+        if let thumbnailURL = try? ClipEaseStoragePaths.thumbnailFileURL(
+            fileName: fileName,
+            fileManager: fileManager
+        ) {
+            try? fileManager.removeItem(at: thumbnailURL)
+        }
+    }
+
+    func saveLinkPreviewImage(
+        _ image: LinkPreviewDecodedImage
+    ) -> StoredClipboardImage? {
+        guard let imageData = Self.pngData(for: image.cgImage) else {
+            return nil
+        }
+
+        let hash = StoredClipboardImage.hash(for: imageData)
+        let fileName = "\(UUID().uuidString).png"
+        let reservation = attachmentReservations.reserve(
+            ClipboardAttachmentCleanup(imageFileNames: [fileName])
+        )
+        do {
+            let directoryURL = try ClipEaseStoragePaths.imagesDirectory(fileManager: fileManager)
+            try fileManager.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true
+            )
+            try imageData.write(
+                to: directoryURL.appendingPathComponent(fileName),
+                options: .atomic
+            )
+            saveThumbnail(for: image.cgImage, fileName: fileName)
+            return StoredClipboardImage(
+                fileName: fileName,
+                width: image.pixelWidth,
+                height: image.pixelHeight,
+                hash: hash,
+                reservation: reservation
+            )
+        } catch {
+            reservation?.release()
+            NSLog("ClipEase failed to save link preview image: \(error.localizedDescription)")
             return nil
         }
     }
@@ -240,26 +564,33 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         try? fileManager.removeItem(at: directoryURL)
     }
 
-    func saveRichText(_ data: Data) -> StoredRichText? {
+    func saveRichText(_ data: Data) async -> StoredRichText? {
         do {
-            return try saveRichTextOrThrow(data)
+            return try await saveRichTextOrThrow(data)
         } catch {
             NSLog("ClipEase failed to save rich text: \(error.localizedDescription)")
             return nil
         }
     }
 
-    func saveRichTextOrThrow(_ data: Data) throws -> StoredRichText {
-        let fileName = "\(UUID().uuidString).rtf"
-
-        let directoryURL = try ClipEaseStoragePaths.richTextsDirectory(fileManager: fileManager)
-        try fileManager.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true
-        )
-        let fileURL = directoryURL.appendingPathComponent(fileName)
-        try data.write(to: fileURL, options: [.atomic])
-        return StoredRichText(fileName: fileName)
+    func saveRichTextOrThrow(_ data: Data) async throws -> StoredRichText {
+        let fileName = richTextFileName()
+        let reservation = attachmentReservations.reserve(ClipboardAttachmentCleanup(richTextFileNames: [fileName]))
+        do {
+            let stored = StoredRichText(fileName: fileName, reservation: reservation)
+            let fileURL = try ClipEaseStoragePaths.richTextFileURL(
+                fileName: fileName,
+                fileManager: fileManager
+            )
+            try await richTextWriter(
+                data,
+                RichTextStagingHandle(fileName: fileName, fileURL: fileURL)
+            )
+            return stored
+        } catch {
+            discardStagedAttachment(reservation)
+            throw error
+        }
     }
 
     func overwriteRichText(fileName: String, data: Data) -> Bool {
@@ -303,6 +634,116 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         try? fileManager.removeItem(at: fileURL)
     }
 
+    private func deleteAttachments(_ cleanup: ClipboardAttachmentCleanup) {
+        cleanup.imageFileNames.forEach(deleteImage)
+        cleanup.richTextFileNames.forEach(deleteRichText)
+    }
+
+    @discardableResult
+    func deleteUnreferencedAttachments(
+        _ candidates: ClipboardAttachmentCleanup
+    ) -> OrphanedAttachmentCleanupResult {
+        guard !candidates.isEmpty else {
+            return OrphanedAttachmentCleanupResult(removedFiles: 0, removedBytes: 0)
+        }
+
+        do {
+            return try deleteUnreferencedAttachmentCandidatesOrThrow(candidates)
+        } catch {
+            NSLog("ClipEase failed to verify attachment references: \(error.localizedDescription)")
+            return OrphanedAttachmentCleanupResult(removedFiles: 0, removedBytes: 0)
+        }
+    }
+
+    func deleteUnreferencedAttachmentCandidatesOrThrow(
+        _ candidates: ClipboardAttachmentCleanup
+    ) throws -> OrphanedAttachmentCleanupResult {
+        guard !candidates.isEmpty else {
+            return OrphanedAttachmentCleanupResult(removedFiles: 0, removedBytes: 0)
+        }
+
+        let referenced = try repository.referencedAttachments(in: candidates)
+        let unreferenced = attachmentReservations.subtractingActiveReservations(
+            from: candidates.subtracting(referenced)
+        )
+        guard let deletionClaim = attachmentReservations.claimDeletion(for: unreferenced) else {
+            return OrphanedAttachmentCleanupResult(removedFiles: 0, removedBytes: 0)
+        }
+        defer { deletionClaim.complete() }
+        var removedFiles = 0
+        var removedBytes: UInt64 = 0
+
+        for fileName in deletionClaim.candidates.imageFileNames {
+            let imageResult = try removeAttachmentFile(
+                at: ClipEaseStoragePaths.imageFileURL(fileName: fileName, fileManager: fileManager)
+            )
+            removedFiles += imageResult.files
+            removedBytes += imageResult.bytes
+
+            let thumbnailResult = try removeAttachmentFile(
+                at: ClipEaseStoragePaths.thumbnailFileURL(fileName: fileName, fileManager: fileManager)
+            )
+            removedFiles += thumbnailResult.files
+            removedBytes += thumbnailResult.bytes
+        }
+
+        for fileName in deletionClaim.candidates.richTextFileNames {
+            let result = try removeAttachmentFile(
+                at: ClipEaseStoragePaths.richTextFileURL(fileName: fileName, fileManager: fileManager)
+            )
+            removedFiles += result.files
+            removedBytes += result.bytes
+        }
+
+        return OrphanedAttachmentCleanupResult(
+            removedFiles: removedFiles,
+            removedBytes: removedBytes
+        )
+    }
+
+    func discardStagedAttachment(_ reservation: ClipboardAttachmentReservation?) {
+        guard let reservation else {
+            return
+        }
+        let candidates = reservation.candidates
+        reservation.release()
+        _ = deleteUnreferencedAttachments(candidates)
+    }
+
+    func rollbackOwnedStagedImageBeforeCommit(_ storedImage: StoredClipboardImage) async {
+        let fileManager = self.fileManager
+        await Task.detached(priority: .utility) {
+            Self.rollbackOwnedStagedImage(
+                fileName: storedImage.fileName,
+                fileManager: fileManager,
+                reservation: storedImage.reservation
+            )
+        }.value
+    }
+
+    func rollbackOwnedStagedRichTextBeforeCommit(_ storedRichText: StoredRichText) async {
+        let fileManager = self.fileManager
+        await Task.detached(priority: .utility) {
+            defer { storedRichText.reservation?.release() }
+            guard let fileURL = try? ClipEaseStoragePaths.richTextFileURL(
+                fileName: storedRichText.fileName,
+                fileManager: fileManager
+            ) else { return }
+            try? fileManager.removeItem(at: fileURL)
+        }.value
+    }
+
+    private func removeAttachmentFile(at url: URL) throws -> (files: Int, bytes: UInt64) {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return (0, 0)
+        }
+
+        let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        let fileSize = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        try fileManager.removeItem(at: url)
+        return (1, fileSize)
+    }
+
     private func saveThumbnail(for image: NSImage, fileName: String) {
         guard let thumbnail = image.clipeaseThumbnail(maxPixelSize: Self.thumbnailMaxPixelSize),
               let thumbnailData = thumbnail.pngData() else {
@@ -320,6 +761,83 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
         } catch {
             NSLog("ClipEase failed to save clipboard thumbnail: \(error.localizedDescription)")
         }
+    }
+
+    private func saveThumbnail(for image: CGImage, fileName: String) {
+        guard let thumbnail = Self.thumbnail(
+            for: image,
+            maxPixelSize: Self.thumbnailMaxPixelSize
+        ),
+        let thumbnailData = Self.pngData(for: thumbnail) else {
+            return
+        }
+
+        do {
+            let directoryURL = try ClipEaseStoragePaths.thumbnailsDirectory(fileManager: fileManager)
+            try fileManager.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true
+            )
+            try thumbnailData.write(
+                to: directoryURL.appendingPathComponent(fileName),
+                options: .atomic
+            )
+        } catch {
+            NSLog("ClipEase failed to save link preview thumbnail: \(error.localizedDescription)")
+        }
+    }
+
+    private static func pngData(for image: CGImage) -> Data? {
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+        ) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            return nil
+        }
+        return output as Data
+    }
+
+    private static func thumbnail(
+        for image: CGImage,
+        maxPixelSize: CGSize
+    ) -> CGImage? {
+        let sourceWidth = CGFloat(image.width)
+        let sourceHeight = CGFloat(image.height)
+        guard sourceWidth > 0, sourceHeight > 0 else {
+            return nil
+        }
+
+        let scale = min(
+            maxPixelSize.width / sourceWidth,
+            maxPixelSize.height / sourceHeight,
+            1
+        )
+        let width = max(1, Int(floor(sourceWidth * scale)))
+        let height = max(1, Int(floor(sourceHeight * scale)))
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        context.interpolationQuality = .high
+        context.draw(
+            image,
+            in: CGRect(x: 0, y: 0, width: width, height: height)
+        )
+        return context.makeImage()
     }
 }
 

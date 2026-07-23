@@ -2,16 +2,32 @@ import Foundation
 
 @MainActor
 final class HistoryOCRCoordinator {
-    private var taskByItemID: [ClipboardItem.ID: Task<Void, Never>] = [:]
+    typealias ImageRecognizer = @Sendable (URL) async -> ClipboardOCRMatch?
+    typealias PDFRecognizer = @Sendable (URL) async -> ClipboardOCRMatch?
+
+    private struct TaskEntry {
+        let generation: UUID
+        let task: Task<Void, Never>
+    }
+
+    private var taskByItemID: [ClipboardItem.ID: TaskEntry] = [:]
     private let limiter: ClipboardOCRConcurrencyLimiter
-    private let service: ClipboardOCRService
+    private let imageRecognizer: ImageRecognizer
+    private let pdfRecognizer: PDFRecognizer
 
     init(
         limiter: ClipboardOCRConcurrencyLimiter = .shared,
-        service: ClipboardOCRService = .shared
+        service: ClipboardOCRService = .shared,
+        imageRecognizer: ImageRecognizer? = nil,
+        pdfRecognizer: PDFRecognizer? = nil
     ) {
         self.limiter = limiter
-        self.service = service
+        self.imageRecognizer = imageRecognizer ?? { url in
+            await service.recognizeImage(at: url)
+        }
+        self.pdfRecognizer = pdfRecognizer ?? { url in
+            await service.recognizePDF(at: url)
+        }
     }
 
     func setInteractiveThrottleActive(_ isActive: Bool) {
@@ -30,15 +46,21 @@ final class HistoryOCRCoordinator {
             return
         }
 
-        taskByItemID[item.id]?.cancel()
-        taskByItemID[item.id] = Task(priority: .utility) { [weak self] in
-            await self?.performOCR(
+        taskByItemID[item.id]?.task.cancel()
+        let generation = UUID()
+        let task = Task(priority: .utility) { [weak self] in
+            guard let self else {
+                return
+            }
+            await self.performOCR(
                 for: item,
                 sourceURL: sourceURL,
+                generation: generation,
                 setProcessing: setProcessing,
                 applyResult: applyResult
             )
         }
+        taskByItemID[item.id] = TaskEntry(generation: generation, task: task)
     }
 
     func cancelTasks(for items: [ClipboardItem]) {
@@ -47,14 +69,14 @@ final class HistoryOCRCoordinator {
 
     func cancelTasks(for ids: Set<ClipboardItem.ID>) {
         for id in ids {
-            taskByItemID[id]?.cancel()
+            taskByItemID[id]?.task.cancel()
             taskByItemID[id] = nil
         }
     }
 
     func cancelAllTasks() {
         for task in taskByItemID.values {
-            task.cancel()
+            task.task.cancel()
         }
         taskByItemID.removeAll()
     }
@@ -66,17 +88,18 @@ final class HistoryOCRCoordinator {
     private func performOCR(
         for item: ClipboardItem,
         sourceURL: URL?,
+        generation: UUID,
         setProcessing: @escaping @MainActor (_ id: ClipboardItem.ID) -> Void,
         applyResult: @escaping @MainActor (_ result: ClipboardOCRMatch, _ status: ClipboardOCRStatus, _ id: ClipboardItem.ID) -> Void
     ) async {
         guard item.ocrStatus == .pending else {
-            finishTask(for: item.id)
+            finishTask(for: item.id, generation: generation)
             return
         }
 
         guard let sourceURL else {
             applyResult(Self.emptyResult, .failed, item.id)
-            finishTask(for: item.id)
+            finishTask(for: item.id, generation: generation)
             return
         }
 
@@ -88,7 +111,7 @@ final class HistoryOCRCoordinator {
         }
 
         guard !Task.isCancelled else {
-            finishTask(for: item.id)
+            finishTask(for: item.id, generation: generation)
             return
         }
 
@@ -97,15 +120,15 @@ final class HistoryOCRCoordinator {
         let result: ClipboardOCRMatch?
         switch item.type {
         case .image:
-            result = await service.recognizeImage(at: sourceURL)
+            result = await imageRecognizer(sourceURL)
         case .file:
-            result = await service.recognizePDF(at: sourceURL)
+            result = await pdfRecognizer(sourceURL)
         default:
             result = nil
         }
 
         guard !Task.isCancelled else {
-            finishTask(for: item.id)
+            finishTask(for: item.id, generation: generation)
             return
         }
 
@@ -114,10 +137,13 @@ final class HistoryOCRCoordinator {
         } else {
             applyResult(Self.emptyResult, .failed, item.id)
         }
-        finishTask(for: item.id)
+        finishTask(for: item.id, generation: generation)
     }
 
-    private func finishTask(for id: ClipboardItem.ID) {
+    private func finishTask(for id: ClipboardItem.ID, generation: UUID) {
+        guard taskByItemID[id]?.generation == generation else {
+            return
+        }
         taskByItemID[id] = nil
     }
 

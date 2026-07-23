@@ -9,10 +9,5 @@ enum HistoryWindowPanelMetrics {
     static let cardHeight: CGFloat = 270
     static let selectedCardTopContentInset: CGFloat = 6
     static let railBottomPadding: CGFloat = 16
-    static let railFrameHeight: CGFloat = height -
-        topPadding -
-        toolbarHeight -
-        toolbarRailSpacing -
-        selectedCardTopContentInset -
-        railBottomPadding
+    static let railFrameHeight: CGFloat = cardHeight
 }

@@ -178,6 +178,12 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     }
 }
 
+enum ClipboardRichTextFileUpdate: Equatable, Sendable {
+    case preserve
+    case remove
+    case replace(String)
+}
+
 extension ClipboardItem {
     static func text(
         _ text: String,
@@ -472,20 +478,31 @@ extension ClipboardItem {
         url newURL: URL? = nil,
         linkTitle newLinkTitle: String? = nil,
         linkSubtitle newLinkSubtitle: String? = nil,
-        richTextFileName newRichTextFileName: String? = nil
+        preserveLinkImage: Bool = true,
+        richTextFileUpdate: ClipboardRichTextFileUpdate = .preserve
     ) -> ClipboardItem {
-        ClipboardItem(
+        let updatedRichTextFileName: String?
+        switch richTextFileUpdate {
+        case .preserve:
+            updatedRichTextFileName = richTextFileName
+        case .remove:
+            updatedRichTextFileName = nil
+        case .replace(let fileName):
+            updatedRichTextFileName = fileName
+        }
+
+        return ClipboardItem(
             id: id,
             type: type,
             text: newText,
             url: newURL,
             linkTitle: newLinkTitle,
             linkSubtitle: newLinkSubtitle,
-            imageFileName: imageFileName,
-            imageWidth: imageWidth,
-            imageHeight: imageHeight,
-            imageHash: imageHash,
-            richTextFileName: newRichTextFileName ?? richTextFileName,
+            imageFileName: preserveLinkImage ? imageFileName : nil,
+            imageWidth: preserveLinkImage ? imageWidth : nil,
+            imageHeight: preserveLinkImage ? imageHeight : nil,
+            imageHash: preserveLinkImage ? imageHash : nil,
+            richTextFileName: updatedRichTextFileName,
             fileReferences: fileReferences,
             createdAt: createdAt,
             sourceAppName: sourceAppName,

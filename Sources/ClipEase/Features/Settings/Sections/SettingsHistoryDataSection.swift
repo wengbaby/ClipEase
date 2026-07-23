@@ -32,13 +32,21 @@ struct SettingsHistoryDataSection: View {
                         .disabled(!hasItems || isHistoryTransferInProgress)
 
                     historyButton("导入历史", action: onImportHistory)
-                        .disabled(isHistoryTransferInProgress)
+                        .disabled(
+                            isHistoryTransferInProgress
+                                || viewModel.isCleaningOrphanedAttachments
+                                || viewModel.isCheckingHistoryData
+                        )
 
                     historyButton("导出备份包", minWidth: 104, action: onExportBackup)
                         .disabled(!hasItems || isHistoryTransferInProgress)
 
                     historyButton("导入备份包", minWidth: 104, action: onImportBackup)
-                        .disabled(isHistoryTransferInProgress)
+                        .disabled(
+                            isHistoryTransferInProgress
+                                || viewModel.isCleaningOrphanedAttachments
+                                || viewModel.isCheckingHistoryData
+                        )
                 }
 
                 Toggle("导出备份包时包含图片和富文本附件", isOn: $viewModel.includesAttachmentsInBackup)
@@ -71,13 +79,21 @@ struct SettingsHistoryDataSection: View {
                 historyActionGroup(title: "清理", wrapsContent: true) {
                     historyActionGrid {
                         historyButton("检查数据", minWidth: 116, action: onCheckHistoryData)
-                            .disabled(viewModel.isCheckingHistoryData)
+                            .disabled(
+                                viewModel.isCheckingHistoryData
+                                    || viewModel.isCleaningOrphanedAttachments
+                                    || isHistoryTransferInProgress
+                            )
 
                         historyButton("清空图标缓存", minWidth: 116, action: onRequestClearIconCache)
                         historyButton("清空缩略图缓存", minWidth: 116, action: onRequestClearThumbnailCache)
 
                         historyButton("清理孤立附件", minWidth: 116, action: onRequestCleanOrphanedAttachments)
-                            .disabled(viewModel.isCleaningOrphanedAttachments)
+                            .disabled(
+                                viewModel.isCleaningOrphanedAttachments
+                                    || viewModel.isCheckingHistoryData
+                                    || isHistoryTransferInProgress
+                            )
 
                         Button("清空历史", role: .destructive, action: onRequestClearHistory)
                             .buttonStyle(.bordered)

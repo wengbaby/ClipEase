@@ -87,11 +87,19 @@ private actor PerformanceDiagnosticsWriter {
 
 @MainActor
 final class PerformanceDiagnosticsService: ObservableObject {
+    enum StartupMode {
+        case production
+        case isolated
+    }
+
     static let shared = PerformanceDiagnosticsService()
 
     @Published var isEnabled: Bool {
         didSet {
             userDefaults.set(isEnabled, forKey: Self.enabledKey)
+            guard startupMode == .production else {
+                return
+            }
             updateResourceSamplingState()
             recordInstant("diagnostics.\(isEnabled ? "enabled" : "disabled")", category: "diagnostics")
         }
@@ -102,23 +110,29 @@ final class PerformanceDiagnosticsService: ObservableObject {
     @Published private(set) var currentLogFileURL: URL?
     @Published var retentionDays: Int {
         didSet {
-            let clampedRetentionDays = max(1, retentionDays)
+            let clampedRetentionDays = PerformanceDiagnosticsRetentionPolicy.normalizedRetentionDays(retentionDays)
             guard retentionDays == clampedRetentionDays else {
                 retentionDays = clampedRetentionDays
                 return
             }
             userDefaults.set(retentionDays, forKey: Self.retentionDaysKey)
+            guard startupMode == .production else {
+                return
+            }
             cleanupOldLogs()
         }
     }
     @Published var maxLogSizeMB: Int {
         didSet {
-            let clampedMaxLogSizeMB = max(1, maxLogSizeMB)
+            let clampedMaxLogSizeMB = PerformanceDiagnosticsRetentionPolicy.normalizedMaxLogSizeMB(maxLogSizeMB)
             guard maxLogSizeMB == clampedMaxLogSizeMB else {
                 maxLogSizeMB = clampedMaxLogSizeMB
                 return
             }
             userDefaults.set(maxLogSizeMB, forKey: Self.maxLogSizeMBKey)
+            guard startupMode == .production else {
+                return
+            }
             cleanupOldLogs()
         }
     }
@@ -132,9 +146,13 @@ final class PerformanceDiagnosticsService: ObservableObject {
     nonisolated private static let resourceSamplingNanoseconds: UInt64 = 5_000_000_000
     nonisolated private static let diagnosticsUIPublishNanoseconds: UInt64 = 750_000_000
     nonisolated private static let diagnosticsWriter = PerformanceDiagnosticsWriter()
+    nonisolated private static var defaultStartupMode: StartupMode {
+        CommandLine.arguments.contains("--testing-library") ? .isolated : .production
+    }
     private let userDefaults: UserDefaults
     private let fileManager: FileManager
     private let diagnosticsStoreURL: URL?
+    private let startupMode: StartupMode
     private var cleanupTask: Task<Void, Never>?
     private var resourceSamplingTask: Task<Void, Never>?
     private var diagnosticsUIPublishTask: Task<Void, Never>?
@@ -142,19 +160,47 @@ final class PerformanceDiagnosticsService: ObservableObject {
     private var recentResourceSnapshotsStore: [PerformanceResourceSnapshot] = []
     private var latestResourceSnapshotStore: PerformanceResourceSnapshot?
 
-    private init(userDefaults: UserDefaults = .standard, fileManager: FileManager = .default) {
+    init(
+        userDefaults: UserDefaults = .standard,
+        fileManager: FileManager = .default,
+        diagnosticsStoreURL: URL? = nil,
+        startupMode: StartupMode = PerformanceDiagnosticsService.defaultStartupMode
+    ) {
         self.userDefaults = userDefaults
         self.fileManager = fileManager
+        self.startupMode = startupMode
         self.isEnabled = userDefaults.object(forKey: Self.enabledKey) as? Bool ?? true
-        self.retentionDays = userDefaults.object(forKey: Self.retentionDaysKey) as? Int
-            ?? PerformanceDiagnosticsRetentionPolicy.defaultPolicy.retentionDays
-        self.maxLogSizeMB = userDefaults.object(forKey: Self.maxLogSizeMBKey) as? Int
-            ?? (PerformanceDiagnosticsRetentionPolicy.defaultPolicy.maxBytes / 1_024 / 1_024)
-        self.diagnosticsStoreURL = try? ClipEaseStoragePaths.diagnosticsStoreURL(fileManager: fileManager)
-        currentLogFileURL = diagnosticsStoreURL
-        removeLegacyJSONLogs()
-        cleanupOldLogs()
-        updateResourceSamplingState()
+        self.retentionDays = PerformanceDiagnosticsRetentionPolicy.normalizedRetentionDays(
+            userDefaults.object(forKey: Self.retentionDaysKey) as? Int
+                ?? PerformanceDiagnosticsRetentionPolicy.defaultPolicy.retentionDays
+        )
+        self.maxLogSizeMB = PerformanceDiagnosticsRetentionPolicy.normalizedMaxLogSizeMB(
+            userDefaults.object(forKey: Self.maxLogSizeMBKey) as? Int
+                ?? (PerformanceDiagnosticsRetentionPolicy.defaultPolicy.maxBytes / PerformanceDiagnosticsRetentionPolicy.bytesPerMiB)
+        )
+        self.diagnosticsStoreURL = diagnosticsStoreURL
+            ?? (try? ClipEaseStoragePaths.diagnosticsStoreURL(fileManager: fileManager))
+        currentLogFileURL = self.diagnosticsStoreURL
+        userDefaults.set(retentionDays, forKey: Self.retentionDaysKey)
+        userDefaults.set(maxLogSizeMB, forKey: Self.maxLogSizeMBKey)
+        if startupMode == .production {
+            if diagnosticsStoreURL == nil {
+                removeLegacyJSONLogs()
+            }
+            cleanupOldLogs()
+            updateResourceSamplingState()
+        }
+    }
+
+    var hasOwnedStartupWork: Bool {
+        cleanupTask != nil || resourceSamplingTask != nil
+    }
+
+    func shutdown() {
+        cleanupTask?.cancel()
+        cleanupTask = nil
+        resourceSamplingTask?.cancel()
+        resourceSamplingTask = nil
     }
 
     func recordInstant(
@@ -292,10 +338,13 @@ final class PerformanceDiagnosticsService: ObservableObject {
     }
 
     func cleanupOldLogs() {
+        guard startupMode == .production else {
+            return
+        }
         cleanupTask?.cancel()
         let policy = PerformanceDiagnosticsRetentionPolicy(
             retentionDays: retentionDays,
-            maxBytes: maxLogSizeMB * 1_024 * 1_024
+            maxLogSizeMB: maxLogSizeMB
         )
         let diagnosticsStoreURL = diagnosticsStoreURL
         cleanupTask = Task.detached(priority: .utility) {
@@ -338,6 +387,9 @@ final class PerformanceDiagnosticsService: ObservableObject {
     }
 
     private func updateResourceSamplingState() {
+        guard startupMode == .production else {
+            return
+        }
         resourceSamplingTask?.cancel()
         resourceSamplingTask = nil
 

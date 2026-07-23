@@ -38,7 +38,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
     private let groups: [ClipboardGroup]
     private var selectedGroupID: ClipboardGroup.ID?
-    private let onCreate: (Data, String, ClipboardGroup.ID?) -> Void
+    private let onCreate: (Data, String, ClipboardGroup.ID?) async throws -> ClipboardItem?
     private let onSaveEdit: ((ClipboardItem.ID, String) -> ClipboardItem?)?
     private let mode: Mode
     private let panel: RichTextEditorWindow
@@ -52,7 +52,8 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private let colorWell: NSColorWell
     private let groupPopUpButton: NSPopUpButton
     private let richTextDataProvider: ((ClipboardItem) -> Data?)?
-    private let onSaveRichTextEdit: ((ClipboardItem.ID, Data, String) -> ClipboardItem?)?
+    private let onSaveRichTextEdit: ((ClipboardItem.ID, Data, String) async throws -> ClipboardItem?)?
+    private let richTextSerializer: (NSAttributedString) throws -> Data
     private var actionButton: NSButton?
     private var canSave = true
     private var boldButton: NSButton?
@@ -69,16 +70,22 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     private var isUnderlineActive = false
     private var isStrikethroughActive = false
     private var fontSize: CGFloat = 16
+    private var closeAfterSaveCount = 0
+    private var discardCount = 0
+    private var didNotifyClose = false
+    private var saveTask: Task<Void, Never>?
+    private(set) var lastSavedItemForTesting: ClipboardItem?
     var onClose: (() -> Void)?
 
     init(
         groups: [ClipboardGroup] = [],
         selectedGroupID: ClipboardGroup.ID? = nil,
         mode: Mode = .create,
-        onCreate: @escaping (Data, String, ClipboardGroup.ID?) -> Void = { _, _, _ in },
+        onCreate: @escaping (Data, String, ClipboardGroup.ID?) async throws -> ClipboardItem? = { _, _, _ in nil },
         onSaveEdit: ((ClipboardItem.ID, String) -> ClipboardItem?)? = nil,
         richTextDataProvider: ((ClipboardItem) -> Data?)? = nil,
-        onSaveRichTextEdit: ((ClipboardItem.ID, Data, String) -> ClipboardItem?)? = nil
+        onSaveRichTextEdit: ((ClipboardItem.ID, Data, String) async throws -> ClipboardItem?)? = nil,
+        richTextSerializer: ((NSAttributedString) throws -> Data)? = nil
     ) {
         self.groups = groups
         self.selectedGroupID = groups.contains(where: { $0.id == selectedGroupID }) ? selectedGroupID : nil
@@ -86,6 +93,12 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         self.onSaveEdit = onSaveEdit
         self.richTextDataProvider = richTextDataProvider
         self.onSaveRichTextEdit = onSaveRichTextEdit
+        self.richTextSerializer = richTextSerializer ?? { attributedString in
+            try attributedString.data(
+                from: NSRange(location: 0, length: attributedString.length),
+                documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+            )
+        }
         self.mode = mode
 
         let panel = RichTextEditorWindow(
@@ -165,6 +178,57 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         NSApp.activate(ignoringOtherApps: true)
         enforceDefaultTypingAttributes()
         panel.makeFirstResponder(textView)
+    }
+
+    func setDraftForTesting(_ draft: String) {
+        textView.string = draft
+        updateFooter()
+    }
+
+    func saveForTesting() async {
+        createAction()
+        await saveTask?.value
+    }
+
+    func savePlainTextForTesting() async {
+        createPlainTextAction()
+        await saveTask?.value
+    }
+
+    var draftForTesting: String {
+        textView.string
+    }
+
+    var errorMessageForTesting: String? {
+        errorLabel.stringValue.isEmpty ? nil : errorLabel.stringValue
+    }
+
+    var didCloseAfterSaveForTesting: Bool {
+        isClosingAfterSaveOrDiscard
+    }
+
+    var closeCountForTesting: Int {
+        closeAfterSaveCount
+    }
+
+    var isSavingForTesting: Bool {
+        saveTask != nil
+    }
+
+    var discardCountForTesting: Int {
+        discardCount
+    }
+
+    func requestCloseForTesting() {
+        requestCloseEditor()
+    }
+
+    func requestDiscardForTesting() {
+        discardAndClose()
+    }
+
+    func requestCommandWForTesting() {
+        requestCloseEditor()
     }
 
     func textDidChange(_ notification: Notification) {
@@ -894,6 +958,9 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     }
 
     @objc private func createAction() {
+        guard saveTask == nil else {
+            return
+        }
         let plainText = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !plainText.isEmpty else {
             showValidationError("内容不能为空")
@@ -905,19 +972,21 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
             return
         }
 
-        let range = NSRange(location: 0, length: textView.attributedString().length)
-        guard let data = try? textView.attributedString().data(
-            from: range,
-            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
-        ) else {
+        let data: Data
+        do {
+            data = try richTextSerializer(textView.attributedString())
+        } catch {
+            showValidationError("富文本保存失败：\(error.localizedDescription)")
             return
         }
 
-        onCreate(data, plainText, selectedGroupID)
-        closeAfterSave()
+        commitCreate(data: data, plainText: plainText)
     }
 
     @objc private func createPlainTextAction() {
+        guard saveTask == nil else {
+            return
+        }
         let plainText = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !plainText.isEmpty else {
             showValidationError("内容不能为空")
@@ -940,17 +1009,55 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
                 .foregroundColor: NSColor.black
             ]
         )
-        let range = NSRange(location: 0, length: attributed.length)
-        guard let data = try? attributed.data(
-            from: range,
-            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
-        ) else {
-            showValidationError("纯文本保存失败")
+        let data: Data
+        do {
+            data = try richTextSerializer(attributed)
+        } catch {
+            showValidationError("纯文本保存失败：\(error.localizedDescription)")
             return
         }
 
-        onCreate(data, plainText, selectedGroupID)
-        closeAfterSave()
+        commitCreate(data: data, plainText: plainText)
+    }
+
+    private func commitCreate(data: Data, plainText: String) {
+        beginSave { [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                guard let savedItem = try await self.onCreate(
+                    data,
+                    plainText,
+                    self.selectedGroupID
+                ) else {
+                    self.showValidationError("保存失败")
+                    return
+                }
+                guard !Task.isCancelled else {
+                    return
+                }
+                self.lastSavedItemForTesting = savedItem
+                self.closeAfterSave()
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+                self.showValidationError("保存失败：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func beginSave(_ operation: @escaping @MainActor () async -> Void) {
+        guard saveTask == nil else {
+            return
+        }
+        actionButton?.isEnabled = false
+        saveTask = Task { @MainActor [weak self] in
+            await operation()
+            self?.actionButton?.isEnabled = true
+            self?.saveTask = nil
+        }
     }
 
     private func commitEdit(item: ClipboardItem, plainText: String) {
@@ -997,24 +1104,46 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     }
 
     private func commitRichTextEdit(item: ClipboardItem, plainText: String) {
-        let range = NSRange(location: 0, length: textView.attributedString().length)
-        guard let data = try? textView.attributedString().data(
-            from: range,
-            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
-        ) else {
-            showValidationError("富文本保存失败")
+        let data: Data
+        do {
+            data = try richTextSerializer(textView.attributedString())
+        } catch {
+            showValidationError("富文本保存失败：\(error.localizedDescription)")
             return
         }
 
-        guard onSaveRichTextEdit?(item.id, data, plainText) != nil else {
-            showValidationError("保存失败")
-            return
+        beginSave { [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                guard let savedItem = try await self.onSaveRichTextEdit?(
+                    item.id,
+                    data,
+                    plainText
+                ) else {
+                    self.showValidationError("保存失败")
+                    return
+                }
+                guard !Task.isCancelled else {
+                    return
+                }
+                self.lastSavedItemForTesting = savedItem
+                self.closeAfterSave()
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+                self.showValidationError("保存失败：\(error.localizedDescription)")
+            }
         }
-
-        closeAfterSave()
     }
 
     private func closeAfterSave() {
+        guard !isClosingAfterSaveOrDiscard else {
+            return
+        }
+        closeAfterSaveCount += 1
         captureBaselineContent()
         isClosingAfterSaveOrDiscard = true
         closeColorPanelIfNeeded()
@@ -1022,6 +1151,10 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
     }
 
     private func requestCloseEditor() {
+        guard saveTask == nil else {
+            showValidationError("正在保存，请稍候")
+            return
+        }
         guard hasUnsavedChanges else {
             isClosingAfterSaveOrDiscard = true
             panel.close()
@@ -1043,13 +1176,25 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
             case .alertFirstButtonReturn:
                 self.createAction()
             case .alertSecondButtonReturn:
-                self.isClosingAfterSaveOrDiscard = true
-                self.closeColorPanelIfNeeded()
-                self.panel.close()
+                self.discardAndClose()
             default:
                 break
             }
         }
+    }
+
+    private func discardAndClose() {
+        guard saveTask == nil,
+              !isClosingAfterSaveOrDiscard else {
+            if saveTask != nil {
+                showValidationError("正在保存，请稍候")
+            }
+            return
+        }
+        discardCount += 1
+        isClosingAfterSaveOrDiscard = true
+        closeColorPanelIfNeeded()
+        panel.close()
     }
 
     private func closeColorPanelIfNeeded() {
@@ -1072,6 +1217,10 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
 extension RichTextEditorController: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard saveTask == nil else {
+            showValidationError("正在保存，请稍候")
+            return false
+        }
         guard !isClosingAfterSaveOrDiscard,
               hasUnsavedChanges else {
             return true
@@ -1082,6 +1231,10 @@ extension RichTextEditorController: NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        guard !didNotifyClose else {
+            return
+        }
+        didNotifyClose = true
         onClose?()
     }
 }

@@ -1,40 +1,250 @@
 import AppKit
 import ApplicationServices
 
-final class HistoryKeyboardEventTap: @unchecked Sendable {
+final class HistoryKeyboardEventTapHandle {
+    fileprivate let rawValue: CFMachPort?
+
+    init(rawValue: CFMachPort? = nil) {
+        self.rawValue = rawValue
+    }
+}
+
+final class HistoryKeyboardEventTapRunLoopSource {
+    fileprivate let rawValue: CFRunLoopSource?
+
+    init(rawValue: CFRunLoopSource? = nil) {
+        self.rawValue = rawValue
+    }
+}
+
+enum HistoryKeyboardEventPassThroughPolicy {
+    static func shouldPassThrough(
+        keyCode: UInt16,
+        flags: CGEventFlags,
+        isButtonFirstResponderActive: Bool
+    ) -> Bool {
+        if flags.contains(.maskControl),
+           flags.contains(.maskAlternate) {
+            return true
+        }
+        return isButtonFirstResponderActive && keyCode == KeyCode.space
+    }
+}
+
+private struct HistoryKeyboardFirstResponderActivity {
+    let isTextActive: Bool
+    let isButtonActive: Bool
+}
+
+@MainActor
+protocol HistoryKeyboardInputOwnership: AnyObject {
+    func ownsHistoryInput() -> Bool
+}
+
+private final class HistoryKeyboardInputOwnershipBox: @unchecked Sendable {
+    let value: any HistoryKeyboardInputOwnership
+
+    init(_ value: any HistoryKeyboardInputOwnership) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class HistoryKeyboardEventTapWindowState: HistoryKeyboardInputOwnership {
+    weak var historyWindow: NSWindow?
     private weak var inputState: HistoryWindowInputState?
-    private let keyboardRouter = HistoryKeyboardActionRouter()
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
-    @MainActor private weak var keyWindow: NSWindow?
 
     init(inputState: HistoryWindowInputState) {
         self.inputState = inputState
     }
 
+    func ownsHistoryInput() -> Bool {
+        if inputState?.isPreviewActiveSnapshot == true {
+            return true
+        }
+
+        guard let historyWindow else {
+            return false
+        }
+
+        return NSApp?.keyWindow === historyWindow
+    }
+
+    func firstResponderActivity() -> HistoryKeyboardFirstResponderActivity {
+        HistoryKeyboardFirstResponderActivity(
+            isTextActive: historyWindow?.firstResponder is NSTextView ||
+                NSApp?.keyWindow?.firstResponder is NSTextView,
+            isButtonActive: historyWindow?.firstResponder is NSButton ||
+                NSApp?.keyWindow?.firstResponder is NSButton
+        )
+    }
+}
+
+protocol HistoryKeyboardEventTapBackend: AnyObject {
+    func createTap(
+        eventMask: CGEventMask,
+        callback: CGEventTapCallBack,
+        userInfo: UnsafeMutableRawPointer?
+    ) -> HistoryKeyboardEventTapHandle?
+    func createRunLoopSource(
+        for tap: HistoryKeyboardEventTapHandle
+    ) -> HistoryKeyboardEventTapRunLoopSource?
+    func addRunLoopSource(_ source: HistoryKeyboardEventTapRunLoopSource)
+    func removeRunLoopSource(_ source: HistoryKeyboardEventTapRunLoopSource)
+    func setEnabled(_ enabled: Bool, for tap: HistoryKeyboardEventTapHandle)
+    func invalidate(_ tap: HistoryKeyboardEventTapHandle)
+}
+
+private final class SystemHistoryKeyboardEventTapBackend: HistoryKeyboardEventTapBackend, @unchecked Sendable {
+    static let shared = SystemHistoryKeyboardEventTapBackend()
+
+    private init() {}
+
+    func createTap(
+        eventMask: CGEventMask,
+        callback: CGEventTapCallBack,
+        userInfo: UnsafeMutableRawPointer?
+    ) -> HistoryKeyboardEventTapHandle? {
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: eventMask,
+            callback: callback,
+            userInfo: userInfo
+        ) else {
+            return nil
+        }
+
+        return HistoryKeyboardEventTapHandle(rawValue: tap)
+    }
+
+    func createRunLoopSource(
+        for tap: HistoryKeyboardEventTapHandle
+    ) -> HistoryKeyboardEventTapRunLoopSource? {
+        guard let rawTap = tap.rawValue,
+              let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, rawTap, 0) else {
+            return nil
+        }
+
+        return HistoryKeyboardEventTapRunLoopSource(rawValue: source)
+    }
+
+    func addRunLoopSource(_ source: HistoryKeyboardEventTapRunLoopSource) {
+        guard let rawSource = source.rawValue else {
+            return
+        }
+
+        CFRunLoopAddSource(CFRunLoopGetMain(), rawSource, .commonModes)
+    }
+
+    func removeRunLoopSource(_ source: HistoryKeyboardEventTapRunLoopSource) {
+        guard let rawSource = source.rawValue else {
+            return
+        }
+
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), rawSource, .commonModes)
+    }
+
+    func setEnabled(_ enabled: Bool, for tap: HistoryKeyboardEventTapHandle) {
+        guard let rawTap = tap.rawValue else {
+            return
+        }
+
+        CGEvent.tapEnable(tap: rawTap, enable: enabled)
+    }
+
+    func invalidate(_ tap: HistoryKeyboardEventTapHandle) {
+        guard let rawTap = tap.rawValue else {
+            return
+        }
+
+        CFMachPortInvalidate(rawTap)
+    }
+}
+
+final class HistoryKeyboardEventTap {
+    private enum LifecycleState {
+        case stopped
+        case active
+        case suspended
+    }
+
+    private weak var inputState: HistoryWindowInputState?
+    private let keyboardRouter = HistoryKeyboardActionRouter()
+    private let backend: any HistoryKeyboardEventTapBackend
+    private let windowState: HistoryKeyboardEventTapWindowState
+    private let inputOwnership: HistoryKeyboardInputOwnershipBox
+    private var eventTap: HistoryKeyboardEventTapHandle?
+    private var runLoopSource: HistoryKeyboardEventTapRunLoopSource?
+    private var lifecycleState: LifecycleState = .stopped
+
+    @MainActor
+    convenience init(inputState: HistoryWindowInputState) {
+        self.init(
+            inputState: inputState,
+            backend: SystemHistoryKeyboardEventTapBackend.shared
+        )
+    }
+
+    @MainActor
+    init(
+        inputState: HistoryWindowInputState,
+        backend: any HistoryKeyboardEventTapBackend,
+        inputOwnership: (any HistoryKeyboardInputOwnership)? = nil
+    ) {
+        let windowState = HistoryKeyboardEventTapWindowState(inputState: inputState)
+        self.inputState = inputState
+        self.backend = backend
+        self.windowState = windowState
+        self.inputOwnership = HistoryKeyboardInputOwnershipBox(inputOwnership ?? windowState)
+    }
+
+    deinit {
+        if lifecycleState == .active,
+           let eventTap {
+            backend.setEnabled(false, for: eventTap)
+        }
+
+        if let runLoopSource {
+            backend.removeRunLoopSource(runLoopSource)
+        }
+
+        if let eventTap {
+            backend.invalidate(eventTap)
+        }
+    }
+
     @MainActor
     func setKeyWindow(_ window: NSWindow?) {
-        keyWindow = window
+        windowState.historyWindow = window
     }
 
     static func shouldHandleEvent(isWindowPresented: Bool) -> Bool {
         isWindowPresented
     }
 
+    @MainActor
     func start() {
-        guard eventTap == nil else {
+        switch lifecycleState {
+        case .active:
             return
+        case .suspended:
+            if let eventTap {
+                backend.setEnabled(true, for: eventTap)
+                lifecycleState = .active
+                return
+            }
+        case .stopped:
+            break
         }
 
         let eventMask =
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.flagsChanged.rawValue)
 
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(eventMask),
+        guard let tap = backend.createTap(
+            eventMask: CGEventMask(eventMask),
             callback: HistoryKeyboardEventTap.eventCallback,
             userInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         ) else {
@@ -42,30 +252,49 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
             return
         }
 
+        guard let source = backend.createRunLoopSource(for: tap) else {
+            backend.invalidate(tap)
+            return
+        }
+
         eventTap = tap
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        backend.addRunLoopSource(source)
+        backend.setEnabled(true, for: tap)
+        lifecycleState = .active
     }
 
+    @MainActor
     func suspend() {
+        if lifecycleState == .active,
+           let eventTap {
+            backend.setEnabled(false, for: eventTap)
+            lifecycleState = .suspended
+        }
+
         DispatchQueue.main.async { [weak inputState] in
             inputState?.resetTransientState()
         }
     }
 
+    @MainActor
     func stop() {
-        if let eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
-            CFMachPortInvalidate(eventTap)
-            self.eventTap = nil
+        if lifecycleState == .active,
+           let eventTap {
+            backend.setEnabled(false, for: eventTap)
         }
 
         if let runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+            backend.removeRunLoopSource(runLoopSource)
             self.runLoopSource = nil
         }
+
+        if let eventTap {
+            backend.invalidate(eventTap)
+            self.eventTap = nil
+        }
+
+        lifecycleState = .stopped
 
         DispatchQueue.main.async { [weak inputState] in
             inputState?.resetTransientState()
@@ -75,13 +304,17 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
-            if let eventTap {
-                CGEvent.tapEnable(tap: eventTap, enable: true)
+            if lifecycleState == .active,
+               inputState?.isWindowPresentedSnapshot == true,
+               let eventTap {
+                backend.setEnabled(true, for: eventTap)
             }
             return Unmanaged.passUnretained(event)
 
         default:
-            guard Self.shouldHandleEvent(isWindowPresented: inputState?.isWindowPresentedSnapshot == true) else {
+            guard Self.shouldHandleEvent(isWindowPresented: inputState?.isWindowPresentedSnapshot == true),
+                  ownsHistoryInput() else {
+                setCommandShortcutOverlayVisible(false)
                 return Unmanaged.passUnretained(event)
             }
         }
@@ -89,16 +322,31 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         switch type {
         case .flagsChanged:
             let isCommandPressed = event.flags.contains(.maskCommand)
-            DispatchQueue.main.async { [weak inputState] in
-                let shouldShowCommandOverlay = isCommandPressed && inputState?.isPreviewActiveSnapshot != true
-                inputState?.setCommandKeyPressed(shouldShowCommandOverlay)
-            }
+            setCommandShortcutOverlayVisible(
+                isCommandPressed && inputState?.isPreviewActiveSnapshot != true
+            )
             return Unmanaged.passUnretained(event)
 
         case .keyDown:
+            let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+            if HistoryKeyboardEventPassThroughPolicy.shouldPassThrough(
+                keyCode: keyCode,
+                flags: event.flags,
+                isButtonFirstResponderActive: false
+            ) {
+                return Unmanaged.passUnretained(event)
+            }
+            let firstResponderActivity = firstResponderActivity()
+            if HistoryKeyboardEventPassThroughPolicy.shouldPassThrough(
+                keyCode: keyCode,
+                flags: event.flags,
+                isButtonFirstResponderActive: firstResponderActivity.isButtonActive
+            ) {
+                return Unmanaged.passUnretained(event)
+            }
             let isTextInputActive = HistoryTextInputActivityPolicy.isTextInputActive(
                 stateSnapshot: inputState?.isHistoryTextInputActiveSnapshot == true,
-                appTextFirstResponderActive: isTextFirstResponderActive()
+                appTextFirstResponderActive: firstResponderActivity.isTextActive
             )
             let isPreviewActive = inputState?.isPreviewActiveSnapshot == true
             guard let action = Self.action(
@@ -119,11 +367,6 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
 
             if inputState?.shouldSuppressHistoryCommandShortcutsSnapshot == true,
                Self.shouldSuppressForPresentedInputLayer(action) {
-                return Unmanaged.passUnretained(event)
-            }
-
-            if inputState?.isWindowPinnedOpenSnapshot == true,
-               Self.shouldPassThroughWhileWindowPinned(action) {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -247,33 +490,59 @@ final class HistoryKeyboardEventTap: @unchecked Sendable {
         }
     }
 
-    private static func shouldPassThroughWhileWindowPinned(_ action: HistoryKeyboardAction) -> Bool {
-        switch action {
-        case .copy, .copyPlainText, .selectVisibleCard, .openSearch, .showSettings, .edit, .togglePinned, .createText, .toggleRecording, .appendSearchText, .beginComposedSearchInput:
-            return true
-        case .moveLeft, .moveRight, .paste, .pastePlainText, .togglePreview, .close, .delete, .closeWindow, .enterFirstSearchResult, .focusFirstSearchResult:
-            return false
+    private static let commaKeyCode: UInt16 = 43
+
+    private func ownsHistoryInput() -> Bool {
+        let inputOwnership = inputOwnership
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                inputOwnership.value.ownsHistoryInput()
+            }
+        }
+
+        var ownsInput = false
+        DispatchQueue.main.sync {
+            ownsInput = MainActor.assumeIsolated {
+                inputOwnership.value.ownsHistoryInput()
+            }
+        }
+        return ownsInput
+    }
+
+    private func setCommandShortcutOverlayVisible(_ isVisible: Bool) {
+        let inputState = inputState
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                inputState?.setCommandKeyPressed(isVisible)
+            }
+            return
+        }
+
+        DispatchQueue.main.sync {
+            MainActor.assumeIsolated {
+                inputState?.setCommandKeyPressed(isVisible)
+            }
         }
     }
 
-    private static let commaKeyCode: UInt16 = 43
-
-    private func isTextFirstResponderActive() -> Bool {
+    private func firstResponderActivity() -> HistoryKeyboardFirstResponderActivity {
+        let windowState = windowState
         if Thread.isMainThread {
             return MainActor.assumeIsolated {
-                keyWindow?.firstResponder is NSTextView ||
-                    NSApp.keyWindow?.firstResponder is NSTextView
+                windowState.firstResponderActivity()
             }
         }
 
-        var isActive = false
+        var activity = HistoryKeyboardFirstResponderActivity(
+            isTextActive: false,
+            isButtonActive: false
+        )
         DispatchQueue.main.sync {
-            isActive = MainActor.assumeIsolated {
-                keyWindow?.firstResponder is NSTextView ||
-                    NSApp.keyWindow?.firstResponder is NSTextView
+            activity = MainActor.assumeIsolated {
+                windowState.firstResponderActivity()
             }
         }
-        return isActive
+        return activity
     }
 
     private static func pendingTextInputEvent(from event: CGEvent) -> HistoryKeyboardPendingTextInputEvent? {

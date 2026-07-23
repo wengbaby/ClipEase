@@ -52,26 +52,11 @@ final class AppMenuController: NSObject {
         onCreated: ((ClipboardItem) -> Void)? = nil
     ) {
         closeHistoryWindowIfNeeded()
-        let editorController = RichTextEditorController(
-            groups: historyStore.groups,
-            selectedGroupID: defaultGroupID
-        ) { [weak self] data, plainText, selectedGroupID in
-            guard let self else {
-                return
-            }
-
-            let previousIDs = Set(self.historyStore.items.map(\.id))
-            self.historyStore.addRichText(
-                data,
-                plainText: plainText,
-                sourceApp: .clipease,
-                groupID: selectedGroupID
-            )
-            let createdItem = self.historyStore.items.first { !previousIDs.contains($0.id) }
-            if let createdItem {
-                onCreated?(createdItem)
-            }
-        }
+        let editorController = Self.makeCreateTextEditorForTesting(
+            historyStore: historyStore,
+            defaultGroupID: defaultGroupID,
+            onCreated: onCreated
+        )
         editorController.onClose = { [weak self, weak editorController] in
             guard let editorController else {
                 return
@@ -81,6 +66,32 @@ final class AppMenuController: NSObject {
         }
         richTextEditorControllers.append(editorController)
         editorController.show()
+    }
+
+    static func makeCreateTextEditorForTesting(
+        historyStore: ClipboardHistoryStore,
+        defaultGroupID: ClipboardGroup.ID? = nil,
+        onCreated: ((ClipboardItem) -> Void)? = nil
+    ) -> RichTextEditorController {
+        RichTextEditorController(
+            groups: historyStore.groups,
+            selectedGroupID: defaultGroupID
+        ) { [weak historyStore] data, plainText, selectedGroupID in
+            guard let historyStore else {
+                return nil
+            }
+
+            let createdItem = try await historyStore.addRichText(
+                data,
+                plainText: plainText,
+                sourceApp: .clipease,
+                groupID: selectedGroupID
+            )
+            if let createdItem {
+                onCreated?(createdItem)
+            }
+            return createdItem
+        }
     }
 
     func editItem(
@@ -101,7 +112,10 @@ final class AppMenuController: NSObject {
                 self?.historyStore.richTextData(for: item)
             },
             onSaveRichTextEdit: { [weak self] id, data, plainText in
-                let updatedItem = try? self?.historyStore.updateRichTextContent(
+                guard let self else {
+                    return nil
+                }
+                let updatedItem = try await self.historyStore.updateRichTextContent(
                     for: id,
                     data: data,
                     plainText: plainText

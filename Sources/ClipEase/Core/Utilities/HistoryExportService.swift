@@ -194,7 +194,7 @@ enum HistoryExportService {
         let userVersion = try database.queryInt("PRAGMA user_version")
         database.close()
 
-        guard userVersion >= SQLiteClipboardStore.currentSchemaVersion else {
+        guard userVersion == SQLiteClipboardStore.currentSchemaVersion else {
             throw HistoryExportError.incompatibleSQLiteBackupSchema(userVersion)
         }
     }

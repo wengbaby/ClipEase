@@ -9,10 +9,14 @@ struct HistoryWindowView: View {
     @ObservedObject var inputState: HistoryWindowInputState
     @ObservedObject var recordingController: RecordingController
     @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
+    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var searchCoordinator = HistorySearchCoordinator()
     @StateObject private var previewCoordinator = HistoryPreviewCoordinator()
     @StateObject private var viewportStore = HistoryViewportStore()
     @StateObject private var groupAppearanceCoordinator = GroupAppearanceCoordinator()
+    @StateObject private var groupMouseMonitorRegistry = HistoryGroupMouseMonitorRegistry()
+    @StateObject private var assetPreheater = PreviewAssetPreheater()
     private let inputFocusCoordinator = HistoryInputFocusCoordinator()
     let appMenuController: AppMenuController
     let pasteExecutor: PasteExecutor
@@ -30,6 +34,8 @@ struct HistoryWindowView: View {
     @State private var isCommandKeyPressed = false
     @State private var isSearchFocused = false
     @State private var isSearchTextComposing = false
+    @State private var searchLeadingContentWidth: CGFloat = 0
+    @State private var searchTextInsertionIndex = Int.max
     @State private var searchFocusRequestID = 0
     @State private var pendingComposedSearchInputEvent: HistoryKeyboardPendingTextInputEvent?
     @State private var previewItemsState = HistoryWindowPreviewItemsState()
@@ -37,7 +43,6 @@ struct HistoryWindowView: View {
     @State private var previewBuildGeneration: UInt64 = 0
     @State private var deferredStartupTask: Task<Void, Never>?
     @State private var searchVisibilityTask: Task<Void, Never>?
-    @State private var preheatTask: Task<Void, Never>?
     @State private var rememberSelectedItemTask: Task<Void, Never>?
     @State private var latestFocusRetryTask: Task<Void, Never>?
     @State private var hiddenResourceCheckpointTask: Task<Void, Never>?
@@ -45,6 +50,7 @@ struct HistoryWindowView: View {
     @State private var viewportState = HistoryWindowViewportState()
     @State private var focusState = HistoryWindowFocusState()
     @State private var pendingKeyboardFocusClearTask: Task<Void, Never>?
+    @State private var glassEnvironmentRevision = 0
     @AppStorage("history.systemGroup.pinned.iconName") private var pinnedGroupIconName = "pin.fill"
     @AppStorage("history.systemGroup.pinned.colorHex") private var pinnedGroupColorHex = "#2E8CFF"
     @AppStorage("history.lastSelectedGroup") private var rememberedSelectedGroup = HistoryGroupSelection.all.storageValue
@@ -52,11 +58,34 @@ struct HistoryWindowView: View {
     @AppStorage("history.savedScrollOffsetsByScope") private var rememberedScrollOffsetsByScopeData = "{}"
     @FocusState private var focusedRenameGroupID: ClipboardGroup.ID?
 
-    private let backgroundColor = Color(red: 0.78, green: 0.82, blue: 0.92)
     private let allHistoryGroupColor = Color(red: 0.18, green: 0.55, blue: 1.0)
     private let groupAppearancePopoverWidth: CGFloat = 304
     private let groupAppearanceIconGridHeight: CGFloat = 178
     private let selectedCardTopContentInset: CGFloat = HistoryWindowPanelMetrics.selectedCardTopContentInset
+
+    private var toolbarPrimaryForeground: Color {
+        let opacity = 0.68 + glassEnvironment.toolbarTextContrast * 0.32
+        return colorScheme == .dark ? .white.opacity(opacity) : .black.opacity(opacity)
+    }
+
+    private var toolbarSecondaryForeground: Color {
+        let opacity = 0.42 + glassEnvironment.toolbarTextContrast * 0.48
+        return colorScheme == .dark ? .white.opacity(opacity) : .black.opacity(opacity)
+    }
+
+    private var toolbarPrimaryNSColor: NSColor {
+        let alpha = 0.68 + glassEnvironment.toolbarTextContrast * 0.32
+        return (colorScheme == .dark ? NSColor.white : NSColor.black).withAlphaComponent(alpha)
+    }
+
+    private func selectedGroupFill(_ color: Color) -> Color {
+        color.opacity(max(0.12, glassEnvironment.groupColorIntensity))
+    }
+
+    private var titleTypography: AppearanceTypography { appearanceSettings.typography(for: .windowTitle) }
+    private var searchTypography: AppearanceTypography { appearanceSettings.typography(for: .search) }
+    private var groupTypography: AppearanceTypography { appearanceSettings.typography(for: .group) }
+    private var toolbarButtonTypography: AppearanceTypography { appearanceSettings.typography(for: .toolbarButton) }
     private let horizontalContentPadding: CGFloat = 28
     private let horizontalCardSpacing: CGFloat = 20
     private let historyCardWidth: CGFloat = 250
@@ -71,6 +100,50 @@ struct HistoryWindowView: View {
     private let hiddenResourceCheckpointMinimumInterval: CFTimeInterval = 10
     private let hiddenHistoryPanelHeight: CGFloat = HistoryWindowPanelMetrics.height
     private let latestInsertedCardLeadingInset: CGFloat = 28
+
+    private var glassEnvironment: HistoryGlassEnvironment {
+        _ = glassEnvironmentRevision
+        return HistoryGlassEnvironment(
+            supportsNativeGlass: HistoryGlassRuntime.supportsNativeGlass,
+            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
+            isDarkMode: colorScheme == .dark,
+            isWindowActive: hostWindow?.isKeyWindow ?? true,
+            prefersLiquidGlass: appearanceSettings.usesLiquidGlass,
+            prefersGlassMotion: appearanceSettings.glassMotionEnabled,
+            materialTheme: appearanceSettings.materialTheme,
+            windowEffectOpacity: appearanceSettings.windowEffectOpacity,
+            cardEffectOpacity: appearanceSettings.cardEffectOpacity,
+            cardHeaderColorIntensity: appearanceSettings.cardHeaderColorIntensity,
+            groupColorIntensity: appearanceSettings.groupColorIntensity,
+            toolbarTextContrast: appearanceSettings.toolbarTextContrast,
+            cardTypography: appearanceSettings.typography(for: .card)
+        )
+    }
+
+    private var panelGlassPlan: HistoryGlassRenderPlan {
+        HistoryGlassPolicy.resolve(role: .panel, environment: glassEnvironment)
+    }
+
+    private var controlsGlassPlan: HistoryGlassRenderPlan {
+        HistoryGlassPolicy.resolve(role: .controls, environment: glassEnvironment)
+    }
+
+    private var searchGlassSurfaceStyle: HistoryGlassSearchSurfaceStyle {
+        HistoryGlassSearchSurfacePolicy.resolve(
+            plan: controlsGlassPlan,
+            environment: glassEnvironment
+        )
+    }
+
+    private var toolbarGlassLayout: HistoryGlassToolbarLayoutStyle {
+        HistoryGlassToolbarLayoutPolicy.style
+    }
+
+    private var toolbarGlassControlStyle: HistoryGlassToolbarControlStyle {
+        HistoryGlassToolbarControlPolicy.style
+    }
 
     private var selectedItemID: HistoryPreviewItem.ID? {
         get { cardInteractionState.selectedItemID }
@@ -322,16 +395,55 @@ struct HistoryWindowView: View {
             NSApp.keyWindow?.firstResponder is NSTextView
     }
 
+    private func scheduleCardRailTopUpdate(_ top: CGFloat) {
+        DispatchQueue.main.async { [self] in
+            guard viewportState.cardRailTopInWindow != top else {
+                return
+            }
+            viewportState.cardRailTopInWindow = top
+        }
+    }
+
+    private func scheduleWindowWidthUpdate(_ width: CGFloat) {
+        DispatchQueue.main.async { [self] in
+            guard viewportState.windowWidth != width else {
+                return
+            }
+            viewportState.windowWidth = width
+        }
+    }
+
+    private func scheduleSearchInteractionFramesUpdate(_ frames: [CGRect]) {
+        DispatchQueue.main.async { [self] in
+            guard viewportState.searchInteractionFrames != frames else {
+                return
+            }
+            viewportState.searchInteractionFrames = frames
+        }
+    }
+
+    private func scheduleCardViewportFramesUpdate(_ frames: [HistoryPreviewItem.ID: CGRect]) {
+        DispatchQueue.main.async { [self] in
+            guard viewportState.cardViewportFrames != frames else {
+                return
+            }
+            viewportState.cardViewportFrames = frames
+            followPreviewForCurrentScroll()
+        }
+    }
+
     var body: some View {
         ZStack {
-            backgroundColor
-            .ignoresSafeArea()
+            AdaptiveGlassPanelBackground(plan: panelGlassPlan)
 
             if !inputState.isPreviewContentActive {
                 shortcutButtons
             }
 
-            NumberShortcutHandler(inputState: inputState) { isPressed in
+            NumberShortcutHandler(
+                inputState: inputState,
+                isEnabled: inputState.isWindowVisible
+            ) { isPressed in
                 isCommandKeyPressed = isPressed
             } onNumber: { number in
                 selectVisibleCard(number: number)
@@ -354,10 +466,12 @@ struct HistoryWindowView: View {
                             GeometryReader { proxy in
                                 Color.clear
                                     .onAppear {
-                                        viewportState.cardRailTopInWindow = proxy.frame(in: .named("historyWindow")).minY
+                                        scheduleCardRailTopUpdate(
+                                            proxy.frame(in: .named("historyWindow")).minY
+                                        )
                                     }
                                     .onChange(of: proxy.frame(in: .named("historyWindow")).minY) { minY in
-                                        viewportState.cardRailTopInWindow = minY
+                                        scheduleCardRailTopUpdate(minY)
                                     }
                             }
                         )
@@ -394,7 +508,10 @@ struct HistoryWindowView: View {
                                 }
                             }
                         }
-                        .background(HorizontalScrollWheelRedirector(scope: .cardRail))
+                        .background(HorizontalScrollWheelRedirector(
+                            scope: .cardRail,
+                            isEnabled: inputState.isWindowVisible
+                        ))
                     }
                 }
             }
@@ -403,7 +520,10 @@ struct HistoryWindowView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             SearchOutsideWindowMouseDownObserver(
-                isEnabled: searchUIState.isVisible,
+                isEnabled: HistoryWindowMonitorVisibilityPolicy.isEnabled(
+                    isWindowVisible: inputState.isWindowVisible,
+                    isFeatureActive: searchUIState.isVisible
+                ),
                 hostWindow: hostWindow,
                 excludedFrames: viewportState.searchInteractionScreenFrames,
                 onMouseDown: closeSearchFromOutsideClick
@@ -411,7 +531,10 @@ struct HistoryWindowView: View {
         )
         .background(
             GroupRenameOutsideMouseDownObserver(
-                isEnabled: groupUIState.renameTargetID != nil,
+                isEnabled: HistoryWindowMonitorVisibilityPolicy.isEnabled(
+                    isWindowVisible: inputState.isWindowVisible,
+                    isFeatureActive: groupUIState.renameTargetID != nil
+                ),
                 hostWindow: hostWindow,
                 excludedScreenFrame: groupUIState.renameInputScreenFrame,
                 onMouseDown: commitPendingRenameIfNeeded
@@ -419,7 +542,11 @@ struct HistoryWindowView: View {
         )
         .background(
             GroupAppearanceOutsideMouseDownObserver(
-                isEnabled: groupAppearanceCoordinator.regularGroupTarget != nil || groupAppearanceCoordinator.systemGroupTarget != nil,
+                isEnabled: HistoryWindowMonitorVisibilityPolicy.isEnabled(
+                    isWindowVisible: inputState.isWindowVisible,
+                    isFeatureActive: groupAppearanceCoordinator.regularGroupTarget != nil ||
+                        groupAppearanceCoordinator.systemGroupTarget != nil
+                ),
                 hostWindow: hostWindow,
                 popoverWindow: groupAppearanceCoordinator.popoverWindow,
                 onMouseDown: closeGroupAppearanceLayer
@@ -429,21 +556,28 @@ struct HistoryWindowView: View {
             GeometryReader { proxy in
                 Color.clear
                     .onAppear {
-                        viewportState.windowWidth = proxy.size.width
+                        scheduleWindowWidthUpdate(proxy.size.width)
                     }
                     .onChange(of: proxy.size.width) { width in
-                        viewportState.windowWidth = width
+                        scheduleWindowWidthUpdate(width)
                     }
             }
         )
         .background(HistoryWindowHostWindowReader(window: $hostWindow))
+        .preferredColorScheme(appearanceSettings.preferredColorScheme)
+        .onReceive(
+            NSWorkspace.shared.notificationCenter.publisher(
+                for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification
+            )
+        ) { _ in
+            glassEnvironmentRevision &+= 1
+        }
         .coordinateSpace(name: "historyWindow")
         .onPreferenceChange(SearchInteractionFramePreferenceKey.self) { frames in
-            viewportState.searchInteractionFrames = frames
+            scheduleSearchInteractionFramesUpdate(frames)
         }
         .onPreferenceChange(CardViewportFramePreferenceKey.self) { frames in
-            viewportState.cardViewportFrames = frames
-            followPreviewForCurrentScroll()
+            scheduleCardViewportFramesUpdate(frames)
         }
         .onChange(of: viewportState.searchInteractionFrames) { _ in
             refreshSearchInteractionScreenFrames()
@@ -461,35 +595,7 @@ struct HistoryWindowView: View {
             transaction.animation = nil
         }
         .onAppear {
-            renderState.mark("swiftui-appear")
-            HistoryWindowLifecycleDiagnostics.record(
-                .openFirstFrame,
-                itemCount: store.items.count,
-                wasVisible: inputState.isWindowVisibleSnapshot,
-                shouldAnimate: false,
-                hasPendingFocus: focusState.pendingLatestFocusItemID != nil || focusState.pendingDefaultFocusOnShow,
-                visibleItemCount: renderedWindowItems.count,
-                previewItemCount: previewItemsState.allItems.count
-            )
-            HistoryWindowInputState.currentForTextEditing = inputState
-            restoreRememberedGroupSelection()
-            HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)
-            HistoryScrollCoordinator.shared.setScope(groupUIState.selectedGroup.storageValue)
-            HistoryScrollCoordinator.shared.onOffsetChange = { _ in
-                Task { @MainActor in
-                    updateCardRailVisibleRect()
-                    requestNextHistoryPageIfNeeded()
-                    followPreviewForCurrentScroll()
-                }
-            }
-            refreshMoveToGroupMenuSnapshot()
-            primeLatestItemPresentationGuard(sourceItems: store.items)
-            if let request = store.consumeLatestItemFocusRequest() {
-                focusRequestedLatestItem(request)
-            }
-            focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
-            warmPreviewItemsForPreloadedHiddenWindowIfNeeded()
-            scheduleDeferredStartupWork()
+            scheduleInitialAppearanceWork()
         }
         .onDisappear {
             cancelPendingGroupRename()
@@ -497,7 +603,7 @@ struct HistoryWindowView: View {
             cancelPresentationWorkForHide()
             searchCoordinator.cancelAll()
             searchVisibilityTask?.cancel()
-            preheatTask?.cancel()
+            assetPreheater.setEnabled(false)
             previewCoordinator.cancelFollow()
             rememberSelectedItemTask?.cancel()
             latestFocusRetryTask?.cancel()
@@ -516,6 +622,7 @@ struct HistoryWindowView: View {
             }
         }
         .onChange(of: inputState.isWindowVisible) { isVisible in
+            assetPreheater.setEnabled(isVisible)
             if isVisible {
                 viewportState.didRestoreRememberedViewport = false
                 focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
@@ -523,6 +630,7 @@ struct HistoryWindowView: View {
                 restoreRememberedViewportIfNeeded()
                 rebuildPreviewItemsIfNeededForVisibleWindow()
                 warmPreviewItemsForPreloadedHiddenWindowIfNeeded()
+                schedulePreheatVisibleAssets()
             } else {
                 noteHistoryWindowHidden()
             }
@@ -619,6 +727,7 @@ struct HistoryWindowView: View {
         .onChange(of: historyRailVisibleWindow) { _ in
             let visibleIDs = Set(renderedWindowItems.map(\.id))
             viewportState.cardViewportFrames = viewportState.cardViewportFrames.filter { visibleIDs.contains($0.key) }
+            schedulePreheatVisibleAssets()
         }
         .onChange(of: isSearchFocused) { isFocused in
             inputState.setTextInputFocused(isFocused)
@@ -651,6 +760,41 @@ struct HistoryWindowView: View {
         }
         .sheet(item: $groupUIState.moveToGroupPickerTarget) { target in
             moveToGroupPicker(for: target)
+        }
+    }
+
+    private func scheduleInitialAppearanceWork() {
+        DispatchQueue.main.async { [self] in
+            assetPreheater.setEnabled(inputState.isWindowVisibleSnapshot)
+            renderState.mark("swiftui-appear")
+            HistoryWindowLifecycleDiagnostics.record(
+                .openFirstFrame,
+                itemCount: store.items.count,
+                wasVisible: inputState.isWindowVisibleSnapshot,
+                shouldAnimate: false,
+                hasPendingFocus: focusState.pendingLatestFocusItemID != nil || focusState.pendingDefaultFocusOnShow,
+                visibleItemCount: renderedWindowItems.count,
+                previewItemCount: previewItemsState.allItems.count
+            )
+            HistoryWindowInputState.currentForTextEditing = inputState
+            restoreRememberedGroupSelection()
+            HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)
+            HistoryScrollCoordinator.shared.setScope(groupUIState.selectedGroup.storageValue)
+            HistoryScrollCoordinator.shared.onOffsetChange = { _ in
+                Task { @MainActor in
+                    updateCardRailVisibleRect()
+                    requestNextHistoryPageIfNeeded()
+                    followPreviewForCurrentScroll()
+                }
+            }
+            refreshMoveToGroupMenuSnapshot()
+            primeLatestItemPresentationGuard(sourceItems: store.items)
+            if let request = store.consumeLatestItemFocusRequest() {
+                focusRequestedLatestItem(request)
+            }
+            focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
+            warmPreviewItemsForPreloadedHiddenWindowIfNeeded()
+            scheduleDeferredStartupWork()
         }
     }
 
@@ -694,8 +838,23 @@ struct HistoryWindowView: View {
         let isHovered = hoveredCardID == item.id
         let isPressed = pressedCardID == item.id
         let isEnteringLatestItem = enteringItemIDs.contains(item.id)
-        let isShowingEntranceSheen = entranceSheenItemIDs.contains(item.id)
-        let cardScale: CGFloat = isPressed ? 1.045 : (isHovered ? 1.04 : (isCardFocused ? (isEnteringLatestItem ? 1.012 : 1.025) : 1))
+        let visualState = HistoryCardVisualState(
+            isSelected: isSelected,
+            isKeyboardFocused: isCardFocused,
+            isHovered: isHovered,
+            isPressed: isPressed,
+            isEnteringLatestItem: isEnteringLatestItem,
+            isShortcutOverlayVisible: isShortcutOverlayVisible,
+            environment: glassEnvironment,
+            renderPlan: HistoryGlassPolicy.resolve(
+                role: isSelected ? .selectedCard : .card,
+                environment: glassEnvironment
+            ),
+            cardStyle: appearanceSettings.cardStyle
+        )
+        let presentation = HistoryCardPresentationPolicy.resolve(visualState)
+        let isShowingEntranceSheen = entranceSheenItemIDs.contains(item.id) && presentation.showsEntranceSheen
+        let cardScale = CGFloat(presentation.scale)
 
         HistoryCardView(
             item: item,
@@ -705,12 +864,17 @@ struct HistoryWindowView: View {
             isHovered: isHovered,
             isPressed: isPressed,
             isEnteringLatestItem: isEnteringLatestItem,
+            isSelected: isSelected,
+            visualState: visualState,
             onClick: {
                 selectCardForPrimaryClick(item)
             },
             onDoubleClick: {
                 blurSearchFieldForCardInteraction()
                 pasteItem(item.id)
+            },
+            onPreview: {
+                showPreview(item.id)
             },
             onRightMouseDown: {
                 selectCardForContextMenu(item)
@@ -740,18 +904,21 @@ struct HistoryWindowView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(
-                    isCardFocused && !isEnteringLatestItem ? Color(red: 0.18, green: 0.55, blue: 1.0) : (isHovered || isPressed || isEnteringLatestItem ? Color.clear : Color.black.opacity(0.08)),
-                    lineWidth: isCardFocused ? 4 : 1
+                    visualState.isKeyboardFocused ? Color(red: 0.08, green: 0.38, blue: 0.90) : (isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.92) : Color.black.opacity(0.08)),
+                    lineWidth: presentation.borderWidth
                 )
                 .allowsHitTesting(false)
         }
         .overlay {
-            if isEnteringLatestItem {
+            if presentation.focusRingWidth > 0 {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color(red: 0.18, green: 0.55, blue: 1.0), lineWidth: 3)
+                    .stroke(Color(red: 0.08, green: 0.38, blue: 0.90), lineWidth: presentation.focusRingWidth)
                     .padding(-4)
-                    .opacity(0.88)
-                    .transition(.opacity)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(Color.white.opacity(0.92), lineWidth: 1)
+                            .padding(2)
+                    }
                     .allowsHitTesting(false)
             }
         }
@@ -769,8 +936,8 @@ struct HistoryWindowView: View {
             y: 0
         )
         .scaleEffect(cardScale, anchor: .center)
-        .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isCardFocused)
-        .animation(.easeOut(duration: 0.82), value: isEnteringLatestItem)
+        .animation(.easeOut(duration: visualState.environment.reduceMotion ? 0.12 : 0.18), value: isCardFocused)
+        .animation(.easeOut(duration: visualState.environment.reduceMotion ? 0.12 : 0.22), value: isEnteringLatestItem)
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.06), value: isPressed)
         .id(item.id)
@@ -989,7 +1156,7 @@ struct HistoryWindowView: View {
                         .font(.system(size: 16, weight: .semibold))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(toolbarSecondaryForeground)
 
                 HStack(spacing: 7) {
                     Image(nsImage: ClipEaseAppIcon.roundedImage(ClipEaseAppIcon.image(size: NSSize(width: 18, height: 18)), size: NSSize(width: 18, height: 18)))
@@ -997,8 +1164,8 @@ struct HistoryWindowView: View {
                         .frame(width: 18, height: 18)
 
                     Text("轻贴")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .font(titleTypography.swiftUIFont)
+                        .foregroundStyle(toolbarPrimaryForeground)
                 }
 
                 Spacer()
@@ -1006,13 +1173,13 @@ struct HistoryWindowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             topTrack
-                .padding(.horizontal, 132)
+                .frame(maxWidth: .infinity)
 
             HStack(spacing: 12) {
                 Button(action: toggleWindowPinnedOpen) {
                     Image(systemName: inputState.isWindowPinnedOpen ? "pin.fill" : "pin")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(inputState.isWindowPinnedOpen ? Color(red: 0.18, green: 0.55, blue: 1.0) : .secondary)
+                        .foregroundStyle(inputState.isWindowPinnedOpen ? Color(red: 0.18, green: 0.55, blue: 1.0) : toolbarSecondaryForeground)
                 }
                 .buttonStyle(.plain)
                 .help(inputState.isWindowPinnedOpen ? "取消钉住主窗口" : "钉住主窗口")
@@ -1031,10 +1198,16 @@ struct HistoryWindowView: View {
 
     private var topTrack: some View {
         GeometryReader { proxy in
+            let widthPlan = HistoryGlassToolbarWidthPolicy.resolve(
+                availableWidth: proxy.size.width,
+                isSearchExpanded: searchUIState.shouldShowField
+            )
+
             ScrollViewReader { scrollProxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         searchField
+                            .frame(width: widthPlan.searchWidth, alignment: .leading)
                             .id("search-field")
 
                         Group {
@@ -1064,10 +1237,14 @@ struct HistoryWindowView: View {
                         }
                         .animation(.easeOut(duration: 0.10), value: isSearchControlExpanded)
                     }
-                    .frame(minWidth: proxy.size.width, alignment: .center)
+                    .frame(minWidth: widthPlan.trackWidth, alignment: .center)
                     .padding(.vertical, 1)
+                    .animation(.easeOut(duration: 0.16), value: searchUIState.shouldShowField)
                 }
-                .background(HorizontalScrollWheelRedirector(scope: .auxiliaryRail))
+                .background(HorizontalScrollWheelRedirector(
+                    scope: .auxiliaryRail,
+                    isEnabled: inputState.isWindowVisible
+                ))
                 .onChange(of: groupUIState.pendingGroupTrackScrollID) { scrollID in
                     guard let scrollID else {
                         return
@@ -1113,25 +1290,29 @@ struct HistoryWindowView: View {
                     .font(.system(size: 12, weight: .semibold))
                 if !isSearchControlExpanded {
                     Text("全部剪切板")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(groupTypography.swiftUIFont)
                         .lineLimit(1)
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(isSelected ? Color.white : toolbarPrimaryForeground)
             .padding(.horizontal, isSearchControlExpanded ? 8 : 10)
             .frame(height: 28)
-            .background(allHistoryGroupColor.opacity(isSelected ? 1 : 0.78))
+            .background(
+                isSelected
+                    ? selectedGroupFill(allHistoryGroupColor)
+                    : Color.white.opacity(toolbarGlassControlStyle.idleFillOpacity)
+            )
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(isSelected ? Color.white.opacity(0.9) : Color.clear, lineWidth: 2)
-            }
         }
         .buttonStyle(.plain)
         .fixedSize()
         .historyRailControlStyle()
         .background(
-            GroupMouseDownObserver(onMouseDown: closeSearchForGroupNavigation)
+            GroupMouseDownObserver(
+                registry: groupMouseMonitorRegistry,
+                isEnabled: inputState.isWindowVisible,
+                onMouseDown: closeSearchForGroupNavigation
+            )
                 .onRightMouseDown(selectAllGroupsForContextMenu)
         )
         .help("显示全部历史")
@@ -1144,15 +1325,15 @@ struct HistoryWindowView: View {
                     .font(.system(size: 12, weight: .semibold))
 
                 Text("搜索")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(toolbarButtonTypography.swiftUIFont)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color.white.opacity(0.55))
+            .background(Color.white.opacity(toolbarGlassControlStyle.idleFillOpacity))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.primary)
+        .foregroundStyle(toolbarPrimaryForeground)
         .fixedSize()
         .historyRailControlStyle()
         .background(
@@ -1173,11 +1354,11 @@ struct HistoryWindowView: View {
             Image(systemName: "plus")
                 .font(.system(size: 12, weight: .bold))
                 .frame(width: 28, height: 28)
-                .background(Color.white.opacity(0.55))
+                .background(Color.white.opacity(toolbarGlassControlStyle.idleFillOpacity))
                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
+        .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.70 + glassEnvironment.toolbarTextContrast * 0.30))
         .fixedSize()
         .historyRailControlStyle()
         .help("新建分组")
@@ -1193,24 +1374,26 @@ struct HistoryWindowView: View {
                     .font(.system(size: 12, weight: .semibold))
                 if !isSearchControlExpanded {
                     Text(group.title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(groupTypography.swiftUIFont)
                         .lineLimit(1)
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(isSelected ? Color.white : toolbarPrimaryForeground)
             .padding(.horizontal, isSearchControlExpanded ? 8 : 10)
             .frame(height: 28)
-            .background(color.opacity(isSelected ? 1 : 0.78))
+            .background(
+                isSelected
+                    ? selectedGroupFill(color)
+                    : Color.white.opacity(toolbarGlassControlStyle.idleFillOpacity)
+            )
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(isSelected ? Color.white.opacity(0.9) : Color.clear, lineWidth: 2)
-            }
         }
         .buttonStyle(.plain)
         .fixedSize()
         .historyRailControlStyle()
         .background(GroupMouseDownObserver(
+            registry: groupMouseMonitorRegistry,
+            isEnabled: inputState.isWindowVisible,
             onMouseDown: closeSearchForGroupNavigation,
             onRightMouseDown: { selectSystemGroupForContextMenu(group) }
         ))
@@ -1491,24 +1674,26 @@ struct HistoryWindowView: View {
                             .font(.system(size: 12, weight: .semibold))
                         if !compact {
                             Text(group.name)
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(groupTypography.swiftUIFont)
                                 .lineLimit(1)
                         }
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(isSelected ? Color.white : toolbarPrimaryForeground)
                     .padding(.horizontal, compact ? 8 : 10)
                     .frame(height: 28)
-                    .background(Color.clipeaseHex(group.colorHex).opacity(isSelected ? 1 : 0.78))
+                    .background(
+                        isSelected
+                            ? selectedGroupFill(Color.clipeaseHex(group.colorHex))
+                            : Color.white.opacity(toolbarGlassControlStyle.idleFillOpacity)
+                    )
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(isSelected ? Color.white.opacity(0.9) : Color.clear, lineWidth: 2)
-                    }
                 }
                 .buttonStyle(.plain)
                 .fixedSize()
                 .historyRailControlStyle()
                 .background(GroupMouseDownObserver(
+                    registry: groupMouseMonitorRegistry,
+                    isEnabled: inputState.isWindowVisible,
                     onMouseDown: handleGroupRowOutsideClick,
                     onRightMouseDown: { selectGroupForContextMenu(group) },
                     onDoubleMouseDown: { beginRenameGroupAfterCurrentMouseEvent(group) }
@@ -1554,7 +1739,7 @@ struct HistoryWindowView: View {
     private var resultCountBadge: some View {
         Text("\(filteredItems.count) / \(items.count)")
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(toolbarSecondaryForeground)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(Color.white.opacity(0.45))
@@ -1591,47 +1776,70 @@ struct HistoryWindowView: View {
 
     private var searchField: some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+            GeometryReader { availableSpace in
+                let insertionIndex = min(
+                    max(0, searchTextInsertionIndex),
+                    searchTokens.count
+                )
+                let inputWidth = max(
+                    24,
+                    availableSpace.size.width - searchLeadingContentWidth - 3
+                )
 
-            ScrollViewReader { scrollProxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 3) {
-                        ForEach(searchTokens) { token in
-                            searchTokenView(token)
-                                .id(token.id)
+                ScrollViewReader { scrollProxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 0) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(toolbarSecondaryForeground)
+                                .frame(width: 14, height: 20)
+
+                            ForEach(Array(searchTokens.enumerated()), id: \.element.id) { index, token in
+                                if index > 0 {
+                                    searchTokenInsertionGap(at: index)
+                                }
+
+                                if insertionIndex == index {
+                                    searchTextInput(
+                                        scrollProxy: scrollProxy,
+                                        width: inputWidth
+                                    )
+                                }
+
+                                searchTokenView(token)
+                                    .id(token.id)
+                            }
+
+                            if !searchTokens.isEmpty {
+                                searchTokenInsertionGap(at: searchTokens.count)
+                            }
+
+                            if insertionIndex == searchTokens.count {
+                                searchTextInput(
+                                    scrollProxy: scrollProxy,
+                                    width: inputWidth
+                                )
+                            }
                         }
-
-                        SearchTextField(
-                            text: $searchUIState.text,
-                            isFocused: $isSearchFocused,
-                            isComposing: $isSearchTextComposing,
-                            pendingComposedInputEvent: $pendingComposedSearchInputEvent,
-                            focusRequestID: searchFocusRequestID,
-                            searchHasHandedOffFocusToCard: searchUIState.hasHandedOffFocusToCard,
-                            hasSearchResult: !filteredItems.isEmpty,
-                            hasSearchTokens: !searchTokens.isEmpty,
-                            onFocusChanged: synchronizeSearchTextFieldFocus,
-                            onEnterFirstResult: enterFirstSearchResultFromSearchField,
-                            onDeleteLastToken: handleSearchTokenBackspace,
-                            onCancel: handleSearchCancel
-                        )
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(minWidth: 160)
-                        .id("search-text-field")
+                        .id("search-leading-content")
+                        .frame(minWidth: availableSpace.size.width, alignment: .leading)
+                    }
+                    .background(HorizontalScrollWheelRedirector(
+                        scope: .auxiliaryRail,
+                        isEnabled: inputState.isWindowVisible
+                    ))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        focusSearchField()
+                    }
+                    .onChange(of: searchTokens) { _ in
+                        searchTextInsertionIndex = searchTokens.count
+                        scrollProxy.scrollTo("search-text-field", anchor: .trailing)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .background(HorizontalScrollWheelRedirector(scope: .auxiliaryRail))
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    focusSearchField()
-                }
-                .onChange(of: searchTokens) { _ in
-                    scrollProxy.scrollTo("search-text-field", anchor: .trailing)
-                }
             }
+            .frame(maxWidth: .infinity)
+            .background(searchTokenWidthMeasurer)
 
             if isSearchActive {
                 Button(action: clearSearchTextAndFilters) {
@@ -1639,7 +1847,7 @@ struct HistoryWindowView: View {
                         .font(.system(size: 12, weight: .semibold))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(toolbarSecondaryForeground)
                 .help("清空搜索")
             }
 
@@ -1648,7 +1856,7 @@ struct HistoryWindowView: View {
                     .font(.system(size: 13, weight: .semibold))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(searchUIState.criteria.hasActiveFilters ? Color(red: 0.18, green: 0.55, blue: 1.0) : .secondary)
+            .foregroundStyle(searchUIState.criteria.hasActiveFilters ? Color(red: 0.18, green: 0.55, blue: 1.0) : toolbarSecondaryForeground)
             .help("搜索筛选")
             .popover(isPresented: $searchUIState.isFilterPanelPresented, arrowEdge: .bottom) {
                 searchFilterPanel
@@ -1658,10 +1866,27 @@ struct HistoryWindowView: View {
                     }))
             }
         }
+        .onPreferenceChange(SearchLeadingContentWidthPreferenceKey.self) { width in
+            guard abs(searchLeadingContentWidth - width) > 0.5 else {
+                return
+            }
+            searchLeadingContentWidth = width
+        }
         .padding(.horizontal, 10)
-        .frame(width: searchUIState.isFieldLayoutVisible ? 520 : 0, height: 30)
-        .background(Color.white.opacity(searchUIState.isFieldVisualVisible ? 0.72 : 0))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30)
+        .background {
+            RoundedRectangle(cornerRadius: searchGlassSurfaceStyle.cornerRadius, style: .continuous)
+                .fill(Color.white.opacity(
+                    searchUIState.isFieldVisualVisible ? searchGlassSurfaceStyle.fillOpacity : 0
+                ))
+                .overlay {
+                    RoundedRectangle(cornerRadius: searchGlassSurfaceStyle.cornerRadius, style: .continuous)
+                        .strokeBorder(
+                            Color.white.opacity(searchGlassSurfaceStyle.boundaryOpacity),
+                            lineWidth: 1
+                        )
+                }
+        }
         .contentShape(Rectangle())
         .onTapGesture {
             focusSearchField()
@@ -1693,9 +1918,78 @@ struct HistoryWindowView: View {
             }
         )
         .opacity(searchUIState.isFieldVisualVisible ? 1 : 0)
-        .scaleEffect(searchUIState.isFieldVisualVisible ? 1 : 0.985, anchor: .leading)
+        .foregroundStyle(toolbarPrimaryForeground)
+        .scaleEffect(searchUIState.isFieldVisualVisible ? 1 : 1, anchor: .center)
         .allowsHitTesting(searchUIState.isVisible)
         .animation(.easeOut(duration: 0.12), value: searchUIState.isFieldVisualVisible)
+    }
+
+    private var searchTokenWidthMeasurer: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 14, height: 20)
+
+            ForEach(searchTokens) { token in
+                searchTokenView(token)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .hidden()
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: SearchLeadingContentWidthPreferenceKey.self,
+                    value: proxy.size.width
+                )
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func searchTextInput(
+        scrollProxy: ScrollViewProxy,
+        width: CGFloat
+    ) -> some View {
+        SearchTextField(
+            text: $searchUIState.text,
+            isFocused: $isSearchFocused,
+            isComposing: $isSearchTextComposing,
+            pendingComposedInputEvent: $pendingComposedSearchInputEvent,
+            focusRequestID: searchFocusRequestID,
+            searchHasHandedOffFocusToCard: searchUIState.hasHandedOffFocusToCard,
+            hasSearchResult: !filteredItems.isEmpty,
+            hasSearchTokens: !searchTokens.isEmpty,
+            textColor: toolbarPrimaryNSColor,
+            font: searchTypography.nsFont,
+            onFocusChanged: synchronizeSearchTextFieldFocus,
+            onEnterFirstResult: enterFirstSearchResultFromSearchField,
+            onDeleteLastToken: handleSearchTokenBackspace,
+            onCancel: handleSearchCancel,
+            onReachLeadingContent: {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    scrollProxy.scrollTo("search-leading-content", anchor: .leading)
+                }
+            },
+            onReachTrailingContent: {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    scrollProxy.scrollTo("search-text-field", anchor: .trailing)
+                }
+            }
+        )
+        .font(searchTypography.swiftUIFont)
+        .frame(width: width)
+        .id("search-text-field")
+    }
+
+    private func searchTokenInsertionGap(at index: Int) -> some View {
+        Color.clear
+            .frame(width: 6, height: 20)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                searchTextInsertionIndex = index
+                focusSearchField()
+            }
     }
 
     private func searchTokenView(_ token: HistorySearchToken) -> some View {
@@ -1732,8 +2026,11 @@ struct HistoryWindowView: View {
         .fixedSize()
         .contentShape(Rectangle())
         .onTapGesture {
-            searchUIState.selectedTokenKind = token.kind
-            focusSearchField()
+            if searchUIState.selectedTokenKind == token.kind {
+                searchUIState.selectedTokenKind = nil
+            } else {
+                searchUIState.selectedTokenKind = token.kind
+            }
         }
     }
 
@@ -5546,8 +5843,7 @@ struct HistoryWindowView: View {
     }
 
     private func schedulePreheatVisibleAssets() {
-        PreviewAssetPreheater.schedule(
-            existingTask: &preheatTask,
+        assetPreheater.schedule(
             items: filteredItems,
             visibleWindow: historyRailVisibleWindow
         )
@@ -5934,10 +6230,14 @@ private struct SearchTextField: NSViewRepresentable {
     let searchHasHandedOffFocusToCard: Bool
     let hasSearchResult: Bool
     let hasSearchTokens: Bool
+    let textColor: NSColor
+    let font: NSFont
     let onFocusChanged: (Bool) -> Void
     let onEnterFirstResult: () -> Void
     let onDeleteLastToken: () -> Void
     let onCancel: () -> Void
+    let onReachLeadingContent: () -> Void
+    let onReachTrailingContent: () -> Void
 
     func makeNSView(context: Context) -> SearchNSTextField {
         let textField = SearchNSTextField()
@@ -5947,7 +6247,8 @@ private struct SearchTextField: NSViewRepresentable {
         textField.isBezeled = false
         textField.drawsBackground = false
         textField.focusRingType = .none
-        textField.font = .systemFont(ofSize: 13, weight: .medium)
+        textField.font = font
+        textField.textColor = textColor
         textField.placeholderString = "搜索"
         textField.lineBreakMode = .byTruncatingTail
         textField.cell?.sendsActionOnEndEditing = false
@@ -5965,9 +6266,10 @@ private struct SearchTextField: NSViewRepresentable {
         }
         nsView.placeholderString = hasSearchTokens ? nil : "搜索"
 
-        if nsView.font?.pointSize != 13 {
-            nsView.font = .systemFont(ofSize: 13, weight: .medium)
+        if nsView.font != font {
+            nsView.font = font
         }
+        nsView.textColor = textColor
 
         if searchHasHandedOffFocusToCard {
             if nsView.window?.firstResponder === nsView.currentEditor() {
@@ -6105,13 +6407,21 @@ private struct SearchTextField: NSViewRepresentable {
                     parent.onEnterFirstResult()
                 }
                 return true
-            case #selector(NSResponder.moveRight(_:)):
-                guard isCursorAtEnd(in: textView), parent.hasSearchResult else {
-                    return false
+            case #selector(NSResponder.moveLeft(_:)):
+                if textView.selectedRange().location == 0 {
+                    DispatchQueue.main.async { [parent] in
+                        parent.onReachLeadingContent()
+                    }
                 }
-
-                parent.onEnterFirstResult()
-                return true
+                return false
+            case #selector(NSResponder.moveRight(_:)):
+                let selection = textView.selectedRange()
+                if selection.location + selection.length == (textView.string as NSString).length {
+                    DispatchQueue.main.async { [parent] in
+                        parent.onReachTrailingContent()
+                    }
+                }
+                return false
             case #selector(NSResponder.deleteBackward(_:)):
                 guard parent.text.isEmpty, parent.hasSearchTokens else {
                     return false
@@ -6200,29 +6510,37 @@ private struct SearchTextField: NSViewRepresentable {
             }
         }
 
-        private func isCursorAtEnd(in textView: NSTextView) -> Bool {
-            let range = textView.selectedRange()
-            return range.length == 0 && range.location == (textView.string as NSString).length
-        }
     }
 }
 
 private struct GroupMouseDownObserver: NSViewRepresentable {
+    let registry: HistoryGroupMouseMonitorRegistry
+    let isEnabled: Bool
     let onMouseDown: () -> Void
     var onRightMouseDown: (() -> Void)?
     var onDoubleMouseDown: (() -> Void)?
 
-    init(onMouseDown: @escaping () -> Void) {
+    init(
+        registry: HistoryGroupMouseMonitorRegistry,
+        isEnabled: Bool,
+        onMouseDown: @escaping () -> Void
+    ) {
+        self.registry = registry
+        self.isEnabled = isEnabled
         self.onMouseDown = onMouseDown
         onRightMouseDown = nil
         onDoubleMouseDown = nil
     }
 
     init(
+        registry: HistoryGroupMouseMonitorRegistry,
+        isEnabled: Bool,
         onMouseDown: @escaping () -> Void,
         onRightMouseDown: (() -> Void)?,
         onDoubleMouseDown: (() -> Void)? = nil
     ) {
+        self.registry = registry
+        self.isEnabled = isEnabled
         self.onMouseDown = onMouseDown
         self.onRightMouseDown = onRightMouseDown
         self.onDoubleMouseDown = onDoubleMouseDown
@@ -6243,24 +6561,31 @@ private struct GroupMouseDownObserver: NSViewRepresentable {
     func makeNSView(context: Context) -> ObservingView {
         let view = ObservingView()
         view.coordinator = context.coordinator
-        context.coordinator.view = view
-        context.coordinator.onMouseDown = onMouseDown
-        context.coordinator.onRightMouseDown = onRightMouseDown
-        context.coordinator.onDoubleMouseDown = onDoubleMouseDown
-        context.coordinator.installMonitor()
+        context.coordinator.update(
+            registry: registry,
+            view: view,
+            isEnabled: isEnabled,
+            onMouseDown: onMouseDown,
+            onRightMouseDown: onRightMouseDown,
+            onDoubleMouseDown: onDoubleMouseDown
+        )
         return view
     }
 
     func updateNSView(_ nsView: ObservingView, context: Context) {
         nsView.coordinator = context.coordinator
-        context.coordinator.view = nsView
-        context.coordinator.onMouseDown = onMouseDown
-        context.coordinator.onRightMouseDown = onRightMouseDown
-        context.coordinator.onDoubleMouseDown = onDoubleMouseDown
+        context.coordinator.update(
+            registry: registry,
+            view: nsView,
+            isEnabled: isEnabled,
+            onMouseDown: onMouseDown,
+            onRightMouseDown: onRightMouseDown,
+            onDoubleMouseDown: onDoubleMouseDown
+        )
     }
 
     static func dismantleNSView(_ nsView: ObservingView, coordinator: Coordinator) {
-        coordinator.removeMonitor()
+        coordinator.dismantle()
     }
 
     func makeCoordinator() -> Coordinator {
@@ -6269,49 +6594,43 @@ private struct GroupMouseDownObserver: NSViewRepresentable {
 
     @MainActor
     final class Coordinator {
-        weak var view: ObservingView?
-        var onMouseDown: (() -> Void)?
-        var onRightMouseDown: (() -> Void)?
-        var onDoubleMouseDown: (() -> Void)?
-        private var monitor: Any?
+        private let regionID = UUID()
+        private weak var registry: HistoryGroupMouseMonitorRegistry?
+        private var isDismantled = false
 
-        func installMonitor() {
-            removeMonitor()
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-                self?.handle(event)
-                return event
-            }
-        }
-
-        func removeMonitor() {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
-            }
-        }
-
-        @MainActor
-        private func handle(_ event: NSEvent) {
-            guard let view,
-                  event.window === view.window else {
+        func update(
+            registry: HistoryGroupMouseMonitorRegistry,
+            view: ObservingView,
+            isEnabled: Bool,
+            onMouseDown: @escaping () -> Void,
+            onRightMouseDown: (() -> Void)?,
+            onDoubleMouseDown: (() -> Void)?
+        ) {
+            guard !isDismantled else {
                 return
             }
 
-            let point = view.convert(event.locationInWindow, from: nil)
-            guard view.bounds.contains(point) else {
+            if self.registry !== registry {
+                self.registry?.unregister(id: regionID)
+                self.registry = registry
+            }
+            registry.register(
+                id: regionID,
+                view: view,
+                isEnabled: isEnabled,
+                onMouseDown: onMouseDown,
+                onRightMouseDown: onRightMouseDown,
+                onDoubleMouseDown: onDoubleMouseDown
+            )
+        }
+
+        func dismantle() {
+            guard !isDismantled else {
                 return
             }
-
-            switch event.type {
-            case .rightMouseDown:
-                (onRightMouseDown ?? onMouseDown)?()
-            default:
-                if event.clickCount >= 2, let onDoubleMouseDown {
-                    onDoubleMouseDown()
-                } else {
-                    onMouseDown?()
-                }
-            }
+            isDismantled = true
+            registry?.unregister(id: regionID)
+            registry = nil
         }
     }
 
@@ -6324,7 +6643,7 @@ private struct GroupMouseDownObserver: NSViewRepresentable {
     }
 }
 
-private struct GroupRenameOutsideMouseDownObserver: NSViewRepresentable {
+struct GroupRenameOutsideMouseDownObserver: NSViewRepresentable {
     let isEnabled: Bool
     let hostWindow: NSWindow?
     let excludedScreenFrame: CGRect?
@@ -6334,26 +6653,24 @@ private struct GroupRenameOutsideMouseDownObserver: NSViewRepresentable {
         let view = ObservingView()
         view.coordinator = context.coordinator
         context.coordinator.view = view
-        context.coordinator.isEnabled = isEnabled
         context.coordinator.hostWindow = hostWindow
         context.coordinator.excludedScreenFrame = excludedScreenFrame
         context.coordinator.onMouseDown = onMouseDown
-        context.coordinator.installMonitor()
+        context.coordinator.setEnabled(isEnabled)
         return view
     }
 
     func updateNSView(_ nsView: ObservingView, context: Context) {
         nsView.coordinator = context.coordinator
         context.coordinator.view = nsView
-        context.coordinator.isEnabled = isEnabled
         context.coordinator.hostWindow = hostWindow
         context.coordinator.excludedScreenFrame = excludedScreenFrame
         context.coordinator.onMouseDown = onMouseDown
-        context.coordinator.installMonitorIfNeeded()
+        context.coordinator.setEnabled(isEnabled)
     }
 
     static func dismantleNSView(_ nsView: ObservingView, coordinator: Coordinator) {
-        coordinator.removeMonitor()
+        coordinator.dismantle()
     }
 
     func makeCoordinator() -> Coordinator {
@@ -6363,33 +6680,54 @@ private struct GroupRenameOutsideMouseDownObserver: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         weak var view: ObservingView?
-        var isEnabled = false
+        private(set) var isEnabled = false
         weak var hostWindow: NSWindow?
         var excludedScreenFrame: CGRect?
         var onMouseDown: (() -> Void)?
-        private var monitor: Any?
-
-        func installMonitor() {
-            removeMonitor()
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-                self?.handle(event)
-                return event
+        private let injectedMonitorLifecycle: HistoryEventMonitorLifecycle?
+        private var isDismantled = false
+        private lazy var monitorLifecycle = injectedMonitorLifecycle ?? HistoryEventMonitorLifecycle(
+            install: { [weak self] in
+                guard let self,
+                      let monitor = NSEvent.addLocalMonitorForEvents(
+                          matching: [.leftMouseDown, .rightMouseDown],
+                          handler: { [weak self] event in
+                              self?.handle(event)
+                              return event
+                          }
+                      ) else {
+                    return []
+                }
+                return [monitor]
+            },
+            remove: { monitor in
+                NSEvent.removeMonitor(monitor)
             }
+        )
+
+        init(monitorLifecycle: HistoryEventMonitorLifecycle? = nil) {
+            injectedMonitorLifecycle = monitorLifecycle
         }
 
-        func installMonitorIfNeeded() {
-            guard monitor == nil else {
+        func setEnabled(_ enabled: Bool) {
+            guard !isDismantled else {
                 return
             }
-
-            installMonitor()
+            isEnabled = enabled
+            monitorLifecycle.setEnabled(enabled)
         }
 
-        func removeMonitor() {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
+        func dismantle() {
+            guard !isDismantled else {
+                return
             }
+            isDismantled = true
+            isEnabled = false
+            onMouseDown = nil
+            excludedScreenFrame = nil
+            hostWindow = nil
+            view = nil
+            monitorLifecycle.dismantle()
         }
 
         @MainActor
@@ -6448,7 +6786,7 @@ private struct GroupRenameOutsideMouseDownObserver: NSViewRepresentable {
     }
 }
 
-private struct GroupAppearanceOutsideMouseDownObserver: NSViewRepresentable {
+struct GroupAppearanceOutsideMouseDownObserver: NSViewRepresentable {
     let isEnabled: Bool
     let hostWindow: NSWindow?
     let popoverWindow: NSWindow?
@@ -6458,26 +6796,24 @@ private struct GroupAppearanceOutsideMouseDownObserver: NSViewRepresentable {
         let view = ObservingView()
         view.coordinator = context.coordinator
         context.coordinator.view = view
-        context.coordinator.isEnabled = isEnabled
         context.coordinator.hostWindow = hostWindow
         context.coordinator.popoverWindow = popoverWindow
         context.coordinator.onMouseDown = onMouseDown
-        context.coordinator.installMonitor()
+        context.coordinator.setEnabled(isEnabled)
         return view
     }
 
     func updateNSView(_ nsView: ObservingView, context: Context) {
         nsView.coordinator = context.coordinator
         context.coordinator.view = nsView
-        context.coordinator.isEnabled = isEnabled
         context.coordinator.hostWindow = hostWindow
         context.coordinator.popoverWindow = popoverWindow
         context.coordinator.onMouseDown = onMouseDown
-        context.coordinator.installMonitorIfNeeded()
+        context.coordinator.setEnabled(isEnabled)
     }
 
     static func dismantleNSView(_ nsView: ObservingView, coordinator: Coordinator) {
-        coordinator.removeMonitor()
+        coordinator.dismantle()
     }
 
     func makeCoordinator() -> Coordinator {
@@ -6487,48 +6823,77 @@ private struct GroupAppearanceOutsideMouseDownObserver: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         weak var view: ObservingView?
-        var isEnabled = false
+        private(set) var isEnabled = false
         weak var hostWindow: NSWindow?
         weak var popoverWindow: NSWindow?
         var onMouseDown: (() -> Void)?
-        private var localMonitor: Any?
-        private var globalMonitor: Any?
-
-        func installMonitor() {
-            removeMonitor()
-            localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-                self?.handle(event)
-                return event
-            }
-            globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-                Task { @MainActor in
-                    self?.handle(event)
+        private let injectedMonitorLifecycle: HistoryEventMonitorLifecycle?
+        private var isDismantled = false
+        private lazy var monitorLifecycle = injectedMonitorLifecycle ?? HistoryEventMonitorLifecycle(
+            requiredTokenCount: 2,
+            install: { [weak self] in
+                guard let self else {
+                    return []
                 }
+                var monitors: [Any] = []
+                if let localMonitor = NSEvent.addLocalMonitorForEvents(
+                    matching: [.leftMouseDown, .rightMouseDown],
+                    handler: { [weak self] event in
+                        self?.handle(event)
+                        return event
+                    }
+                ) {
+                    monitors.append(localMonitor)
+                }
+                if let globalMonitor = NSEvent.addGlobalMonitorForEvents(
+                    matching: [.leftMouseDown, .rightMouseDown],
+                    handler: { [weak self] event in
+                        Task { @MainActor [weak self] in
+                            self?.handle(event)
+                        }
+                    }
+                ) {
+                    monitors.append(globalMonitor)
+                }
+                return monitors
+            },
+            remove: { monitor in
+                NSEvent.removeMonitor(monitor)
             }
+        )
+
+        init(monitorLifecycle: HistoryEventMonitorLifecycle? = nil) {
+            injectedMonitorLifecycle = monitorLifecycle
         }
 
-        func installMonitorIfNeeded() {
-            guard localMonitor == nil || globalMonitor == nil else {
+        func setEnabled(_ enabled: Bool) {
+            guard !isDismantled else {
                 return
             }
-
-            installMonitor()
+            isEnabled = enabled
+            monitorLifecycle.setEnabled(enabled)
         }
 
-        func removeMonitor() {
-            if let localMonitor {
-                NSEvent.removeMonitor(localMonitor)
-                self.localMonitor = nil
+        func dismantle() {
+            guard !isDismantled else {
+                return
             }
-            if let globalMonitor {
-                NSEvent.removeMonitor(globalMonitor)
-                self.globalMonitor = nil
-            }
+            isDismantled = true
+            isEnabled = false
+            onMouseDown = nil
+            popoverWindow = nil
+            hostWindow = nil
+            view = nil
+            monitorLifecycle.dismantle()
         }
 
         @MainActor
         private func handle(_ event: NSEvent) {
             let role = eventWindowRole(for: event)
+            handle(eventWindowRole: role)
+        }
+
+        func handle(eventWindowRole role: HistoryGroupAppearanceEventWindowRole) {
             guard HistoryGroupAppearanceOutsideClickPolicy.shouldClose(
                 isEnabled: isEnabled,
                 eventWindowRole: role
@@ -7154,16 +7519,19 @@ private struct HistoryRailControlButtonStyle: ButtonStyle {
 
 private struct HistoryRailControlButtonBody: View {
     let configuration: HistoryRailControlButtonStyle.Configuration
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
+        let style = HistoryGlassToolbarControlPolicy.style
+        let showsInteractiveMotion = !reduceMotion
+
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.01 : 1))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.white.opacity(configuration.isPressed ? 0.14 : (isHovered ? 0.08 : 0)))
-                    .allowsHitTesting(false)
-            }
+            .scaleEffect(
+                showsInteractiveMotion
+                    ? (configuration.isPressed ? style.pressedScale : (isHovered ? 1.01 : 1))
+                    : 1
+            )
             .onHover { hovering in
                 isHovered = hovering
             }
@@ -7178,7 +7546,9 @@ private extension View {
     }
 }
 
-private struct MoreMenuButton: NSViewRepresentable {
+struct MoreMenuButton: NSViewRepresentable {
+    typealias MenuPresenter = @MainActor (NSMenu, NSButton) -> Void
+
     let menuProvider: () -> NSMenu
 
     func makeCoordinator() -> Coordinator {
@@ -7186,36 +7556,58 @@ private struct MoreMenuButton: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(title: "...", target: context.coordinator, action: #selector(Coordinator.openMenu(_:)))
+        Self.makeButton(coordinator: context.coordinator)
+    }
+
+    static func makeButton(coordinator: Coordinator) -> NSButton {
+        let button = NSButton(title: "", target: coordinator, action: #selector(Coordinator.openMenu(_:)))
+        configure(button)
+        coordinator.button = button
+        return button
+    }
+
+    static func configure(_ button: NSButton) {
+        button.title = ""
+        button.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "更多操作")
+        button.imagePosition = .imageOnly
         button.isBordered = false
         button.bezelStyle = .regularSquare
         button.font = .systemFont(ofSize: 14, weight: .semibold)
         button.alignment = .center
-        button.focusRingType = .none
-        button.refusesFirstResponder = true
+        button.focusRingType = .default
+        button.refusesFirstResponder = false
         button.setButtonType(.momentaryChange)
         button.translatesAutoresizingMaskIntoConstraints = false
-        context.coordinator.button = button
-        return button
+        button.toolTip = "更多操作"
+        button.setAccessibilityLabel("更多操作")
+        button.setAccessibilityRole(.menuButton)
     }
 
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.menuProvider = menuProvider
-        button.title = "..."
+        Self.configure(button)
     }
 
+    @MainActor
     final class Coordinator: NSObject {
         var menuProvider: () -> NSMenu
+        let menuPresenter: MenuPresenter
         weak var button: NSButton?
 
-        init(menuProvider: @escaping () -> NSMenu) {
+        init(
+            menuProvider: @escaping () -> NSMenu,
+            menuPresenter: @escaping MenuPresenter = { menu, button in
+                let point = NSPoint(x: 0, y: button.bounds.minY - 4)
+                menu.popUp(positioning: nil, at: point, in: button)
+            }
+        ) {
             self.menuProvider = menuProvider
+            self.menuPresenter = menuPresenter
         }
 
-        @MainActor @objc func openMenu(_ sender: NSButton) {
+        @objc func openMenu(_ sender: NSButton) {
             let menu = menuProvider()
-            let point = NSPoint(x: 0, y: sender.bounds.minY - 4)
-            menu.popUp(positioning: nil, at: point, in: sender)
+            menuPresenter(menu, sender)
         }
     }
 }
@@ -7232,8 +7624,9 @@ private final class ClosureMenuItemTarget: NSObject {
     }
 }
 
-private struct NumberShortcutHandler: NSViewRepresentable {
+struct NumberShortcutHandler: NSViewRepresentable {
     let inputState: HistoryWindowInputState
+    let isEnabled: Bool
     let onCommandStateChange: (Bool) -> Void
     let onNumber: (Int) -> Void
 
@@ -7242,6 +7635,7 @@ private struct NumberShortcutHandler: NSViewRepresentable {
         view.inputState = inputState
         view.onCommandStateChange = onCommandStateChange
         view.onNumber = onNumber
+        view.setEnabled(isEnabled)
         return view
     }
 
@@ -7249,72 +7643,128 @@ private struct NumberShortcutHandler: NSViewRepresentable {
         nsView.inputState = inputState
         nsView.onCommandStateChange = onCommandStateChange
         nsView.onNumber = onNumber
+        nsView.setEnabled(isEnabled)
+    }
+
+    static func dismantleNSView(_ nsView: ShortcutNSView, coordinator: ()) {
+        nsView.dismantle()
     }
 
     final class ShortcutNSView: NSView {
         weak var inputState: HistoryWindowInputState?
         var onCommandStateChange: ((Bool) -> Void)?
         var onNumber: ((Int) -> Void)?
-        private var monitor: Any?
-        private var flagsMonitor: Any?
+        private let injectedMonitorLifecycle: HistoryEventMonitorLifecycle?
+        private var requestedEnabled = false
+        private var isDismantled = false
+        private lazy var monitorLifecycle = injectedMonitorLifecycle ?? HistoryEventMonitorLifecycle(
+            requiredTokenCount: 2,
+            install: { [weak self] in
+                guard let self else {
+                    return []
+                }
+                var monitors: [Any] = []
+                if let keyMonitor = NSEvent.addLocalMonitorForEvents(
+                    matching: .keyDown,
+                    handler: { [weak self] event in
+                        guard let self,
+                              !self.isPreviewContentActive(),
+                              self.window?.isKeyWindow == true,
+                              !self.isHistoryTextInputActive(),
+                              event.modifierFlags.contains(.command),
+                              let characters = event.charactersIgnoringModifiers,
+                              characters.count == 1,
+                              let number = Int(characters),
+                              (1...9).contains(number) else {
+                            return event
+                        }
+
+                        self.onNumber?(number)
+                        return nil
+                    }
+                ) {
+                    monitors.append(keyMonitor)
+                }
+                if let flagsMonitor = NSEvent.addLocalMonitorForEvents(
+                    matching: .flagsChanged,
+                    handler: { [weak self] event in
+                        guard let self,
+                              !self.isPreviewContentActive(),
+                              self.window?.isKeyWindow == true else {
+                            self?.onCommandStateChange?(false)
+                            return event
+                        }
+
+                        let isTextInputActive = self.isHistoryTextInputActive()
+                        self.onCommandStateChange?(
+                            event.modifierFlags.contains(.command) && !isTextInputActive
+                        )
+                        return event
+                    }
+                ) {
+                    monitors.append(flagsMonitor)
+                }
+                return monitors
+            },
+            remove: { monitor in
+                NSEvent.removeMonitor(monitor)
+            }
+        )
+
+        init(monitorLifecycle: HistoryEventMonitorLifecycle? = nil) {
+            injectedMonitorLifecycle = monitorLifecycle
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            nil
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if window == nil {
-                removeMonitors()
-            } else {
-                installMonitors()
+            synchronizeMonitorLifecycle()
+        }
+
+        func setEnabled(_ enabled: Bool) {
+            guard !isDismantled else {
+                return
+            }
+            requestedEnabled = enabled
+            synchronizeMonitorLifecycle()
+        }
+
+        func dismantle() {
+            guard !isDismantled else {
+                return
+            }
+            isDismantled = true
+            requestedEnabled = false
+            monitorLifecycle.dismantle()
+            reportCommandStateChange(false, asynchronously: true)
+            onCommandStateChange = nil
+            onNumber = nil
+            inputState = nil
+        }
+
+        private func synchronizeMonitorLifecycle() {
+            let shouldEnable = requestedEnabled && window != nil && !isDismantled
+            monitorLifecycle.setEnabled(shouldEnable)
+            if !shouldEnable {
+                reportCommandStateChange(false, asynchronously: true)
             }
         }
 
-        private func installMonitors() {
-            if monitor == nil {
-                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                    guard let self,
-                          !self.isPreviewContentActive(),
-                          self.window?.isKeyWindow == true,
-                          !self.isHistoryTextInputActive(),
-                          event.modifierFlags.contains(.command),
-                          let characters = event.charactersIgnoringModifiers,
-                          characters.count == 1,
-                          let number = Int(characters),
-                          (1...9).contains(number) else {
-                        return event
-                    }
-
-                    self.onNumber?(number)
-                    return nil
-                }
+        private func reportCommandStateChange(_ isPressed: Bool, asynchronously: Bool) {
+            guard asynchronously else {
+                onCommandStateChange?(isPressed)
+                return
             }
 
-            if flagsMonitor == nil {
-                flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-                    guard let self,
-                          !self.isPreviewContentActive(),
-                          self.window?.isKeyWindow == true else {
-                        self?.onCommandStateChange?(false)
-                        return event
-                    }
-
-                    let isTextInputActive = self.isHistoryTextInputActive()
-                    self.onCommandStateChange?(event.modifierFlags.contains(.command) && !isTextInputActive)
-                    return event
-                }
+            let handler = onCommandStateChange
+            DispatchQueue.main.async {
+                handler?(isPressed)
             }
-        }
-
-        private func removeMonitors() {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
-            }
-
-            if let flagsMonitor {
-                NSEvent.removeMonitor(flagsMonitor)
-                self.flagsMonitor = nil
-            }
-
-            onCommandStateChange?(false)
         }
 
         private func isPreviewContentActive() -> Bool {
@@ -7335,45 +7785,54 @@ private struct NumberShortcutHandler: NSViewRepresentable {
     }
 }
 
-private struct CardRailScrollViewBinder: NSViewRepresentable {
+struct CardRailScrollViewBinder: NSViewRepresentable {
     let onBind: () -> Void
 
     func makeNSView(context: Context) -> BindingView {
         let view = BindingView()
         view.onBind = onBind
-        DispatchQueue.main.async {
-            view.bindScrollViewIfNeeded()
-        }
+        view.bindScrollViewSoon()
         return view
     }
 
     func updateNSView(_ nsView: BindingView, context: Context) {
         nsView.onBind = onBind
-        DispatchQueue.main.async {
-            nsView.bindScrollViewIfNeeded()
-        }
+        nsView.bindScrollViewSoon()
     }
 
     final class BindingView: NSView {
         var onBind: (() -> Void)?
+        private var isBindScheduled = false
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            DispatchQueue.main.async {
-                self.bindScrollViewIfNeeded()
-            }
+            bindScrollViewSoon()
         }
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
-            DispatchQueue.main.async {
-                self.bindScrollViewIfNeeded()
-            }
+            bindScrollViewSoon()
         }
 
         override func layout() {
             super.layout()
-            bindScrollViewIfNeeded()
+            bindScrollViewSoon()
+        }
+
+        func bindScrollViewSoon() {
+            guard !isBindScheduled else {
+                return
+            }
+
+            isBindScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                self.isBindScheduled = false
+                self.bindScrollViewIfNeeded()
+            }
         }
 
         func bindScrollViewIfNeeded() {
@@ -7774,6 +8233,14 @@ private final class ClipViewBoundsObserver: NSObject, @unchecked Sendable {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+}
+
+private struct SearchLeadingContentWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

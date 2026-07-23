@@ -42,9 +42,16 @@ enum SQLiteGroupDAO {
         for group in groups {
             try database.execute(
                 """
-                INSERT OR REPLACE INTO groups (
+                INSERT INTO groups (
                     id, name, color_hex, icon_name, sort_order, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    color_hex = excluded.color_hex,
+                    icon_name = excluded.icon_name,
+                    sort_order = excluded.sort_order,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at
                 """,
                 values: values(for: group)
             )

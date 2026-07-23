@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-private final class RichTextPreviewValue: @unchecked Sendable {
+final class RichTextPreviewValue: @unchecked Sendable {
     let attributedString: NSAttributedString
 
     init(_ attributedString: NSAttributedString) {
@@ -41,13 +41,13 @@ enum RichTextPreviewLoader {
         "\(richTextFileName ?? "plain")|\(text.count)|\(text.unicodeScalars.reduce(5381) { (($0 << 5) &+ $0) &+ Int($1.value) })"
     }
 
-    static func attributedString(
+    static func value(
         fileName: String,
         fallbackText: String
-    ) async -> NSAttributedString {
+    ) async -> RichTextPreviewValue {
         let cacheKey = key(richTextFileName: fileName, text: fallbackText)
         if let cached = await RichTextPreviewCache.shared.value(for: cacheKey) {
-            return cached.attributedString
+            return cached
         }
 
         guard let fileURL = try? ClipEaseStoragePaths.richTextFileURL(fileName: fileName),
@@ -57,15 +57,16 @@ enum RichTextPreviewLoader {
                 options: [.documentType: NSAttributedString.DocumentType.rtf],
                 documentAttributes: nil
               ) else {
-            return NSAttributedString(string: fallbackText)
+            return RichTextPreviewValue(NSAttributedString(string: fallbackText))
         }
 
         if attributedText.length > 0 {
-            await RichTextPreviewCache.shared.store(RichTextPreviewValue(attributedText), for: cacheKey)
-            return attributedText
+            let value = RichTextPreviewValue(attributedText)
+            await RichTextPreviewCache.shared.store(value, for: cacheKey)
+            return value
         }
 
-        return NSAttributedString(string: fallbackText)
+        return RichTextPreviewValue(NSAttributedString(string: fallbackText))
     }
 }
 
@@ -123,46 +124,62 @@ struct LazyPreviewTextView: NSViewRepresentable {
         Coordinator()
     }
 
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        coordinator.cancel()
+        scrollView.documentView = nil
+    }
+
     @MainActor
     final class Coordinator {
         weak var textView: NSTextView?
-        private var currentText = ""
         private var representedKey = ""
         private var appendTask: Task<Void, Never>?
         private var richTextTask: Task<Void, Never>?
+        private let waitBetweenChunks: @MainActor () async -> Void
+        private let loadRichText: @Sendable (String, String) async -> RichTextPreviewValue
 
+        init(
+            waitBetweenChunks: @escaping @MainActor () async -> Void = {
+                try? await Task.sleep(nanoseconds: 12_000_000)
+            },
+            loadRichText: @escaping @Sendable (String, String) async -> RichTextPreviewValue = { fileName, fallbackText in
+                await RichTextPreviewLoader.value(
+                    fileName: fileName,
+                    fallbackText: fallbackText
+                )
+            }
+        ) {
+            self.waitBetweenChunks = waitBetweenChunks
+            self.loadRichText = loadRichText
+        }
+
+        @discardableResult
         func update(
             text: String,
             isReady: Bool,
             richTextFileName: String?,
             in textView: NSTextView
-        ) {
+        ) -> Task<Void, Never>? {
             guard isReady else {
-                appendTask?.cancel()
-                richTextTask?.cancel()
-                currentText = ""
+                cancelPendingTasks()
                 representedKey = ""
                 textView.string = ""
-                return
+                return nil
             }
 
             let key = RichTextPreviewLoader.key(richTextFileName: richTextFileName, text: text)
             guard representedKey != key else {
-                return
+                return appendTask ?? richTextTask
             }
 
-            appendTask?.cancel()
-            richTextTask?.cancel()
+            cancelPendingTasks()
             representedKey = key
-            currentText = ""
 
             if let richTextFileName {
                 textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
-                richTextTask = Task.detached(priority: .utility) {
-                    let attributedString = await RichTextPreviewLoader.attributedString(
-                        fileName: richTextFileName,
-                        fallbackText: text
-                    )
+                let loadRichText = self.loadRichText
+                richTextTask = Task.detached(priority: .utility) { [weak self, weak textView] in
+                    let richTextValue = await loadRichText(richTextFileName, text)
 
                     await MainActor.run { [weak self, weak textView] in
                         guard let self,
@@ -172,39 +189,75 @@ struct LazyPreviewTextView: NSViewRepresentable {
                             return
                         }
 
-                        textView.textStorage?.setAttributedString(attributedString)
+                        textView.textStorage?.setAttributedString(richTextValue.attributedString)
                     }
                 }
-                return
+                return richTextTask
             }
 
             textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
             append(text, to: textView)
+            return appendTask
         }
 
         private func append(_ text: String, to textView: NSTextView) {
             let chunkSize = 8_000
-            let chunks = stride(from: 0, to: text.count, by: chunkSize).map { offset in
-                let start = text.index(text.startIndex, offsetBy: offset)
-                let end = text.index(start, offsetBy: min(chunkSize, text.distance(from: start, to: text.endIndex)))
-                return String(text[start..<end])
-            }
+            let waitBetweenChunks = self.waitBetweenChunks
 
-            appendTask = Task { @MainActor [weak self, weak textView] in
-                guard let self, let textView else {
-                    return
-                }
+            appendTask = Task { @MainActor [weak textView] in
+                var renderedText = ""
+                var start = text.startIndex
 
-                for chunk in chunks {
+                while start < text.endIndex {
                     guard !Task.isCancelled else {
                         return
                     }
 
-                    self.currentText += chunk
-                    textView.string = self.currentText
-                    try? await Task.sleep(nanoseconds: 12_000_000)
+                    let end = text.index(
+                        start,
+                        offsetBy: chunkSize,
+                        limitedBy: text.endIndex
+                    ) ?? text.endIndex
+                    guard Self.append(
+                        text[start..<end],
+                        to: &renderedText,
+                        in: textView
+                    ) else {
+                        return
+                    }
+
+                    start = end
+                    if start < text.endIndex {
+                        await waitBetweenChunks()
+                    }
                 }
             }
+        }
+
+        func cancel() {
+            cancelPendingTasks()
+            representedKey = ""
+            textView = nil
+        }
+
+        private func cancelPendingTasks() {
+            appendTask?.cancel()
+            appendTask = nil
+            richTextTask?.cancel()
+            richTextTask = nil
+        }
+
+        private static func append(
+            _ chunk: Substring,
+            to renderedText: inout String,
+            in textView: NSTextView?
+        ) -> Bool {
+            guard let textView else {
+                return false
+            }
+            renderedText.append(contentsOf: chunk)
+            textView.string = renderedText
+            return true
         }
 
         deinit {

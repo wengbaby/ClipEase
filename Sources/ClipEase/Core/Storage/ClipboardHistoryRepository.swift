@@ -5,6 +5,12 @@ struct ClipboardHistorySnapshot: Sendable {
     var groups: [ClipboardGroup]
 }
 
+struct ClipboardHistoryRetentionDeletionResult: Sendable {
+    let cleanup: ClipboardAttachmentCleanup
+    let removedItemIDs: Set<ClipboardItem.ID>
+    let protectedGroupIDs: Set<ClipboardGroup.ID>
+}
+
 struct ClipboardSearchQuery: Sendable, Equatable {
     var text: String
     var limit: Int
@@ -70,14 +76,78 @@ protocol ClipboardHistoryRepository {
     func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) throws
     func insertItems(_ items: [ClipboardItem]) throws
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws
-    func deleteItems(with ids: Set<ClipboardItem.ID>, deletingGroups groupIDs: Set<ClipboardGroup.ID>) throws
-    func deleteAllItemsAndGroups() throws
+    @discardableResult
+    func compensateImportedItem(
+        insertedItemID: ClipboardItem.ID,
+        restoring displacedItems: [ClipboardItem]
+    ) throws -> ClipboardAttachmentCleanup
+    @discardableResult
+    func deleteItems(
+        with ids: Set<ClipboardItem.ID>,
+        deletingGroups groupIDs: Set<ClipboardGroup.ID>
+    ) throws -> ClipboardAttachmentCleanup
+    @discardableResult
+    func deleteAllItems(preserving groups: [ClipboardGroup]) throws -> ClipboardAttachmentCleanup
+    @discardableResult
+    func deleteExpiredItems(before cutoff: Date) throws -> ClipboardAttachmentCleanup
+    func deleteExpiredItemsWithResult(
+        before cutoff: Date
+    ) throws -> ClipboardHistoryRetentionDeletionResult
     func compactIfNeeded(policy: ClipboardDatabaseCompactionPolicy) throws -> ClipboardDatabaseCompactionResult
+    func referencedAttachments(in candidates: ClipboardAttachmentCleanup) throws -> ClipboardAttachmentCleanup
 }
 
 extension ClipboardHistoryRepository {
+    func deleteExpiredItemsWithResult(
+        before cutoff: Date
+    ) throws -> ClipboardHistoryRetentionDeletionResult {
+        let snapshot = try loadSnapshot()
+        let protectedGroupIDs = Set(snapshot.groups.map(\.id))
+        let removedItemIDs: Set<ClipboardItem.ID> = Set(snapshot.items.compactMap { item -> ClipboardItem.ID? in
+            guard !item.isPinned,
+                  item.createdAt < cutoff,
+                  item.groupID.map(protectedGroupIDs.contains) != true else {
+                return nil
+            }
+            return item.id
+        })
+        let cleanup = try deleteExpiredItems(before: cutoff)
+        return ClipboardHistoryRetentionDeletionResult(
+            cleanup: cleanup,
+            removedItemIDs: removedItemIDs,
+            protectedGroupIDs: protectedGroupIDs
+        )
+    }
+
+    @discardableResult
+    func compensateImportedItem(
+        insertedItemID: ClipboardItem.ID,
+        restoring displacedItems: [ClipboardItem]
+    ) throws -> ClipboardAttachmentCleanup {
+        var snapshot = try loadSnapshot()
+        let removedItems = snapshot.items.filter { $0.id == insertedItemID }
+        snapshot.items.removeAll { $0.id == insertedItemID }
+        let currentIDs = Set(snapshot.items.map(\.id))
+        let restorations = displacedItems.filter { !currentIDs.contains($0.id) }
+        snapshot.items.insert(contentsOf: restorations, at: 0)
+        try saveSnapshot(snapshot)
+        return ClipboardAttachmentCleanup(items: removedItems)
+    }
+
     func compactIfNeeded(policy: ClipboardDatabaseCompactionPolicy) throws -> ClipboardDatabaseCompactionResult {
         .skipped
+    }
+
+    func referencedAttachments(in candidates: ClipboardAttachmentCleanup) throws -> ClipboardAttachmentCleanup {
+        guard !candidates.isEmpty else {
+            return .empty
+        }
+
+        let referenced = ClipboardAttachmentCleanup(items: try loadSnapshot().items)
+        return ClipboardAttachmentCleanup(
+            imageFileNames: candidates.imageFileNames.intersection(referenced.imageFileNames),
+            richTextFileNames: candidates.richTextFileNames.intersection(referenced.richTextFileNames)
+        )
     }
 
     func loadItems() throws -> [ClipboardItem] {
@@ -171,19 +241,54 @@ extension ClipboardHistoryRepository {
         try saveSnapshot(snapshot)
     }
 
-    func deleteItems(with ids: Set<ClipboardItem.ID>, deletingGroups groupIDs: Set<ClipboardGroup.ID>) throws {
+    @discardableResult
+    func deleteItems(
+        with ids: Set<ClipboardItem.ID>,
+        deletingGroups groupIDs: Set<ClipboardGroup.ID>
+    ) throws -> ClipboardAttachmentCleanup {
         guard !ids.isEmpty || !groupIDs.isEmpty else {
-            return
+            return .empty
         }
 
         var snapshot = try loadSnapshot()
-        snapshot.items.removeAll { ids.contains($0.id) }
+        let removedItems = snapshot.items.filter { item in
+            ids.contains(item.id) || item.groupID.map(groupIDs.contains) == true
+        }
+        snapshot.items.removeAll { item in
+            ids.contains(item.id) || item.groupID.map(groupIDs.contains) == true
+        }
         snapshot.groups.removeAll { groupIDs.contains($0.id) }
         try saveSnapshot(snapshot)
+        return ClipboardAttachmentCleanup(items: removedItems)
     }
 
-    func deleteAllItemsAndGroups() throws {
-        try saveSnapshot(ClipboardHistorySnapshot(items: [], groups: []))
+    @discardableResult
+    func deleteAllItems(
+        preserving groups: [ClipboardGroup]
+    ) throws -> ClipboardAttachmentCleanup {
+        let snapshot = try loadSnapshot()
+        let cleanup = ClipboardAttachmentCleanup(items: snapshot.items)
+        try saveSnapshot(ClipboardHistorySnapshot(items: [], groups: groups))
+        return cleanup
+    }
+
+    @discardableResult
+    func deleteExpiredItems(before cutoff: Date) throws -> ClipboardAttachmentCleanup {
+        var snapshot = try loadSnapshot()
+        let validGroupIDs = Set(snapshot.groups.map(\.id))
+        let removedItems = snapshot.items.filter { item in
+            !item.isPinned
+                && item.createdAt < cutoff
+                && item.groupID.map(validGroupIDs.contains) != true
+        }
+        guard !removedItems.isEmpty else {
+            return .empty
+        }
+
+        let removedIDs = Set(removedItems.map(\.id))
+        snapshot.items.removeAll { removedIDs.contains($0.id) }
+        try saveSnapshot(snapshot)
+        return ClipboardAttachmentCleanup(items: removedItems)
     }
 }
 

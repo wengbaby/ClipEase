@@ -1,8 +1,10 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
 private enum SettingsCategory: String, CaseIterable, Identifiable {
     case general
+    case appearance
     case shortcut
     case recording
     case groups
@@ -19,6 +21,8 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general:
             "通用"
+        case .appearance:
+            "外观"
         case .shortcut:
             "快捷键"
         case .recording:
@@ -40,6 +44,8 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general:
             "保存期限和启动方式"
+        case .appearance:
+            "主题、玻璃、卡片和字体"
         case .shortcut:
             "打开或关闭底部历史窗口"
         case .recording:
@@ -61,6 +67,8 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general:
             "gearshape"
+        case .appearance:
+            "paintbrush"
         case .shortcut:
             "keyboard"
         case .recording:
@@ -86,8 +94,10 @@ struct SettingsView: View {
     @ObservedObject var ignoredAppSettings: IgnoredAppSettings
     @ObservedObject var globalShortcutSettings: GlobalShortcutSettings
     @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
+    @ObservedObject var appearanceSettings: AppearanceSettings
     @ObservedObject private var performanceDiagnostics = PerformanceDiagnosticsService.shared
     let pasteExecutor: PasteExecutor
+    let clipboardWriter: ClipboardWriteCoordinator
 
     @State private var isClearConfirmationPresented = false
     @State private var isClearIconCacheConfirmationPresented = false
@@ -97,11 +107,17 @@ struct SettingsView: View {
     @State private var isRecordingShortcut = false
     @State private var isHistoryTransferInProgress = false
     @State private var isDebugToolsVisible = false
+    @State private var isWindowEffectGalleryExpanded = false
+    @State private var isCardStyleGalleryExpanded = false
     @State private var versionTapCount = 0
     @State private var selectedCategory: SettingsCategory = .general
     @State private var groupSelection = Set<ClipboardGroup.ID>()
     @State private var groupPendingDeletion: ClipboardGroup?
+    @State private var groupPendingDeletionAssessment: SettingsHistoryDataActionCoordinator.GroupDeletionAssessment?
     @State private var isBulkGroupDeleteConfirmationPresented = false
+    @State private var bulkGroupPendingDeletionIDs = Set<ClipboardGroup.ID>()
+    @State private var bulkGroupPendingDeletionAssessment: SettingsHistoryDataActionCoordinator.GroupDeletionAssessment?
+    @State private var isGroupDeletionAssessmentInProgress = false
     @State private var groupAppearancePickerGroupID: ClipboardGroup.ID?
     @State private var groupAppearanceColor = Color(red: 0.18, green: 0.55, blue: 1.0)
     @State private var groupIconSearchText = ""
@@ -131,12 +147,13 @@ struct SettingsView: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 16)
                 }
-                .background(Color(nsColor: .windowBackgroundColor))
+                .background(settingsContentBackdrop)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 820, minHeight: 560)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(settingsWindowBackdrop)
+        .preferredColorScheme(appearanceSettings.preferredColorScheme)
         .onAppear {
             accessibilityPermissionState.refresh()
             loginItemController.refresh()
@@ -213,6 +230,7 @@ struct SettingsView: View {
                 set: { isPresented in
                     if !isPresented {
                         groupPendingDeletion = nil
+                        groupPendingDeletionAssessment = nil
                     }
                 }
             ),
@@ -220,25 +238,34 @@ struct SettingsView: View {
             presenting: groupPendingDeletion
         ) { group in
             Button("删除分组和内容", role: .destructive) {
-                deleteGroup(group)
+                confirmDeleteGroup(group)
             }
 
             Button("取消", role: .cancel) {}
         } message: { group in
-            Text("会删除“\(group.name)”中的 \(store.itemCount(inGroup: group.id)) 条内容，无法恢复。")
+            Text("会删除“\(group.name)”中的 \(groupPendingDeletionAssessment?.itemCount ?? 0) 条内容，无法恢复。")
         }
         .confirmationDialog(
             "删除所选分组？",
-            isPresented: $isBulkGroupDeleteConfirmationPresented,
+            isPresented: Binding(
+                get: { isBulkGroupDeleteConfirmationPresented },
+                set: { isPresented in
+                    isBulkGroupDeleteConfirmationPresented = isPresented
+                    if !isPresented {
+                        bulkGroupPendingDeletionIDs.removeAll()
+                        bulkGroupPendingDeletionAssessment = nil
+                    }
+                }
+            ),
             titleVisibility: .visible
         ) {
             Button("删除分组和内容", role: .destructive) {
-                deleteSelectedGroups()
+                confirmDeleteSelectedGroups()
             }
 
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会删除所选分组及其中内容，无法恢复。")
+            Text("会删除所选分组中的 \(bulkGroupPendingDeletionAssessment?.itemCount ?? 0) 条内容，无法恢复。")
         }
     }
 
@@ -286,7 +313,7 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 10)
         .frame(width: 150)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(settingsSidebarBackdrop)
     }
 
     private var header: some View {
@@ -322,6 +349,9 @@ struct SettingsView: View {
         case .general:
             retentionSection
             launchAtLoginSection
+        case .appearance:
+            appearanceSection
+            typographySection
         case .shortcut:
             shortcutSection
         case .recording:
@@ -337,6 +367,305 @@ struct SettingsView: View {
             permissionsSection
         case .about:
             aboutSection
+        }
+    }
+
+    private var appearanceSection: some View {
+        settingsSection(title: "外观", subtitle: "立即预览并自动保存") {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("主题", selection: $appearanceSettings.colorTheme) {
+                    ForEach(AppearanceColorTheme.allCases) { theme in
+                        Text(theme.title).tag(theme)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text("窗口效果")
+                    .font(.system(size: 12, weight: .semibold))
+
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6),
+                    spacing: 8
+                ) {
+                    ForEach(visibleMaterialThemes) { theme in
+                        appearanceMaterialTile(theme)
+                    }
+                }
+
+                appearanceGalleryToggle(
+                    isExpanded: isWindowEffectGalleryExpanded,
+                    hiddenCount: AppearanceMaterialTheme.allCases.count - appearanceGalleryCollapsedCount
+                ) {
+                    isWindowEffectGalleryExpanded.toggle()
+                }
+
+                Toggle("液态玻璃效果", isOn: $appearanceSettings.liquidGlassEnabled)
+
+                opacitySlider(
+                    title: "窗口效果透明度",
+                    value: $appearanceSettings.windowEffectOpacity
+                )
+
+                Toggle("动态玻璃效果", isOn: $appearanceSettings.glassMotionEnabled)
+
+                Text("卡片样式")
+                    .font(.system(size: 12, weight: .semibold))
+
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6),
+                    spacing: 8
+                ) {
+                    ForEach(visibleCardStyles) { style in
+                        appearanceStyleTile(style)
+                    }
+                }
+
+                appearanceGalleryToggle(
+                    isExpanded: isCardStyleGalleryExpanded,
+                    hiddenCount: AppearanceCardStyle.allCases.count - appearanceGalleryCollapsedCount
+                ) {
+                    isCardStyleGalleryExpanded.toggle()
+                }
+
+                opacitySlider(
+                    title: "卡片效果透明度",
+                    value: $appearanceSettings.cardEffectOpacity
+                )
+
+                opacitySlider(
+                    title: "卡片顶部颜色强度",
+                    value: $appearanceSettings.cardHeaderColorIntensity
+                )
+
+                opacitySlider(
+                    title: "窗口分组颜色强度",
+                    value: $appearanceSettings.groupColorIntensity
+                )
+
+                opacitySlider(
+                    title: "顶部文字对比度",
+                    value: $appearanceSettings.toolbarTextContrast
+                )
+
+                if let reason = appearanceSettings.liquidGlassUnavailableReason {
+                    Text(reason)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Button("恢复默认外观") {
+                    appearanceSettings.resetToDefaults()
+                }
+                .buttonStyle(.link)
+            }
+        }
+    }
+
+    private func appearanceStyleTile(_ style: AppearanceCardStyle) -> some View {
+        let isSelected = appearanceSettings.cardStyle == style
+
+        return Button {
+            appearanceSettings.cardStyle = style
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(style.materialTheme.gradient)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(
+                                isSelected ? Color.accentColor : Color.primary.opacity(0.18),
+                                lineWidth: isSelected ? 2 : 1
+                            )
+                    }
+                    .overlay(alignment: .topLeading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.72))
+                            .frame(width: 30, height: 4)
+                            .padding(8)
+                    }
+                    .frame(height: 42)
+                    .shadow(color: style == .deepSpace || style == .obsidian ? Color.black.opacity(0.42) : .clear, radius: 6, y: 3)
+
+                Text(style.title)
+                    .font(.system(size: 10, weight: isSelected ? .bold : .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 62, alignment: .topLeading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: 62, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .accessibilityLabel("卡片样式：\(style.title)")
+        .accessibilityValue(isSelected ? "已选择" : "未选择")
+    }
+
+    private func appearanceMaterialTile(_ theme: AppearanceMaterialTheme) -> some View {
+        let isSelected = appearanceSettings.materialTheme == theme
+        let isUnavailableNativeGlass = appearanceSettings.liquidGlassEnabled && !HistoryGlassRuntime.supportsNativeGlass
+
+        return Button {
+            appearanceSettings.materialTheme = theme
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(theme.gradient)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(
+                                isSelected ? Color.accentColor : Color.primary.opacity(0.18),
+                                lineWidth: isSelected ? 2 : 1
+                            )
+                    }
+                    .overlay(alignment: .topLeading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.74))
+                            .frame(width: 28, height: 4)
+                            .padding(8)
+                    }
+                    .frame(height: 42)
+                    .shadow(color: theme == .deepSpace || theme == .obsidian ? Color.black.opacity(0.42) : .clear, radius: 6, y: 3)
+
+                Text(theme.title)
+                    .font(.system(size: 10, weight: isSelected ? .bold : .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 62, alignment: .topLeading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: 62, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .opacity(isUnavailableNativeGlass ? 0.58 : 1)
+        .accessibilityLabel("窗口效果：\(theme.title)")
+        .accessibilityValue(isSelected ? "已选择" : "未选择")
+        .help(isUnavailableNativeGlass ? "当前系统会以兼容玻璃呈现" : theme.title)
+    }
+
+    private let appearanceGalleryCollapsedCount = 12
+
+    private var visibleMaterialThemes: [AppearanceMaterialTheme] {
+        isWindowEffectGalleryExpanded ? AppearanceMaterialTheme.allCases : Array(AppearanceMaterialTheme.allCases.prefix(appearanceGalleryCollapsedCount))
+    }
+
+    private var visibleCardStyles: [AppearanceCardStyle] {
+        isCardStyleGalleryExpanded ? AppearanceCardStyle.allCases : Array(AppearanceCardStyle.allCases.prefix(appearanceGalleryCollapsedCount))
+    }
+
+    private func appearanceGalleryToggle(
+        isExpanded: Bool,
+        hiddenCount: Int,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(isExpanded ? "收起" : "显示更多（\(hiddenCount) 项）", action: action)
+            .buttonStyle(.link)
+    }
+
+    private var typographyControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(AppearanceTypographyRole.allCases) { role in
+                typographyControl(for: role)
+            }
+        }
+    }
+
+    private var typographySection: some View {
+        settingsSection(title: "文字样式", subtitle: "窗口与卡片文字分别设置") {
+            typographyControls
+        }
+    }
+
+    private func typographyControl(for role: AppearanceTypographyRole) -> some View {
+        let typography = appearanceSettings.typography(for: role)
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(role.title)
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text("预览：轻贴 · 搜索 · 分组")
+                    .font(typography.swiftUIFont)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: 8) {
+                AppearanceFontFamilyPicker(family: typographyBinding(role, \.family))
+                    .frame(minWidth: 190, maxWidth: .infinity)
+
+                Picker("字重", selection: typographyBinding(role, \.weight)) {
+                    ForEach(AppearanceTypographyWeight.allCases) { weight in
+                        Text(weight.title).tag(weight)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 80)
+            }
+
+            HStack(spacing: 10) {
+                Text("字号")
+                    .font(.system(size: 11, weight: .medium))
+                Slider(value: typographyBinding(role, \.size), in: 10...32, step: 1)
+                Text("\(Int(typography.size)) pt")
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 42, alignment: .trailing)
+            }
+        }
+        .padding(10)
+        .background(Color.white.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func typographyBinding<Value>(
+        _ role: AppearanceTypographyRole,
+        _ keyPath: WritableKeyPath<AppearanceTypography, Value>
+    ) -> Binding<Value> {
+        Binding(
+            get: { appearanceSettings.typography(for: role)[keyPath: keyPath] },
+            set: { value in
+                var typography = appearanceSettings.typography(for: role)
+                typography[keyPath: keyPath] = value
+                appearanceSettings.updateTypography(typography, for: role)
+            }
+        )
+    }
+
+    private func opacitySlider(title: String, value: Binding<Double>) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+            Slider(value: value, in: 0...1)
+            Text("\(Int(value.wrappedValue * 100))%")
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .trailing)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var settingsWindowBackdrop: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            appearanceSettings.materialTheme.gradient
+                .opacity(appearanceSettings.windowEffectOpacity * 0.62)
+        }
+    }
+
+    private var settingsContentBackdrop: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor).opacity(0.62)
+            appearanceSettings.materialTheme.gradient
+                .opacity(appearanceSettings.windowEffectOpacity * 0.36)
+        }
+    }
+
+    private var settingsSidebarBackdrop: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor).opacity(0.78)
+            appearanceSettings.materialTheme.gradient
+                .opacity(appearanceSettings.windowEffectOpacity * 0.28)
         }
     }
 
@@ -530,7 +859,7 @@ struct SettingsView: View {
                         .buttonStyle(.bordered)
 
                         Button("复制 App 路径") {
-                            accessibilityPermissionState.copyCurrentAppPath()
+                            accessibilityPermissionState.copyCurrentAppPath(using: clipboardWriter)
                             showStatus("已复制 App 路径")
                         }
                         .buttonStyle(.bordered)
@@ -1040,55 +1369,237 @@ struct SettingsView: View {
     }
 
     private func requestDeleteGroup(_ group: ClipboardGroup) {
-        if store.itemCount(inGroup: group.id) == 0 {
-            deleteGroup(group)
-        } else {
-            groupPendingDeletion = group
+        guard !isGroupDeletionAssessmentInProgress else {
+            return
+        }
+
+        isGroupDeletionAssessmentInProgress = true
+        Task {
+            defer { isGroupDeletionAssessmentInProgress = false }
+            do {
+                let assessment = try await SettingsHistoryDataActionCoordinator.groupDeletionAssessment(
+                    for: group.id,
+                    from: store
+                )
+                guard store.group(with: group.id) != nil else {
+                    return
+                }
+                if assessment.requiresConfirmation {
+                    groupPendingDeletionAssessment = assessment
+                    groupPendingDeletion = group
+                } else {
+                    let result = try await SettingsHistoryDataActionCoordinator.executeGroupDeletion(
+                        assessment,
+                        for: [group.id],
+                        from: store
+                    )
+                    applyGroupDeletionResult(
+                        result,
+                        requestedGroupIDs: [group.id],
+                        singleGroup: group
+                    )
+                }
+            } catch {
+                showOperationError("检查分组内容失败", error: error)
+            }
         }
     }
 
     private func requestDeleteSelectedGroups() {
-        switch SettingsGroupsViewModel.bulkDeleteDecision(
-            selectedIDs: groupSelection,
-            itemCount: store.itemCount(inGroup:)
-        ) {
-        case .none:
+        let selectedIDs = groupSelection
+        guard !selectedIDs.isEmpty,
+              !isGroupDeletionAssessmentInProgress else {
             return
-        case .confirm:
-            isBulkGroupDeleteConfirmationPresented = true
-        case .deleteImmediately:
-            deleteSelectedGroups()
+        }
+
+        isGroupDeletionAssessmentInProgress = true
+        Task {
+            defer { isGroupDeletionAssessmentInProgress = false }
+            do {
+                let assessment = try await SettingsHistoryDataActionCoordinator.groupDeletionAssessment(
+                    for: selectedIDs,
+                    from: store
+                )
+                let existingIDs = Set(store.groups.map(\.id)).intersection(selectedIDs)
+                guard !existingIDs.isEmpty else {
+                    return
+                }
+                if assessment.requiresConfirmation {
+                    bulkGroupPendingDeletionIDs = existingIDs
+                    bulkGroupPendingDeletionAssessment = assessment
+                    isBulkGroupDeleteConfirmationPresented = true
+                } else {
+                    let result = try await SettingsHistoryDataActionCoordinator.executeGroupDeletion(
+                        assessment,
+                        for: existingIDs,
+                        from: store
+                    )
+                    applyGroupDeletionResult(
+                        result,
+                        requestedGroupIDs: existingIDs
+                    )
+                }
+            } catch {
+                showOperationError("检查分组内容失败", error: error)
+            }
         }
     }
 
-    private func deleteSelectedGroups() {
-        let removedGroupIDs = groupSelection
-        let removedItemCount = store.deleteGroups(removedGroupIDs)
-        groupSelection.removeAll()
-        showStatus(removedItemCount > 0 ? "已删除分组和 \(removedItemCount) 条内容" : "已删除分组")
+    private func confirmDeleteGroup(_ group: ClipboardGroup) {
+        guard let assessment = groupPendingDeletionAssessment else {
+            return
+        }
+
+        Task {
+            do {
+                let result = try await SettingsHistoryDataActionCoordinator.executeGroupDeletion(
+                    assessment,
+                    for: [group.id],
+                    from: store
+                )
+                applyGroupDeletionResult(
+                    result,
+                    requestedGroupIDs: [group.id],
+                    singleGroup: group
+                )
+            } catch {
+                showOperationError("检查分组内容失败", error: error)
+            }
+        }
     }
 
-    private func deleteGroup(_ group: ClipboardGroup) {
-        let removedItemCount = store.deleteGroup(group.id)
-        groupSelection.remove(group.id)
-        groupPendingDeletion = nil
-        showStatus(removedItemCount > 0 ? "已删除分组和 \(removedItemCount) 条内容" : "已删除分组")
+    private func confirmDeleteSelectedGroups() {
+        let groupIDs = bulkGroupPendingDeletionIDs
+        guard !groupIDs.isEmpty,
+              let assessment = bulkGroupPendingDeletionAssessment else {
+            return
+        }
+
+        Task {
+            do {
+                let result = try await SettingsHistoryDataActionCoordinator.executeGroupDeletion(
+                    assessment,
+                    for: groupIDs,
+                    from: store
+                )
+                applyGroupDeletionResult(
+                    result,
+                    requestedGroupIDs: groupIDs
+                )
+            } catch {
+                showOperationError("检查分组内容失败", error: error)
+            }
+        }
+    }
+
+    private func applyGroupDeletionResult(
+        _ result: SettingsHistoryDataActionCoordinator.GroupDeletionExecutionResult,
+        requestedGroupIDs: Set<ClipboardGroup.ID>,
+        singleGroup: ClipboardGroup? = nil
+    ) {
+        switch result {
+        case .deleted:
+            groupSelection.subtract(requestedGroupIDs)
+            clearPendingGroupDeletion(singleGroup: singleGroup)
+            if let status = SettingsHistoryDataActionCoordinator.groupDeletionStatus(for: result) {
+                showStatus(status)
+            }
+        case .requiresReassessment(let updatedAssessment):
+            if let singleGroup {
+                guard store.group(with: singleGroup.id) != nil else {
+                    groupSelection.remove(singleGroup.id)
+                    clearPendingGroupDeletion(singleGroup: singleGroup)
+                    showStatus("分组不存在")
+                    return
+                }
+                groupPendingDeletionAssessment = updatedAssessment
+                groupPendingDeletion = singleGroup
+            } else {
+                let existingIDs = Set(store.groups.map(\.id)).intersection(requestedGroupIDs)
+                guard !existingIDs.isEmpty else {
+                    groupSelection.subtract(requestedGroupIDs)
+                    clearPendingGroupDeletion(singleGroup: nil)
+                    showStatus("分组不存在")
+                    return
+                }
+                bulkGroupPendingDeletionIDs = existingIDs
+                bulkGroupPendingDeletionAssessment = updatedAssessment
+                isBulkGroupDeleteConfirmationPresented = true
+            }
+            showStatus("分组内容已变化，请重新确认")
+        case .noGroupsDeleted:
+            groupSelection.subtract(requestedGroupIDs)
+            clearPendingGroupDeletion(singleGroup: singleGroup)
+            if let status = SettingsHistoryDataActionCoordinator.groupDeletionStatus(for: result) {
+                showStatus(status)
+            }
+        }
+    }
+
+    private func clearPendingGroupDeletion(singleGroup: ClipboardGroup?) {
+        if singleGroup != nil {
+            groupPendingDeletion = nil
+            groupPendingDeletionAssessment = nil
+        } else {
+            bulkGroupPendingDeletionIDs.removeAll()
+            bulkGroupPendingDeletionAssessment = nil
+            isBulkGroupDeleteConfirmationPresented = false
+        }
     }
 
     private func cleanOrphanedAttachments() {
-        historyDataViewModel.cleanOrphanedAttachments(
-            items: store.items,
-            showStatus: showStatus
-        )
+        guard !historyDataViewModel.isCleaningOrphanedAttachments else {
+            return
+        }
+
+        historyDataViewModel.isCleaningOrphanedAttachments = true
+        showProgress("正在准备完整历史...")
+        Task {
+            do {
+                let historyData = try await SettingsHistoryDataActionCoordinator.authoritativeHistoryData(
+                    from: store
+                )
+                let result = try await SettingsHistoryDataActionCoordinator.cleanOrphanedAttachments(
+                    historyData: historyData,
+                    from: store
+                )
+                historyDataViewModel.isCleaningOrphanedAttachments = false
+                historyDataViewModel.refreshStorageUsage()
+                if result.removedFiles > 0 {
+                    showStatus("已清理 \(result.removedFiles) 个文件，释放 \(result.formattedRemovedSize)")
+                } else {
+                    showStatus("没有可清理的孤立附件")
+                }
+            } catch {
+                historyDataViewModel.isCleaningOrphanedAttachments = false
+                showOperationError("清理孤立附件失败", error: error)
+            }
+        }
     }
 
     private func checkHistoryDataHealth() {
-        historyDataViewModel.checkHistoryDataHealth(
-            items: store.items,
-            showProgress: showProgress
-        ) { report in
-            showStatus(report.summary)
-            showHistoryDataHealthReport(report)
+        guard !historyDataViewModel.isCheckingHistoryData else {
+            return
+        }
+
+        historyDataViewModel.isCheckingHistoryData = true
+        showProgress("正在准备完整历史...")
+        Task {
+            do {
+                let historyData = try await SettingsHistoryDataActionCoordinator.authoritativeHistoryData(
+                    from: store
+                )
+                historyDataViewModel.checkHistoryDataHealth(
+                    items: historyData.items,
+                    showProgress: showProgress
+                ) { report in
+                    showStatus(report.summary)
+                    showHistoryDataHealthReport(report)
+                }
+            } catch {
+                historyDataViewModel.isCheckingHistoryData = false
+                showOperationError("检查历史数据失败", error: error)
+            }
         }
     }
 
@@ -1125,12 +1636,30 @@ struct SettingsView: View {
     }
 
     private func repairHistoryData() {
-        historyDataViewModel.repairHistoryData(
-            items: store.items,
-            showProgress: showProgress
-        ) { report in
-            showStatus(report.summary)
-            showHistoryDataRepairReport(report)
+        guard !historyDataViewModel.isCheckingHistoryData else {
+            return
+        }
+
+        historyDataViewModel.isCheckingHistoryData = true
+        showProgress("正在准备完整历史...")
+        Task {
+            do {
+                let historyData = try await SettingsHistoryDataActionCoordinator.authoritativeHistoryData(
+                    from: store
+                )
+                showProgress("正在修复数据...")
+                let report = try await SettingsHistoryDataActionCoordinator.repairHistoryData(
+                    historyData: historyData,
+                    from: store
+                )
+                historyDataViewModel.isCheckingHistoryData = false
+                historyDataViewModel.refreshStorageUsage()
+                showStatus(report.summary)
+                showHistoryDataRepairReport(report)
+            } catch {
+                historyDataViewModel.isCheckingHistoryData = false
+                showOperationError("修复历史数据失败", error: error)
+            }
         }
     }
 
@@ -1171,25 +1700,33 @@ struct SettingsView: View {
 
         isHistoryTransferInProgress = true
         showProgress("正在导出历史...")
-        let items = store.items
-        let groups = store.groups
 
         Task {
-            let result = await Task.detached(priority: .utility) {
-                Result {
-                    try HistoryExportService.export(items: items, groups: groups, to: url)
-                }
-            }.value
+            let result: Result<Void, Error>
+            do {
+                let historyData = try await SettingsHistoryDataActionCoordinator.authoritativeHistoryData(
+                    from: store
+                )
+                result = await Task.detached(priority: .utility) {
+                    Result {
+                        try HistoryExportService.export(
+                            items: historyData.items,
+                            groups: historyData.groups,
+                            to: url
+                        )
+                    }
+                }.value
+            } catch {
+                result = .failure(error)
+            }
 
-            await MainActor.run {
-                isHistoryTransferInProgress = false
-                switch result {
-                case .success:
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                    showStatus("已导出历史")
-                case .failure(let error):
-                    showOperationError("导出历史失败", error: error)
-                }
+            isHistoryTransferInProgress = false
+            switch result {
+            case .success:
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+                showStatus("已导出历史")
+            case .failure(let error):
+                showOperationError("导出历史失败", error: error)
             }
         }
     }
@@ -1244,31 +1781,35 @@ struct SettingsView: View {
 
         isHistoryTransferInProgress = true
         showProgress("正在导出备份包...")
-        let items = store.items
-        let groups = store.groups
         let includesAttachments = historyDataViewModel.includesAttachmentsInBackup
 
         Task {
-            let result = await Task.detached(priority: .utility) {
-                Result {
-                    try HistoryExportService.exportBackup(
-                        items: items,
-                        groups: groups,
-                        to: url,
-                        includesAttachments: includesAttachments
-                    )
-                }
-            }.value
+            let result: Result<Void, Error>
+            do {
+                let historyData = try await SettingsHistoryDataActionCoordinator.authoritativeHistoryData(
+                    from: store
+                )
+                result = await Task.detached(priority: .utility) {
+                    Result {
+                        try HistoryExportService.exportBackup(
+                            items: historyData.items,
+                            groups: historyData.groups,
+                            to: url,
+                            includesAttachments: includesAttachments
+                        )
+                    }
+                }.value
+            } catch {
+                result = .failure(error)
+            }
 
-            await MainActor.run {
-                isHistoryTransferInProgress = false
-                switch result {
-                case .success:
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                    showStatus("已导出备份包")
-                case .failure(let error):
-                    showOperationError("备份包导出失败", error: error)
-                }
+            isHistoryTransferInProgress = false
+            switch result {
+            case .success:
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+                showStatus("已导出备份包")
+            case .failure(let error):
+                showOperationError("备份包导出失败", error: error)
             }
         }
     }
@@ -1377,8 +1918,13 @@ struct SettingsView: View {
     }
 
     private func copyVersion() {
-        ClipboardWriteCoordinator.generalTextWriter().writeText(AppVersionInfo.displayVersion)
+        Self.copyVersion(using: clipboardWriter)
         showStatus("已复制版本号")
+    }
+
+    @discardableResult
+    static func copyVersion(using clipboardWriter: ClipboardWriteCoordinator) -> Bool {
+        clipboardWriter.writeText(AppVersionInfo.displayVersion)
     }
 
     private func openSupportCommunity() {
@@ -1615,6 +2161,72 @@ struct SettingsTextField: NSViewRepresentable {
 
         if let focusedID, let id {
             focusedID.wrappedValue = focused ? id : (focusedID.wrappedValue == id ? nil : focusedID.wrappedValue)
+        }
+    }
+}
+
+private struct AppearanceFontFamilyPicker: NSViewRepresentable {
+    @Binding var family: String
+
+    private let families = AppearanceTypography.availableFamilies
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSComboBox {
+        let comboBox = NSComboBox()
+        comboBox.isEditable = true
+        comboBox.completes = true
+        comboBox.usesDataSource = false
+        comboBox.addItems(withObjectValues: families.map(displayName))
+        comboBox.delegate = context.coordinator
+        comboBox.stringValue = displayName(family)
+        return comboBox
+    }
+
+    func updateNSView(_ nsView: NSComboBox, context: Context) {
+        context.coordinator.parent = self
+        let display = displayName(family)
+        if nsView.stringValue != display {
+            nsView.stringValue = display
+        }
+    }
+
+    private func displayName(_ family: String) -> String {
+        AppearanceTypography(family: family, size: 12, weight: .regular).displayFamilyName
+    }
+
+    final class Coordinator: NSObject, NSComboBoxDelegate {
+        var parent: AppearanceFontFamilyPicker
+
+        init(parent: AppearanceFontFamilyPicker) {
+            self.parent = parent
+        }
+
+        func comboBoxSelectionDidChange(_ notification: Notification) {
+            guard let comboBox = notification.object as? NSComboBox else {
+                return
+            }
+            let index = comboBox.indexOfSelectedItem
+            guard parent.families.indices.contains(index) else {
+                return
+            }
+            parent.family = parent.families[index]
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            guard let comboBox = obj.object as? NSComboBox else {
+                return
+            }
+            let query = comboBox.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let index = parent.families.firstIndex(where: {
+                AppearanceTypography(family: $0, size: 12, weight: .regular).displayFamilyName.caseInsensitiveCompare(query) == .orderedSame
+            }) else {
+                comboBox.stringValue = AppearanceTypography(family: parent.family, size: 12, weight: .regular).displayFamilyName
+                return
+            }
+            parent.family = parent.families[index]
         }
     }
 }

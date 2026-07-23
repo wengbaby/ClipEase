@@ -1,11 +1,5 @@
 import Foundation
 
-enum SettingsGroupsBulkDeleteDecision: Equatable {
-    case none
-    case deleteImmediately
-    case confirm
-}
-
 enum SettingsGroupsViewModel {
     nonisolated static func subtitle(
         groups: [ClipboardGroup],
@@ -32,18 +26,4 @@ enum SettingsGroupsViewModel {
         }
     }
 
-    nonisolated static func bulkDeleteDecision(
-        selectedIDs: Set<ClipboardGroup.ID>,
-        itemCount: (ClipboardGroup.ID) -> Int
-    ) -> SettingsGroupsBulkDeleteDecision {
-        guard !selectedIDs.isEmpty else {
-            return .none
-        }
-
-        if selectedIDs.contains(where: { itemCount($0) > 0 }) {
-            return .confirm
-        }
-
-        return .deleteImmediately
-    }
 }
