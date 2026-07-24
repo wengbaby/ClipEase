@@ -362,16 +362,16 @@ final class PerformanceDiagnosticsService: ObservableObject {
 
     var summaryText: String {
         guard !recentEvents.isEmpty else {
-            return "暂无性能事件"
+            return L("暂无性能事件")
         }
 
         let durations = recentEvents.map(\.durationMS)
         let maxDuration = durations.max() ?? 0
         let averageDuration = durations.reduce(0, +) / Double(durations.count)
         if let latestResourceSnapshot {
-            return "最近 \(recentEvents.count) 条，平均 \(Self.formatMS(averageDuration))，最高 \(Self.formatMS(maxDuration))，CPU \(Self.formatPercent(latestResourceSnapshot.cpuPercent))，内存 \(Self.formatMB(latestResourceSnapshot.memoryMB))"
+            return L("最近 \(recentEvents.count) 条，平均 \(Self.formatMS(averageDuration))，最高 \(Self.formatMS(maxDuration))，CPU \(Self.formatPercent(latestResourceSnapshot.cpuPercent))，内存 \(Self.formatMB(latestResourceSnapshot.memoryMB))")
         }
-        return "最近 \(recentEvents.count) 条，平均 \(Self.formatMS(averageDuration))，最高 \(Self.formatMS(maxDuration))"
+        return L("最近 \(recentEvents.count) 条，平均 \(Self.formatMS(averageDuration))，最高 \(Self.formatMS(maxDuration))")
     }
 
     nonisolated static func formatMS(_ value: Double) -> String {

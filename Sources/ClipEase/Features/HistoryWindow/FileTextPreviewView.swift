@@ -299,9 +299,9 @@ struct FileTextPreviewLoader: Sendable {
 struct FileTextPreviewView: NSViewRepresentable {
     typealias LoadDocument = @Sendable (URL) async -> FileTextPreviewLoadResult
 
-    static let loadingPlaceholder = "正在读取文件内容..."
-    static let unreadablePlaceholder = "无法读取文件内容"
-    static let truncationMarker = "[内容已截断]"
+    static var loadingPlaceholder: String { L("正在读取文件内容...") }
+    static var unreadablePlaceholder: String { L("无法读取文件内容") }
+    static var truncationMarker: String { L("[内容已截断]") }
 
     let url: URL
     private let loadDocument: LoadDocument

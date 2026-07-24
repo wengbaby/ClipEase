@@ -343,8 +343,8 @@ struct HistoryPreviewImageLoadView: View {
                 Image(systemName: "photo.badge.exclamationmark")
                     .font(.system(size: 42, weight: .regular))
                     .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
-                    .accessibilityLabel("无法加载图片预览")
-                    .help("无法加载图片预览")
+                    .accessibilityLabel(L("无法加载图片预览"))
+                    .help(L("无法加载图片预览"))
                     .allowsHitTesting(false)
             }
         }

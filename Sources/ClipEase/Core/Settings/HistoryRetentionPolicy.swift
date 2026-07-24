@@ -24,34 +24,34 @@ enum HistoryRetentionPolicy: Int, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .oneDay:
-            "保存 1 天"
+            L("保存 1 天")
         case .threeDays:
-            "保存 3 天"
+            L("保存 3 天")
         case .fiveDays:
-            "保存 5 天"
+            L("保存 5 天")
         case .sevenDays:
-            "保存 7 天"
+            L("保存 7 天")
         case .thirtyDays:
-            "保存 30 天"
+            L("保存 30 天")
         case .forever:
-            "永久保存"
+            L("永久保存")
         }
     }
 
     var shortTitle: String {
         switch self {
         case .oneDay:
-            "1 天"
+            L("1 天")
         case .threeDays:
-            "3 天"
+            L("3 天")
         case .fiveDays:
-            "5 天"
+            L("5 天")
         case .sevenDays:
-            "7 天"
+            L("7 天")
         case .thirtyDays:
-            "30 天"
+            L("30 天")
         case .forever:
-            "永久"
+            L("永久")
         }
     }
 }

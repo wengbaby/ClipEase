@@ -247,7 +247,7 @@ struct LinkPreviewWebView: NSViewRepresentable {
             guard LinkPreviewNavigationPolicy.decision(for: url) == .allow else {
                 navigationLifecycle.cancel()
                 onLoadingStateChange(false)
-                onLoadFailure("不支持此链接预览")
+                onLoadFailure(L("不支持此链接预览"))
                 return
             }
 
@@ -259,7 +259,7 @@ struct LinkPreviewWebView: NSViewRepresentable {
             guard let navigation = webView.load(URLRequest(url: url)) else {
                 navigationLifecycle.cancel()
                 onLoadingStateChange(false)
-                onLoadFailure("无法加载链接预览")
+                onLoadFailure(L("无法加载链接预览"))
                 return
             }
             if navigationLifecycle.associate(

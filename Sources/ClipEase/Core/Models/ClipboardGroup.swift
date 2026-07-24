@@ -9,7 +9,7 @@ struct ClipboardGroup: Identifiable, Equatable, Sendable {
     let createdAt: Date
     var updatedAt: Date
 
-    static let defaultName = "新分组"
+    static var defaultName: String { L("新分组") }
 
     static let defaultColors = [
         "#0A84FF",

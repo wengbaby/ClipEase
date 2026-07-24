@@ -178,25 +178,26 @@ final class AppMenuController: NSObject {
     func pauseRecording() {
         closeHistoryWindowIfNeeded()
         recordingController.setPaused(true)
-        showStatus("已暂停记录")
+        showStatus(L("已暂停记录"))
     }
 
     func resumeRecording() {
         closeHistoryWindowIfNeeded()
         recordingController.setPaused(false)
-        showStatus("已恢复记录")
+        showStatus(L("已恢复记录"))
     }
 
-    func pauseRecording(for interval: TimeInterval) {
+    func pauseRecording(for interval: TimeInterval, preset: RecordingPausePreset? = nil) {
         closeHistoryWindowIfNeeded()
-        recordingController.pause(for: interval)
+        let resolvedPreset = preset ?? RecordingPausePreset.allCases.first { $0.interval == interval }
+        recordingController.pause(for: interval, preset: resolvedPreset)
         showStatus(pauseStatusMessage(for: interval))
     }
 
     func pauseUntilEndOfToday() {
         closeHistoryWindowIfNeeded()
         recordingController.pauseUntilEndOfToday()
-        showStatus("已暂停到今日结束")
+        showStatus(L("已暂停到今日结束"))
     }
 
     func ignoreSourceApp(for item: ClipboardItem) {
@@ -242,10 +243,10 @@ final class AppMenuController: NSObject {
     func showAbout() {
         closeHistoryWindowIfNeeded()
         let alert = NSAlert()
-        alert.messageText = "关于轻贴"
-        alert.informativeText = "轻贴 ClipEase\n简洁好用的 macOS 粘贴板历史助手\n版本 \(AppVersionInfo.displayVersion)"
+        alert.messageText = L("关于轻贴")
+        alert.informativeText = "ClipEase\n\(L("简洁好用的 macOS 粘贴板历史助手"))\n\(L("版本")) \(AppVersionInfo.displayVersion)"
         alert.icon = ClipEaseAppIcon.roundedImage(ClipEaseAppIcon.image(size: NSSize(width: 64, height: 64)), size: NSSize(width: 64, height: 64))
-        alert.addButton(withTitle: "好的")
+        alert.addButton(withTitle: L("好的"))
         alert.runModal()
     }
 
@@ -262,7 +263,7 @@ final class AppMenuController: NSObject {
         menu.addItem(makeItem(HistoryCommand.settings.title, action: #selector(settingsAction), shortcut: HistoryCommand.settings.shortcut))
         menu.addItem(.separator())
 
-        let pauseItem = NSMenuItem(title: "暂停 轻贴", action: nil, keyEquivalent: "")
+        let pauseItem = NSMenuItem(title: L("暂停 轻贴"), action: nil, keyEquivalent: "")
         pauseItem.submenu = makePauseMenu()
         menu.addItem(pauseItem)
 
@@ -275,13 +276,19 @@ final class AppMenuController: NSObject {
     private func makePauseMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(makeItem(recordingController.pauseMenuPrimaryTitle(), action: #selector(togglePauseAction)))
-        menu.addItem(makeItem("暂停 15 分钟", action: #selector(pause15MinutesAction)))
-        menu.addItem(makeItem("暂停 30 分钟", action: #selector(pause30MinutesAction)))
-        menu.addItem(makeItem("暂停 1 小时", action: #selector(pause1HourAction)))
-        menu.addItem(makeItem("暂停 3 小时", action: #selector(pause3HoursAction)))
-        menu.addItem(makeItem("暂停 6 小时", action: #selector(pause6HoursAction)))
-        menu.addItem(makeItem("截止到今日", action: #selector(pauseUntilTodayAction)))
+        menu.addItem(pausePresetItem(.fifteenMinutes, action: #selector(pause15MinutesAction)))
+        menu.addItem(pausePresetItem(.thirtyMinutes, action: #selector(pause30MinutesAction)))
+        menu.addItem(pausePresetItem(.oneHour, action: #selector(pause1HourAction)))
+        menu.addItem(pausePresetItem(.threeHours, action: #selector(pause3HoursAction)))
+        menu.addItem(pausePresetItem(.sixHours, action: #selector(pause6HoursAction)))
+        menu.addItem(pausePresetItem(.untilEndOfToday, action: #selector(pauseUntilTodayAction)))
         return menu
+    }
+
+    private func pausePresetItem(_ preset: RecordingPausePreset, action: Selector) -> NSMenuItem {
+        let item = makeItem(preset.title, action: action)
+        item.state = recordingController.activePausePreset == preset ? .on : .off
+        return item
     }
 
     private func makeItem(_ title: String, action: Selector, shortcut: ShortcutDescriptor? = nil) -> NSMenuItem {
@@ -300,17 +307,17 @@ final class AppMenuController: NSObject {
     private func pauseStatusMessage(for interval: TimeInterval) -> String {
         switch Int(interval) {
         case 15 * 60:
-            "已暂停 15 分钟"
+            L("已暂停 15 分钟")
         case 30 * 60:
-            "已暂停 30 分钟"
+            L("已暂停 30 分钟")
         case 60 * 60:
-            "已暂停 1 小时"
+            L("已暂停 1 小时")
         case 3 * 60 * 60:
-            "已暂停 3 小时"
+            L("已暂停 3 小时")
         case 6 * 60 * 60:
-            "已暂停 6 小时"
+            L("已暂停 6 小时")
         default:
-            "已暂停记录"
+            L("已暂停记录")
         }
     }
 
@@ -335,23 +342,23 @@ final class AppMenuController: NSObject {
     }
 
     @objc private func pause15MinutesAction() {
-        pauseRecording(for: 15 * 60)
+        pauseRecording(for: 15 * 60, preset: .fifteenMinutes)
     }
 
     @objc private func pause30MinutesAction() {
-        pauseRecording(for: 30 * 60)
+        pauseRecording(for: 30 * 60, preset: .thirtyMinutes)
     }
 
     @objc private func pause1HourAction() {
-        pauseRecording(for: 60 * 60)
+        pauseRecording(for: 60 * 60, preset: .oneHour)
     }
 
     @objc private func pause3HoursAction() {
-        pauseRecording(for: 3 * 60 * 60)
+        pauseRecording(for: 3 * 60 * 60, preset: .threeHours)
     }
 
     @objc private func pause6HoursAction() {
-        pauseRecording(for: 6 * 60 * 60)
+        pauseRecording(for: 6 * 60 * 60, preset: .sixHours)
     }
 
     @objc private func pauseUntilTodayAction() {

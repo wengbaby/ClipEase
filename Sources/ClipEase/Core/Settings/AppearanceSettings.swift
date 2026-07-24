@@ -11,9 +11,9 @@ enum AppearanceColorTheme: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .light: "浅色"
-        case .dark: "深色"
-        case .system: "跟随主题"
+        case .light: L("浅色")
+        case .dark: L("深色")
+        case .system: L("跟随主题")
         }
     }
 
@@ -70,36 +70,36 @@ enum AppearanceMaterialTheme: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .liquidGlass: "液态玻璃"
-        case .regular: "普通"
-        case .frosted: "霜雾"
-        case .deepSpace: "深空"
-        case .prism: "棱镜"
-        case .holographic: "全息"
-        case .chrome: "铬金属"
-        case .jelly: "果冻"
-        case .paper: "纸感"
-        case .crystal: "水晶"
-        case .sunset: "日落"
-        case .aurora: "极光"
-        case .softLight: "柔光"
-        case .ice: "冰川"
-        case .ink: "墨影"
-        case .amber: "琥珀"
-        case .ocean: "海洋"
-        case .mica: "云母"
-        case .obsidian: "黑曜石"
-        case .borderless: "无边界"
-        case .velvet: "天鹅绒"
-        case .neon: "霓虹"
-        case .pearl: "珍珠"
-        case .graphite: "石墨"
-        case .roseQuartz: "玫瑰石英"
-        case .lagoon: "碧湾"
-        case .ember: "余烬"
-        case .midnight: "午夜"
-        case .champagne: "香槟"
-        case .ultraviolet: "紫外光"
+        case .liquidGlass: L("液态玻璃")
+        case .regular: L("普通")
+        case .frosted: L("霜雾")
+        case .deepSpace: L("深空")
+        case .prism: L("棱镜")
+        case .holographic: L("全息")
+        case .chrome: L("铬金属")
+        case .jelly: L("果冻")
+        case .paper: L("纸感")
+        case .crystal: L("水晶")
+        case .sunset: L("日落")
+        case .aurora: L("极光")
+        case .softLight: L("柔光")
+        case .ice: L("冰川")
+        case .ink: L("墨影")
+        case .amber: L("琥珀")
+        case .ocean: L("海洋")
+        case .mica: L("云母")
+        case .obsidian: L("黑曜石")
+        case .borderless: L("无边界")
+        case .velvet: L("天鹅绒")
+        case .neon: L("霓虹")
+        case .pearl: L("珍珠")
+        case .graphite: L("石墨")
+        case .roseQuartz: L("玫瑰石英")
+        case .lagoon: L("碧湾")
+        case .ember: L("余烬")
+        case .midnight: L("午夜")
+        case .champagne: L("香槟")
+        case .ultraviolet: L("紫外光")
         }
     }
 
@@ -204,11 +204,11 @@ enum AppearanceTypographyRole: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .windowTitle: "窗口标题"
-        case .search: "搜索框"
-        case .group: "分组标签"
-        case .toolbarButton: "工具栏按钮"
-        case .card: "卡片内容"
+        case .windowTitle: L("窗口标题")
+        case .search: L("搜索框")
+        case .group: L("分组标签")
+        case .toolbarButton: L("工具栏按钮")
+        case .card: L("卡片内容")
         }
     }
 
@@ -233,10 +233,10 @@ enum AppearanceTypographyWeight: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .regular: "常规"
-        case .medium: "中等"
-        case .semibold: "半粗"
-        case .bold: "粗体"
+        case .regular: L("常规")
+        case .medium: L("中等")
+        case .semibold: L("半粗")
+        case .bold: L("粗体")
         }
     }
 
@@ -276,9 +276,9 @@ struct AppearanceTypography: Equatable, Sendable {
 
     var displayFamilyName: String {
         switch family {
-        case Self.systemFamily: "系统默认"
-        case Self.roundedFamily: "系统圆角"
-        case Self.monospacedFamily: "系统等宽"
+        case Self.systemFamily: L("系统默认")
+        case Self.roundedFamily: L("系统圆角")
+        case Self.monospacedFamily: L("系统等宽")
         default: family
         }
     }
@@ -379,7 +379,7 @@ final class AppearanceSettings: ObservableObject {
         guard liquidGlassEnabled, !HistoryGlassRuntime.supportsNativeGlass else {
             return nil
         }
-        return "液态玻璃需要 macOS 26 或更高版本"
+        return L("液态玻璃需要 macOS 26 或更高版本")
     }
 
     func resetToDefaults() {

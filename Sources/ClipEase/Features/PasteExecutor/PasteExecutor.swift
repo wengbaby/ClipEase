@@ -55,37 +55,37 @@ final class PasteExecutor {
                 text,
                 richTextData: store.richTextData(for: item)
             ) else {
-                return .failed("无法写入剪贴板")
+                return .failed(L("无法写入剪贴板"))
             }
             return .copied
         case .file:
             let fileURLs = validLocalFileURLs(for: item)
             if !fileURLs.isEmpty {
                 guard clipboardWriter.writeFileURLs(fileURLs) else {
-                    return .failed("无法写入文件引用到剪贴板")
+                    return .failed(L("无法写入文件引用到剪贴板"))
                 }
                 return .copied
             }
 
             guard let fallbackText = fileFallbackText(for: item) else {
-                return .failed("未找到文件")
+                return .failed(L("未找到文件"))
             }
 
             guard clipboardWriter.writeText(fallbackText) else {
-                return .failed("无法写入文件路径到剪贴板")
+                return .failed(L("无法写入文件路径到剪贴板"))
             }
             return .copiedFallbackText
         case .image:
             guard let data = store.imageData(for: item) else {
-                return .failed("未找到图片文件")
+                return .failed(L("未找到图片文件"))
             }
 
             guard let image = NSImage(data: data) else {
-                return .failed("图片文件无法读取")
+                return .failed(L("图片文件无法读取"))
             }
 
             guard clipboardWriter.writeImage(image, item: item) else {
-                return .failed("无法写入图片到剪贴板")
+                return .failed(L("无法写入图片到剪贴板"))
             }
             return .copied
         }
@@ -152,7 +152,7 @@ final class PasteExecutor {
     func copyPlainTextToPasteboard(_ item: ClipboardItem) -> PasteboardCopyResult {
         let text = pasteboardString(for: item)
         guard clipboardWriter.writeText(text) else {
-            return .failed("无法写入剪贴板")
+            return .failed(L("无法写入剪贴板"))
         }
         return .copied
     }
@@ -160,11 +160,11 @@ final class PasteExecutor {
     func copyTextToPasteboard(_ text: String) -> PasteboardCopyResult {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else {
-            return .failed("没有可复制的文本")
+            return .failed(L("没有可复制的文本"))
         }
 
         guard clipboardWriter.writeText(normalizedText) else {
-            return .failed("无法写入剪贴板")
+            return .failed(L("无法写入剪贴板"))
         }
         return .copied
     }
@@ -175,14 +175,14 @@ final class PasteExecutor {
             imageHash: nil,
             supplementalText: skipText
         ) else {
-            return .failed("无法写入图片到剪贴板")
+            return .failed(L("无法写入图片到剪贴板"))
         }
         return .copied
     }
 
     func copyFileURLToPasteboard(_ url: URL) -> PasteboardCopyResult {
         guard clipboardWriter.writeFileURLs([url]) else {
-            return .failed("无法写入文件引用到剪贴板")
+            return .failed(L("无法写入文件引用到剪贴板"))
         }
         return .copied
     }

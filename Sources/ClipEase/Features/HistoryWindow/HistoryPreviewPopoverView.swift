@@ -6,6 +6,7 @@ import SwiftUI
 typealias PreviewHeaderDragCompletion = (_ initialMouseDownEvent: NSEvent, _ dragEvent: NSEvent) -> Void
 
 struct HistoryPreviewPopoverView: View {
+    @ObservedObject private var languageSettings = AppLanguageSettings.shared
     let item: ClipboardItem
     let ocrResult: ClipboardOCRMatch?
     let arrowX: CGFloat
@@ -30,6 +31,7 @@ struct HistoryPreviewPopoverView: View {
     @State private var linkPreviewError: String?
 
     var body: some View {
+        let _ = languageSettings.preference
         VStack(alignment: .leading, spacing: 0) {
             popoverBody
 
@@ -98,11 +100,11 @@ struct HistoryPreviewPopoverView: View {
                             }
                             .buttonStyle(PreviewBadgeButtonStyle())
                             .contextMenu {
-                                Button("复制") {
+                                Button(L("复制")) {
                                     Self.copyOCRBadge(badge, using: clipboardWriter)
                                     ClipEaseSoundPlayer.shared.playCopyFeedback()
                                 }
-                                Button("分享") {
+                                Button(L("分享")) {
                                     Self.copyOCRBadge(badge, using: clipboardWriter)
                                     ClipEaseSoundPlayer.shared.playCopyFeedback()
                                 }
@@ -145,7 +147,7 @@ struct HistoryPreviewPopoverView: View {
                     Text(item.kind)
                         .font(.system(size: 15, weight: .semibold))
 
-                    Text("来自 \(item.sourceAppName)")
+                    Text(L("来自 \(item.sourceAppName)"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -161,7 +163,7 @@ struct HistoryPreviewPopoverView: View {
                     .font(.system(size: 15, weight: .medium))
             }
             .buttonStyle(PreviewIconButtonStyle())
-            .help("复制")
+            .help(L("复制"))
 
             if item.type != .text {
                 actionMenu
@@ -175,26 +177,26 @@ struct HistoryPreviewPopoverView: View {
         Menu {
             switch item.type {
             case .link:
-                Button("打开链接", action: onOpen)
-                Button("复制链接地址", action: onCopyURL)
-                Button("复制为 Markdown 链接", action: onCopyMarkdown)
+                Button(L("打开链接"), action: onOpen)
+                Button(L("复制链接地址"), action: onCopyURL)
+                Button(L("复制为 Markdown 链接"), action: onCopyMarkdown)
             case .image:
-                Button("打开图片", action: onOpen)
-                Button("复制图片") {
+                Button(L("打开图片"), action: onOpen)
+                Button(L("复制图片")) {
                     onCopy()
                 }
-                Button("在 Finder 中显示", action: onReveal)
-                Button("复制图片路径", action: onCopyPath)
+                Button(L("在 Finder 中显示"), action: onReveal)
+                Button(L("复制图片路径"), action: onCopyPath)
             case .color:
-                Button("复制 HEX", action: onCopy)
-                Button("复制 RGB", action: onCopyRGB)
+                Button(L("复制 HEX"), action: onCopy)
+                Button(L("复制 RGB"), action: onCopyRGB)
             case .file:
-                Button("打开文件", action: onOpen)
-                Button("复制文件") {
+                Button(L("打开文件"), action: onOpen)
+                Button(L("复制文件")) {
                     onCopy()
                 }
-                Button("在 Finder 中显示", action: onReveal)
-                Button("复制路径", action: onCopyPath)
+                Button(L("在 Finder 中显示"), action: onReveal)
+                Button(L("复制路径"), action: onCopyPath)
             case .text:
                 EmptyView()
             }
@@ -204,7 +206,7 @@ struct HistoryPreviewPopoverView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("更多操作")
+        .help(L("更多操作"))
     }
 
     @ViewBuilder
@@ -330,7 +332,7 @@ struct HistoryPreviewPopoverView: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(PreviewIconButtonStyle())
-                .help("识别文字")
+                .help(L("识别文字"))
             }
         }
     }
@@ -359,7 +361,7 @@ struct HistoryPreviewPopoverView: View {
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(Color.orange)
 
-                Text("无法加载链接预览")
+                Text(L("无法加载链接预览"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.22))
 
@@ -376,7 +378,7 @@ struct HistoryPreviewPopoverView: View {
             VStack(spacing: 8) {
                 ProgressView()
 
-                Text("正在加载链接预览")
+                Text(L("正在加载链接预览"))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -557,19 +559,19 @@ struct HistoryPreviewPopoverView: View {
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("文件路径不可用")
+                Text(L("文件路径不可用"))
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                Text(item.text.isEmpty ? "剪贴板记录没有可预览路径" : item.text)
+                Text(item.text.isEmpty ? L("剪贴板记录没有可预览路径") : item.text)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
 
-                Text("缺少路径")
+                Text(L("缺少路径"))
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -654,10 +656,10 @@ struct HistoryPreviewPopoverView: View {
                     .font(.system(size: 56, weight: .regular))
                     .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
 
-                Text("文件路径不可用")
+                Text(L("文件路径不可用"))
                     .font(.system(size: 18, weight: .semibold))
 
-                Text(item.text.isEmpty ? "剪贴板记录没有可预览路径" : item.text)
+                Text(item.text.isEmpty ? L("剪贴板记录没有可预览路径") : item.text)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
@@ -771,23 +773,23 @@ struct HistoryPreviewPopoverView: View {
 
     private func fileStatusText(_ reference: ClipboardFileReference) -> String {
         if reference.path.isEmpty {
-            return "缺少路径"
+            return L("缺少路径")
         }
 
         switch reference.pathStatus {
         case .available:
-            return reference.isDirectory ? "文件夹" : "可预览"
+            return reference.isDirectory ? L("文件夹") : L("可预览")
         case .missing:
-            return "路径缺失"
+            return L("路径缺失")
         case .permissionDenied:
-            return "权限不足"
+            return L("权限不足")
         case .placeholder:
-            return "占位文件"
+            return L("占位文件")
         case .unknown:
             if FileManager.default.fileExists(atPath: reference.path) {
-                return reference.isDirectory ? "文件夹" : "状态未确认"
+                return reference.isDirectory ? L("文件夹") : L("状态未确认")
             }
-            return "路径未确认"
+            return L("路径未确认")
         }
     }
 

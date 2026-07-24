@@ -15,6 +15,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let pasteExecutor: PasteExecutor
     private let appearanceSettings: AppearanceSettings
     private var appearanceObservation: AnyCancellable?
+    private var languageObservation: AnyCancellable?
     private var window: SettingsWindow?
 
     init(
@@ -39,6 +40,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         appearanceObservation = appearanceSettings.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async {
                 AppearanceWindowApplicator.apply(appearanceSettings.windowAppearance, to: self?.window)
+            }
+        }
+        languageObservation = AppLanguageSettings.shared.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.window?.title = L("轻贴设置")
             }
         }
     }
@@ -69,7 +75,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "轻贴设置"
+        window.title = L("轻贴设置")
         AppearanceWindowApplicator.apply(appearanceSettings.windowAppearance, to: window)
         window.minSize = minimumWindowSize
         window.contentView = NSHostingView(rootView: settingsView)

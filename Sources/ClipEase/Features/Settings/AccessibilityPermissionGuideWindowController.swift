@@ -29,7 +29,7 @@ final class AccessibilityPermissionGuideWindowController: NSObject, NSWindowDele
             backing: .buffered,
             defer: false
         )
-        window.title = "开启辅助功能权限"
+        window.title = L("开启辅助功能权限")
         window.contentView = NSHostingView(rootView: guideView)
         window.center()
         window.delegate = self
@@ -80,18 +80,18 @@ private struct AccessibilityPermissionGuideView: View {
                     .foregroundStyle(permissionState.isTrusted ? Color.green : Color.accentColor)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(permissionState.isTrusted ? "辅助功能权限已开启" : "轻贴需要辅助功能权限")
+                    Text(permissionState.isTrusted ? L("辅助功能权限已开启") : L("轻贴需要辅助功能权限"))
                         .font(.system(size: 22, weight: .semibold))
-                    Text(permissionState.isTrusted ? "现在可以使用快捷键打开历史窗口并自动粘贴。" : "开启后才可以使用全局快捷键、自动粘贴和稳定的主窗口交互。")
+                    Text(permissionState.isTrusted ? L("现在可以使用快捷键打开历史窗口并自动粘贴。") : L("开启后才可以使用全局快捷键、自动粘贴和稳定的主窗口交互。"))
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                permissionStep("1", "点击“打开系统设置”。")
-                permissionStep("2", "在“辅助功能”列表中找到 ClipEase 或轻贴。")
-                permissionStep("3", "打开开关后回到轻贴，点击“我已开启”。")
+                permissionStep("1", L("点击“打开系统设置”。"))
+                permissionStep("2", L("在“辅助功能”列表中找到 ClipEase 或轻贴。"))
+                permissionStep("3", L("打开开关后回到轻贴，点击“我已开启”。"))
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -107,20 +107,20 @@ private struct AccessibilityPermissionGuideView: View {
             Spacer()
 
             HStack(spacing: 10) {
-                Button("打开系统设置") {
+                Button(L("打开系统设置")) {
                     permissionState.openSystemSettings()
                     permissionState.refresh(promptIfNeeded: true)
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button("显示当前 App") {
+                Button(L("显示当前 App")) {
                     permissionState.revealCurrentAppInFinder()
                 }
                 .buttonStyle(.bordered)
 
                 Spacer()
 
-                Button(permissionState.isTrusted ? "完成" : "我已开启") {
+                Button(permissionState.isTrusted ? L("完成") : L("我已开启")) {
                     permissionState.refresh()
                     onAuthorized()
                 }

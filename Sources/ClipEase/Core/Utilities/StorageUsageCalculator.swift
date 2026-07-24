@@ -10,7 +10,7 @@ enum StorageUsageCalculator {
 
     static func formattedApplicationSupportSize() -> String {
         guard let directoryURL = try? ClipEaseStoragePaths.applicationSupportDirectory() else {
-            return "无法读取"
+            return L("无法读取")
         }
 
         let byteCount = applicationSupportSize(

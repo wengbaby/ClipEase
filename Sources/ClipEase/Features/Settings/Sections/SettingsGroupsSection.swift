@@ -20,19 +20,19 @@ struct SettingsGroupsSection<AppearancePicker: View>: View {
     let appearancePicker: (ClipboardGroup) -> AppearancePicker
 
     var body: some View {
-        SettingsSection(title: "分组管理", subtitle: subtitle) {
+        SettingsSection(title: L("分组管理"), subtitle: subtitle) {
             VStack(alignment: .leading, spacing: 12) {
-                historyActionGroup(title: "操作") {
-                    historyButton("新建分组", prominent: true, action: onCreateGroup)
+                historyActionGroup(title: L("操作")) {
+                    historyButton(L("新建分组"), prominent: true, action: onCreateGroup)
 
-                    Button("删除所选", role: .destructive, action: onRequestDeleteSelectedGroups)
+                    Button(L("删除所选"), role: .destructive, action: onRequestDeleteSelectedGroups)
                         .buttonStyle(.bordered)
                         .frame(minWidth: 88)
                         .disabled(groupSelection.isEmpty)
                 }
 
                 if groups.isEmpty {
-                    Text("暂无分组")
+                    Text(L("暂无分组"))
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(.secondary)
                 } else {
@@ -84,7 +84,7 @@ struct SettingsGroupsSection<AppearancePicker: View>: View {
                 ),
                 focusedID: $focusedGroupNameID,
                 id: group.id,
-                placeholder: "分组名称",
+                placeholder: L("分组名称"),
                 onCommit: { name in
                     onCommitGroupName(group.id, name)
                 },
@@ -98,10 +98,10 @@ struct SettingsGroupsSection<AppearancePicker: View>: View {
             Button {
                 onBeginAppearanceEditing(group)
             } label: {
-                Label("颜色与图标", systemImage: "paintpalette")
+                Label(L("颜色与图标"), systemImage: "paintpalette")
             }
             .buttonStyle(.borderless)
-            .help("调整颜色和图标")
+            .help(L("调整颜色和图标"))
             .background(
                 PersistentPopoverPresenter(
                     isPresented: Binding(
@@ -120,7 +120,7 @@ struct SettingsGroupsSection<AppearancePicker: View>: View {
                 }
             )
 
-            Text("\(itemCount(group.id)) 条")
+            Text(L("\(itemCount(group.id)) 条"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 56, alignment: .trailing)
@@ -131,7 +131,7 @@ struct SettingsGroupsSection<AppearancePicker: View>: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
-            .help("删除分组")
+            .help(L("删除分组"))
         }
         .padding(.vertical, 4)
     }

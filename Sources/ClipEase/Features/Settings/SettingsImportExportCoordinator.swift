@@ -22,8 +22,8 @@ struct SettingsImportExportCoordinator {
 
     static func exportHistoryPanelConfiguration(dateString: String) -> SavePanelConfiguration {
         SavePanelConfiguration(
-            title: "导出轻贴历史",
-            prompt: "导出",
+            title: L("导出轻贴历史"),
+            prompt: L("导出"),
             defaultFileName: "ClipEase-History-\(dateString).json",
             allowedContentTypes: [.json],
             canCreateDirectories: nil
@@ -32,8 +32,8 @@ struct SettingsImportExportCoordinator {
 
     static func exportBackupPanelConfiguration(dateString: String) -> SavePanelConfiguration {
         SavePanelConfiguration(
-            title: "导出轻贴备份包",
-            prompt: "导出",
+            title: L("导出轻贴备份包"),
+            prompt: L("导出"),
             defaultFileName: "ClipEase-Backup-\(dateString).clipeasebackup",
             allowedContentTypes: [],
             canCreateDirectories: true
@@ -42,8 +42,8 @@ struct SettingsImportExportCoordinator {
 
     static func importHistoryPanelConfiguration() -> OpenPanelConfiguration {
         OpenPanelConfiguration(
-            title: "导入轻贴历史",
-            prompt: "导入",
+            title: L("导入轻贴历史"),
+            prompt: L("导入"),
             allowedContentTypes: [.json],
             allowsMultipleSelection: false,
             canChooseDirectories: false,
@@ -53,8 +53,8 @@ struct SettingsImportExportCoordinator {
 
     static func importBackupPanelConfiguration() -> OpenPanelConfiguration {
         OpenPanelConfiguration(
-            title: "导入轻贴备份包",
-            prompt: "导入",
+            title: L("导入轻贴备份包"),
+            prompt: L("导入"),
             allowedContentTypes: [],
             allowsMultipleSelection: false,
             canChooseDirectories: true,

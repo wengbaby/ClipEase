@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class SettingsHistoryDataViewModel: ObservableObject {
-    @Published var storageUsageText = "计算中"
+    @Published var storageUsageText = L("计算中")
     @Published var isStorageUsageRefreshing = false
     @Published var isCompactingHistoryDatabase = false
     @Published var isCleaningOrphanedAttachments = false
@@ -14,21 +14,21 @@ final class SettingsHistoryDataViewModel: ObservableObject {
         storageUsageText: String
     ) -> String {
         let primarySummaries = [
-            historyStorageSummary(for: .text, label: "文字", items: items),
-            historyStorageSummary(for: .link, label: "链接", items: items),
-            historyStorageSummary(for: .image, label: "图片", items: items)
+            historyStorageSummary(for: .text, label: L("文字"), items: items),
+            historyStorageSummary(for: .link, label: L("链接"), items: items),
+            historyStorageSummary(for: .image, label: L("图片"), items: items)
         ]
         let secondarySummaries = [
-            historyStorageSummary(for: .file, label: "文件", items: items),
-            historyStorageSummary(for: .color, label: "颜色", items: items),
+            historyStorageSummary(for: .file, label: L("文件"), items: items),
+            historyStorageSummary(for: .color, label: L("颜色"), items: items),
             historyPinnedStorageSummary(items: items)
         ]
 
-        return """
+        return L("""
         共 \(items.count) 条，占用 \(storageUsageText)
         \(primarySummaries.joined(separator: "，"))
         \(secondarySummaries.joined(separator: "，"))
-        """
+        """)
     }
 
     nonisolated static func formatCategorySize(_ bytes: UInt64) -> String {
@@ -51,7 +51,7 @@ final class SettingsHistoryDataViewModel: ObservableObject {
 
             storageUsageText = usageText
             isStorageUsageRefreshing = false
-            onStatus?("已刷新存储用量")
+            onStatus?(L("已刷新存储用量"))
         }
     }
 
@@ -75,9 +75,9 @@ final class SettingsHistoryDataViewModel: ObservableObject {
             storageUsageText = usageText
             isCompactingHistoryDatabase = false
             if result.reclaimedBytes > 0 {
-                showStatus("已压缩历史数据库，释放 \(ByteCountFormatter.string(fromByteCount: Int64(result.reclaimedBytes), countStyle: .file))")
+                showStatus(L("已压缩历史数据库，释放 \(ByteCountFormatter.string(fromByteCount: Int64(result.reclaimedBytes), countStyle: .file))"))
             } else {
-                showStatus("历史数据库无需压缩")
+                showStatus(L("历史数据库无需压缩"))
             }
         }
     }
@@ -88,7 +88,7 @@ final class SettingsHistoryDataViewModel: ObservableObject {
         completion: @escaping (HistoryDataHealthReport) -> Void
     ) {
         isCheckingHistoryData = true
-        showProgress("正在检查数据...")
+        showProgress(L("正在检查数据..."))
 
         Task {
             let report = await Task.detached(priority: .utility) {
@@ -109,7 +109,7 @@ final class SettingsHistoryDataViewModel: ObservableObject {
         let bytes = matchingItems.reduce(UInt64(0)) { partialResult, item in
             partialResult + estimatedStoredBytes(for: item)
         }
-        return "\(label) \(formatCategorySize(bytes))/\(matchingItems.count)条"
+        return L("\(label) \(formatCategorySize(bytes))/\(matchingItems.count)条")
     }
 
     nonisolated private static func historyPinnedStorageSummary(items: [ClipboardItem]) -> String {
@@ -117,7 +117,8 @@ final class SettingsHistoryDataViewModel: ObservableObject {
         let bytes = pinnedItems.reduce(UInt64(0)) { partialResult, item in
             partialResult + estimatedStoredBytes(for: item)
         }
-        return "置顶 \(formatCategorySize(bytes))/\(pinnedItems.count)条"
+        let label = L("置顶")
+        return L("\(label) \(formatCategorySize(bytes))/\(pinnedItems.count)条")
     }
 
     nonisolated private static func estimatedStoredBytes(for item: ClipboardItem) -> UInt64 {

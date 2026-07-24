@@ -9,19 +9,19 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         var title: String {
             switch self {
             case .create:
-                "新建文本"
+                L("新建文本")
             case .edit(let item):
                 switch item.type {
                 case .text:
-                    "编辑文本"
+                    L("编辑文本")
                 case .link:
-                    "编辑链接"
+                    L("编辑链接")
                 case .color:
-                    "编辑颜色"
+                    L("编辑颜色")
                 case .image:
-                    "编辑"
+                    L("编辑")
                 case .file:
-                    "编辑"
+                    L("编辑")
                 }
             }
         }
@@ -29,9 +29,18 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         var actionTitle: String {
             switch self {
             case .create:
-                "创建"
+                L("创建")
             case .edit:
-                "保存"
+                L("保存")
+            }
+        }
+
+        var plainTextActionTitle: String {
+            switch self {
+            case .create:
+                L("创建纯文本")
+            case .edit:
+                L("保存纯文本")
             }
         }
     }
@@ -138,9 +147,9 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
         self.panel = panel
         self.textView = textView
-        self.characterLabel = Self.makeFooterLabel("0 个字符")
-        self.wordLabel = Self.makeFooterLabel("0 单词")
-        self.lineLabel = Self.makeFooterLabel("0 行")
+        self.characterLabel = Self.makeFooterLabel(L("0 个字符"))
+        self.wordLabel = Self.makeFooterLabel(L("0 单词"))
+        self.lineLabel = Self.makeFooterLabel(L("0 行"))
         self.errorLabel = Self.makeFooterLabel("")
         self.hexColorLabel = Self.makeFooterLabel("HEX --")
         self.rgbColorLabel = Self.makeFooterLabel("RGB --")
@@ -302,12 +311,12 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         styleGroup.addArrangedSubview(underlineButton)
         styleGroup.addArrangedSubview(strikethroughButton)
         styleGroup.addArrangedSubview(fontSizePopUpButton)
-        styleGroup.addArrangedSubview(toolbarButton("清除格式", action: #selector(clearFormattingAction)))
+        styleGroup.addArrangedSubview(toolbarButton(L("清除格式"), action: #selector(clearFormattingAction)))
 
         let createButton = primaryButton(mode.actionTitle, action: #selector(createAction))
         actionButton = createButton
-        let plainTextButton = toolbarButton(mode.actionTitle + "纯文本", action: #selector(createPlainTextAction))
-        let cancelButton = toolbarButton("取消", action: #selector(cancelAction))
+        let plainTextButton = toolbarButton(mode.plainTextActionTitle, action: #selector(createPlainTextAction))
+        let cancelButton = toolbarButton(L("取消"), action: #selector(cancelAction))
         cancelButton.font = .systemFont(ofSize: 12, weight: .medium)
         configureGroupPopUpButton()
 
@@ -500,7 +509,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         groupPopUpButton.action = #selector(selectGroupAction)
         groupPopUpButton.controlSize = .small
         groupPopUpButton.font = .systemFont(ofSize: 12, weight: .medium)
-        groupPopUpButton.addItem(withTitle: "全部剪切板")
+        groupPopUpButton.addItem(withTitle: L("全部剪切板"))
         groupPopUpButton.lastItem?.representedObject = nil
 
         groups.forEach { group in
@@ -549,9 +558,9 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
     private func updateFooter() {
         let text = textView.string
-        characterLabel.stringValue = "\(text.count) 个字符"
-        wordLabel.stringValue = "\(wordCount(in: text)) 单词"
-        lineLabel.stringValue = "\(max(1, text.components(separatedBy: .newlines).count)) 行"
+        characterLabel.stringValue = L("\(text.count) 个字符")
+        wordLabel.stringValue = L("\(wordCount(in: text)) 单词")
+        lineLabel.stringValue = L("\(max(1, text.components(separatedBy: .newlines).count)) 行")
         errorLabel.isHidden = errorLabel.stringValue.isEmpty
     }
 
@@ -963,7 +972,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         }
         let plainText = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !plainText.isEmpty else {
-            showValidationError("内容不能为空")
+            showValidationError(L("内容不能为空"))
             return
         }
 
@@ -989,13 +998,13 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         }
         let plainText = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !plainText.isEmpty else {
-            showValidationError("内容不能为空")
+            showValidationError(L("内容不能为空"))
             return
         }
 
         if case .edit(let item) = mode {
             guard onSaveEdit?(item.id, plainText) != nil else {
-                showValidationError("保存失败")
+                showValidationError(L("保存失败"))
                 return
             }
             closeAfterSave()
@@ -1031,7 +1040,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
                     plainText,
                     self.selectedGroupID
                 ) else {
-                    self.showValidationError("保存失败")
+                    self.showValidationError(L("保存失败"))
                     return
                 }
                 guard !Task.isCancelled else {
@@ -1062,7 +1071,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
     private func commitEdit(item: ClipboardItem, plainText: String) {
         guard canSave else {
-            showValidationError("无法读取原富文本，不能保存")
+            showValidationError(L("无法读取原富文本，不能保存"))
             return
         }
 
@@ -1077,26 +1086,26 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
             normalizedText = plainText
         case .link:
             guard URLParser.url(from: plainText) != nil else {
-                showValidationError("请输入 http:// 或 https:// 链接")
+                showValidationError(L("请输入 http:// 或 https:// 链接"))
                 return
             }
             normalizedText = plainText
         case .color:
             guard let hex = ColorParser.hexColor(from: plainText) else {
-                showValidationError("请输入有效 HEX 颜色")
+                showValidationError(L("请输入有效 HEX 颜色"))
                 return
             }
             normalizedText = hex
         case .image:
-            showValidationError("此类型暂不支持编辑")
+            showValidationError(L("此类型暂不支持编辑"))
             return
         case .file:
-            showValidationError("此类型暂不支持编辑")
+            showValidationError(L("此类型暂不支持编辑"))
             return
         }
 
         guard onSaveEdit?(item.id, normalizedText) != nil else {
-            showValidationError("保存失败")
+            showValidationError(L("保存失败"))
             return
         }
 
@@ -1122,7 +1131,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
                     data,
                     plainText
                 ) else {
-                    self.showValidationError("保存失败")
+                    self.showValidationError(L("保存失败"))
                     return
                 }
                 guard !Task.isCancelled else {
@@ -1152,7 +1161,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 
     private func requestCloseEditor() {
         guard saveTask == nil else {
-            showValidationError("正在保存，请稍候")
+            showValidationError(L("正在保存，请稍候"))
             return
         }
         guard hasUnsavedChanges else {
@@ -1162,11 +1171,11 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         }
 
         let alert = NSAlert()
-        alert.messageText = "保存更改？"
-        alert.informativeText = "关闭前是否保存当前富文本内容？"
+        alert.messageText = L("保存更改？")
+        alert.informativeText = L("关闭前是否保存当前富文本内容？")
         alert.addButton(withTitle: mode.actionTitle)
-        alert.addButton(withTitle: "不保存")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L("不保存"))
+        alert.addButton(withTitle: L("取消"))
         alert.beginSheetModal(for: panel) { [weak self] response in
             guard let self else {
                 return
@@ -1187,7 +1196,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
         guard saveTask == nil,
               !isClosingAfterSaveOrDiscard else {
             if saveTask != nil {
-                showValidationError("正在保存，请稍候")
+                showValidationError(L("正在保存，请稍候"))
             }
             return
         }
@@ -1218,7 +1227,7 @@ final class RichTextEditorController: NSObject, NSTextViewDelegate {
 extension RichTextEditorController: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard saveTask == nil else {
-            showValidationError("正在保存，请稍候")
+            showValidationError(L("正在保存，请稍候"))
             return false
         }
         guard !isClosingAfterSaveOrDiscard,

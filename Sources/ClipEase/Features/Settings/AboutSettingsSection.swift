@@ -16,7 +16,7 @@ private struct SupportQRCodeAssets {
                     .scaledToFit()
                     .frame(width: size, height: size)
             } else {
-                Text("未找到\(missingTitle)")
+                Text(L("未找到\(missingTitle)"))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: size, height: size)
@@ -83,7 +83,7 @@ struct AboutSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("关于轻贴")
+                Text(L("关于轻贴"))
                     .font(.system(size: 13, weight: .semibold))
 
                 Text("ClipEase \(AppVersionInfo.displayVersion)")
@@ -94,16 +94,16 @@ struct AboutSettingsSection: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
-                    Label("简洁好用的 macOS 粘贴板历史助手", systemImage: "info.circle")
+                    Label(L("简洁好用的 macOS 粘贴板历史助手"), systemImage: "info.circle")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(.secondary)
 
                     Spacer()
 
-                    Button("打开 GitHub", action: onOpenGitHub)
+                    Button(L("打开 GitHub"), action: onOpenGitHub)
                         .buttonStyle(.bordered)
 
-                    Button("复制版本号", action: onCopyVersion)
+                    Button(L("复制版本号"), action: onCopyVersion)
                         .buttonStyle(.bordered)
                 }
                 .contentShape(Rectangle())
@@ -113,7 +113,7 @@ struct AboutSettingsSection: View {
 
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("版本更新")
+                        Text(L("版本更新"))
                             .font(.system(size: 13, weight: .semibold))
 
                         Text(updateSubtitle)
@@ -124,12 +124,12 @@ struct AboutSettingsSection: View {
 
                     Spacer()
 
-                    Toggle("自动检查", isOn: $updateViewModel.isAutomaticCheckEnabled)
+                    Toggle(L("自动检查"), isOn: $updateViewModel.isAutomaticCheckEnabled)
                         .toggleStyle(.switch)
                         .controlSize(.small)
                         .font(.system(size: 12, weight: .regular))
 
-                    Button(updateViewModel.state.isChecking ? "检查中" : "检查更新", action: onCheckForUpdates)
+                    Button(updateViewModel.state.isChecking ? L("检查中") : L("检查更新"), action: onCheckForUpdates)
                         .buttonStyle(.bordered)
                         .disabled(updateViewModel.state.isChecking)
                 }
@@ -140,26 +140,26 @@ struct AboutSettingsSection: View {
 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("支持与交流")
+                        Text(L("支持与交流"))
                             .font(.system(size: 13, weight: .semibold))
 
-                        Text("加入交流群反馈问题，查看项目更新。")
+                        Text(L("加入交流群反馈问题，查看项目更新。"))
                             .font(.system(size: 12, weight: .regular))
                             .foregroundStyle(.secondary)
                     }
 
                     Spacer()
 
-                    Button("加入交流群", action: onOpenSupportCommunity)
+                    Button(L("加入交流群"), action: onOpenSupportCommunity)
                         .buttonStyle(.bordered)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("赞赏支持")
+                        Text(L("赞赏支持"))
                             .font(.system(size: 13, weight: .semibold))
 
-                        Text("感谢支持轻贴 ClipEase 的持续维护。")
+                        Text(L("感谢支持轻贴 ClipEase 的持续维护。"))
                             .font(.system(size: 12, weight: .regular))
                             .foregroundStyle(.secondary)
                     }
@@ -170,7 +170,7 @@ struct AboutSettingsSection: View {
                             SupportQRCodeAssets.supportQRCode(
                                 name: "Alipay",
                                 extensionName: "jpg",
-                                missingTitle: "支付宝二维码",
+                                missingTitle: L("支付宝二维码"),
                                 cropRect: CGRect(x: 190, y: 460, width: 635, height: 635),
                                 borderColor: Color(red: 0.09, green: 0.52, blue: 0.96),
                                 size: qrSize
@@ -179,7 +179,7 @@ struct AboutSettingsSection: View {
                             SupportQRCodeAssets.supportQRCode(
                                 name: "WeChat",
                                 extensionName: "png",
-                                missingTitle: "微信二维码",
+                                missingTitle: L("微信二维码"),
                                 cropRect: CGRect(x: 198, y: 115, width: 900, height: 900),
                                 borderColor: Color(red: 0.12, green: 0.74, blue: 0.34),
                                 size: qrSize
@@ -198,8 +198,8 @@ struct AboutSettingsSection: View {
 
     private var updateSubtitle: String {
         updateViewModel.isAutomaticCheckEnabled
-            ? "每天静默检查一次 GitHub 最新正式 Release。"
-            : "已关闭自动检查，你仍然可以手动检查更新。"
+            ? L("每天静默检查一次 GitHub 最新正式 Release。")
+            : L("已关闭自动检查，你仍然可以手动检查更新。")
     }
 
     @ViewBuilder
@@ -210,8 +210,8 @@ struct AboutSettingsSection: View {
         case .checking:
             updateStatusCard(
                 iconName: "arrow.triangle.2.circlepath",
-                title: "正在检查更新",
-                message: "正在连接 GitHub 获取最新正式 Release。",
+                title: L("正在检查更新"),
+                message: L("正在连接 GitHub 获取最新正式 Release。"),
                 tint: Color(red: 0.82, green: 0.52, blue: 0.12)
             ) {
                 EmptyView()
@@ -219,11 +219,11 @@ struct AboutSettingsSection: View {
         case .upToDate(let version):
             updateStatusCard(
                 iconName: "checkmark.circle",
-                title: "已是最新版",
-                message: "当前版本 \(version) 已是 GitHub 最新正式 Release。",
+                title: L("已是最新版"),
+                message: L("当前版本 \(version) 已是 GitHub 最新正式 Release。"),
                 tint: Color(red: 0.18, green: 0.55, blue: 0.28)
             ) {
-                Button("打开 Release") {
+                Button(L("打开 Release")) {
                     onOpenRelease(nil)
                 }
                 .buttonStyle(.bordered)
@@ -231,18 +231,18 @@ struct AboutSettingsSection: View {
         case .updateAvailable(let info):
             updateStatusCard(
                 iconName: "arrow.down.circle",
-                title: "发现新版本 ClipEase \(info.version)",
+                title: L("发现新版本 ClipEase \(info.version)"),
                 message: updateAvailableMessage(for: info),
                 tint: Color(red: 0.18, green: 0.48, blue: 0.86)
             ) {
                 if let downloadURL = info.downloadURL {
-                    Button("下载 DMG") {
+                    Button(L("下载 DMG")) {
                         onDownloadUpdate(downloadURL)
                     }
                     .buttonStyle(.borderedProminent)
                 }
 
-                Button("打开 Release") {
+                Button(L("打开 Release")) {
                     onOpenRelease(info.releaseURL)
                 }
                 .buttonStyle(.bordered)
@@ -250,14 +250,14 @@ struct AboutSettingsSection: View {
         case .failed:
             updateStatusCard(
                 iconName: "exclamationmark.circle",
-                title: "检查失败，稍后重试",
-                message: "可能是网络或 GitHub 暂时不可用。你可以稍后重新检查，也可以打开 GitHub 自行下载。",
+                title: L("检查失败，稍后重试"),
+                message: L("可能是网络或 GitHub 暂时不可用。你可以稍后重新检查，也可以打开 GitHub 自行下载。"),
                 tint: Color(red: 0.78, green: 0.24, blue: 0.18)
             ) {
-                Button("重新检查", action: onCheckForUpdates)
+                Button(L("重新检查"), action: onCheckForUpdates)
                     .buttonStyle(.borderedProminent)
 
-                Button("打开 Release") {
+                Button(L("打开 Release")) {
                     onOpenRelease(nil)
                 }
                 .buttonStyle(.bordered)
@@ -270,10 +270,10 @@ struct AboutSettingsSection: View {
             let formatter = DateFormatter()
             formatter.dateStyle = .medium
             formatter.timeStyle = .none
-            return "当前版本为 \(AppVersionInfo.shortVersion)。GitHub 最新正式 Release 发布于 \(formatter.string(from: publishedAt))。"
+            return L("当前版本为 \(AppVersionInfo.shortVersion)。GitHub 最新正式 Release 发布于 \(formatter.string(from: publishedAt))。")
         }
 
-        return "当前版本为 \(AppVersionInfo.shortVersion)。GitHub 有新的正式 Release。"
+        return L("当前版本为 \(AppVersionInfo.shortVersion)。GitHub 有新的正式 Release。")
     }
 
     private func updateStatusCard<Actions: View>(

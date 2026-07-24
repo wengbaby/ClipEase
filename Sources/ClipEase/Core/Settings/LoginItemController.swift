@@ -3,18 +3,23 @@ import ServiceManagement
 
 @MainActor
 final class LoginItemController: ObservableObject {
-    @Published private(set) var statusText: String = ""
+    private var status: SMAppService.Status
+
+    var statusText: String {
+        Self.title(for: status)
+    }
 
     var isEnabled: Bool {
         SMAppService.mainApp.status == .enabled
     }
 
     init() {
-        refresh()
+        status = SMAppService.mainApp.status
     }
 
     func refresh() {
-        statusText = Self.title(for: SMAppService.mainApp.status)
+        status = SMAppService.mainApp.status
+        objectWillChange.send()
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -34,15 +39,15 @@ final class LoginItemController: ObservableObject {
     private static func title(for status: SMAppService.Status) -> String {
         switch status {
         case .enabled:
-            "已启用"
+            L("已启用")
         case .requiresApproval:
-            "需要在系统设置中批准"
+            L("需要在系统设置中批准")
         case .notRegistered:
-            "未启用"
+            L("未启用")
         case .notFound:
-            "当前构建暂不可用"
+            L("当前构建暂不可用")
         @unknown default:
-            "未知状态"
+            L("未知状态")
         }
     }
 }

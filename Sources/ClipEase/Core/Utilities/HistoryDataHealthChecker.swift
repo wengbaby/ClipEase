@@ -25,29 +25,29 @@ struct HistoryDataHealthReport: Sendable {
 
     var summary: String {
         guard hasIssues else {
-            return "数据正常"
+            return L("数据正常")
         }
 
         var parts: [String] = []
         if missingImageFiles > 0 {
-            parts.append("缺失图片 \(missingImageFiles)")
+            parts.append(L("缺失图片 \(missingImageFiles)"))
         }
         if missingRichTextFiles > 0 {
-            parts.append("缺失富文本 \(missingRichTextFiles)")
+            parts.append(L("缺失富文本 \(missingRichTextFiles)"))
         }
         if orphanedAttachmentFiles > 0 {
-            parts.append("孤立附件 \(orphanedAttachmentFiles) 个/\(formattedOrphanedAttachmentSize)")
+            parts.append(L("孤立附件 \(orphanedAttachmentFiles) 个/\(formattedOrphanedAttachmentSize)"))
         }
         return parts.joined(separator: "，")
     }
 
     var detailText: String {
-        """
+        L("""
         缺失图片：\(missingImageFiles)
         缺失富文本：\(missingRichTextFiles)
         孤立附件：\(orphanedAttachmentFiles)
         孤立附件占用：\(formattedOrphanedAttachmentSize)
-        """
+        """)
     }
 }
 
@@ -59,10 +59,10 @@ struct HistoryDataRepairReport: Sendable {
 
     var summary: String {
         if removedFiles > 0 {
-            return "已修复 \(removedFiles) 个孤立附件"
+            return L("已修复 \(removedFiles) 个孤立附件")
         }
 
-        return after.hasIssues ? "没有可自动修复的问题" : "数据正常"
+        return after.hasIssues ? L("没有可自动修复的问题") : L("数据正常")
     }
 
     var detailText: String {
@@ -70,7 +70,7 @@ struct HistoryDataRepairReport: Sendable {
             fromByteCount: Int64(removedBytes),
             countStyle: .file
         )
-        return """
+        return L("""
         修复前：
         \(before.detailText)
 
@@ -79,7 +79,7 @@ struct HistoryDataRepairReport: Sendable {
 
         修复后：
         \(after.detailText)
-        """
+        """)
     }
 }
 

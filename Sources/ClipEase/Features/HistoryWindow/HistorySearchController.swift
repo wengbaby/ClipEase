@@ -72,15 +72,15 @@ enum HistorySearchItemType: String, CaseIterable, Identifiable, Hashable, Sendab
     var title: String {
         switch self {
         case .text:
-            "文字"
+            L("文字")
         case .link:
-            "链接"
+            L("链接")
         case .image:
-            "图片"
+            L("图片")
         case .color:
-            "颜色"
+            L("颜色")
         case .file:
-            "文件"
+            L("文件")
         }
     }
 
@@ -127,11 +127,11 @@ enum HistorySearchDateRange: String, CaseIterable, Identifiable, Hashable, Senda
     var title: String {
         switch self {
         case .today:
-            "今天"
+            L("今天")
         case .last7Days:
-            "最近 7 天"
+            L("最近 7 天")
         case .last30Days:
-            "最近 30 天"
+            L("最近 30 天")
         }
     }
 
@@ -427,9 +427,9 @@ private extension HistorySearchGroup {
     func title(groups: [ClipboardGroup]) -> String {
         switch self {
         case .pinned:
-            "置顶"
+            L("置顶")
         case .group(let groupID):
-            groups.first(where: { $0.id == groupID })?.name ?? "分组"
+            groups.first(where: { $0.id == groupID })?.name ?? L("分组")
         }
     }
 }

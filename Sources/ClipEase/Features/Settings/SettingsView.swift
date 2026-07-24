@@ -20,46 +20,46 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .general:
-            "通用"
+            L("通用")
         case .appearance:
-            "外观"
+            L("外观")
         case .shortcut:
-            "快捷键"
+            L("快捷键")
         case .recording:
-            "记录"
+            L("记录")
         case .groups:
-            "分组"
+            L("分组")
         case .history:
-            "历史数据"
+            L("历史数据")
         case .performance:
-            "性能/日志"
+            L("性能/日志")
         case .permissions:
-            "权限"
+            L("权限")
         case .about:
-            "关于"
+            L("关于")
         }
     }
 
     var subtitle: String {
         switch self {
         case .general:
-            "保存期限和启动方式"
+            L("保存期限和启动方式")
         case .appearance:
-            "主题、玻璃、卡片和字体"
+            L("主题、玻璃、卡片和字体")
         case .shortcut:
-            "打开或关闭底部历史窗口"
+            L("打开或关闭底部历史窗口")
         case .recording:
-            "记录状态和忽略 App"
+            L("记录状态和忽略 App")
         case .groups:
-            "管理分组、颜色和排序"
+            L("管理分组、颜色和排序")
         case .history:
-            "导入、导出、备份和本地文件"
+            L("导入、导出、备份和本地文件")
         case .performance:
-            "采样、图表和日志文件"
+            L("采样、图表和日志文件")
         case .permissions:
-            "自动粘贴需要的系统权限"
+            L("自动粘贴需要的系统权限")
         case .about:
-            "版本信息和项目入口"
+            L("版本信息和项目入口")
         }
     }
 
@@ -96,6 +96,7 @@ struct SettingsView: View {
     @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
     @ObservedObject var appearanceSettings: AppearanceSettings
     @ObservedObject private var performanceDiagnostics = PerformanceDiagnosticsService.shared
+    @ObservedObject private var languageSettings = AppLanguageSettings.shared
     let pasteExecutor: PasteExecutor
     let clipboardWriter: ClipboardWriteCoordinator
 
@@ -166,65 +167,65 @@ struct SettingsView: View {
             accessibilityPermissionState.refresh()
         }
         .confirmationDialog(
-            "清理孤立附件？",
+            L("清理孤立附件？"),
             isPresented: $isCleanOrphanedAttachmentsConfirmationPresented,
             titleVisibility: .visible
         ) {
-            Button("清理孤立附件", role: .destructive) {
+            Button(L("清理孤立附件"), role: .destructive) {
                 cleanOrphanedAttachments()
             }
 
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: {
-            Text("此操作只会删除没有被当前历史记录引用的图片、缩略图和富文本文件，不会删除历史记录。")
+            Text(L("此操作只会删除没有被当前历史记录引用的图片、缩略图和富文本文件，不会删除历史记录。"))
         }
         .confirmationDialog(
-            "清空全部历史？",
+            L("清空全部历史？"),
             isPresented: $isClearConfirmationPresented,
             titleVisibility: .visible
         ) {
-            Button("清空历史", role: .destructive) {
+            Button(L("清空历史"), role: .destructive) {
                 store.clearAllItems()
                 historyDataViewModel.refreshStorageUsage()
-                showStatus("已清空历史")
+                showStatus(L("已清空历史"))
             }
 
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: {
-            Text("此操作会删除所有普通和置顶记录，以及已保存的图片文件。")
+            Text(L("此操作会删除所有普通和置顶记录，以及已保存的图片文件。"))
         }
         .confirmationDialog(
-            "清空图标缓存？",
+            L("清空图标缓存？"),
             isPresented: $isClearIconCacheConfirmationPresented,
             titleVisibility: .visible
         ) {
-            Button("清空图标缓存", role: .destructive) {
+            Button(L("清空图标缓存"), role: .destructive) {
                 AppIconCache.clearCache()
                 historyDataViewModel.refreshStorageUsage()
-                showStatus("已清空图标缓存")
+                showStatus(L("已清空图标缓存"))
             }
 
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: {
-            Text("此操作只会删除来源 App 图标缓存，不会删除历史记录。后续新复制内容会重新生成图标缓存。")
+            Text(L("此操作只会删除来源 App 图标缓存，不会删除历史记录。后续新复制内容会重新生成图标缓存。"))
         }
         .confirmationDialog(
-            "清空缩略图缓存？",
+            L("清空缩略图缓存？"),
             isPresented: $isClearThumbnailCacheConfirmationPresented,
             titleVisibility: .visible
         ) {
-            Button("清空缩略图缓存", role: .destructive) {
+            Button(L("清空缩略图缓存"), role: .destructive) {
                 ClipboardHistoryPersistence.clearThumbnailCache()
                 historyDataViewModel.refreshStorageUsage()
-                showStatus("已清空缩略图缓存")
+                showStatus(L("已清空缩略图缓存"))
             }
 
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: {
-            Text("此操作只会删除图片卡片使用的缩略图缓存，不会删除原始图片或历史记录。后续显示图片卡片时会重新生成。")
+            Text(L("此操作只会删除图片卡片使用的缩略图缓存，不会删除原始图片或历史记录。后续显示图片卡片时会重新生成。"))
         }
         .confirmationDialog(
-            "删除分组？",
+            L("删除分组？"),
             isPresented: Binding(
                 get: { groupPendingDeletion != nil },
                 set: { isPresented in
@@ -237,16 +238,16 @@ struct SettingsView: View {
             titleVisibility: .visible,
             presenting: groupPendingDeletion
         ) { group in
-            Button("删除分组和内容", role: .destructive) {
+            Button(L("删除分组和内容"), role: .destructive) {
                 confirmDeleteGroup(group)
             }
 
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: { group in
-            Text("会删除“\(group.name)”中的 \(groupPendingDeletionAssessment?.itemCount ?? 0) 条内容，无法恢复。")
+            Text(L("会删除“\(group.name)”中的 \(groupPendingDeletionAssessment?.itemCount ?? 0) 条内容，无法恢复。"))
         }
         .confirmationDialog(
-            "删除所选分组？",
+            L("删除所选分组？"),
             isPresented: Binding(
                 get: { isBulkGroupDeleteConfirmationPresented },
                 set: { isPresented in
@@ -259,13 +260,13 @@ struct SettingsView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("删除分组和内容", role: .destructive) {
+            Button(L("删除分组和内容"), role: .destructive) {
                 confirmDeleteSelectedGroups()
             }
 
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: {
-            Text("会删除所选分组中的 \(bulkGroupPendingDeletionAssessment?.itemCount ?? 0) 条内容，无法恢复。")
+            Text(L("会删除所选分组中的 \(bulkGroupPendingDeletionAssessment?.itemCount ?? 0) 条内容，无法恢复。"))
         }
     }
 
@@ -277,7 +278,7 @@ struct SettingsView: View {
                     .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("轻贴")
+                    Text(L("轻贴"))
                         .font(.system(size: 15, weight: .semibold))
 
                     Text("ClipEase")
@@ -347,6 +348,7 @@ struct SettingsView: View {
     private var selectedContent: some View {
         switch selectedCategory {
         case .general:
+            languageSection
             retentionSection
             launchAtLoginSection
         case .appearance:
@@ -370,17 +372,28 @@ struct SettingsView: View {
         }
     }
 
+    private var languageSection: some View {
+        settingsSection(title: L("语言"), subtitle: L("界面语言会立即切换；首次安装默认跟随系统语言。")) {
+            Picker(L("语言"), selection: $languageSettings.preference) {
+                Text(L("跟随系统")).tag(AppLanguage.system)
+                Text(L("简体中文")).tag(AppLanguage.simplifiedChinese)
+                Text(L("英文")).tag(AppLanguage.english)
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
     private var appearanceSection: some View {
-        settingsSection(title: "外观", subtitle: "立即预览并自动保存") {
+        settingsSection(title: L("外观"), subtitle: L("立即预览并自动保存")) {
             VStack(alignment: .leading, spacing: 12) {
-                Picker("主题", selection: $appearanceSettings.colorTheme) {
+                Picker(L("主题"), selection: $appearanceSettings.colorTheme) {
                     ForEach(AppearanceColorTheme.allCases) { theme in
                         Text(theme.title).tag(theme)
                     }
                 }
                 .pickerStyle(.segmented)
 
-                Text("窗口效果")
+                Text(L("窗口效果"))
                     .font(.system(size: 12, weight: .semibold))
 
                 LazyVGrid(
@@ -399,16 +412,16 @@ struct SettingsView: View {
                     isWindowEffectGalleryExpanded.toggle()
                 }
 
-                Toggle("液态玻璃效果", isOn: $appearanceSettings.liquidGlassEnabled)
+                Toggle(L("液态玻璃效果"), isOn: $appearanceSettings.liquidGlassEnabled)
 
                 opacitySlider(
-                    title: "窗口效果透明度",
+                    title: L("窗口效果透明度"),
                     value: $appearanceSettings.windowEffectOpacity
                 )
 
-                Toggle("动态玻璃效果", isOn: $appearanceSettings.glassMotionEnabled)
+                Toggle(L("动态玻璃效果"), isOn: $appearanceSettings.glassMotionEnabled)
 
-                Text("卡片样式")
+                Text(L("卡片样式"))
                     .font(.system(size: 12, weight: .semibold))
 
                 LazyVGrid(
@@ -428,22 +441,22 @@ struct SettingsView: View {
                 }
 
                 opacitySlider(
-                    title: "卡片效果透明度",
+                    title: L("卡片效果透明度"),
                     value: $appearanceSettings.cardEffectOpacity
                 )
 
                 opacitySlider(
-                    title: "卡片顶部颜色强度",
+                    title: L("卡片顶部颜色强度"),
                     value: $appearanceSettings.cardHeaderColorIntensity
                 )
 
                 opacitySlider(
-                    title: "窗口分组颜色强度",
+                    title: L("窗口分组颜色强度"),
                     value: $appearanceSettings.groupColorIntensity
                 )
 
                 opacitySlider(
-                    title: "顶部文字对比度",
+                    title: L("顶部文字对比度"),
                     value: $appearanceSettings.toolbarTextContrast
                 )
 
@@ -453,7 +466,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Button("恢复默认外观") {
+                Button(L("恢复默认外观")) {
                     appearanceSettings.resetToDefaults()
                 }
                 .buttonStyle(.link)
@@ -497,8 +510,8 @@ struct SettingsView: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, minHeight: 62, alignment: .topLeading)
         .contentShape(Rectangle())
-        .accessibilityLabel("卡片样式：\(style.title)")
-        .accessibilityValue(isSelected ? "已选择" : "未选择")
+        .accessibilityLabel(L("卡片样式：\(style.title)"))
+        .accessibilityValue(isSelected ? L("已选择") : L("未选择"))
     }
 
     private func appearanceMaterialTile(_ theme: AppearanceMaterialTheme) -> some View {
@@ -539,9 +552,9 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, minHeight: 62, alignment: .topLeading)
         .contentShape(Rectangle())
         .opacity(isUnavailableNativeGlass ? 0.58 : 1)
-        .accessibilityLabel("窗口效果：\(theme.title)")
-        .accessibilityValue(isSelected ? "已选择" : "未选择")
-        .help(isUnavailableNativeGlass ? "当前系统会以兼容玻璃呈现" : theme.title)
+        .accessibilityLabel(L("窗口效果：\(theme.title)"))
+        .accessibilityValue(isSelected ? L("已选择") : L("未选择"))
+        .help(isUnavailableNativeGlass ? L("当前系统会以兼容玻璃呈现") : theme.title)
     }
 
     private let appearanceGalleryCollapsedCount = 12
@@ -559,7 +572,7 @@ struct SettingsView: View {
         hiddenCount: Int,
         action: @escaping () -> Void
     ) -> some View {
-        Button(isExpanded ? "收起" : "显示更多（\(hiddenCount) 项）", action: action)
+        Button(isExpanded ? L("收起") : L("显示更多（\(hiddenCount) 项）"), action: action)
             .buttonStyle(.link)
     }
 
@@ -572,7 +585,7 @@ struct SettingsView: View {
     }
 
     private var typographySection: some View {
-        settingsSection(title: "文字样式", subtitle: "窗口与卡片文字分别设置") {
+        settingsSection(title: L("文字样式"), subtitle: L("窗口与卡片文字分别设置")) {
             typographyControls
         }
     }
@@ -584,7 +597,7 @@ struct SettingsView: View {
                 Text(role.title)
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Text("预览：轻贴 · 搜索 · 分组")
+                Text(L("预览：轻贴 · 搜索 · 分组"))
                     .font(typography.swiftUIFont)
                     .lineLimit(1)
             }
@@ -593,7 +606,7 @@ struct SettingsView: View {
                 AppearanceFontFamilyPicker(family: typographyBinding(role, \.family))
                     .frame(minWidth: 190, maxWidth: .infinity)
 
-                Picker("字重", selection: typographyBinding(role, \.weight)) {
+                Picker(L("字重"), selection: typographyBinding(role, \.weight)) {
                     ForEach(AppearanceTypographyWeight.allCases) { weight in
                         Text(weight.title).tag(weight)
                     }
@@ -604,7 +617,7 @@ struct SettingsView: View {
             }
 
             HStack(spacing: 10) {
-                Text("字号")
+                Text(L("字号"))
                     .font(.system(size: 11, weight: .medium))
                 Slider(value: typographyBinding(role, \.size), in: 10...32, step: 1)
                 Text("\(Int(typography.size)) pt")
@@ -670,7 +683,7 @@ struct SettingsView: View {
     }
 
     private var retentionSection: some View {
-        settingsSection(title: "保存期限", subtitle: "置顶内容不会被自动清理") {
+        settingsSection(title: L("保存期限"), subtitle: L("置顶内容不会被自动清理")) {
             HStack(spacing: 8) {
                 ForEach(HistoryRetentionPolicy.allCases) { policy in
                     retentionPolicyButton(policy)
@@ -688,7 +701,7 @@ struct SettingsView: View {
             }
 
             store.retentionPolicy = policy
-            showStatus("保存期限已改为：\(policy.title)")
+            showStatus(L("保存期限已改为：\(policy.title)"))
         } label: {
             Text(policy.shortTitle)
                 .font(.system(size: 12, weight: .semibold))
@@ -706,56 +719,66 @@ struct SettingsView: View {
     }
 
     private var recordingSection: some View {
-        settingsSection(title: "记录状态", subtitle: recordingSubtitle) {
-            HStack(spacing: 10) {
-                Button(recordingController.isPaused ? "恢复记录" : "暂停记录") {
+        settingsSection(title: L("记录状态"), subtitle: recordingSubtitle) {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4),
+                spacing: 8
+            ) {
+                recordingControlButton(
+                    recordingController.isPaused ? L("恢复记录") : L("暂停记录"),
+                    isActive: recordingController.isPaused
+                ) {
                     recordingController.togglePaused()
-                    showStatus(recordingController.isPaused ? "已暂停记录" : "已恢复记录")
+                    showStatus(recordingController.isPaused ? L("已暂停记录") : L("已恢复记录"))
                 }
-                .buttonStyle(.borderedProminent)
 
-                Button("暂停 15 分钟") {
-                    recordingController.pause(for: 15 * 60)
-                    showStatus("已暂停 15 分钟")
+                ForEach(RecordingPausePreset.allCases, id: \.self) { preset in
+                    recordingControlButton(
+                        preset.title,
+                        isActive: recordingController.activePausePreset == preset
+                    ) {
+                        if preset == .untilEndOfToday {
+                            recordingController.pauseUntilEndOfToday()
+                            showStatus(L("已暂停到今日结束"))
+                        } else if let interval = preset.interval {
+                            recordingController.pause(for: interval, preset: preset)
+                            showStatus(pauseStatusMessage(for: preset))
+                        }
+                    }
                 }
-                .buttonStyle(.bordered)
-
-                Button("暂停 30 分钟") {
-                    recordingController.pause(for: 30 * 60)
-                    showStatus("已暂停 30 分钟")
-                }
-                .buttonStyle(.bordered)
-
-                Button("暂停 1 小时") {
-                    recordingController.pause(for: 60 * 60)
-                    showStatus("已暂停 1 小时")
-                }
-                .buttonStyle(.bordered)
-
-                Button("暂停 3 小时") {
-                    recordingController.pause(for: 3 * 60 * 60)
-                    showStatus("已暂停 3 小时")
-                }
-                .buttonStyle(.bordered)
-
-                Button("暂停 6 小时") {
-                    recordingController.pause(for: 6 * 60 * 60)
-                    showStatus("已暂停 6 小时")
-                }
-                .buttonStyle(.bordered)
-
-                Button("暂停到今日结束") {
-                    recordingController.pauseUntilEndOfToday()
-                    showStatus("已暂停到今日结束")
-                }
-                .buttonStyle(.bordered)
             }
         }
     }
 
+    @ViewBuilder
+    private func recordingControlButton(
+        _ title: String,
+        isActive: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        if isActive {
+            Button(title, action: action)
+                .buttonStyle(.borderedProminent)
+        } else {
+            Button(title, action: action)
+                .buttonStyle(.bordered)
+        }
+    }
+
+    private func pauseStatusMessage(for preset: RecordingPausePreset) -> String {
+        switch preset {
+        case .fifteenMinutes: L("已暂停 15 分钟")
+        case .thirtyMinutes: L("已暂停 30 分钟")
+        case .oneHour: L("已暂停 1 小时")
+        case .threeHours: L("已暂停 3 小时")
+        case .sixHours: L("已暂停 6 小时")
+        case .untilEndOfToday: L("已暂停到今日结束")
+        }
+    }
+
     private var launchAtLoginSection: some View {
-        settingsSection(title: "开机自动启动", subtitle: loginItemController.statusText) {
-            Toggle("启动 macOS 后自动打开轻贴", isOn: Binding(
+        settingsSection(title: L("开机自动启动"), subtitle: loginItemController.statusText) {
+            Toggle(L("启动 macOS 后自动打开轻贴"), isOn: Binding(
                 get: { loginItemController.isEnabled },
                 set: { enabled in
                     loginItemController.setEnabled(enabled)
@@ -767,7 +790,7 @@ struct SettingsView: View {
     }
 
     private var shortcutSection: some View {
-        settingsSection(title: "快捷键", subtitle: isRecordingShortcut ? "请按下新的快捷键组合，Esc 取消" : "用于打开或关闭底部历史窗口") {
+        settingsSection(title: L("快捷键"), subtitle: isRecordingShortcut ? L("请按下新的快捷键组合，Esc 取消") : L("用于打开或关闭底部历史窗口")) {
             ZStack {
                 HStack(spacing: 10) {
                     Label(globalShortcutSettings.shortcut.displayText, systemImage: "keyboard")
@@ -775,16 +798,16 @@ struct SettingsView: View {
 
                     Spacer()
 
-                    Button(isRecordingShortcut ? "录制中..." : "修改") {
+                    Button(isRecordingShortcut ? L("录制中...") : L("修改")) {
                         isRecordingShortcut = true
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isRecordingShortcut)
 
-                    Button("恢复默认") {
+                    Button(L("恢复默认")) {
                         globalShortcutSettings.resetToDefault()
                         isRecordingShortcut = false
-                        showStatus("已恢复默认快捷键")
+                        showStatus(L("已恢复默认快捷键"))
                     }
                     .buttonStyle(.bordered)
                 }
@@ -792,14 +815,14 @@ struct SettingsView: View {
                 if isRecordingShortcut {
                     ShortcutRecorderView { keyCode, modifierFlags in
                         if globalShortcutSettings.update(keyCode: keyCode, modifierFlags: modifierFlags) {
-                            showStatus("已更新快捷键")
+                            showStatus(L("已更新快捷键"))
                         } else {
-                            showStatus("快捷键需要包含 Command、Control 或 Option")
+                            showStatus(L("快捷键需要包含 Command、Control 或 Option"))
                         }
                         isRecordingShortcut = false
                     } onCancel: {
                         isRecordingShortcut = false
-                        showStatus("已取消修改快捷键")
+                        showStatus(L("已取消修改快捷键"))
                     }
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
@@ -809,31 +832,31 @@ struct SettingsView: View {
     }
 
     private var permissionsSection: some View {
-        settingsSection(title: "自动粘贴权限", subtitle: accessibilityPermissionState.isTrusted ? "已授权，可以自动粘贴到当前 App" : "未授权时只会复制到剪贴板") {
+        settingsSection(title: L("自动粘贴权限"), subtitle: accessibilityPermissionState.isTrusted ? L("已授权，可以自动粘贴到当前 App") : L("未授权时只会复制到剪贴板")) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Label(accessibilityPermissionState.isTrusted ? "已授权" : "需授权", systemImage: accessibilityPermissionState.isTrusted ? "checkmark.circle.fill" : "exclamationmark.lock")
+                    Label(accessibilityPermissionState.isTrusted ? L("已授权") : L("需授权"), systemImage: accessibilityPermissionState.isTrusted ? "checkmark.circle.fill" : "exclamationmark.lock")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(accessibilityPermissionState.isTrusted ? Color.green : Color.orange)
 
                     Spacer()
 
-                    Button("打开系统设置") {
+                    Button(L("打开系统设置")) {
                         accessibilityPermissionState.openSystemSettings()
                         accessibilityPermissionState.refresh(promptIfNeeded: true)
-                        showStatus("已打开系统设置")
+                        showStatus(L("已打开系统设置"))
                     }
                     .buttonStyle(.bordered)
 
-                    Button("刷新状态") {
+                    Button(L("刷新状态")) {
                         accessibilityPermissionState.refresh()
-                        showStatus(accessibilityPermissionState.isTrusted ? "已授权自动粘贴" : "仍需授权")
+                        showStatus(accessibilityPermissionState.isTrusted ? L("已授权自动粘贴") : L("仍需授权"))
                     }
                     .buttonStyle(.bordered)
                 }
 
                 if !accessibilityPermissionState.isTrusted {
-                    Text("如果已授权但仍显示需权限，请确认系统设置中授权的是当前运行的 ClipEase.app。开发版本可能和旧路径中的 App 被 macOS 识别为不同应用。")
+                    Text(L("如果已授权但仍显示需权限，请确认系统设置中授权的是当前运行的 ClipEase.app。开发版本可能和旧路径中的 App 被 macOS 识别为不同应用。"))
                         .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(.secondary)
                 }
@@ -841,7 +864,7 @@ struct SettingsView: View {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("当前运行 App")
+                    Text(L("当前运行 App"))
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
 
@@ -852,15 +875,15 @@ struct SettingsView: View {
                         .textSelection(.enabled)
 
                     HStack(spacing: 10) {
-                        Button("显示当前 App") {
+                        Button(L("显示当前 App")) {
                             accessibilityPermissionState.revealCurrentAppInFinder()
-                            showStatus("已显示当前 App")
+                            showStatus(L("已显示当前 App"))
                         }
                         .buttonStyle(.bordered)
 
-                        Button("复制 App 路径") {
+                        Button(L("复制 App 路径")) {
                             accessibilityPermissionState.copyCurrentAppPath(using: clipboardWriter)
-                            showStatus("已复制 App 路径")
+                            showStatus(L("已复制 App 路径"))
                         }
                         .buttonStyle(.bordered)
 
@@ -872,17 +895,17 @@ struct SettingsView: View {
     }
 
     private var ignoredAppsSection: some View {
-        settingsSection(title: "忽略 App", subtitle: ignoredAppsSubtitle) {
+        settingsSection(title: L("忽略 App"), subtitle: ignoredAppsSubtitle) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
-                    Button("添加 App") {
+                    Button(L("添加 App")) {
                         addIgnoredAppFromPanel()
                     }
                     .buttonStyle(.borderedProminent)
 
-                    Button("清空") {
+                    Button(L("清空")) {
                         ignoredAppSettings.removeAll()
-                        showStatus("已清空忽略 App")
+                        showStatus(L("已清空忽略 App"))
                     }
                     .buttonStyle(.bordered)
                     .disabled(ignoredAppSettings.apps.isEmpty)
@@ -891,7 +914,7 @@ struct SettingsView: View {
                 }
 
                 if ignoredAppSettings.apps.isEmpty {
-                    Text("暂未忽略任何 App。可点击添加，或在历史卡片右键菜单中添加。")
+                    Text(L("暂未忽略任何 App。可点击添加，或在历史卡片右键菜单中添加。"))
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(.secondary)
                 } else {
@@ -914,9 +937,9 @@ struct SettingsView: View {
 
                                 Spacer()
 
-                                Button("移除") {
+                                Button(L("移除")) {
                                     ignoredAppSettings.remove(bundleID: app.bundleID)
-                                    showStatus("已移除忽略 App")
+                                    showStatus(L("已移除忽略 App"))
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
@@ -946,7 +969,7 @@ struct SettingsView: View {
             onCreateGroup: {
                 let group = store.createGroup()
                 groupSelection = [group.id]
-                showStatus("已新建“\(group.name)”")
+                showStatus(L("已新建“\(group.name)”"))
             },
             onRequestDeleteSelectedGroups: requestDeleteSelectedGroups,
             onToggleGroupSelection: toggleGroupSelection,
@@ -972,12 +995,12 @@ struct SettingsView: View {
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("颜色与图标")
+                Text(L("颜色与图标"))
                     .font(.system(size: 14, weight: .semibold))
 
                 Spacer()
 
-                Button("关闭") {
+                Button(L("关闭")) {
                     closeGroupAppearancePicker()
                 }
             }
@@ -1005,13 +1028,13 @@ struct SettingsView: View {
             SettingsTextField(
                 text: $groupIconSearchText,
                 isFocused: $isGroupIconSearchFocused,
-                placeholder: "搜索图标"
+                placeholder: L("搜索图标")
             )
             .frame(height: 24)
 
             ScrollView {
                 if icons.isEmpty {
-                    Text("没有匹配的图标")
+                    Text(L("没有匹配的图标"))
                         .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(.secondary)
                         .frame(width: 268, height: groupAppearanceIconGridHeight)
@@ -1020,7 +1043,7 @@ struct SettingsView: View {
                         ForEach(icons, id: \.self) { iconName in
                             Button {
                                 store.updateGroupAppearance(group.id, iconName: iconName)
-                                showStatus("已更新分组图标")
+                                showStatus(L("已更新分组图标"))
                             } label: {
                                 Image(systemName: iconName)
                                     .font(.system(size: 15, weight: .semibold))
@@ -1037,7 +1060,7 @@ struct SettingsView: View {
             }
             .frame(width: 268, height: groupAppearanceIconGridHeight)
 
-            Button("确认") {
+            Button(L("确认")) {
                 closeGroupAppearancePicker()
             }
             .keyboardShortcut(.defaultAction)
@@ -1086,12 +1109,12 @@ struct SettingsView: View {
             onCheckHistoryData: checkHistoryDataHealth,
             onGenerateDebugItems: { count in
                 store.addDebugTextItems(count: count)
-                showStatus("正在生成 \(count.formatted()) 条测试数据")
+                showStatus(L("正在生成 \(count.formatted()) 条测试数据"))
             },
             onClearDebugItems: {
                 let removedCount = store.clearDebugTextItems()
                 historyDataViewModel.refreshStorageUsage()
-                showStatus(removedCount > 0 ? "已清理 \(removedCount) 条测试数据" : "没有测试数据")
+                showStatus(removedCount > 0 ? L("已清理 \(removedCount) 条测试数据") : L("没有测试数据"))
             },
             onShowStatus: showStatus
         )
@@ -1102,11 +1125,11 @@ struct SettingsView: View {
             diagnostics: performanceDiagnostics,
             onOpenLogsDirectory: {
                 performanceDiagnostics.openLogsDirectory()
-                showStatus("已打开诊断数据目录")
+                showStatus(L("已打开诊断数据目录"))
             },
             onCleanupLogs: {
                 performanceDiagnostics.cleanupOldLogs()
-                showStatus("已按当前策略清理诊断日志")
+                showStatus(L("已按当前策略清理诊断日志"))
             }
         )
     }
@@ -1186,15 +1209,15 @@ struct SettingsView: View {
             return recordingController.pauseMenuPrimaryTitle()
         }
 
-        return "正在记录新的剪贴板内容"
+        return L("正在记录新的剪贴板内容")
     }
 
     private var ignoredAppsSubtitle: String {
         if ignoredAppSettings.apps.isEmpty {
-            return "被忽略 App 中复制的内容不会进入历史"
+            return L("被忽略 App 中复制的内容不会进入历史")
         }
 
-        return "已忽略 \(ignoredAppSettings.apps.count) 个 App"
+        return L("已忽略 \(ignoredAppSettings.apps.count) 个 App")
     }
 
     private var historySubtitle: String {
@@ -1240,7 +1263,7 @@ struct SettingsView: View {
                     .allowsHitTesting(false)
             }
             .buttonStyle(.plain)
-            .help("选择颜色")
+            .help(L("选择颜色"))
     }
 
     private func groupColorSwatches(onSelect: @escaping (Color) -> Void) -> some View {
@@ -1309,16 +1332,16 @@ struct SettingsView: View {
 
     private func loginItemStatusMessage(requestedEnabled: Bool) -> String {
         if loginItemController.isEnabled {
-            return "开机自启动已开启，登录 macOS 后会自动打开轻贴"
+            return L("开机自启动已开启，登录 macOS 后会自动打开轻贴")
         }
 
         switch loginItemController.statusText {
-        case "需要在系统设置中批准":
-            return "开机自启动需要在系统设置中批准"
-        case "当前构建暂不可用":
-            return "当前构建暂不支持开机自启动"
+        case L("需要在系统设置中批准"):
+            return L("开机自启动需要在系统设置中批准")
+        case L("当前构建暂不可用"):
+            return L("当前构建暂不支持开机自启动")
         default:
-            return requestedEnabled ? "开机自启动未能开启" : "开机自启动已关闭，登录 macOS 后不会自动打开轻贴"
+            return requestedEnabled ? L("开机自启动未能开启") : L("开机自启动已关闭，登录 macOS 后不会自动打开轻贴")
         }
     }
 
@@ -1331,13 +1354,13 @@ struct SettingsView: View {
         if versionTapCount >= 5 {
             isDebugToolsVisible = true
             selectedCategory = .history
-            showStatus("已显示性能测试入口")
+            showStatus(L("已显示性能测试入口"))
         }
     }
 
     private func moveGroups(from source: IndexSet, to destination: Int) {
         store.moveGroup(fromOffsets: source, toOffset: destination)
-        showStatus("已更新分组排序")
+        showStatus(L("已更新分组排序"))
     }
 
     private func toggleGroupSelection(_ id: ClipboardGroup.ID) {
@@ -1352,19 +1375,19 @@ struct SettingsView: View {
         switch store.renameGroup(id, name: name) {
         case .renamed:
             editingSettingsGroupNames[id] = store.group(with: id)?.name
-            showStatus("已重命名分组")
+            showStatus(L("已重命名分组"))
         case .duplicate:
             editingSettingsGroupNames[id] = store.group(with: id)?.name
-            showStatus("已有同名分组")
+            showStatus(L("已有同名分组"))
         case .empty:
             editingSettingsGroupNames[id] = store.group(with: id)?.name
-            showStatus("分组名称不能为空")
+            showStatus(L("分组名称不能为空"))
         case .unchanged:
             editingSettingsGroupNames[id] = store.group(with: id)?.name
             break
         case .notFound:
             editingSettingsGroupNames.removeValue(forKey: id)
-            showStatus("分组不存在")
+            showStatus(L("分组不存在"))
         }
     }
 
@@ -1400,7 +1423,7 @@ struct SettingsView: View {
                     )
                 }
             } catch {
-                showOperationError("检查分组内容失败", error: error)
+                showOperationError(L("检查分组内容失败"), error: error)
             }
         }
     }
@@ -1440,7 +1463,7 @@ struct SettingsView: View {
                     )
                 }
             } catch {
-                showOperationError("检查分组内容失败", error: error)
+                showOperationError(L("检查分组内容失败"), error: error)
             }
         }
     }
@@ -1463,7 +1486,7 @@ struct SettingsView: View {
                     singleGroup: group
                 )
             } catch {
-                showOperationError("检查分组内容失败", error: error)
+                showOperationError(L("检查分组内容失败"), error: error)
             }
         }
     }
@@ -1487,7 +1510,7 @@ struct SettingsView: View {
                     requestedGroupIDs: groupIDs
                 )
             } catch {
-                showOperationError("检查分组内容失败", error: error)
+                showOperationError(L("检查分组内容失败"), error: error)
             }
         }
     }
@@ -1509,7 +1532,7 @@ struct SettingsView: View {
                 guard store.group(with: singleGroup.id) != nil else {
                     groupSelection.remove(singleGroup.id)
                     clearPendingGroupDeletion(singleGroup: singleGroup)
-                    showStatus("分组不存在")
+                    showStatus(L("分组不存在"))
                     return
                 }
                 groupPendingDeletionAssessment = updatedAssessment
@@ -1519,14 +1542,14 @@ struct SettingsView: View {
                 guard !existingIDs.isEmpty else {
                     groupSelection.subtract(requestedGroupIDs)
                     clearPendingGroupDeletion(singleGroup: nil)
-                    showStatus("分组不存在")
+                    showStatus(L("分组不存在"))
                     return
                 }
                 bulkGroupPendingDeletionIDs = existingIDs
                 bulkGroupPendingDeletionAssessment = updatedAssessment
                 isBulkGroupDeleteConfirmationPresented = true
             }
-            showStatus("分组内容已变化，请重新确认")
+            showStatus(L("分组内容已变化，请重新确认"))
         case .noGroupsDeleted:
             groupSelection.subtract(requestedGroupIDs)
             clearPendingGroupDeletion(singleGroup: singleGroup)
@@ -1553,7 +1576,7 @@ struct SettingsView: View {
         }
 
         historyDataViewModel.isCleaningOrphanedAttachments = true
-        showProgress("正在准备完整历史...")
+        showProgress(L("正在准备完整历史..."))
         Task {
             do {
                 let historyData = try await SettingsHistoryDataActionCoordinator.authoritativeHistoryData(
@@ -1566,13 +1589,13 @@ struct SettingsView: View {
                 historyDataViewModel.isCleaningOrphanedAttachments = false
                 historyDataViewModel.refreshStorageUsage()
                 if result.removedFiles > 0 {
-                    showStatus("已清理 \(result.removedFiles) 个文件，释放 \(result.formattedRemovedSize)")
+                    showStatus(L("已清理 \(result.removedFiles) 个文件，释放 \(result.formattedRemovedSize)"))
                 } else {
-                    showStatus("没有可清理的孤立附件")
+                    showStatus(L("没有可清理的孤立附件"))
                 }
             } catch {
                 historyDataViewModel.isCleaningOrphanedAttachments = false
-                showOperationError("清理孤立附件失败", error: error)
+                showOperationError(L("清理孤立附件失败"), error: error)
             }
         }
     }
@@ -1583,7 +1606,7 @@ struct SettingsView: View {
         }
 
         historyDataViewModel.isCheckingHistoryData = true
-        showProgress("正在准备完整历史...")
+        showProgress(L("正在准备完整历史..."))
         Task {
             do {
                 let historyData = try await SettingsHistoryDataActionCoordinator.authoritativeHistoryData(
@@ -1598,20 +1621,20 @@ struct SettingsView: View {
                 }
             } catch {
                 historyDataViewModel.isCheckingHistoryData = false
-                showOperationError("检查历史数据失败", error: error)
+                showOperationError(L("检查历史数据失败"), error: error)
             }
         }
     }
 
     private func showHistoryDataHealthReport(_ report: HistoryDataHealthReport) {
         let alert = NSAlert()
-        alert.messageText = report.hasIssues ? "发现数据问题" : "数据正常"
+        alert.messageText = report.hasIssues ? L("发现数据问题") : L("数据正常")
         alert.informativeText = report.detailText
         alert.alertStyle = report.hasIssues ? .warning : .informational
         if report.hasRepairableIssues {
-            alert.addButton(withTitle: "一键修复")
+            alert.addButton(withTitle: L("一键修复"))
         }
-        alert.addButton(withTitle: "好的")
+        alert.addButton(withTitle: L("好的"))
         let response = alert.runModal()
         if report.hasRepairableIssues,
            response == .alertFirstButtonReturn {
@@ -1621,14 +1644,14 @@ struct SettingsView: View {
 
     private func confirmRepairHistoryData() {
         let alert = NSAlert()
-        alert.messageText = "修复数据问题？"
-        alert.informativeText = "轻贴会清理没有被当前历史引用的图片、缩略图和富文本附件，不会删除历史记录。"
+        alert.messageText = L("修复数据问题？")
+        alert.informativeText = L("轻贴会清理没有被当前历史引用的图片、缩略图和富文本附件，不会删除历史记录。")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "一键修复")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L("一键修复"))
+        alert.addButton(withTitle: L("取消"))
 
         guard alert.runModal() == .alertFirstButtonReturn else {
-            showStatus("已取消修复")
+            showStatus(L("已取消修复"))
             return
         }
 
@@ -1641,13 +1664,13 @@ struct SettingsView: View {
         }
 
         historyDataViewModel.isCheckingHistoryData = true
-        showProgress("正在准备完整历史...")
+        showProgress(L("正在准备完整历史..."))
         Task {
             do {
                 let historyData = try await SettingsHistoryDataActionCoordinator.authoritativeHistoryData(
                     from: store
                 )
-                showProgress("正在修复数据...")
+                showProgress(L("正在修复数据..."))
                 let report = try await SettingsHistoryDataActionCoordinator.repairHistoryData(
                     historyData: historyData,
                     from: store
@@ -1658,23 +1681,23 @@ struct SettingsView: View {
                 showHistoryDataRepairReport(report)
             } catch {
                 historyDataViewModel.isCheckingHistoryData = false
-                showOperationError("修复历史数据失败", error: error)
+                showOperationError(L("修复历史数据失败"), error: error)
             }
         }
     }
 
     private func showHistoryDataRepairReport(_ report: HistoryDataRepairReport) {
         let alert = NSAlert()
-        alert.messageText = "修复完成"
+        alert.messageText = L("修复完成")
         alert.informativeText = report.detailText
         alert.alertStyle = report.after.hasIssues ? .warning : .informational
-        alert.addButton(withTitle: "好的")
+        alert.addButton(withTitle: L("好的"))
         alert.runModal()
     }
 
     private func openDirectory(_ url: URL?) {
         guard let url else {
-            showStatus("无法打开目录")
+            showStatus(L("无法打开目录"))
             return
         }
 
@@ -1683,7 +1706,7 @@ struct SettingsView: View {
             withIntermediateDirectories: true
         )
         NSWorkspace.shared.open(url)
-        showStatus("已打开目录")
+        showStatus(L("已打开目录"))
     }
 
     private func exportHistory() {
@@ -1699,7 +1722,7 @@ struct SettingsView: View {
         }
 
         isHistoryTransferInProgress = true
-        showProgress("正在导出历史...")
+        showProgress(L("正在导出历史..."))
 
         Task {
             let result: Result<Void, Error>
@@ -1724,9 +1747,9 @@ struct SettingsView: View {
             switch result {
             case .success:
                 NSWorkspace.shared.activateFileViewerSelecting([url])
-                showStatus("已导出历史")
+                showStatus(L("已导出历史"))
             case .failure(let error):
-                showOperationError("导出历史失败", error: error)
+                showOperationError(L("导出历史失败"), error: error)
             }
         }
     }
@@ -1744,7 +1767,7 @@ struct SettingsView: View {
         }
 
         isHistoryTransferInProgress = true
-        showProgress("正在导入历史...")
+        showProgress(L("正在导入历史..."))
 
         Task {
             let result = await Task.detached(priority: .utility) {
@@ -1759,9 +1782,9 @@ struct SettingsView: View {
                 case .success(let importedItems):
                     let importedCount = store.importItems(importedItems)
                     historyDataViewModel.refreshStorageUsage()
-                    showStatus(importedCount > 0 ? "已导入 \(importedCount) 条历史" : "没有可导入的新历史")
+                    showStatus(importedCount > 0 ? L("已导入 \(importedCount) 条历史") : L("没有可导入的新历史"))
                 case .failure(let error):
-                    showOperationError("导入历史失败", error: error)
+                    showOperationError(L("导入历史失败"), error: error)
                 }
             }
         }
@@ -1780,7 +1803,7 @@ struct SettingsView: View {
         }
 
         isHistoryTransferInProgress = true
-        showProgress("正在导出备份包...")
+        showProgress(L("正在导出备份包..."))
         let includesAttachments = historyDataViewModel.includesAttachmentsInBackup
 
         Task {
@@ -1807,9 +1830,9 @@ struct SettingsView: View {
             switch result {
             case .success:
                 NSWorkspace.shared.activateFileViewerSelecting([url])
-                showStatus("已导出备份包")
+                showStatus(L("已导出备份包"))
             case .failure(let error):
-                showOperationError("备份包导出失败", error: error)
+                showOperationError(L("备份包导出失败"), error: error)
             }
         }
     }
@@ -1827,7 +1850,7 @@ struct SettingsView: View {
         }
 
         isHistoryTransferInProgress = true
-        showProgress("正在导入备份包...")
+        showProgress(L("正在导入备份包..."))
 
         Task {
             let result = await Task.detached(priority: .utility) {
@@ -1842,7 +1865,7 @@ struct SettingsView: View {
                 case .success(let importResult):
                     importBackupResult(importResult)
                 case .failure(let error):
-                    showOperationError("备份包导入失败", error: error)
+                    showOperationError(L("备份包导入失败"), error: error)
                 }
             }
         }
@@ -1859,7 +1882,7 @@ struct SettingsView: View {
             alert.addButton(withTitle: prompt.cancelTitle)
 
             guard alert.runModal() == .alertFirstButtonReturn else {
-                showStatus("已取消导入备份包")
+                showStatus(L("已取消导入备份包"))
                 return
             }
         }
@@ -1890,12 +1913,12 @@ struct SettingsView: View {
 
     private func openGitHub() {
         guard let url = AppVersionInfo.githubURL else {
-            showStatus("无法打开 GitHub")
+            showStatus(L("无法打开 GitHub"))
             return
         }
 
         NSWorkspace.shared.open(url)
-        showStatus("已打开 GitHub")
+        showStatus(L("已打开 GitHub"))
     }
 
     private func checkForUpdates() {
@@ -1904,22 +1927,22 @@ struct SettingsView: View {
 
     private func openRelease(_ url: URL?) {
         guard let releaseURL = url ?? AppVersionInfo.githubReleasesURL else {
-            showStatus("无法打开 Release")
+            showStatus(L("无法打开 Release"))
             return
         }
 
         NSWorkspace.shared.open(releaseURL)
-        showStatus("已打开 Release")
+        showStatus(L("已打开 Release"))
     }
 
     private func downloadUpdate(_ url: URL) {
         NSWorkspace.shared.open(url)
-        showStatus("已打开 DMG 下载")
+        showStatus(L("已打开 DMG 下载"))
     }
 
     private func copyVersion() {
         Self.copyVersion(using: clipboardWriter)
-        showStatus("已复制版本号")
+        showStatus(L("已复制版本号"))
     }
 
     @discardableResult
@@ -1929,12 +1952,12 @@ struct SettingsView: View {
 
     private func openSupportCommunity() {
         guard let url = AppVersionInfo.githubSupportURL else {
-            showStatus("无法打开交流群")
+            showStatus(L("无法打开交流群"))
             return
         }
 
         NSWorkspace.shared.open(url)
-        showStatus("已打开交流群")
+        showStatus(L("已打开交流群"))
     }
 
     private func exportDateString() -> String {
@@ -1945,8 +1968,8 @@ struct SettingsView: View {
 
     private func addIgnoredAppFromPanel() {
         let panel = NSOpenPanel()
-        panel.title = "选择要忽略的 App"
-        panel.prompt = "添加"
+        panel.title = L("选择要忽略的 App")
+        panel.prompt = L("添加")
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.allowedContentTypes = [.applicationBundle]
         panel.allowsMultipleSelection = false
@@ -1960,7 +1983,7 @@ struct SettingsView: View {
 
         guard let bundle = Bundle(url: url),
               let bundleID = bundle.bundleIdentifier else {
-            showStatus("无法识别所选 App")
+            showStatus(L("无法识别所选 App"))
             return
         }
 
@@ -1969,9 +1992,9 @@ struct SettingsView: View {
             ?? url.deletingPathExtension().lastPathComponent
 
         if ignoredAppSettings.add(bundleID: bundleID, name: appName) {
-            showStatus("已忽略 \(appName)")
+            showStatus(L("已忽略 \(appName)"))
         } else {
-            showStatus("\(appName) 已在忽略列表")
+            showStatus(L("\(appName) 已在忽略列表"))
         }
     }
 }

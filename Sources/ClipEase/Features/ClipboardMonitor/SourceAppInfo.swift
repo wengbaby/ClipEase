@@ -23,7 +23,7 @@ struct SourceAppInfo: Sendable {
 
         guard let app else {
             return SourceAppInfo(
-                name: "未知应用",
+                name: L("未知应用"),
                 bundleID: nil,
                 iconName: "app.fill",
                 iconFileName: nil,
@@ -33,7 +33,7 @@ struct SourceAppInfo: Sendable {
 
         cacheIconAsync(for: app)
         return SourceAppInfo(
-            name: app.localizedName ?? "未知应用",
+            name: app.localizedName ?? L("未知应用"),
             bundleID: app.bundleIdentifier,
             iconName: iconName(for: app.bundleIdentifier),
             iconFileName: app.bundleIdentifier.map(AppIconCache.expectedFileName(forBundleID:)),
@@ -52,7 +52,7 @@ struct SourceAppInfo: Sendable {
     }
 
     static let clipease = SourceAppInfo(
-        name: "轻贴",
+        name: L("轻贴"),
         bundleID: "com.clipease.app",
         iconName: "doc.on.clipboard",
         iconFileName: nil,

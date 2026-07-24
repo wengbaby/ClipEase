@@ -6,13 +6,13 @@ enum SettingsGroupsViewModel {
         itemCount: (ClipboardGroup.ID) -> Int
     ) -> String {
         guard !groups.isEmpty else {
-            return "暂无分组"
+            return L("暂无分组")
         }
 
         let groupedItemCount = groups.reduce(0) { partialResult, group in
             partialResult + itemCount(group.id)
         }
-        return "\(groups.count) 个分组，\(groupedItemCount) 条内容"
+        return L("\(groups.count) 个分组，\(groupedItemCount) 条内容")
     }
 
     nonisolated static func filteredIcons(query: String) -> [String] {

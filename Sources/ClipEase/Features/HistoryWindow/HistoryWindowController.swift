@@ -1227,7 +1227,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         case .file:
             let urls = existingPreviewFileURLs(for: item)
             guard !urls.isEmpty else {
-                showStatus("未找到文件")
+                showStatus(L("未找到文件"))
                 return
             }
 
@@ -1261,7 +1261,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
     private func copyPreviewFilePaths(for item: ClipboardItem) {
         guard item.type == .file else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
@@ -1270,7 +1270,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             .filter { !$0.isEmpty }
 
         guard !paths.isEmpty else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
@@ -1278,7 +1278,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         ClipboardWriteCoordinator.generalTextWriter(registerSelfWrite: store.registerSelfWrite)
             .writeText(pathsText)
         ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")
+        showStatus(paths.count > 1 ? L("已复制 \(paths.count) 个文件路径") : L("已复制文件路径"))
     }
 
     private func markdownLink(for item: ClipboardItem) -> String? {
@@ -1335,22 +1335,22 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
     private func copyStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .text:
-            item.richTextFileName == nil ? "已复制文本" : "已复制富文本"
+            item.richTextFileName == nil ? L("已复制文本") : L("已复制富文本")
         case .link:
-            "已复制链接"
+            L("已复制链接")
         case .image:
-            "已复制图片"
+            L("已复制图片")
         case .color:
-            "已复制颜色"
+            L("已复制颜色")
         case .file:
-            "已复制文件引用"
+            L("已复制文件引用")
         }
     }
 
     private func copyFallbackTextStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .file:
-            "文件不可用，已复制文件路径"
+            L("文件不可用，已复制文件路径")
         default:
             copyStatus(for: item)
         }

@@ -1,9 +1,20 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
 final class HelpWindowController: NSObject, NSWindowDelegate {
     private var window: HelpWindow?
+    private var languageObservation: AnyCancellable?
+
+    override init() {
+        super.init()
+        languageObservation = AppLanguageSettings.shared.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.window?.title = L("轻贴帮助")
+            }
+        }
+    }
 
     func show() {
         if let window {
@@ -18,7 +29,7 @@ final class HelpWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "轻贴帮助"
+        window.title = L("轻贴帮助")
         window.contentView = NSHostingView(rootView: HelpView())
         window.center()
         window.delegate = self

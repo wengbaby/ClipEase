@@ -128,7 +128,7 @@ struct SettingsHistoryDataActionCoordinator {
         case .deleted(let assessment, _):
             return groupDeletionSuccessStatus(authoritativeAssessment: assessment)
         case .noGroupsDeleted:
-            return "分组不存在"
+            return L("分组不存在")
         case .requiresReassessment:
             return nil
         }
@@ -138,8 +138,8 @@ struct SettingsHistoryDataActionCoordinator {
         authoritativeAssessment: GroupDeletionAssessment
     ) -> String {
         authoritativeAssessment.itemCount > 0
-            ? "已删除分组和 \(authoritativeAssessment.itemCount) 条内容"
-            : "已删除分组"
+            ? L("已删除分组和 \(authoritativeAssessment.itemCount) 条内容")
+            : L("已删除分组")
     }
 
     @MainActor
@@ -202,10 +202,10 @@ struct SettingsHistoryDataActionCoordinator {
         }
 
         return ConfirmationPrompt(
-            title: "发现重复历史",
-            message: "备份包中有 \(duplicateCount) 条历史已存在。",
-            confirmTitle: "跳过重复",
-            cancelTitle: "取消导入"
+            title: L("发现重复历史"),
+            message: L("备份包中有 \(duplicateCount) 条历史已存在。"),
+            confirmTitle: L("跳过重复"),
+            cancelTitle: L("取消导入")
         )
     }
 
@@ -215,17 +215,17 @@ struct SettingsHistoryDataActionCoordinator {
     ) -> String {
         if importedCount == 0, result.items.isEmpty {
             return result.missingAttachmentCount > 0
-                ? "没有可导入的新历史，缺失附件 \(result.missingAttachmentCount) 个"
-                : "没有可导入的新历史"
+                ? L("没有可导入的新历史，缺失附件 \(result.missingAttachmentCount) 个")
+                : L("没有可导入的新历史")
         }
 
         let duplicateOrSkippedCount = max(0, result.totalItems - importedCount)
-        var parts = ["已导入 \(importedCount) 条"]
+        var parts = [L("已导入 \(importedCount) 条")]
         if duplicateOrSkippedCount > 0 {
-            parts.append("跳过 \(duplicateOrSkippedCount) 条")
+            parts.append(L("跳过 \(duplicateOrSkippedCount) 条"))
         }
         if result.missingAttachmentCount > 0 {
-            parts.append("缺失附件 \(result.missingAttachmentCount) 个")
+            parts.append(L("缺失附件 \(result.missingAttachmentCount) 个"))
         }
         return parts.joined(separator: "，")
     }

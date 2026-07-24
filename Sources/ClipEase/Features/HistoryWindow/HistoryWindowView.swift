@@ -10,6 +10,7 @@ struct HistoryWindowView: View {
     @ObservedObject var recordingController: RecordingController
     @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
     @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject private var languageSettings = AppLanguageSettings.shared
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var searchCoordinator = HistorySearchCoordinator()
     @StateObject private var previewCoordinator = HistoryPreviewCoordinator()
@@ -1163,7 +1164,7 @@ struct HistoryWindowView: View {
                         .resizable()
                         .frame(width: 18, height: 18)
 
-                    Text("轻贴")
+                    Text(L("轻贴"))
                         .font(titleTypography.swiftUIFont)
                         .foregroundStyle(toolbarPrimaryForeground)
                 }
@@ -1182,7 +1183,7 @@ struct HistoryWindowView: View {
                         .foregroundStyle(inputState.isWindowPinnedOpen ? Color(red: 0.18, green: 0.55, blue: 1.0) : toolbarSecondaryForeground)
                 }
                 .buttonStyle(.plain)
-                .help(inputState.isWindowPinnedOpen ? "取消钉住主窗口" : "钉住主窗口")
+                .help(inputState.isWindowPinnedOpen ? L("取消钉住主窗口") : L("钉住主窗口"))
 
                 if !accessibilityPermissionState.isTrusted {
                     authorizationButton
@@ -1259,7 +1260,7 @@ struct HistoryWindowView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: 30)
         .confirmationDialog(
-            "删除分组？",
+            L("删除分组？"),
             isPresented: Binding(
                 get: { groupUIState.groupPendingDeletion != nil },
                 set: { isPresented in
@@ -1271,13 +1272,13 @@ struct HistoryWindowView: View {
             titleVisibility: .visible,
             presenting: groupUIState.groupPendingDeletion
         ) { group in
-            Button("删除分组和内容", role: .destructive) {
+            Button(L("删除分组和内容"), role: .destructive) {
                 deleteGroup(group)
             }
 
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: { group in
-            Text("会删除“\(group.name)”中的 \(store.itemCount(inGroup: group.id)) 条内容，无法恢复。")
+            Text(L("会删除“\(group.name)”中的 \(store.itemCount(inGroup: group.id)) 条内容，无法恢复。"))
         }
     }
 
@@ -1289,7 +1290,7 @@ struct HistoryWindowView: View {
                 Image(systemName: "tray.full")
                     .font(.system(size: 12, weight: .semibold))
                 if !isSearchControlExpanded {
-                    Text("全部剪切板")
+                    Text(L("全部剪切板"))
                         .font(groupTypography.swiftUIFont)
                         .lineLimit(1)
                 }
@@ -1315,7 +1316,7 @@ struct HistoryWindowView: View {
             )
                 .onRightMouseDown(selectAllGroupsForContextMenu)
         )
-        .help("显示全部历史")
+        .help(L("显示全部历史"))
     }
 
     private var searchToggleButton: some View {
@@ -1324,7 +1325,7 @@ struct HistoryWindowView: View {
                 Image(systemName: searchUIState.isVisible ? "xmark" : "magnifyingglass")
                     .font(.system(size: 12, weight: .semibold))
 
-                Text("搜索")
+                Text(L("搜索"))
                     .font(toolbarButtonTypography.swiftUIFont)
             }
             .padding(.horizontal, 10)
@@ -1361,7 +1362,7 @@ struct HistoryWindowView: View {
         .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.70 + glassEnvironment.toolbarTextContrast * 0.30))
         .fixedSize()
         .historyRailControlStyle()
-        .help("新建分组")
+        .help(L("新建分组"))
     }
 
     private func systemGroupButton(_ group: SystemHistoryGroup) -> some View {
@@ -1398,7 +1399,7 @@ struct HistoryWindowView: View {
             onRightMouseDown: { selectSystemGroupForContextMenu(group) }
         ))
         .contextMenu {
-            Button("颜色与图标") {
+            Button(L("颜色与图标")) {
                 beginEditSystemGroupAppearance(group)
             }
         }
@@ -1426,12 +1427,12 @@ struct HistoryWindowView: View {
     private func groupAppearancePopover(_ group: ClipboardGroup) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("颜色与图标")
+                Text(L("颜色与图标"))
                     .font(.system(size: 14, weight: .semibold))
 
                 Spacer()
 
-                Button("关闭") {
+                Button(L("关闭")) {
                     closeGroupAppearancePopover()
                 }
             }
@@ -1457,7 +1458,7 @@ struct HistoryWindowView: View {
             GroupInlineTextField(
                 text: groupIconSearchTextBinding,
                 isFocused: $groupUIState.isIconSearchFocused,
-                placeholder: "搜索图标",
+                placeholder: L("搜索图标"),
                 onEscape: handleGroupIconSearchEscape
             )
             .frame(height: 24)
@@ -1482,7 +1483,7 @@ struct HistoryWindowView: View {
             }
             .frame(width: 268, height: groupAppearanceIconGridHeight)
 
-            Button("确认") {
+            Button(L("确认")) {
                 commitGroupAppearancePopover(group)
             }
             .keyboardShortcut(.defaultAction)
@@ -1495,12 +1496,12 @@ struct HistoryWindowView: View {
     private func systemGroupAppearancePopover(_ group: SystemHistoryGroup) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("颜色与图标")
+                Text(L("颜色与图标"))
                     .font(.system(size: 14, weight: .semibold))
 
                 Spacer()
 
-                Button("关闭") {
+                Button(L("关闭")) {
                     closeSystemGroupAppearancePopover()
                 }
             }
@@ -1526,7 +1527,7 @@ struct HistoryWindowView: View {
             GroupInlineTextField(
                 text: groupIconSearchTextBinding,
                 isFocused: $groupUIState.isIconSearchFocused,
-                placeholder: "搜索图标",
+                placeholder: L("搜索图标"),
                 onEscape: handleGroupIconSearchEscape
             )
             .frame(height: 24)
@@ -1551,7 +1552,7 @@ struct HistoryWindowView: View {
             }
             .frame(width: 268, height: groupAppearanceIconGridHeight)
 
-            Button("确认") {
+            Button(L("确认")) {
                 commitSystemGroupAppearancePopover(group)
             }
             .keyboardShortcut(.defaultAction)
@@ -1581,7 +1582,7 @@ struct HistoryWindowView: View {
                     .allowsHitTesting(false)
             }
         .buttonStyle(.plain)
-        .help("选择颜色")
+        .help(L("选择颜色"))
     }
 
     private func groupColorSwatches(onSelect: @escaping (Color) -> Void) -> some View {
@@ -1624,7 +1625,7 @@ struct HistoryWindowView: View {
                             get: { groupUIState.renameTargetID == group.id },
                             set: { _ in }
                         ),
-                        placeholder: "分组名称",
+                        placeholder: L("分组名称"),
                         font: .systemFont(ofSize: 12, weight: .semibold),
                         textColor: .white,
                         drawsBackground: false,
@@ -1699,17 +1700,17 @@ struct HistoryWindowView: View {
                     onDoubleMouseDown: { beginRenameGroupAfterCurrentMouseEvent(group) }
                 ))
                 .contextMenu {
-                    Button("重命名") {
+                    Button(L("重命名")) {
                         beginRenameGroup(group)
                     }
 
-                    Button("颜色与图标") {
+                    Button(L("颜色与图标")) {
                         beginEditGroupAppearance(group)
                     }
 
                     Divider()
 
-                    Button("删除分组", role: .destructive) {
+                    Button(L("删除分组"), role: .destructive) {
                         requestDeleteGroup(group)
                     }
                 }
@@ -1731,7 +1732,7 @@ struct HistoryWindowView: View {
                             .fixedSize()
                     }
                 )
-                .help("\(group.name)：\(store.itemCount(inGroup: group.id)) 条")
+                .help(L("\(group.name)：\(store.itemCount(inGroup: group.id)) 条"))
             }
         }
     }
@@ -1744,7 +1745,7 @@ struct HistoryWindowView: View {
             .padding(.vertical, 5)
             .background(Color.white.opacity(0.45))
             .clipShape(Capsule())
-            .help("当前筛选结果数量 / 全部数量")
+            .help(L("当前筛选结果数量 / 全部数量"))
     }
 
     private var authorizationButton: some View {
@@ -1753,7 +1754,7 @@ struct HistoryWindowView: View {
                 Image(systemName: "exclamationmark.lock")
                     .font(.system(size: 12, weight: .semibold))
 
-                Text("请授权")
+                Text(L("请授权"))
                     .font(.system(size: 12, weight: .medium))
             }
             .foregroundStyle(Color(red: 0.78, green: 0.36, blue: 0.08))
@@ -1771,7 +1772,7 @@ struct HistoryWindowView: View {
         }
         .buttonStyle(.plain)
         .historyRailControlStyle()
-        .help("点击打开辅助功能权限设置")
+        .help(L("点击打开辅助功能权限设置"))
     }
 
     private var searchField: some View {
@@ -1848,7 +1849,7 @@ struct HistoryWindowView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(toolbarSecondaryForeground)
-                .help("清空搜索")
+                .help(L("清空搜索"))
             }
 
             Button(action: toggleSearchFilterPanel) {
@@ -1857,7 +1858,7 @@ struct HistoryWindowView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(searchUIState.criteria.hasActiveFilters ? Color(red: 0.18, green: 0.55, blue: 1.0) : toolbarSecondaryForeground)
-            .help("搜索筛选")
+            .help(L("搜索筛选"))
             .popover(isPresented: $searchUIState.isFilterPanelPresented, arrowEdge: .bottom) {
                 searchFilterPanel
                     .fixedSize()
@@ -2011,7 +2012,7 @@ struct HistoryWindowView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("移除\(token.title)")
+            .help(L("移除\(token.title)"))
         }
         .padding(.leading, 7)
         .padding(.trailing, 5)
@@ -2037,17 +2038,17 @@ struct HistoryWindowView: View {
     private var searchFilterPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("搜索筛选")
+                Text(L("搜索筛选"))
                     .font(.system(size: 14, weight: .semibold))
 
                 Spacer()
 
-                Button("清空") {
+                Button(L("清空")) {
                     searchUIState.criteria = HistorySearchCriteria()
                 }
                 .disabled(!searchUIState.criteria.hasActiveFilters)
 
-                Button("关闭") {
+                Button(L("关闭")) {
                     searchUIState.isFilterPanelPresented = false
                     focusSearchField()
                 }
@@ -2070,7 +2071,7 @@ struct HistoryWindowView: View {
 
                     searchFilterSection("App") {
                         if previewItemsState.sourceAppFilterOptions.isEmpty {
-                            Text("暂无来源")
+                            Text(L("暂无来源"))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.secondary)
                         } else {
@@ -2212,7 +2213,7 @@ struct HistoryWindowView: View {
             }
         }
 
-        Button(item.isPinned ? "取消置顶" : "置顶") {
+        Button(item.isPinned ? L("取消置顶") : L("置顶")) {
             togglePinned(item.id)
         }
 
@@ -2221,18 +2222,18 @@ struct HistoryWindowView: View {
         typeSpecificContextMenu(for: item)
 
         if !groupUIState.moveToGroupMenuSnapshot.isEmpty {
-            Button(item.groupID == nil ? "加入分组..." : "移动到分组...") {
+            Button(item.groupID == nil ? L("加入分组...") : L("移动到分组...")) {
                 presentMoveToGroupPicker(for: item)
             }
         }
 
         if item.groupID != nil {
-            Button("移出分组") {
+            Button(L("移出分组")) {
                 removeItemFromGroup(item.id)
             }
         }
 
-        Button("删除", role: .destructive) {
+        Button(L("删除"), role: .destructive) {
             deleteItem(item.id)
         }
 
@@ -2246,11 +2247,11 @@ struct HistoryWindowView: View {
                 }
             }
 
-            Button("复制来源 App 名称") {
+            Button(L("复制来源 App 名称")) {
                 copySourceAppName(item.id)
             }
 
-            Button("复制来源 Bundle ID") {
+            Button(L("复制来源 Bundle ID")) {
                 copySourceBundleID(item.id)
             }
         }
@@ -2271,22 +2272,22 @@ struct HistoryWindowView: View {
             addMenuItem(HistoryCommand.edit.title, to: menu) { beginEditItem(item.id) }
         }
 
-        addMenuItem(item.isPinned ? "取消置顶" : "置顶", to: menu) { togglePinned(item.id) }
+        addMenuItem(item.isPinned ? L("取消置顶") : L("置顶"), to: menu) { togglePinned(item.id) }
         menu.addItem(.separator())
 
         addTypeSpecificMenuItems(for: item, to: menu)
 
         if !groupUIState.moveToGroupMenuSnapshot.isEmpty {
-            addMenuItem(item.groupID == nil ? "加入分组..." : "移动到分组...", to: menu) {
+            addMenuItem(item.groupID == nil ? L("加入分组...") : L("移动到分组..."), to: menu) {
                 presentMoveToGroupPicker(for: item)
             }
         }
 
         if item.groupID != nil {
-            addMenuItem("移出分组", to: menu) { removeItemFromGroup(item.id) }
+            addMenuItem(L("移出分组"), to: menu) { removeItemFromGroup(item.id) }
         }
 
-        addMenuItem("删除", to: menu) { deleteItem(item.id) }
+        addMenuItem(L("删除"), to: menu) { deleteItem(item.id) }
 
         if let sourceItem = store.item(with: item.id),
            sourceItem.sourceBundleID != nil {
@@ -2294,8 +2295,8 @@ struct HistoryWindowView: View {
             if !sourceItem.isFromClipEase {
                 addMenuItem(sourceAppIgnoreMenuTitle(for: sourceItem), to: menu) { toggleSourceAppIgnored(item.id) }
             }
-            addMenuItem("复制来源 App 名称", to: menu) { copySourceAppName(item.id) }
-            addMenuItem("复制来源 Bundle ID", to: menu) { copySourceBundleID(item.id) }
+            addMenuItem(L("复制来源 App 名称"), to: menu) { copySourceAppName(item.id) }
+            addMenuItem(L("复制来源 Bundle ID"), to: menu) { copySourceBundleID(item.id) }
         }
 
         return menu
@@ -2304,25 +2305,25 @@ struct HistoryWindowView: View {
     private func addTypeSpecificMenuItems(for item: HistoryPreviewItem, to menu: NSMenu) {
         switch item.type {
         case .link:
-            addMenuItem("打开链接", to: menu) { openLink(item.id) }
-            addMenuItem("复制链接地址", to: menu) { copyLinkURL(item.id) }
-            addMenuItem("复制为 Markdown 链接", to: menu) { copyMarkdownLink(item.id) }
+            addMenuItem(L("打开链接"), to: menu) { openLink(item.id) }
+            addMenuItem(L("复制链接地址"), to: menu) { copyLinkURL(item.id) }
+            addMenuItem(L("复制为 Markdown 链接"), to: menu) { copyMarkdownLink(item.id) }
             menu.addItem(.separator())
         case .color:
-            addMenuItem("复制 HEX", to: menu) { copyColorHex(item.id) }
-            addMenuItem("复制 RGB", to: menu) { copyColorRGB(item.id) }
+            addMenuItem(L("复制 HEX"), to: menu) { copyColorHex(item.id) }
+            addMenuItem(L("复制 RGB"), to: menu) { copyColorRGB(item.id) }
             menu.addItem(.separator())
         case .image:
-            addMenuItem("打开图片", to: menu) { openImage(item.id) }
-            addMenuItem("复制图像", to: menu) { copyImage(item.id) }
-            addMenuItem("复制图片路径", to: menu) { copyImagePath(item.id) }
-            addMenuItem("在 Finder 中显示", to: menu) { revealImageInFinder(item.id) }
+            addMenuItem(L("打开图片"), to: menu) { openImage(item.id) }
+            addMenuItem(L("复制图像"), to: menu) { copyImage(item.id) }
+            addMenuItem(L("复制图片路径"), to: menu) { copyImagePath(item.id) }
+            addMenuItem(L("在 Finder 中显示"), to: menu) { revealImageInFinder(item.id) }
             menu.addItem(.separator())
         case .file:
-            addMenuItem("打开文件", to: menu) { openFile(item.id) }
-            addMenuItem("复制文件", to: menu) { copyFile(item.id) }
-            addMenuItem("复制路径", to: menu) { copyFilePaths(item.id) }
-            addMenuItem("在 Finder 中显示", to: menu) { revealFilesInFinder(item.id) }
+            addMenuItem(L("打开文件"), to: menu) { openFile(item.id) }
+            addMenuItem(L("复制文件"), to: menu) { copyFile(item.id) }
+            addMenuItem(L("复制路径"), to: menu) { copyFilePaths(item.id) }
+            addMenuItem(L("在 Finder 中显示"), to: menu) { revealFilesInFinder(item.id) }
             menu.addItem(.separator())
         case .text:
             break
@@ -2342,61 +2343,61 @@ struct HistoryWindowView: View {
     private func typeSpecificContextMenu(for item: HistoryPreviewItem) -> some View {
         switch item.type {
         case .link:
-            Button("打开链接") {
+            Button(L("打开链接")) {
                 openLink(item.id)
             }
 
-            Button("复制链接地址") {
+            Button(L("复制链接地址")) {
                 copyLinkURL(item.id)
             }
 
-            Button("复制为 Markdown 链接") {
+            Button(L("复制为 Markdown 链接")) {
                 copyMarkdownLink(item.id)
             }
 
             Divider()
         case .color:
-            Button("复制 HEX") {
+            Button(L("复制 HEX")) {
                 copyColorHex(item.id)
             }
 
-            Button("复制 RGB") {
+            Button(L("复制 RGB")) {
                 copyColorRGB(item.id)
             }
 
             Divider()
         case .image:
-            Button("打开图片") {
+            Button(L("打开图片")) {
                 openImage(item.id)
             }
 
-            Button("复制图像") {
+            Button(L("复制图像")) {
                 copyImage(item.id)
             }
 
-            Button("复制图片路径") {
+            Button(L("复制图片路径")) {
                 copyImagePath(item.id)
             }
 
-            Button("在 Finder 中显示") {
+            Button(L("在 Finder 中显示")) {
                 revealImageInFinder(item.id)
             }
 
             Divider()
         case .file:
-            Button("打开文件") {
+            Button(L("打开文件")) {
                 openFile(item.id)
             }
 
-            Button("复制文件") {
+            Button(L("复制文件")) {
                 copyFile(item.id)
             }
 
-            Button("复制路径") {
+            Button(L("复制路径")) {
                 copyFilePaths(item.id)
             }
 
-            Button("在 Finder 中显示") {
+            Button(L("在 Finder 中显示")) {
                 revealFilesInFinder(item.id)
             }
 
@@ -2581,17 +2582,17 @@ struct HistoryWindowView: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(target.currentGroupID == nil ? "加入分组" : "移动到分组")
+                    Text(target.currentGroupID == nil ? L("加入分组") : L("移动到分组"))
                         .font(.system(size: 15, weight: .semibold))
 
-                    Text("选择一个目标分组")
+                    Text(L("选择一个目标分组"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                Button("取消") {
+                Button(L("取消")) {
                     groupUIState.moveToGroupPickerTarget = nil
                 }
                 .keyboardShortcut(.cancelAction)
@@ -2615,7 +2616,7 @@ struct HistoryWindowView: View {
                     removeItemFromGroup(target.itemID)
                     groupUIState.moveToGroupPickerTarget = nil
                 } label: {
-                    Label("移出分组", systemImage: "tray.and.arrow.up")
+                    Label(L("移出分组"), systemImage: "tray.and.arrow.up")
                 }
             }
         }
@@ -2686,19 +2687,19 @@ struct HistoryWindowView: View {
             .fixedSize()
             .historyRailControlStyle()
         .confirmationDialog(
-            "清空全部历史？",
+            L("清空全部历史？"),
             isPresented: $groupUIState.isClearConfirmationPresented,
             titleVisibility: .visible
         ) {
-            Button("清空历史", role: .destructive) {
+            Button(L("清空历史"), role: .destructive) {
                 clearAllItems()
             }
 
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: {
-            Text("此操作会删除所有普通和置顶记录，以及已保存的图片文件。")
+            Text(L("此操作会删除所有普通和置顶记录，以及已保存的图片文件。"))
         }
-        .help("更多操作")
+        .help(L("更多操作"))
     }
 
     private func makeMoreMenu() -> NSMenu {
@@ -2718,13 +2719,13 @@ struct HistoryWindowView: View {
             appMenuController.showSettings()
         }
 
-        let pauseItem = NSMenuItem(title: "暂停 轻贴", action: nil, keyEquivalent: "")
+        let pauseItem = NSMenuItem(title: L("暂停 轻贴"), action: nil, keyEquivalent: "")
         pauseItem.submenu = makePauseNSMenu()
         menu.addItem(pauseItem)
 
         menu.addItem(.separator())
 
-        let clearItem = NSMenuItem(title: "清空历史", action: nil, keyEquivalent: "")
+        let clearItem = NSMenuItem(title: L("清空历史"), action: nil, keyEquivalent: "")
         let clearTarget = ClosureMenuItemTarget {
             groupUIState.isClearConfirmationPresented = true
         }
@@ -2753,22 +2754,22 @@ struct HistoryWindowView: View {
         addMenuItem(recordingController.pauseMenuPrimaryTitle(), to: menu) {
             togglePauseFromMenu()
         }
-        addMenuItem("暂停 15 分钟", to: menu) {
-            pauseRecording(for: 15 * 60, message: "已暂停 15 分钟")
+        addMenuItem(L("暂停 15 分钟"), to: menu) {
+            pauseRecording(for: 15 * 60, message: L("已暂停 15 分钟"))
         }
-        addMenuItem("暂停 30 分钟", to: menu) {
-            pauseRecording(for: 30 * 60, message: "已暂停 30 分钟")
+        addMenuItem(L("暂停 30 分钟"), to: menu) {
+            pauseRecording(for: 30 * 60, message: L("已暂停 30 分钟"))
         }
-        addMenuItem("暂停 1 小时", to: menu) {
-            pauseRecording(for: 60 * 60, message: "已暂停 1 小时")
+        addMenuItem(L("暂停 1 小时"), to: menu) {
+            pauseRecording(for: 60 * 60, message: L("已暂停 1 小时"))
         }
-        addMenuItem("暂停 3 小时", to: menu) {
-            pauseRecording(for: 3 * 60 * 60, message: "已暂停 3 小时")
+        addMenuItem(L("暂停 3 小时"), to: menu) {
+            pauseRecording(for: 3 * 60 * 60, message: L("已暂停 3 小时"))
         }
-        addMenuItem("暂停 6 小时", to: menu) {
-            pauseRecording(for: 6 * 60 * 60, message: "已暂停 6 小时")
+        addMenuItem(L("暂停 6 小时"), to: menu) {
+            pauseRecording(for: 6 * 60 * 60, message: L("已暂停 6 小时"))
         }
-        addMenuItem("截止到今日", to: menu) {
+        addMenuItem(L("截止到今日"), to: menu) {
             appMenuController.pauseUntilEndOfToday()
         }
 
@@ -2776,11 +2777,11 @@ struct HistoryWindowView: View {
     }
 
     private var retentionSettingsMenu: some View {
-        Menu("保存期限") {
+        Menu(L("保存期限")) {
             ForEach(HistoryRetentionPolicy.allCases) { policy in
                 Button {
                     store.retentionPolicy = policy
-                    showStatus("保存期限：\(policy.shortTitle)")
+                    showStatus(L("保存期限：\(policy.shortTitle)"))
                 } label: {
                     HStack {
                         Text(policy.title)
@@ -2799,27 +2800,27 @@ struct HistoryWindowView: View {
                 togglePauseFromMenu()
             }
 
-            Button("暂停 15 分钟") {
-                pauseRecording(for: 15 * 60, message: "已暂停 15 分钟")
+            Button(L("暂停 15 分钟")) {
+                pauseRecording(for: 15 * 60, message: L("已暂停 15 分钟"))
             }
 
-            Button("暂停 30 分钟") {
-                pauseRecording(for: 30 * 60, message: "已暂停 30 分钟")
+            Button(L("暂停 30 分钟")) {
+                pauseRecording(for: 30 * 60, message: L("已暂停 30 分钟"))
             }
 
-            Button("暂停 1 小时") {
-                pauseRecording(for: 60 * 60, message: "已暂停 1 小时")
+            Button(L("暂停 1 小时")) {
+                pauseRecording(for: 60 * 60, message: L("已暂停 1 小时"))
             }
 
-            Button("暂停 3 小时") {
-                pauseRecording(for: 3 * 60 * 60, message: "已暂停 3 小时")
+            Button(L("暂停 3 小时")) {
+                pauseRecording(for: 3 * 60 * 60, message: L("已暂停 3 小时"))
             }
 
-            Button("暂停 6 小时") {
-                pauseRecording(for: 6 * 60 * 60, message: "已暂停 6 小时")
+            Button(L("暂停 6 小时")) {
+                pauseRecording(for: 6 * 60 * 60, message: L("已暂停 6 小时"))
             }
 
-            Button("截止到今日") {
+            Button(L("截止到今日")) {
                 appMenuController.pauseUntilEndOfToday()
             }
     }
@@ -2830,7 +2831,7 @@ struct HistoryWindowView: View {
                 .font(.system(size: 42, weight: .regular))
                 .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
 
-            Text("复制一段文字后会显示在这里")
+            Text(L("复制一段文字后会显示在这里"))
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.primary)
         }
@@ -2857,7 +2858,7 @@ struct HistoryWindowView: View {
             ProgressView()
                 .controlSize(.small)
 
-            Text("正在加载历史")
+            Text(L("正在加载历史"))
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.primary)
         }
@@ -2868,15 +2869,15 @@ struct HistoryWindowView: View {
     private var emptyContentMessage: String {
         if !isSearchActive {
             if groupUIState.selectedGroup == .pinned {
-                return "暂无置顶内容"
+                return L("暂无置顶内容")
             }
 
             if selectedGroupID != nil {
-                return "暂无内容"
+                return L("暂无内容")
             }
         }
 
-        return "没有找到匹配的历史"
+        return L("没有找到匹配的历史")
     }
 
     private var emptyContentIconName: String {
@@ -2997,7 +2998,7 @@ struct HistoryWindowView: View {
         case .copied, .copiedFallbackText:
             store.markUsed(item.id)
             ClipEaseSoundPlayer.shared.playCopyFeedback()
-            showStatus("已复制纯文本")
+            showStatus(L("已复制纯文本"))
         case .failed(let reason):
             showStatus(reason)
         }
@@ -3012,12 +3013,12 @@ struct HistoryWindowView: View {
         switch pasteExecutor.pastePlainTextToFrontmostApp(item) {
         case .copiedOnly, .copiedFallbackTextOnly:
             store.markUsed(item.id)
-            showStatus("已复制纯文本，需授权后自动粘贴")
+            showStatus(L("已复制纯文本，需授权后自动粘贴"))
             closeAfterPasteIfNeeded()
         case .pasted, .pastedFallbackText:
             store.markUsed(item.id)
             scheduleProgrammaticJump(to: item.id)
-            showStatus("已粘贴纯文本到当前 App")
+            showStatus(L("已粘贴纯文本到当前 App"))
         case .failed(let reason):
             focusState.pendingPastedItemFocusOnNextShow = nil
             showStatus(reason)
@@ -3035,11 +3036,11 @@ struct HistoryWindowView: View {
             ?? item.text
         let markdown = "[\(title)](\(item.text))"
         guard case .copied = pasteExecutor.copyTextToPasteboard(markdown) else {
-            showStatus("无法写入剪贴板")
+            showStatus(L("无法写入剪贴板"))
             return
         }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus("已复制 Markdown 链接")
+        showStatus(L("已复制 Markdown 链接"))
         closeAfterContextMenuCommand()
     }
 
@@ -3050,11 +3051,11 @@ struct HistoryWindowView: View {
         }
 
         guard case .copied = pasteExecutor.copyTextToPasteboard(item.text) else {
-            showStatus("无法写入剪贴板")
+            showStatus(L("无法写入剪贴板"))
             return
         }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus("已复制链接地址")
+        showStatus(L("已复制链接地址"))
         closeAfterContextMenuCommand()
     }
 
@@ -3062,12 +3063,12 @@ struct HistoryWindowView: View {
         guard let item = store.item(with: id),
               item.type == .link,
               let url = item.url else {
-            showStatus("无法打开链接")
+            showStatus(L("无法打开链接"))
             return
         }
 
         NSWorkspace.shared.open(url)
-        showStatus("已打开链接")
+        showStatus(L("已打开链接"))
         closeAfterContextMenuCommand()
     }
 
@@ -3078,11 +3079,11 @@ struct HistoryWindowView: View {
         }
 
         guard case .copied = pasteExecutor.copyTextToPasteboard(item.text) else {
-            showStatus("无法写入剪贴板")
+            showStatus(L("无法写入剪贴板"))
             return
         }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus("已复制 HEX")
+        showStatus(L("已复制 HEX"))
         closeAfterContextMenuCommand()
     }
 
@@ -3090,16 +3091,16 @@ struct HistoryWindowView: View {
         guard let item = store.item(with: id),
               item.type == .color,
               let rgb = rgbString(from: item.text) else {
-            showStatus("无法转换 RGB")
+            showStatus(L("无法转换 RGB"))
             return
         }
 
         guard case .copied = pasteExecutor.copyTextToPasteboard(rgb) else {
-            showStatus("无法写入剪贴板")
+            showStatus(L("无法写入剪贴板"))
             return
         }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus("已复制 RGB")
+        showStatus(L("已复制 RGB"))
         closeAfterContextMenuCommand()
     }
 
@@ -3108,7 +3109,7 @@ struct HistoryWindowView: View {
         guard containsFilteredItem(id),
               let item = store.item(with: id) else {
             if searchUIState.isVisible {
-                showStatus("没有可粘贴的搜索结果")
+                showStatus(L("没有可粘贴的搜索结果"))
             }
             return
         }
@@ -3273,7 +3274,7 @@ struct HistoryWindowView: View {
     private func beginEditItem(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               isEditable(item) else {
-            showStatus("此内容暂不支持编辑")
+            showStatus(L("此内容暂不支持编辑"))
             return
         }
 
@@ -3284,9 +3285,9 @@ struct HistoryWindowView: View {
             if updatedItem.type == .link {
                 _ = pasteExecutor.copyTextToPasteboard(updatedItem.text)
                 ClipEaseSoundPlayer.shared.playCopyFeedback()
-                showStatus("已保存并复制新链接")
+                showStatus(L("已保存并复制新链接"))
             } else {
-                showStatus("已保存")
+                showStatus(L("已保存"))
             }
         }
     }
@@ -3316,7 +3317,7 @@ struct HistoryWindowView: View {
         if previewState.itemID == id {
             closePreview()
         }
-        showStatus("已删除")
+        showStatus(L("已删除"))
     }
 
     private func clearAllItems() {
@@ -3324,7 +3325,7 @@ struct HistoryWindowView: View {
         selectedItemID = nil
         groupUIState.selectedGroup = .all
         rememberSelectedGroup()
-        showStatus("已清空")
+        showStatus(L("已清空"))
     }
 
     private func restoreRememberedGroupSelection() {
@@ -3403,7 +3404,7 @@ struct HistoryWindowView: View {
         commitPendingRenameIfNeeded()
         closeSearchForGroupNavigation()
         groupUIState.selectedGroup = .all
-        showStatus("全部剪切板")
+        showStatus(L("全部剪切板"))
     }
 
     private func selectAllGroupsForContextMenu() {
@@ -3414,14 +3415,14 @@ struct HistoryWindowView: View {
         }
 
         groupUIState.selectedGroup = .all
-        showStatus("全部剪切板")
+        showStatus(L("全部剪切板"))
     }
 
     private func selectGroup(_ id: ClipboardGroup.ID) {
         commitPendingRenameIfNeeded()
         closeSearchForGroupNavigation()
         groupUIState.selectedGroup = .group(id)
-        let groupName = store.group(with: id)?.name ?? "分组"
+        let groupName = store.group(with: id)?.name ?? L("分组")
         showStatus(groupName)
     }
 
@@ -3429,7 +3430,7 @@ struct HistoryWindowView: View {
         commitPendingRenameIfNeeded()
         closeSearchForGroupNavigation()
         groupUIState.selectedGroup = groupUIState.selectedGroup == group.selection ? .all : group.selection
-        showStatus(groupUIState.selectedGroup == group.selection ? group.selectedStatus : "全部剪切板")
+        showStatus(groupUIState.selectedGroup == group.selection ? group.selectedStatus : L("全部剪切板"))
     }
 
     private func selectSystemGroupForContextMenu(_ group: SystemHistoryGroup) {
@@ -3451,7 +3452,7 @@ struct HistoryWindowView: View {
         let group = store.createGroup()
         beginRenameGroup(group)
         groupUIState.pendingGroupTrackScrollID = HistoryGroupSelection.group(group.id).scrollID
-        showStatus("已新建分组")
+        showStatus(L("已新建分组"))
     }
 
     private func beginRenameGroup(_ group: ClipboardGroup) {
@@ -3481,18 +3482,18 @@ struct HistoryWindowView: View {
         if !trimmedName.isEmpty {
             switch store.renameGroup(group.id, name: trimmedName) {
             case .renamed:
-                showStatus("已重命名分组")
+                showStatus(L("已重命名分组"))
             case .duplicate:
-                showStatus("已有同名分组")
+                showStatus(L("已有同名分组"))
             case .empty:
-                showStatus("分组名称不能为空")
+                showStatus(L("分组名称不能为空"))
             case .unchanged:
                 break
             case .notFound:
-                showStatus("分组不存在")
+                showStatus(L("分组不存在"))
             }
         } else if !groupUIState.isRenameCancelPending {
-            showStatus("分组名称不能为空")
+            showStatus(L("分组名称不能为空"))
         }
 
         focusedRenameGroupID = nil
@@ -3667,7 +3668,7 @@ struct HistoryWindowView: View {
         if groupUIState.selectedGroup == .group(group.id) {
             groupUIState.selectedGroup = .all
         }
-        showStatus(removedCount > 0 ? "已删除分组和 \(removedCount) 条内容" : "已删除分组")
+        showStatus(removedCount > 0 ? L("已删除分组和 \(removedCount) 条内容") : L("已删除分组"))
     }
 
     private func presentMoveToGroupPicker(for item: HistoryPreviewItem) {
@@ -3677,15 +3678,15 @@ struct HistoryWindowView: View {
     private func addItem(_ id: ClipboardItem.ID?, toGroup groupID: ClipboardGroup.ID, named groupName: String? = nil) {
         store.addItem(id, toGroup: groupID)
         if let groupName {
-            showStatus("已移动到“\(groupName)”")
+            showStatus(L("已移动到“\(groupName)”"))
         } else {
-            showStatus("已加入分组")
+            showStatus(L("已加入分组"))
         }
     }
 
     private func removeItemFromGroup(_ id: ClipboardItem.ID?) {
         store.removeItemFromGroup(id)
-        showStatus("已移出分组")
+        showStatus(L("已移出分组"))
     }
 
     private func togglePinned(_ id: ClipboardItem.ID?) {
@@ -3694,34 +3695,34 @@ struct HistoryWindowView: View {
         }
 
         store.togglePinned(for: id)
-        showStatus(item.isPinned ? "已取消置顶" : "已置顶")
+        showStatus(item.isPinned ? L("已取消置顶") : L("已置顶"))
     }
 
     private func sourceAppIgnoreMenuTitle(for item: ClipboardItem) -> String {
-        let prefix = appMenuController.isSourceAppIgnored(for: item) ? "取消忽略" : "忽略"
+        let prefix = appMenuController.isSourceAppIgnored(for: item) ? L("取消忽略") : L("忽略")
         return "\(prefix) \(item.sourceAppName)"
     }
 
     private func toggleSourceAppIgnored(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.sourceBundleID != nil else {
-            showStatus("无法识别来源 App")
+            showStatus(L("无法识别来源 App"))
             return
         }
 
         guard !item.isFromClipEase else {
-            showStatus("轻贴自身内容不能忽略")
+            showStatus(L("轻贴自身内容不能忽略"))
             return
         }
 
         if appMenuController.isSourceAppIgnored(for: item) {
             appMenuController.unignoreSourceApp(for: item)
-            showStatus("已取消忽略 \(item.sourceAppName)")
+            showStatus(L("已取消忽略 \(item.sourceAppName)"))
             return
         }
 
         appMenuController.ignoreSourceApp(for: item)
-        showStatus("已忽略 \(item.sourceAppName)")
+        showStatus(L("已忽略 \(item.sourceAppName)"))
     }
 
     private func copySourceAppName(_ id: ClipboardItem.ID?) {
@@ -3730,49 +3731,49 @@ struct HistoryWindowView: View {
         }
 
         guard case .copied = pasteExecutor.copyTextToPasteboard(item.sourceAppName) else {
-            showStatus("无法写入剪贴板")
+            showStatus(L("无法写入剪贴板"))
             return
         }
-        showStatus("已复制来源名称")
+        showStatus(L("已复制来源名称"))
         closeAfterContextMenuCommand()
     }
 
     private func copySourceBundleID(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let bundleID = item.sourceBundleID else {
-            showStatus("无来源 Bundle ID")
+            showStatus(L("无来源 Bundle ID"))
             return
         }
 
         guard case .copied = pasteExecutor.copyTextToPasteboard(bundleID) else {
-            showStatus("无法写入剪贴板")
+            showStatus(L("无法写入剪贴板"))
             return
         }
-        showStatus("已复制 Bundle ID")
+        showStatus(L("已复制 Bundle ID"))
         closeAfterContextMenuCommand()
     }
 
     private func revealImageInFinder(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let imageURL = store.imageFileURL(for: item) else {
-            showStatus("未找到图片文件")
+            showStatus(L("未找到图片文件"))
             return
         }
 
         NSWorkspace.shared.activateFileViewerSelecting([imageURL])
-        showStatus("已在 Finder 中显示")
+        showStatus(L("已在 Finder 中显示"))
         closeAfterContextMenuCommand()
     }
 
     private func openImage(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let imageURL = store.imageFileURL(for: item) else {
-            showStatus("未找到图片文件")
+            showStatus(L("未找到图片文件"))
             return
         }
 
         NSWorkspace.shared.open(imageURL)
-        showStatus("已打开图片")
+        showStatus(L("已打开图片"))
         closeAfterContextMenuCommand()
     }
 
@@ -3780,7 +3781,7 @@ struct HistoryWindowView: View {
         guard let item = store.item(with: id),
               let imageURL = store.imageFileURL(for: item),
               let image = NSImage(contentsOf: imageURL) else {
-            showStatus("未找到图片文件")
+            showStatus(L("未找到图片文件"))
             return
         }
 
@@ -3788,35 +3789,35 @@ struct HistoryWindowView: View {
             image,
             skipText: item.preview.isEmpty ? imageURL.lastPathComponent : item.preview
         ) else {
-            showStatus("无法写入图片到剪贴板")
+            showStatus(L("无法写入图片到剪贴板"))
             return
         }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus("已复制图像")
+        showStatus(L("已复制图像"))
         closeAfterContextMenuCommand()
     }
 
     private func copyImagePath(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let imageURL = store.imageFileURL(for: item) else {
-            showStatus("未找到图片文件")
+            showStatus(L("未找到图片文件"))
             return
         }
 
         let path = imageURL.path
         guard case .copied = pasteExecutor.copyTextToPasteboard(path) else {
-            showStatus("无法写入剪贴板")
+            showStatus(L("无法写入剪贴板"))
             return
         }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus("已复制图片路径")
+        showStatus(L("已复制图片路径"))
         closeAfterContextMenuCommand()
     }
 
     private func copyFilePaths(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .file else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
@@ -3825,75 +3826,75 @@ struct HistoryWindowView: View {
             .filter { !$0.isEmpty }
 
         guard !paths.isEmpty else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
         let pathsText = paths.joined(separator: "\n")
         guard case .copied = pasteExecutor.copyTextToPasteboard(pathsText) else {
-            showStatus("无法写入剪贴板")
+            showStatus(L("无法写入剪贴板"))
             return
         }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(paths.count > 1 ? "已复制 \(paths.count) 个文件路径" : "已复制文件路径")
+        showStatus(paths.count > 1 ? L("已复制 \(paths.count) 个文件路径") : L("已复制文件路径"))
         closeAfterContextMenuCommand()
     }
 
     private func copyFile(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .file else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
         let urls = existingFileURLs(for: item)
         guard let firstURL = urls.first else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
         guard case .copied = pasteExecutor.copyFileURLToPasteboard(firstURL) else {
-            showStatus("无法写入文件引用到剪贴板")
+            showStatus(L("无法写入文件引用到剪贴板"))
             return
         }
         ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus("已复制文件")
+        showStatus(L("已复制文件"))
         closeAfterContextMenuCommand()
     }
 
     private func openFile(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .file else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
         let urls = existingFileURLs(for: item)
         guard let firstURL = urls.first else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
         NSWorkspace.shared.open(firstURL)
-        showStatus("已打开文件")
+        showStatus(L("已打开文件"))
         closeAfterContextMenuCommand()
     }
 
     private func revealFilesInFinder(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .file else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
         let urls = existingFileURLs(for: item)
         guard !urls.isEmpty else {
-            showStatus("未找到文件")
+            showStatus(L("未找到文件"))
             return
         }
 
         NSWorkspace.shared.activateFileViewerSelecting(urls)
-        showStatus("已在 Finder 中显示")
+        showStatus(L("已在 Finder 中显示"))
         closeAfterContextMenuCommand()
     }
 
@@ -4539,22 +4540,22 @@ struct HistoryWindowView: View {
     private func copyStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .text:
-            item.richTextFileName == nil ? "已复制文本" : "已复制富文本"
+            item.richTextFileName == nil ? L("已复制文本") : L("已复制富文本")
         case .link:
-            "已复制链接"
+            L("已复制链接")
         case .image:
-            "已复制图片"
+            L("已复制图片")
         case .color:
-            "已复制颜色"
+            L("已复制颜色")
         case .file:
-            "已复制文件引用"
+            L("已复制文件引用")
         }
     }
 
     private func copyFallbackTextStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .file:
-            "文件不可用，已复制文件路径"
+            L("文件不可用，已复制文件路径")
         default:
             copyStatus(for: item)
         }
@@ -4563,22 +4564,22 @@ struct HistoryWindowView: View {
     private func copiedOnlyStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .text:
-            item.richTextFileName == nil ? "已复制文本，需授权后自动粘贴" : "已复制富文本，需授权后自动粘贴"
+            item.richTextFileName == nil ? L("已复制文本，需授权后自动粘贴") : L("已复制富文本，需授权后自动粘贴")
         case .link:
-            "已复制链接，需授权后自动粘贴"
+            L("已复制链接，需授权后自动粘贴")
         case .image:
-            "已复制图片，需授权后自动粘贴"
+            L("已复制图片，需授权后自动粘贴")
         case .color:
-            "已复制颜色，需授权后自动粘贴"
+            L("已复制颜色，需授权后自动粘贴")
         case .file:
-            "已复制文件引用，需授权后自动粘贴"
+            L("已复制文件引用，需授权后自动粘贴")
         }
     }
 
     private func copiedOnlyFallbackTextStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .file:
-            "文件不可用，已复制文件路径，需授权后自动粘贴"
+            L("文件不可用，已复制文件路径，需授权后自动粘贴")
         default:
             copiedOnlyStatus(for: item)
         }
@@ -4587,22 +4588,22 @@ struct HistoryWindowView: View {
     private func pastedStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .text:
-            item.richTextFileName == nil ? "已粘贴文本到当前 App" : "已粘贴富文本到当前 App"
+            item.richTextFileName == nil ? L("已粘贴文本到当前 App") : L("已粘贴富文本到当前 App")
         case .link:
-            "已粘贴链接到当前 App"
+            L("已粘贴链接到当前 App")
         case .image:
-            "已粘贴图片到当前 App"
+            L("已粘贴图片到当前 App")
         case .color:
-            "已粘贴颜色到当前 App"
+            L("已粘贴颜色到当前 App")
         case .file:
-            "已粘贴文件引用到当前 App"
+            L("已粘贴文件引用到当前 App")
         }
     }
 
     private func pastedFallbackTextStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .file:
-            "文件不可用，已粘贴文件路径到当前 App"
+            L("文件不可用，已粘贴文件路径到当前 App")
         default:
             pastedStatus(for: item)
         }
@@ -5871,13 +5872,13 @@ struct HistoryWindowView: View {
     private func openAccessibilitySettingsIfNeeded() {
         accessibilityPermissionState.refresh()
         guard !accessibilityPermissionState.isTrusted else {
-            showStatus("自动粘贴已启用")
+            showStatus(L("自动粘贴已启用"))
             return
         }
 
         accessibilityPermissionState.openSystemSettings()
         accessibilityPermissionState.refresh(promptIfNeeded: true)
-        showStatus("请授权轻贴")
+        showStatus(L("请授权轻贴"))
     }
 
     private func toggleRecording() {
@@ -5891,7 +5892,7 @@ struct HistoryWindowView: View {
 
     private func toggleWindowPinnedOpen() {
         inputState.toggleWindowPinnedOpen()
-        showStatus(inputState.isWindowPinnedOpen ? "主窗口已钉住" : "主窗口已取消钉住")
+        showStatus(inputState.isWindowPinnedOpen ? L("主窗口已钉住") : L("主窗口已取消钉住"))
     }
 
     private func pauseRecording() {
@@ -6249,7 +6250,7 @@ private struct SearchTextField: NSViewRepresentable {
         textField.focusRingType = .none
         textField.font = font
         textField.textColor = textColor
-        textField.placeholderString = "搜索"
+        textField.placeholderString = L("搜索")
         textField.lineBreakMode = .byTruncatingTail
         textField.cell?.sendsActionOnEndEditing = false
         return textField
@@ -6264,7 +6265,7 @@ private struct SearchTextField: NSViewRepresentable {
         if !hasMarkedText, nsView.stringValue != text {
             nsView.stringValue = text
         }
-        nsView.placeholderString = hasSearchTokens ? nil : "搜索"
+        nsView.placeholderString = hasSearchTokens ? nil : L("搜索")
 
         if nsView.font != font {
             nsView.font = font
@@ -7568,7 +7569,7 @@ struct MoreMenuButton: NSViewRepresentable {
 
     static func configure(_ button: NSButton) {
         button.title = ""
-        button.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "更多操作")
+        button.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: L("更多操作"))
         button.imagePosition = .imageOnly
         button.isBordered = false
         button.bezelStyle = .regularSquare
@@ -7578,8 +7579,8 @@ struct MoreMenuButton: NSViewRepresentable {
         button.refusesFirstResponder = false
         button.setButtonType(.momentaryChange)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.toolTip = "更多操作"
-        button.setAccessibilityLabel("更多操作")
+        button.toolTip = L("更多操作")
+        button.setAccessibilityLabel(L("更多操作"))
         button.setAccessibilityRole(.menuButton)
     }
 

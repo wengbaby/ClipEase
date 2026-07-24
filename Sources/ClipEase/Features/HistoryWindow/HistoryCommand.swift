@@ -64,29 +64,29 @@ enum HistoryCommand {
     var title: String {
         switch self {
         case .settings:
-            "设置"
+            L("设置")
         case .edit:
-            "编辑"
+            L("编辑")
         case .toggleRecording:
-            "暂停 / 恢复记录"
+            L("暂停 / 恢复记录")
         case .preview:
-            "预览"
+            L("预览")
         case .paste:
-            "粘贴"
+            L("粘贴")
         case .pastePlainText:
-            "粘贴为纯文本"
+            L("粘贴为纯文本")
         case .copy:
-            "复制"
+            L("复制")
         case .copyPlainText:
-            "复制纯文本"
+            L("复制纯文本")
         case .newText:
-            "新建文本"
+            L("新建文本")
         case .help:
-            "帮助"
+            L("帮助")
         case .quit:
-            "退出"
+            L("退出")
         case .about:
-            "关于轻贴"
+            L("关于轻贴")
         }
     }
 

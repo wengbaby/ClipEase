@@ -24,21 +24,21 @@ enum SystemHistoryGroup: CaseIterable, Identifiable, Equatable, Sendable {
     var title: String {
         switch self {
         case .pinned:
-            "置顶"
+            L("置顶")
         }
     }
 
     var selectedStatus: String {
         switch self {
         case .pinned:
-            "只看置顶"
+            L("只看置顶")
         }
     }
 
     var help: String {
         switch self {
         case .pinned:
-            "显示置顶内容"
+            L("显示置顶内容")
         }
     }
 }

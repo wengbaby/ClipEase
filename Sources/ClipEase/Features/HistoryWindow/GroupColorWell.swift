@@ -86,7 +86,7 @@ struct GroupColorWell: NSViewRepresentable {
         }
 
         override func accessibilityLabel() -> String? {
-            "分组颜色"
+            L("分组颜色")
         }
 
         override func accessibilityValue() -> Any? {

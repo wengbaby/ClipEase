@@ -25,23 +25,23 @@ struct SettingsHistoryDataSection: View {
     let onShowStatus: (String) -> Void
 
     var body: some View {
-        SettingsSection(title: "历史数据", subtitle: subtitle) {
+        SettingsSection(title: L("历史数据"), subtitle: subtitle) {
             VStack(alignment: .leading, spacing: 12) {
-                historyActionGroup(title: "导入与导出") {
-                    historyButton("导出历史", prominent: true, action: onExportHistory)
+                historyActionGroup(title: L("导入与导出")) {
+                    historyButton(L("导出历史"), prominent: true, action: onExportHistory)
                         .disabled(!hasItems || isHistoryTransferInProgress)
 
-                    historyButton("导入历史", action: onImportHistory)
+                    historyButton(L("导入历史"), action: onImportHistory)
                         .disabled(
                             isHistoryTransferInProgress
                                 || viewModel.isCleaningOrphanedAttachments
                                 || viewModel.isCheckingHistoryData
                         )
 
-                    historyButton("导出备份包", minWidth: 104, action: onExportBackup)
+                    historyButton(L("导出备份包"), minWidth: 104, action: onExportBackup)
                         .disabled(!hasItems || isHistoryTransferInProgress)
 
-                    historyButton("导入备份包", minWidth: 104, action: onImportBackup)
+                    historyButton(L("导入备份包"), minWidth: 104, action: onImportBackup)
                         .disabled(
                             isHistoryTransferInProgress
                                 || viewModel.isCleaningOrphanedAttachments
@@ -49,25 +49,25 @@ struct SettingsHistoryDataSection: View {
                         )
                 }
 
-                Toggle("导出备份包时包含图片和富文本附件", isOn: $viewModel.includesAttachmentsInBackup)
+                Toggle(L("导出备份包时包含图片和富文本附件"), isOn: $viewModel.includesAttachmentsInBackup)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 12, weight: .regular))
 
                 Divider()
 
-                historyActionGroup(title: "目录与缓存", wrapsContent: true) {
+                historyActionGroup(title: L("目录与缓存"), wrapsContent: true) {
                     historyActionGrid {
-                        historyButton("打开数据目录", minWidth: 116, action: onOpenDataDirectory)
-                        historyButton("打开图片目录", minWidth: 116, action: onOpenImagesDirectory)
-                        historyButton("打开图标缓存", minWidth: 116, action: onOpenIconCacheDirectory)
-                        historyButton("打开缩略图缓存", minWidth: 116, action: onOpenThumbnailCacheDirectory)
+                        historyButton(L("打开数据目录"), minWidth: 116, action: onOpenDataDirectory)
+                        historyButton(L("打开图片目录"), minWidth: 116, action: onOpenImagesDirectory)
+                        historyButton(L("打开图标缓存"), minWidth: 116, action: onOpenIconCacheDirectory)
+                        historyButton(L("打开缩略图缓存"), minWidth: 116, action: onOpenThumbnailCacheDirectory)
 
-                        historyButton("刷新用量", minWidth: 116) {
+                        historyButton(L("刷新用量"), minWidth: 116) {
                             viewModel.refreshStorageUsage(onStatus: onShowStatus)
                         }
                         .disabled(viewModel.isStorageUsageRefreshing)
 
-                        historyButton("压缩历史数据库", minWidth: 128) {
+                        historyButton(L("压缩历史数据库"), minWidth: 128) {
                             viewModel.compactHistoryDatabase(showStatus: onShowStatus)
                         }
                         .disabled(viewModel.isCompactingHistoryDatabase)
@@ -76,26 +76,26 @@ struct SettingsHistoryDataSection: View {
 
                 Divider()
 
-                historyActionGroup(title: "清理", wrapsContent: true) {
+                historyActionGroup(title: L("清理"), wrapsContent: true) {
                     historyActionGrid {
-                        historyButton("检查数据", minWidth: 116, action: onCheckHistoryData)
+                        historyButton(L("检查数据"), minWidth: 116, action: onCheckHistoryData)
                             .disabled(
                                 viewModel.isCheckingHistoryData
                                     || viewModel.isCleaningOrphanedAttachments
                                     || isHistoryTransferInProgress
                             )
 
-                        historyButton("清空图标缓存", minWidth: 116, action: onRequestClearIconCache)
-                        historyButton("清空缩略图缓存", minWidth: 116, action: onRequestClearThumbnailCache)
+                        historyButton(L("清空图标缓存"), minWidth: 116, action: onRequestClearIconCache)
+                        historyButton(L("清空缩略图缓存"), minWidth: 116, action: onRequestClearThumbnailCache)
 
-                        historyButton("清理孤立附件", minWidth: 116, action: onRequestCleanOrphanedAttachments)
+                        historyButton(L("清理孤立附件"), minWidth: 116, action: onRequestCleanOrphanedAttachments)
                             .disabled(
                                 viewModel.isCleaningOrphanedAttachments
                                     || viewModel.isCheckingHistoryData
                                     || isHistoryTransferInProgress
                             )
 
-                        Button("清空历史", role: .destructive, action: onRequestClearHistory)
+                        Button(L("清空历史"), role: .destructive, action: onRequestClearHistory)
                             .buttonStyle(.bordered)
                             .frame(minWidth: 116)
                             .disabled(!hasItems)
@@ -104,16 +104,16 @@ struct SettingsHistoryDataSection: View {
 
                 if isDebugToolsVisible {
                     Divider()
-                    historyActionGroup(title: "性能测试数据") {
-                        historyButton("生成 1,000 条", minWidth: 104) {
+                    historyActionGroup(title: L("性能测试数据")) {
+                        historyButton(L("生成 1,000 条"), minWidth: 104) {
                             onGenerateDebugItems(1_000)
                         }
 
-                        historyButton("生成 10,000 条", minWidth: 112) {
+                        historyButton(L("生成 10,000 条"), minWidth: 112) {
                             onGenerateDebugItems(10_000)
                         }
 
-                        historyButton("清理测试数据", minWidth: 104, action: onClearDebugItems)
+                        historyButton(L("清理测试数据"), minWidth: 104, action: onClearDebugItems)
                             .disabled(debugTextItemCount == 0)
                     }
                 }

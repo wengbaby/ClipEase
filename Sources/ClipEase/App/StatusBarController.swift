@@ -45,8 +45,8 @@ final class StatusBarController: NSObject {
         }
 
         button.image = ClipEaseAppIcon.statusBarImage(isPaused: recordingController.isPaused)
-        button.image?.accessibilityDescription = "轻贴"
-        button.toolTip = recordingController.isPaused ? "轻贴已暂停记录" : "轻贴 ClipEase"
+        button.image?.accessibilityDescription = L("轻贴")
+        button.toolTip = recordingController.isPaused ? L("轻贴已暂停记录") : "ClipEase"
     }
 
     @objc private func toggleHistoryWindow() {

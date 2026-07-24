@@ -158,11 +158,14 @@ private struct GlobalStatusToastView: View {
     }
 
     private var statusIconName: String {
-        if text.contains("失败") || text.contains("无法") || text.contains("未找到") || text.contains("请授权") {
+        let lowercaseText = text.lowercased()
+        if text.contains("失败") || text.contains("无法") || text.contains("未找到") || text.contains("请授权")
+            || lowercaseText.contains("failed") || lowercaseText.contains("unable")
+            || lowercaseText.contains("not found") || lowercaseText.contains("authorization") {
             return "exclamationmark.circle.fill"
         }
 
-        if text.contains("暂停") {
+        if text.contains("暂停") || lowercaseText.contains("pause") {
             return "pause.circle.fill"
         }
 

@@ -27,19 +27,19 @@ enum HistoryExportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingSQLiteBackup:
-            "备份包缺少 ClipEase.sqlite"
+            L("备份包缺少 ClipEase.sqlite")
         case .incompatibleSQLiteBackupSchema(let version):
-            "备份包 SQLite schema 版本不兼容：\(version)"
+            L("备份包 SQLite schema 版本不兼容：\(version)")
         case .invalidSQLiteBackupFile(let fileName):
-            "备份包包含非法 SQLite 文件：\(fileName)"
+            L("备份包包含非法 SQLite 文件：\(fileName)")
         case .invalidBackupAttachmentFileName(let fileName):
-            "备份包包含非法附件文件名：\(fileName)"
+            L("备份包包含非法附件文件名：\(fileName)")
         case .invalidBackupAttachmentPath(let fileName):
-            "备份包附件路径越界：\(fileName)"
+            L("备份包附件路径越界：\(fileName)")
         case .invalidBackupAttachmentDirectory(let directory):
-            "备份包包含非法附件目录：\(directory)"
+            L("备份包包含非法附件目录：\(directory)")
         case .invalidBackupAttachmentFile(let fileName):
-            "备份包包含非法附件文件：\(fileName)"
+            L("备份包包含非法附件文件：\(fileName)")
         }
     }
 }

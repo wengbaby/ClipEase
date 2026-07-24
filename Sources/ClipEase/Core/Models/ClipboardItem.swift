@@ -116,24 +116,24 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     var kind: String {
         switch type {
         case .text:
-            "文本"
+            L("文本")
         case .link:
-            "链接"
+            L("链接")
         case .image:
             if let imageWidth, let imageHeight {
                 "\(imageWidth) × \(imageHeight)"
             } else {
-                "图片"
+                L("图片")
             }
         case .color:
-            "颜色"
+            L("颜色")
         case .file:
             if fileReferences.count > 1 {
-                "\(fileReferences.count) 个文件"
+                L("\(fileReferences.count) 个文件")
             } else if fileReferences.first?.isDirectory == true {
-                "文件夹"
+                L("文件夹")
             } else {
-                "文件"
+                L("文件")
             }
         }
     }
@@ -145,11 +145,11 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     var footer: String {
         switch type {
         case .text:
-            "\(text.count) 个字符"
+            L("\(text.count) 个字符")
         case .link:
             linkSubtitle ?? text
         case .image:
-            "图片"
+            L("图片")
         case .color:
             text
         case .file:
@@ -160,21 +160,21 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     var relativeTime: String {
         let interval = max(0, Int(Date().timeIntervalSince(createdAt)))
         if interval < 60 {
-            return "现在"
+            return L("现在")
         }
 
         let minutes = interval / 60
         if minutes < 60 {
-            return "\(minutes) 分钟前"
+            return L("\(minutes) 分钟前")
         }
 
         let hours = minutes / 60
         if hours < 24 {
-            return "\(hours) 小时前"
+            return L("\(hours) 小时前")
         }
 
         let days = hours / 24
-        return "\(days) 天前"
+        return L("\(days) 天前")
     }
 }
 

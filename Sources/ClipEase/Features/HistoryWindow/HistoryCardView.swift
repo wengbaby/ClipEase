@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct HistoryCardView: View, Equatable {
+    @ObservedObject private var languageSettings = AppLanguageSettings.shared
     let item: HistoryPreviewItem
     let searchQuery: String
     let shortcutNumber: Int?
@@ -34,6 +35,7 @@ struct HistoryCardView: View, Equatable {
     }
 
     var body: some View {
+        let _ = languageSettings.preference
         VStack(spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -106,10 +108,10 @@ struct HistoryCardView: View, Equatable {
                 onRightMouseDown: onRightMouseDown,
                 onMenu: onMenu,
                 onInvalid: {
-                    onFileDragStatus("未找到可拖出的文件")
+                    onFileDragStatus(L("未找到可拖出的文件"))
                 },
                 onPartial: {
-                    onFileDragStatus("已拖出可用文件")
+                    onFileDragStatus(L("已拖出可用文件"))
                 },
                 onHoverChanged: onHoverChanged,
                 onPressChanged: onPressChanged,
@@ -445,7 +447,7 @@ struct HistoryCardView: View, Equatable {
 
     private var primaryFileTitle: String {
         guard let primaryFile else {
-            return item.preview.isEmpty ? "文件引用" : item.preview.components(separatedBy: .newlines).first ?? item.preview
+            return item.preview.isEmpty ? L("文件引用") : item.preview.components(separatedBy: .newlines).first ?? item.preview
         }
 
         return primaryFile.displayName.isEmpty ? primaryFile.path : primaryFile.displayName
@@ -462,14 +464,14 @@ struct HistoryCardView: View, Equatable {
     private var fileCountText: String {
         let count = item.filePreviewReferences.count
         if count > 1 {
-            return "\(count) 个项目"
+            return L("\(count) 个项目")
         }
 
         if primaryFile?.isDirectory == true {
-            return "文件夹"
+            return L("文件夹")
         }
 
-        return "文件"
+        return L("文件")
     }
 
     private var fileFooterText: String {
@@ -482,7 +484,7 @@ struct HistoryCardView: View, Equatable {
         if let primaryFile {
             pathText = primaryFile.path.isEmpty ? primaryFileTitle : primaryFile.path
         } else {
-            pathText = item.footer.isEmpty ? "路径不可用" : item.footer
+            pathText = item.footer.isEmpty ? L("路径不可用") : item.footer
         }
 
         return [statusText, pathText].compactMap { $0 }.joined(separator: " · ")
@@ -490,7 +492,7 @@ struct HistoryCardView: View, Equatable {
 
     private var filePathSummaries: [FilePathSummary] {
         if item.filePreviewReferences.isEmpty {
-            return [FilePathSummary(path: item.footer.isEmpty ? "路径不可用" : item.footer, status: .unknown)]
+            return [FilePathSummary(path: item.footer.isEmpty ? L("路径不可用") : item.footer, status: .unknown)]
         }
 
         return item.filePreviewReferences.map { reference in
@@ -529,13 +531,13 @@ private struct FilePathSummary: Identifiable {
         case .available:
             nil
         case .missing:
-            "缺失"
+            L("缺失")
         case .permissionDenied:
-            "无权限"
+            L("无权限")
         case .placeholder:
-            "占位"
+            L("占位")
         case .unknown:
-            "未确认"
+            L("未确认")
         }
     }
 }
@@ -948,10 +950,10 @@ struct HistoryCardAccessibilityContent: Equatable {
         var labelParts = [Self.normalized(item.kind)]
         let sourceAppName = Self.normalized(item.sourceAppName)
         if !sourceAppName.isEmpty {
-            labelParts.append("来自 \(sourceAppName)")
+            labelParts.append(L("来自 \(sourceAppName)"))
         }
         if item.isPinned {
-            labelParts.append("已置顶")
+            labelParts.append(L("已置顶"))
         }
 
         label = labelParts.filter { !$0.isEmpty }.joined(separator: "，")
@@ -982,7 +984,7 @@ struct HistoryCardAccessibilityContent: Equatable {
                 return path.isEmpty ? nil : path
             }
             if names.count > 1 {
-                return "\(names.count) 个项目：\(names.joined(separator: "、"))"
+                return L("\(names.count) 个项目：\(names.joined(separator: "、"))")
             }
             return firstNonempty(names.first ?? "", item.preview, item.footer, item.kind)
         }
@@ -1188,7 +1190,7 @@ final class FileCardDragSourceNSView: NSView, NSDraggingSource {
             return []
         }
         return [
-            NSAccessibilityCustomAction(name: "预览") { [weak self] in
+            NSAccessibilityCustomAction(name: L("预览")) { [weak self] in
                 guard let self,
                       let onPreview = self.onPreview else {
                     return false

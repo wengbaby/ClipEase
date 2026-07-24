@@ -32,7 +32,7 @@ enum SettingsDiagnosticsViewModel {
         guard errorCount > 0 else {
             return fallback
         }
-        return "\(fallback)，错误 \(errorCount) 条"
+        return L("\(fallback)，错误 \(errorCount) 条")
     }
 
     nonisolated static func isErrorEvent(_ event: PerformanceDiagnosticEvent) -> Bool {
