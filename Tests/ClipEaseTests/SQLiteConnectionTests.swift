@@ -106,6 +106,74 @@ import Testing
     #expect(group.wait(timeout: .now() + 2) == .success)
 }
 
+@Test func sqliteConnectionCoordinatorAdoptsPreparedConnectionAsFirstReader() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "clipease-sqlite-coordinator-prepared-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let coordinator = SQLiteConnectionCoordinator(
+        databaseURL: databaseURL,
+        maximumReaderCount: 2
+    )
+    defer { coordinator.invalidate() }
+
+    var preparedConnectionID: ObjectIdentifier?
+    try coordinator.prepareIfNeeded {
+        let connection = try SQLiteConnection(url: databaseURL)
+        try connection.execute("CREATE TABLE sample (value INTEGER NOT NULL)")
+        preparedConnectionID = ObjectIdentifier(connection)
+        return connection
+    }
+
+    let leasedConnectionID = try coordinator.withReader { connection in
+        let rowCount = try connection.queryInt("SELECT COUNT(*) FROM sample")
+        #expect(rowCount == 0)
+        return ObjectIdentifier(connection)
+    }
+
+    #expect(leasedConnectionID == preparedConnectionID)
+    #expect(coordinator.createdReaderCount == 1)
+}
+
+@Test func sqliteCancellationHandlerGateQuiescesBeforeReaderReuse() {
+    let gate = SQLiteCancellationHandlerGate()
+    let handlerEntered = DispatchSemaphore(value: 0)
+    let handlerMayFinish = DispatchSemaphore(value: 0)
+    let deactivationFinished = DispatchSemaphore(value: 0)
+    let invocationProbe = SQLiteHandlerInvocationProbe()
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        gate.perform {
+            handlerEntered.signal()
+            handlerMayFinish.wait()
+            invocationProbe.increment()
+        }
+    }
+    #expect(handlerEntered.wait(timeout: .now() + 2) == .success)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        gate.deactivateAndWait()
+        deactivationFinished.signal()
+    }
+    #expect(deactivationFinished.wait(timeout: .now() + 0.05) == .timedOut)
+
+    handlerMayFinish.signal()
+    #expect(deactivationFinished.wait(timeout: .now() + 2) == .success)
+    gate.perform {
+        invocationProbe.increment()
+    }
+
+    #expect(invocationProbe.count == 1)
+}
+
 @Test func sqliteConnectionCoordinatorInterruptsCancelledSynchronousReader() async throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("clipease-sqlite-coordinator-cancel-\(UUID().uuidString)", isDirectory: true)
@@ -118,22 +186,39 @@ import Testing
     )
     defer { coordinator.invalidate() }
     let cancellation = ClipboardSearchCancellationToken()
+    let queryWorkerReady = DispatchSemaphore(value: 0)
+    let queryMayStart = DispatchSemaphore(value: 0)
+    let completionProbe = SQLiteQueryCompletionProbe()
     let queryTask = Task.detached {
         try coordinator.withCancellableReader(cancellation: cancellation) { connection in
-            try connection.query(
+            queryWorkerReady.signal()
+            queryMayStart.wait()
+            let rows = try connection.query(
                 """
                 WITH RECURSIVE counter(value) AS (
                     VALUES(0)
                     UNION ALL
-                    SELECT value + 1 FROM counter WHERE value < 1000000000
+                    SELECT value + 1 FROM counter WHERE value < 5000000
                 )
                 SELECT SUM(value) AS total FROM counter
                 """
             )
+            completionProbe.markCompletedNormally()
+            return rows
         }
     }
-    try await Task.sleep(nanoseconds: 5_000_000)
+
+    let workerReadyResult = await Task.detached {
+        waitSynchronously(for: queryWorkerReady, timeout: .now() + 2)
+    }.value
+    #expect(workerReadyResult == .success)
     queryTask.cancel()
+    let cancellationDeadline = Date().addingTimeInterval(2)
+    while !cancellation.isCancelled && Date() < cancellationDeadline {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    #expect(cancellation.isCancelled)
+    queryMayStart.signal()
 
     var wasCancelled = false
     do {
@@ -143,6 +228,7 @@ import Testing
     }
 
     #expect(wasCancelled)
+    #expect(!completionProbe.completedNormally)
     #expect(try coordinator.withReader { try $0.queryInt("SELECT 11") } == 11)
 }
 
@@ -168,4 +254,41 @@ private final class SQLiteReaderConcurrencyProbe: @unchecked Sendable {
             activeCount -= 1
         }
     }
+}
+
+private final class SQLiteQueryCompletionProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCompletedNormally = false
+
+    var completedNormally: Bool {
+        lock.withLock { storedCompletedNormally }
+    }
+
+    func markCompletedNormally() {
+        lock.withLock {
+            storedCompletedNormally = true
+        }
+    }
+}
+
+private final class SQLiteHandlerInvocationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCount = 0
+
+    var count: Int {
+        lock.withLock { storedCount }
+    }
+
+    func increment() {
+        lock.withLock {
+            storedCount += 1
+        }
+    }
+}
+
+private func waitSynchronously(
+    for semaphore: DispatchSemaphore,
+    timeout: DispatchTime
+) -> DispatchTimeoutResult {
+    semaphore.wait(timeout: timeout)
 }

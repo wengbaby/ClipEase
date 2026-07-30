@@ -3,6 +3,30 @@ import SQLite3
 
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
+private final class SQLiteProgressCancellationContext {
+    private let cancellationCheck: @Sendable () -> Bool
+
+    init(cancellationCheck: @escaping @Sendable () -> Bool) {
+        self.cancellationCheck = cancellationCheck
+    }
+
+    func shouldCancel() -> Bool {
+        cancellationCheck()
+    }
+}
+
+private func sqliteProgressCancellationCallback(
+    _ rawContext: UnsafeMutableRawPointer?
+) -> Int32 {
+    guard let rawContext else {
+        return 0
+    }
+    let context = Unmanaged<SQLiteProgressCancellationContext>
+        .fromOpaque(rawContext)
+        .takeUnretainedValue()
+    return context.shouldCancel() ? 1 : 0
+}
+
 typealias SQLiteDatabase = SQLiteConnection
 
 enum SQLiteStoreError: Error, LocalizedError {
@@ -126,6 +150,41 @@ final class SQLiteConnection: @unchecked Sendable {
             values: values,
             cancellationCheck: { false }
         )
+    }
+
+    /// Keeps a cancellation predicate installed at the SQLite VM boundary for
+    /// every statement executed by `operation`. This closes the race where
+    /// `sqlite3_interrupt` fires immediately before a statement begins.
+    func withCancellationCheck<Result>(
+        _ cancellationCheck: @escaping @Sendable () -> Bool,
+        operation: () throws -> Result
+    ) throws -> Result {
+        try operationLock.withLock {
+            guard let handle = handleLock.withLock({ self.handle }) else {
+                throw SQLiteStoreError.openFailed("SQLite connection is closed")
+            }
+
+            let context = SQLiteProgressCancellationContext(
+                cancellationCheck: cancellationCheck
+            )
+            sqlite3_progress_handler(
+                handle,
+                1_000,
+                sqliteProgressCancellationCallback,
+                Unmanaged.passUnretained(context).toOpaque()
+            )
+            defer {
+                sqlite3_progress_handler(handle, 0, nil, nil)
+            }
+
+            return try withExtendedLifetime(context) {
+                let result = try operation()
+                if cancellationCheck() {
+                    throw CancellationError()
+                }
+                return result
+            }
+        }
     }
 
     func queryCancellable(

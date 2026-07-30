@@ -42,7 +42,9 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
 
     /// Runs schema/configuration work once before pooled access. A failed
     /// preparation remains retryable and never publishes a half-ready state.
-    func prepareIfNeeded(_ prepare: () throws -> Void) throws {
+    func prepareIfNeeded(
+        _ prepare: () throws -> SQLiteConnection
+    ) throws {
         readerCondition.lock()
         while isPreparing || isInvalidating {
             readerCondition.wait()
@@ -55,8 +57,17 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         readerCondition.unlock()
 
         do {
-            try prepare()
+            let preparedConnection = try prepare()
+            do {
+                try preparedConnection.execute("PRAGMA foreign_keys = ON")
+                try preparedConnection.execute("PRAGMA query_only = ON")
+            } catch {
+                preparedConnection.close()
+                throw error
+            }
             readerCondition.withLock {
+                idleReaders.append(preparedConnection)
+                totalReaderCount += 1
                 isPreparing = false
                 isPrepared = true
                 readerCondition.broadcast()
@@ -126,18 +137,26 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         let connection = try acquireReader()
         defer { releaseReader(connection) }
 
+        let cancellationHandlerGate = SQLiteCancellationHandlerGate()
         let cancellationHandlerID = cancellation.registerCancellationHandler {
-            connection.interrupt()
+            cancellationHandlerGate.perform {
+                connection.interrupt()
+            }
         }
         defer {
             cancellation.unregisterCancellationHandler(cancellationHandlerID)
+            cancellationHandlerGate.deactivateAndWait()
         }
         try cancellation.throwIfCancelled()
 
         let resultBox = SQLiteBlockingResultBox<Result>()
         DispatchQueue.global(qos: .userInitiated).async {
             resultBox.complete(Swift.Result {
-                try operation(connection)
+                try connection.withCancellationCheck(
+                    { cancellation.isCancelled }
+                ) {
+                    try operation(connection)
+                }
             })
         }
 
@@ -266,6 +285,42 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
             }
             readerCondition.broadcast()
         }
+    }
+}
+
+/// Prevents a copied cancellation callback from interrupting a pooled
+/// connection after its current reader lease has ended.
+final class SQLiteCancellationHandlerGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var isActive = true
+    private var inFlightCount = 0
+
+    func perform(_ operation: @Sendable () -> Void) {
+        condition.lock()
+        guard isActive else {
+            condition.unlock()
+            return
+        }
+        inFlightCount += 1
+        condition.unlock()
+
+        operation()
+
+        condition.withLock {
+            inFlightCount -= 1
+            if inFlightCount == 0 {
+                condition.broadcast()
+            }
+        }
+    }
+
+    func deactivateAndWait() {
+        condition.lock()
+        isActive = false
+        while inFlightCount > 0 {
+            condition.wait()
+        }
+        condition.unlock()
     }
 }
 

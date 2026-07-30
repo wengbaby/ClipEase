@@ -617,8 +617,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
     private func prepareConnectionCoordinatorIfNeeded() throws {
         try connectionCoordinator.prepareIfNeeded {
-            let database = try openReadyDatabase()
-            database.close()
+            try openReadyDatabase()
         }
     }
 
@@ -772,7 +771,6 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                 )
             }
         } catch {
-            connectionCoordinator.invalidate()
             if let backup {
                 try backupManager.restoreDatabaseFiles(from: backup, to: databaseURL)
             }
