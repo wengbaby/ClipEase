@@ -13,7 +13,10 @@ DerivedData/
 .netrc
 /dev-logs/
 /design/
-/docs/
+/docs/*
+!/docs/releases/
+/docs/releases/*
+!/docs/releases/release-checklist.md
 /prototypes/
 /scripts/*
 !/scripts/
