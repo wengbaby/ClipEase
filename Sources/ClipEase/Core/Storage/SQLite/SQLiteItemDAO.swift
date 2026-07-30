@@ -1,5 +1,16 @@
 import Foundation
 
+enum SQLiteItemMutationError: LocalizedError {
+    case itemNotFound(ClipboardItem.ID)
+
+    var errorDescription: String? {
+        switch self {
+        case .itemNotFound(let itemID):
+            "SQLite clipboard item \(itemID.uuidString) does not exist."
+        }
+    }
+}
+
 enum SQLiteItemDAO {
     private static let queryBatchSize = 400
 
@@ -187,15 +198,63 @@ enum SQLiteItemDAO {
         }
     }
 
+    static func updateItem(
+        _ mutation: ClipboardHistoryItemMutation,
+        in database: SQLiteDatabase
+    ) throws {
+        guard !mutation.fields.isEmpty else {
+            return
+        }
+        guard try database.queryInt(
+            "SELECT COUNT(*) FROM clipboard_items WHERE id = ? AND is_deleted = 0",
+            values: [.text(mutation.item.id.uuidString)]
+        ) == 1 else {
+            throw SQLiteItemMutationError.itemNotFound(mutation.item.id)
+        }
+
+        var shouldRefreshSearchIndex = false
+        if mutation.fields.contains(.pin) {
+            try updatePin(for: mutation.item, in: database)
+        }
+        if mutation.fields.contains(.group) {
+            try updateGroup(for: mutation.item, in: database)
+        }
+        if mutation.fields.contains(.content) {
+            shouldRefreshSearchIndex = try updateContent(
+                for: mutation.item,
+                in: database
+            ) || shouldRefreshSearchIndex
+        }
+        if mutation.fields.contains(.metadata) {
+            shouldRefreshSearchIndex = try updateMetadata(
+                for: mutation.item,
+                in: database
+            ) || shouldRefreshSearchIndex
+        }
+        if mutation.fields.contains(.ocr) {
+            shouldRefreshSearchIndex = try updateOCR(
+                for: mutation.item,
+                in: database
+            ) || shouldRefreshSearchIndex
+        }
+
+        if shouldRefreshSearchIndex {
+            try SQLiteSearchIndexDAO.insert(mutation.item, in: database)
+        }
+    }
+
     static func insert(_ item: ClipboardItem, in database: SQLiteDatabase) throws {
+        let legacyContentHash = item.contentHash
+        let contentDigest = legacyContentHash.map(SQLiteContentDigest.digest(for:))
         try database.execute(
             """
             INSERT OR REPLACE INTO clipboard_items (
                 id, type, plain_text, url, link_title, link_subtitle,
                 source_app_name, source_bundle_id, source_icon_name, source_icon_file_name,
                 header_color, created_at, updated_at, last_used_at, pinned_at, is_pinned,
-                is_deleted, last_edited_at, group_sort_order, content_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?)
+                is_deleted, last_edited_at, group_sort_order, content_hash,
+                content_digest, digest_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?, ?)
             """,
             values: [
                 .text(item.id.uuidString),
@@ -214,7 +273,9 @@ enum SQLiteItemDAO {
                 .null,
                 .optionalDouble(item.pinnedAt?.timeIntervalSince1970),
                 .bool(item.isPinned),
-                .optionalText(item.contentHash)
+                .optionalText(legacyContentHash),
+                .optionalBlob(contentDigest),
+                contentDigest == nil ? .null : .int(SQLiteContentDigest.currentVersion)
             ]
         )
 
@@ -248,6 +309,320 @@ enum SQLiteItemDAO {
 
         if item.ocrStatus != .none || !item.ocrText.isEmpty {
             try insertOCRResult(item, in: database)
+        }
+    }
+
+    private static func updateContent(
+        for item: ClipboardItem,
+        in database: SQLiteDatabase
+    ) throws -> Bool {
+        guard let row = try database.query(
+            """
+            SELECT plain_text, url, link_subtitle, content_hash, digest_version
+            FROM clipboard_items
+            WHERE id = ? AND is_deleted = 0
+            """,
+            values: [.text(item.id.uuidString)]
+        ).first else {
+            throw SQLiteItemMutationError.itemNotFound(item.id)
+        }
+
+        let legacyContentHash = item.contentHash
+        let contentDigest = legacyContentHash.map(SQLiteContentDigest.digest(for:))
+        let searchableFieldsChanged = row.requiredText("plain_text") != item.text
+            || row.optionalText("url") != item.url?.absoluteString
+            || row.optionalText("link_subtitle") != item.linkSubtitle
+        let coreFieldsChanged = searchableFieldsChanged
+            || row.optionalText("content_hash") != legacyContentHash
+            || row.optionalInt("digest_version")
+                != (contentDigest == nil ? nil : SQLiteContentDigest.currentVersion)
+
+        if coreFieldsChanged {
+            let now = Date().timeIntervalSince1970
+            try database.execute(
+                """
+                UPDATE clipboard_items
+                SET plain_text = ?,
+                    url = ?,
+                    link_subtitle = ?,
+                    content_hash = ?,
+                    content_digest = ?,
+                    digest_version = ?,
+                    updated_at = ?,
+                    last_edited_at = ?
+                WHERE id = ? AND is_deleted = 0
+                """,
+                values: [
+                    .text(item.text),
+                    .optionalText(item.url?.absoluteString),
+                    .optionalText(item.linkSubtitle),
+                    .optionalText(legacyContentHash),
+                    .optionalBlob(contentDigest),
+                    contentDigest == nil ? .null : .int(SQLiteContentDigest.currentVersion),
+                    .double(now),
+                    .double(now),
+                    .text(item.id.uuidString)
+                ]
+            )
+        }
+
+        let existingRichTextFileName = try database.query(
+            """
+            SELECT file_name
+            FROM item_assets
+            WHERE item_id = ? AND asset_type = 'rich_text'
+            LIMIT 1
+            """,
+            values: [.text(item.id.uuidString)]
+        ).first?.optionalText("file_name")
+        if existingRichTextFileName != item.richTextFileName {
+            try database.execute(
+                "DELETE FROM item_assets WHERE item_id = ? AND asset_type = 'rich_text'",
+                values: [.text(item.id.uuidString)]
+            )
+            if let richTextFileName = item.richTextFileName {
+                try insertAsset(
+                    itemID: item.id,
+                    type: "rich_text",
+                    fileName: richTextFileName,
+                    width: nil,
+                    height: nil,
+                    createdAt: item.createdAt,
+                    in: database
+                )
+            }
+        }
+
+        return searchableFieldsChanged
+    }
+
+    private static func updatePin(
+        for item: ClipboardItem,
+        in database: SQLiteDatabase
+    ) throws {
+        guard let row = try database.query(
+            "SELECT is_pinned, pinned_at FROM clipboard_items WHERE id = ?",
+            values: [.text(item.id.uuidString)]
+        ).first else {
+            throw SQLiteItemMutationError.itemNotFound(item.id)
+        }
+        let pinnedAt = item.pinnedAt?.timeIntervalSince1970
+        guard row.requiredBool("is_pinned") != item.isPinned
+                || row.optionalDouble("pinned_at") != pinnedAt else {
+            return
+        }
+        try database.execute(
+            """
+            UPDATE clipboard_items
+            SET is_pinned = ?, pinned_at = ?, updated_at = ?
+            WHERE id = ? AND is_deleted = 0
+            """,
+            values: [
+                .bool(item.isPinned),
+                .optionalDouble(pinnedAt),
+                .double(Date().timeIntervalSince1970),
+                .text(item.id.uuidString)
+            ]
+        )
+    }
+
+    private static func updateGroup(
+        for item: ClipboardItem,
+        in database: SQLiteDatabase
+    ) throws {
+        let currentGroupID = try database.query(
+            "SELECT group_id FROM group_items WHERE item_id = ? LIMIT 1",
+            values: [.text(item.id.uuidString)]
+        ).first?.optionalText("group_id")
+        let newGroupID = item.groupID?.uuidString
+        guard currentGroupID != newGroupID else {
+            return
+        }
+
+        try database.execute(
+            "DELETE FROM group_items WHERE item_id = ?",
+            values: [.text(item.id.uuidString)]
+        )
+        if item.groupID != nil {
+            try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
+        }
+    }
+
+    private static func updateMetadata(
+        for item: ClipboardItem,
+        in database: SQLiteDatabase
+    ) throws -> Bool {
+        guard let row = try database.query(
+            "SELECT created_at, link_title FROM clipboard_items WHERE id = ?",
+            values: [.text(item.id.uuidString)]
+        ).first else {
+            throw SQLiteItemMutationError.itemNotFound(item.id)
+        }
+        let createdAt = item.createdAt.timeIntervalSince1970
+        let titleChanged = row.optionalText("link_title") != item.linkTitle
+        let createdAtChanged = row.requiredDouble("created_at") != createdAt
+        if titleChanged || createdAtChanged {
+            try database.execute(
+                """
+                UPDATE clipboard_items
+                SET created_at = ?, link_title = ?, updated_at = ?
+                WHERE id = ? AND is_deleted = 0
+                """,
+                values: [
+                    .double(createdAt),
+                    .optionalText(item.linkTitle),
+                    .double(Date().timeIntervalSince1970),
+                    .text(item.id.uuidString)
+                ]
+            )
+        }
+
+        let assetRow = try database.query(
+            """
+            SELECT file_name, width, height
+            FROM item_assets
+            WHERE item_id = ? AND asset_type = 'image'
+            LIMIT 1
+            """,
+            values: [.text(item.id.uuidString)]
+        ).first
+        let assetChanged = assetRow?.optionalText("file_name") != item.imageFileName
+            || assetRow?.optionalInt("width") != item.imageWidth
+            || assetRow?.optionalInt("height") != item.imageHeight
+        if assetChanged {
+            try database.execute(
+                "DELETE FROM item_assets WHERE item_id = ? AND asset_type = 'image'",
+                values: [.text(item.id.uuidString)]
+            )
+            if let imageFileName = item.imageFileName {
+                try insertAsset(
+                    itemID: item.id,
+                    type: "image",
+                    fileName: imageFileName,
+                    width: item.imageWidth,
+                    height: item.imageHeight,
+                    createdAt: item.createdAt,
+                    in: database
+                )
+            }
+        }
+        return titleChanged
+    }
+
+    private static func updateOCR(
+        for item: ClipboardItem,
+        in database: SQLiteDatabase
+    ) throws -> Bool {
+        let encodedEmails = SQLiteRowMapper.encodeList(item.ocrEmails)
+        let encodedPhoneNumbers = SQLiteRowMapper.encodeList(item.ocrPhoneNumbers)
+        let encodedURLs = SQLiteRowMapper.encodeList(item.ocrURLs)
+        let encodedRegions = SQLiteRowMapper.encodeRegions(item.ocrTextRegions)
+        let updatedAt = item.ocrUpdatedAt?.timeIntervalSince1970
+        let existing = try database.query(
+            """
+            SELECT status, recognized_text, emails, phone_numbers, urls, text_regions, updated_at
+            FROM item_ocr_results
+            WHERE item_id = ?
+            """,
+            values: [.text(item.id.uuidString)]
+        ).first
+        let searchableFieldsChanged = existing?.requiredText("recognized_text") != item.ocrText
+            || existing?.requiredText("emails") != encodedEmails
+            || existing?.requiredText("phone_numbers") != encodedPhoneNumbers
+            || existing?.requiredText("urls") != encodedURLs
+        let anyFieldChanged = searchableFieldsChanged
+            || existing?.requiredText("status") != item.ocrStatus.rawValue
+            || existing?.requiredText("text_regions") != encodedRegions
+            || existing?.optionalDouble("updated_at") != updatedAt
+        guard anyFieldChanged else {
+            return false
+        }
+
+        if item.ocrStatus == .none,
+           item.ocrText.isEmpty,
+           item.ocrEmails.isEmpty,
+           item.ocrPhoneNumbers.isEmpty,
+           item.ocrURLs.isEmpty,
+           item.ocrTextRegions.isEmpty {
+            try database.execute(
+                "DELETE FROM item_ocr_results WHERE item_id = ?",
+                values: [.text(item.id.uuidString)]
+            )
+        } else {
+            try database.execute(
+                """
+                INSERT INTO item_ocr_results (
+                    item_id, status, recognized_text, emails, phone_numbers, urls, text_regions, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(item_id) DO UPDATE SET
+                    status = excluded.status,
+                    recognized_text = excluded.recognized_text,
+                    emails = excluded.emails,
+                    phone_numbers = excluded.phone_numbers,
+                    urls = excluded.urls,
+                    text_regions = excluded.text_regions,
+                    updated_at = excluded.updated_at
+                """,
+                values: [
+                    .text(item.id.uuidString),
+                    .text(item.ocrStatus.rawValue),
+                    .text(item.ocrText),
+                    .text(encodedEmails),
+                    .text(encodedPhoneNumbers),
+                    .text(encodedURLs),
+                    .text(encodedRegions),
+                    .optionalDouble(updatedAt)
+                ]
+            )
+        }
+        return searchableFieldsChanged
+    }
+
+    static func backfillContentDigests(
+        in database: SQLiteDatabase,
+        limit: Int = SQLiteContentDigest.batchSize
+    ) throws -> Int {
+        let boundedLimit = min(max(0, limit), SQLiteContentDigest.batchSize)
+        guard boundedLimit > 0 else {
+            return 0
+        }
+
+        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            let rows = try database.query(
+                """
+                SELECT id, content_hash
+                FROM clipboard_items
+                WHERE content_digest IS NULL
+                  AND content_hash IS NOT NULL
+                ORDER BY rowid ASC
+                LIMIT ?
+                """,
+                values: [.int(boundedLimit)]
+            )
+
+            for row in rows {
+                let legacyContentHash = row.requiredText("content_hash")
+                try database.execute(
+                    """
+                    UPDATE clipboard_items
+                    SET content_digest = ?, digest_version = ?
+                    WHERE id = ?
+                      AND content_digest IS NULL
+                    """,
+                    values: [
+                        .blob(SQLiteContentDigest.digest(for: legacyContentHash)),
+                        .int(SQLiteContentDigest.currentVersion),
+                        .text(row.requiredText("id"))
+                    ]
+                )
+            }
+
+            try database.execute("COMMIT")
+            return rows.count
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
         }
     }
 

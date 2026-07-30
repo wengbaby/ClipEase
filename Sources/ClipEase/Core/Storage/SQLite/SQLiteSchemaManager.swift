@@ -32,9 +32,23 @@ struct SQLiteSchemaManager {
                 is_deleted INTEGER NOT NULL DEFAULT 0,
                 last_edited_at REAL,
                 group_sort_order INTEGER,
-                content_hash TEXT
+                content_hash TEXT,
+                content_digest BLOB,
+                digest_version INTEGER
             )
             """)
+        try addColumnIfNeeded(
+            "clipboard_items",
+            column: "content_digest",
+            definition: "BLOB",
+            in: database
+        )
+        try addColumnIfNeeded(
+            "clipboard_items",
+            column: "digest_version",
+            definition: "INTEGER",
+            in: database
+        )
 
         try database.execute("""
             CREATE TABLE IF NOT EXISTS item_assets (
@@ -142,11 +156,27 @@ struct SQLiteSchemaManager {
         try database.execute(
             "CREATE INDEX IF NOT EXISTS idx_clipboard_items_pinned ON clipboard_items(is_pinned, pinned_at DESC)"
         )
+        // `is_deleted` has very low selectivity and this full index can win over
+        // the measured active-row duplicate indexes on the production-width
+        // table. Remove it for both fresh databases and upgraded installations.
+        try database.execute("DROP INDEX IF EXISTS idx_clipboard_items_deleted")
+        // Superseded by the active-row composite index below. Keeping both
+        // gives SQLite two competing equality plans and can select the legacy
+        // index that does not cover the actual duplicate-lookup predicate.
+        try database.execute("DROP INDEX IF EXISTS idx_clipboard_items_content_hash")
         try database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_clipboard_items_deleted ON clipboard_items(is_deleted)"
+            """
+            CREATE INDEX IF NOT EXISTS idx_clipboard_items_content_digest
+            ON clipboard_items(digest_version, content_digest, source_bundle_id)
+            WHERE is_deleted = 0
+            """
         )
         try database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_clipboard_items_content_hash ON clipboard_items(content_hash)"
+            """
+            CREATE INDEX IF NOT EXISTS idx_clipboard_items_content_hash_active
+            ON clipboard_items(content_hash, source_bundle_id)
+            WHERE is_deleted = 0
+            """
         )
         try database.execute(
             "CREATE INDEX IF NOT EXISTS idx_item_assets_item_id ON item_assets(item_id)"

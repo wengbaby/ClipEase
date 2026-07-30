@@ -372,34 +372,113 @@ enum HistoryGlassPolicy {
     }
 }
 
+enum HistoryNativeGlassSurfacePolicy {
+    static func rendersSurface(
+        role: HistoryGlassRole,
+        plan: HistoryGlassRenderPlan,
+        cardStyle: AppearanceCardStyle
+    ) -> Bool {
+        guard plan.path == .native else {
+            return false
+        }
+
+        switch role {
+        case .panel, .controls:
+            return true
+        case .selectedCard:
+            return true
+        case .card:
+            return cardStyle == .liquidGlass
+        case .focusRing, .popover:
+            return false
+        }
+    }
+}
+
 struct HistoryGlassSceneComposition: Equatable, Sendable {
     let panelPlan: HistoryGlassRenderPlan
     let controlsPlan: HistoryGlassRenderPlan
     let cardPlans: [HistoryGlassRenderPlan]
+    let cardNativeGlassSurfaceCount: Int
 
-    init(environment: HistoryGlassEnvironment, renderedCardCount: Int) {
+    init(
+        environment: HistoryGlassEnvironment,
+        renderedCardCount: Int,
+        selectedCardCount: Int = 0,
+        cardStyle: AppearanceCardStyle = .liquidGlass
+    ) {
         precondition((0...20).contains(renderedCardCount), "Rendered card count must remain within the rail budget.")
+        precondition(
+            (0...renderedCardCount).contains(selectedCardCount),
+            "Selected card count must remain within the rendered rail."
+        )
         panelPlan = HistoryGlassPolicy.resolve(role: .panel, environment: environment)
         controlsPlan = HistoryGlassPolicy.resolve(role: .controls, environment: environment)
-        cardPlans = Array(
-            repeating: HistoryGlassPolicy.resolve(role: .card, environment: environment),
-            count: renderedCardCount
-        )
+        let selectedCardPlan = HistoryGlassPolicy.resolve(role: .selectedCard, environment: environment)
+        let cardPlan = HistoryGlassPolicy.resolve(role: .card, environment: environment)
+        cardPlans =
+            Array(repeating: selectedCardPlan, count: selectedCardCount) +
+            Array(repeating: cardPlan, count: renderedCardCount - selectedCardCount)
+        cardNativeGlassSurfaceCount =
+            (HistoryNativeGlassSurfacePolicy.rendersSurface(
+                role: .selectedCard,
+                plan: selectedCardPlan,
+                cardStyle: cardStyle
+            ) ? selectedCardCount : 0) +
+            (HistoryNativeGlassSurfacePolicy.rendersSurface(
+                role: .card,
+                plan: cardPlan,
+                cardStyle: cardStyle
+            ) ? renderedCardCount - selectedCardCount : 0)
+    }
+
+    var panelNativeGlassSurfaceCount: Int {
+        HistoryNativeGlassSurfacePolicy.rendersSurface(
+            role: .panel,
+            plan: panelPlan,
+            cardStyle: .liquidGlass
+        ) ? 1 : 0
+    }
+
+    var controlsNativeGlassSurfaceCount: Int {
+        // The current HistoryWindowView does not mount a native controls surface.
+        0
+    }
+
+    var nativeGlassSurfaceCount: Int {
+        panelNativeGlassSurfaceCount +
+            controlsNativeGlassSurfaceCount +
+            cardNativeGlassSurfaceCount
+    }
+
+    var actualGlassSurfaceCount: Int {
+        panelBackdropCount +
+            controlsBackdropCount +
+            cardBackdropCount +
+            nativeGlassSurfaceCount
     }
 
     var panelBackdropCount: Int {
-        panelPlan.usesBackdropEffect ? 1 : 0
+        panelPlan.path == .compatibility && panelPlan.usesBackdropEffect ? 1 : 0
     }
 
     var controlsBackdropCount: Int {
-        controlsPlan.usesBackdropEffect ? 1 : 0
+        // controlsPlan is retained for future composition, but is not rendered today.
+        0
     }
 
     var cardBackdropCount: Int {
-        cardPlans.count(where: \.usesBackdropEffect)
+        cardPlans.count(
+            where: {
+                $0.path == .compatibility && $0.usesBackdropEffect
+            }
+        )
     }
 
     var isWithinBudget: Bool {
-        panelBackdropCount <= 1 && controlsBackdropCount <= 1 && cardBackdropCount == 0
+        panelBackdropCount + panelNativeGlassSurfaceCount <= 1 &&
+            controlsBackdropCount + controlsNativeGlassSurfaceCount <= 1 &&
+            cardBackdropCount == 0 &&
+            cardNativeGlassSurfaceCount <= 20
     }
 }

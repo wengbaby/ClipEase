@@ -1,7 +1,7 @@
 import AppKit
+import Combine
 import Darwin
 import Foundation
-
 struct PerformanceDiagnosticEvent: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let timestamp: Date
@@ -76,15 +76,6 @@ struct PerformanceResourceSnapshot: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
-private actor PerformanceDiagnosticsWriter {
-    func append(_ event: PerformanceDiagnosticEvent, to databaseURL: URL) {
-        guard let store = try? PerformanceDiagnosticsStore(databaseURL: databaseURL) else {
-            return
-        }
-        try? store.append(event)
-    }
-}
-
 @MainActor
 final class PerformanceDiagnosticsService: ObservableObject {
     enum StartupMode {
@@ -97,20 +88,24 @@ final class PerformanceDiagnosticsService: ObservableObject {
     @Published var isEnabled: Bool {
         didSet {
             userDefaults.set(isEnabled, forKey: Self.enabledKey)
-            guard startupMode == .production else {
+            guard !isSynchronizingMode else {
                 return
             }
-            updateResourceSamplingState()
-            recordInstant("diagnostics.\(isEnabled ? "enabled" : "disabled")", category: "diagnostics")
+            applyMode(isEnabled ? .detailedLocal : .standard)
         }
     }
     @Published private(set) var recentEvents: [PerformanceDiagnosticEvent] = []
     @Published private(set) var recentResourceSnapshots: [PerformanceResourceSnapshot] = []
     @Published private(set) var latestResourceSnapshot: PerformanceResourceSnapshot?
     @Published private(set) var currentLogFileURL: URL?
+    @Published private(set) var mode: PerformanceDiagnosticsMode
+    @Published private(set) var droppedEventCount = 0
     @Published var retentionDays: Int {
         didSet {
-            let clampedRetentionDays = PerformanceDiagnosticsRetentionPolicy.normalizedRetentionDays(retentionDays)
+            let clampedRetentionDays = min(
+                PerformanceDiagnosticsRetentionPolicy.normalizedRetentionDays(retentionDays),
+                PerformanceDiagnosticsMode.detailedLocal.retentionDays
+            )
             guard retentionDays == clampedRetentionDays else {
                 retentionDays = clampedRetentionDays
                 return
@@ -124,7 +119,10 @@ final class PerformanceDiagnosticsService: ObservableObject {
     }
     @Published var maxLogSizeMB: Int {
         didSet {
-            let clampedMaxLogSizeMB = PerformanceDiagnosticsRetentionPolicy.normalizedMaxLogSizeMB(maxLogSizeMB)
+            let clampedMaxLogSizeMB = min(
+                PerformanceDiagnosticsRetentionPolicy.normalizedMaxLogSizeMB(maxLogSizeMB),
+                PerformanceDiagnosticsMode.detailedLocal.maxLogSizeMB
+            )
             guard maxLogSizeMB == clampedMaxLogSizeMB else {
                 maxLogSizeMB = clampedMaxLogSizeMB
                 return
@@ -140,25 +138,32 @@ final class PerformanceDiagnosticsService: ObservableObject {
     nonisolated private static let enabledKey = "performanceDiagnostics.enabled"
     nonisolated private static let retentionDaysKey = "performanceDiagnostics.retentionDays"
     nonisolated private static let maxLogSizeMBKey = "performanceDiagnostics.maxLogSizeMB"
+    nonisolated private static let modeKey = "performanceDiagnostics.mode"
     nonisolated private static let maxRecentEvents = 200
     nonisolated private static let maxResourceSnapshots = 120
     nonisolated private static let slowEventThresholdMS = 16.0
-    nonisolated private static let resourceSamplingNanoseconds: UInt64 = 5_000_000_000
     nonisolated private static let diagnosticsUIPublishNanoseconds: UInt64 = 750_000_000
-    nonisolated private static let diagnosticsWriter = PerformanceDiagnosticsWriter()
+    nonisolated static let shutdownDrainBudgetNanoseconds: UInt64 = 250_000_000
     nonisolated private static var defaultStartupMode: StartupMode {
         CommandLine.arguments.contains("--testing-library") ? .isolated : .production
     }
     private let userDefaults: UserDefaults
     private let fileManager: FileManager
-    private let diagnosticsStoreURL: URL?
+    private var diagnosticsStoreURL: URL?
     private let startupMode: StartupMode
+    private let diagnosticsWriter = PerformanceDiagnosticsWriter()
     private var cleanupTask: Task<Void, Never>?
     private var resourceSamplingTask: Task<Void, Never>?
     private var diagnosticsUIPublishTask: Task<Void, Never>?
+    private var diagnosticsWritePumpTask: Task<Void, Never>?
+    private(set) var diagnosticsWritePumpScheduledDelayNanoseconds: UInt64?
+    private var diagnosticsIngressBuffer = PerformanceDiagnosticsIngressBuffer()
+    private var diagnosticsWriterDroppedEventCount = 0
     private var recentEventsStore: [PerformanceDiagnosticEvent] = []
     private var recentResourceSnapshotsStore: [PerformanceResourceSnapshot] = []
     private var latestResourceSnapshotStore: PerformanceResourceSnapshot?
+    private var isShutDown = false
+    private var isSynchronizingMode = false
 
     init(
         userDefaults: UserDefaults = .standard,
@@ -166,24 +171,41 @@ final class PerformanceDiagnosticsService: ObservableObject {
         diagnosticsStoreURL: URL? = nil,
         startupMode: StartupMode = PerformanceDiagnosticsService.defaultStartupMode
     ) {
+        let initialMode = PerformanceDiagnosticsMode(
+            rawValue: userDefaults.string(forKey: Self.modeKey) ?? ""
+        ) ?? .standard
         self.userDefaults = userDefaults
         self.fileManager = fileManager
         self.startupMode = startupMode
-        self.isEnabled = userDefaults.object(forKey: Self.enabledKey) as? Bool ?? true
-        self.retentionDays = PerformanceDiagnosticsRetentionPolicy.normalizedRetentionDays(
-            userDefaults.object(forKey: Self.retentionDaysKey) as? Int
-                ?? PerformanceDiagnosticsRetentionPolicy.defaultPolicy.retentionDays
+        self.mode = initialMode
+        self.isEnabled = initialMode == .detailedLocal
+        self.retentionDays = min(
+            PerformanceDiagnosticsRetentionPolicy.normalizedRetentionDays(
+                userDefaults.object(forKey: Self.retentionDaysKey) as? Int
+                    ?? initialMode.retentionDays
+            ),
+            PerformanceDiagnosticsMode.detailedLocal.retentionDays
         )
-        self.maxLogSizeMB = PerformanceDiagnosticsRetentionPolicy.normalizedMaxLogSizeMB(
-            userDefaults.object(forKey: Self.maxLogSizeMBKey) as? Int
-                ?? (PerformanceDiagnosticsRetentionPolicy.defaultPolicy.maxBytes / PerformanceDiagnosticsRetentionPolicy.bytesPerMiB)
+        self.maxLogSizeMB = min(
+            PerformanceDiagnosticsRetentionPolicy.normalizedMaxLogSizeMB(
+                userDefaults.object(forKey: Self.maxLogSizeMBKey) as? Int
+                    ?? initialMode.maxLogSizeMB
+            ),
+            PerformanceDiagnosticsMode.detailedLocal.maxLogSizeMB
         )
         self.diagnosticsStoreURL = diagnosticsStoreURL
-            ?? (try? ClipEaseStoragePaths.diagnosticsStoreURL(fileManager: fileManager))
-        currentLogFileURL = self.diagnosticsStoreURL
+        if initialMode.persistenceEnabled {
+            self.diagnosticsStoreURL = diagnosticsStoreURL
+                ?? (try? ClipEaseStoragePaths.diagnosticsStoreURL(fileManager: fileManager))
+            currentLogFileURL = self.diagnosticsStoreURL
+        } else {
+            currentLogFileURL = nil
+        }
+        userDefaults.set(isEnabled, forKey: Self.enabledKey)
         userDefaults.set(retentionDays, forKey: Self.retentionDaysKey)
         userDefaults.set(maxLogSizeMB, forKey: Self.maxLogSizeMBKey)
-        if startupMode == .production {
+        userDefaults.set(mode.rawValue, forKey: Self.modeKey)
+        if startupMode == .production, initialMode.persistenceEnabled {
             if diagnosticsStoreURL == nil {
                 removeLegacyJSONLogs()
             }
@@ -197,10 +219,133 @@ final class PerformanceDiagnosticsService: ObservableObject {
     }
 
     func shutdown() {
+        isShutDown = true
         cleanupTask?.cancel()
         cleanupTask = nil
         resourceSamplingTask?.cancel()
         resourceSamplingTask = nil
+        diagnosticsUIPublishTask?.cancel()
+        diagnosticsUIPublishTask = nil
+        guard mode.persistenceEnabled else {
+            return
+        }
+        Task { [weak self] in
+            _ = await self?.drainForShutdown()
+        }
+    }
+
+    func drainForShutdown(
+        timeoutNanoseconds: UInt64 = PerformanceDiagnosticsService.shutdownDrainBudgetNanoseconds
+    ) async -> PerformanceDiagnosticsShutdownDrainResult {
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        guard let diagnosticsStoreURL, mode.persistenceEnabled else {
+            return PerformanceDiagnosticsShutdownDrainResult(
+                outcome: .notRequired,
+                droppedEventCount: droppedEventCount,
+                elapsedMS: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+            )
+        }
+
+        diagnosticsWritePumpTask?.cancel()
+        diagnosticsWritePumpTask = nil
+        diagnosticsWritePumpScheduledDelayNanoseconds = nil
+        let bufferedEvents = diagnosticsIngressBuffer.removeAll()
+        let ingressDroppedEventCount = diagnosticsIngressBuffer.droppedEventCount
+        let diagnosticsWriter = diagnosticsWriter
+        let retentionPolicy = PerformanceDiagnosticsRetentionPolicy(
+            retentionDays: retentionDays,
+            maxLogSizeMB: maxLogSizeMB
+        )
+        let deadlineOutcome = await PerformanceDiagnosticsDrainDeadline.run(
+            timeoutNanoseconds: timeoutNanoseconds
+        ) {
+            var writerDroppedEventCount = 0
+            for event in bufferedEvents {
+                writerDroppedEventCount = await diagnosticsWriter.enqueue(
+                    event,
+                    to: diagnosticsStoreURL,
+                    policy: retentionPolicy
+                )
+            }
+            writerDroppedEventCount = await diagnosticsWriter.drain(
+                to: diagnosticsStoreURL,
+                policy: retentionPolicy
+            )
+            return writerDroppedEventCount
+        }
+
+        let outcome: PerformanceDiagnosticsShutdownDrainOutcome
+        switch deadlineOutcome {
+        case .completed(let writerDroppedEventCount):
+            diagnosticsWriterDroppedEventCount = writerDroppedEventCount
+            droppedEventCount = ingressDroppedEventCount + writerDroppedEventCount
+            outcome = .completed
+        case .timedOut:
+            droppedEventCount = ingressDroppedEventCount + diagnosticsWriterDroppedEventCount
+            outcome = .timedOut
+        }
+
+        return PerformanceDiagnosticsShutdownDrainResult(
+            outcome: outcome,
+            droppedEventCount: droppedEventCount,
+            elapsedMS: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+        )
+    }
+
+    func setMode(_ mode: PerformanceDiagnosticsMode) {
+        isSynchronizingMode = true
+        if isEnabled != (mode == .detailedLocal) {
+            isEnabled = mode == .detailedLocal
+        }
+        isSynchronizingMode = false
+        userDefaults.set(isEnabled, forKey: Self.enabledKey)
+        applyMode(mode)
+    }
+
+    private func applyMode(_ mode: PerformanceDiagnosticsMode) {
+        guard self.mode != mode else {
+            return
+        }
+
+        if self.mode.persistenceEnabled, !mode.persistenceEnabled {
+            scheduleModeTransitionDrain()
+        }
+
+        self.mode = mode
+        userDefaults.set(mode.rawValue, forKey: Self.modeKey)
+        if mode == .detailedLocal {
+            retentionDays = mode.retentionDays
+            maxLogSizeMB = mode.maxLogSizeMB
+            if diagnosticsStoreURL == nil {
+                diagnosticsStoreURL = try? ClipEaseStoragePaths.diagnosticsStoreURL(fileManager: fileManager)
+            }
+            currentLogFileURL = diagnosticsStoreURL
+            if startupMode == .production {
+                removeLegacyJSONLogs()
+            }
+        } else {
+            cleanupTask?.cancel()
+            cleanupTask = nil
+            resourceSamplingTask?.cancel()
+            resourceSamplingTask = nil
+            diagnosticsUIPublishTask?.cancel()
+            diagnosticsUIPublishTask = nil
+            currentLogFileURL = nil
+            recentEventsStore.removeAll(keepingCapacity: false)
+            recentResourceSnapshotsStore.removeAll(keepingCapacity: false)
+            latestResourceSnapshotStore = nil
+            recentEvents = []
+            recentResourceSnapshots = []
+            latestResourceSnapshot = nil
+        }
+        updateResourceSamplingState()
+        if mode.persistenceEnabled {
+            cleanupOldLogs()
+        }
+        recordInstant(
+            mode.persistenceEnabled ? "diagnostics.detailed-local.enabled" : "diagnostics.standard.enabled",
+            category: "diagnostics"
+        )
     }
 
     func recordInstant(
@@ -228,17 +373,18 @@ final class PerformanceDiagnosticsService: ObservableObject {
         resultCount: Int? = nil,
         metadata: [String: String] = [:]
     ) {
-        guard isEnabled else {
+        PerformanceDiagnosticsSignposter.emitEvent(name: name, category: category)
+        guard mode.persistenceEnabled, isEnabled else {
             return
         }
 
         let event = PerformanceDiagnosticEvent(
-            name: name,
-            category: category,
+            name: PerformanceDiagnosticsPrivacy.sanitizedEventName(name, category: category),
+            category: PerformanceDiagnosticsPrivacy.sanitizedCategory(category),
             durationMS: durationMS,
             itemCount: itemCount,
             resultCount: resultCount,
-            metadata: metadata
+            metadata: PerformanceDiagnosticsPrivacy.sanitizedMetadata(metadata)
         )
         appendRecentEventForUI(event)
         write(event)
@@ -250,6 +396,14 @@ final class PerformanceDiagnosticsService: ObservableObject {
         error: Error,
         metadata: [String: String] = [:]
     ) {
+        PerformanceDiagnosticsSignposter.emitEvent(
+            name: name,
+            category: category,
+            isError: true
+        )
+        guard mode.persistenceEnabled, isEnabled else {
+            return
+        }
         let event = Self.errorEvent(name, category: category, error: error, metadata: metadata)
         appendRecentEventForUI(event)
         write(event)
@@ -261,37 +415,40 @@ final class PerformanceDiagnosticsService: ObservableObject {
         error: Error,
         metadata: [String: String] = [:]
     ) -> PerformanceDiagnosticEvent {
-        var errorMetadata = metadata
-        errorMetadata["error"] = error.localizedDescription
+        var errorMetadata = PerformanceDiagnosticsPrivacy.sanitizedMetadata(metadata)
+        errorMetadata["error"] = "redacted"
         errorMetadata["errorType"] = String(describing: type(of: error))
         return PerformanceDiagnosticEvent(
-            name: name,
-            category: category,
+            name: PerformanceDiagnosticsPrivacy.sanitizedEventName(name, category: category),
+            category: PerformanceDiagnosticsPrivacy.sanitizedCategory(category),
             durationMS: 0,
             metadata: errorMetadata
         )
     }
 
     func recordResourceCheckpoint(_ reason: String) {
-        guard isEnabled else {
+        guard isEnabled, mode.persistenceEnabled else {
             return
         }
 
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) { [weak self] in
             let latencyMS = await Self.measureMainThreadLatencyMS()
             guard let snapshot = Self.captureResourceSnapshot(mainThreadLatencyMS: latencyMS) else {
                 return
             }
 
             await MainActor.run {
-                PerformanceDiagnosticsService.shared.storeResourceSnapshot(snapshot, reason: reason)
+                self?.storeResourceSnapshot(snapshot, reason: "resourceCheckpoint")
             }
         }
     }
 
     func startSession(reason: String) {
-        recordInstant("diagnostics.session.start", category: "diagnostics", metadata: ["reason": reason])
-        recordResourceCheckpoint(reason)
+        _ = reason
+        recordInstant("diagnostics.session.start", category: "diagnostics", metadata: ["reason": "session"])
+        if mode.persistenceEnabled {
+            recordResourceCheckpoint("session")
+        }
     }
 
     func measure<T>(
@@ -303,6 +460,13 @@ final class PerformanceDiagnosticsService: ObservableObject {
         operation: () throws -> T
     ) rethrows -> T {
         let startedAt = CFAbsoluteTimeGetCurrent()
+        let signpostInterval = PerformanceDiagnosticsSignposter.beginInterval(
+            name: name,
+            category: category
+        )
+        defer {
+            PerformanceDiagnosticsSignposter.endInterval(signpostInterval)
+        }
         do {
             let value = try operation()
             record(
@@ -330,6 +494,9 @@ final class PerformanceDiagnosticsService: ObservableObject {
     }
 
     func openLogsDirectory() {
+        if diagnosticsStoreURL == nil {
+            diagnosticsStoreURL = try? ClipEaseStoragePaths.diagnosticsStoreURL(fileManager: fileManager)
+        }
         guard let directory = diagnosticsStoreURL?.deletingLastPathComponent() else {
             return
         }
@@ -338,7 +505,7 @@ final class PerformanceDiagnosticsService: ObservableObject {
     }
 
     func cleanupOldLogs() {
-        guard startupMode == .production else {
+        guard startupMode == .production, mode.persistenceEnabled else {
             return
         }
         cleanupTask?.cancel()
@@ -393,26 +560,29 @@ final class PerformanceDiagnosticsService: ObservableObject {
         resourceSamplingTask?.cancel()
         resourceSamplingTask = nil
 
-        guard isEnabled else {
+        guard isEnabled, let resourceSampleInterval = mode.resourceSampleInterval else {
             return
         }
 
-        resourceSamplingTask = Task.detached(priority: .utility) {
+        resourceSamplingTask = Task.detached(priority: .utility) { [weak self] in
             while !Task.isCancelled {
                 let latencyMS = await Self.measureMainThreadLatencyMS()
                 if let snapshot = Self.captureResourceSnapshot(mainThreadLatencyMS: latencyMS) {
                     await MainActor.run {
-                        PerformanceDiagnosticsService.shared.storeResourceSnapshot(snapshot, reason: "interval")
+                        guard let self, !self.isShutDown else {
+                            return
+                        }
+                        self.storeResourceSnapshot(snapshot, reason: "interval")
                     }
                 }
 
-                try? await Task.sleep(nanoseconds: Self.resourceSamplingNanoseconds)
+                try? await Task.sleep(nanoseconds: UInt64(resourceSampleInterval * 1_000_000_000))
             }
         }
     }
 
     private func storeResourceSnapshot(_ snapshot: PerformanceResourceSnapshot, reason: String) {
-        guard isEnabled else {
+        guard isEnabled, mode.persistenceEnabled, !isShutDown else {
             return
         }
 
@@ -427,14 +597,14 @@ final class PerformanceDiagnosticsService: ObservableObject {
             name: "resource.sample",
             category: "resource",
             durationMS: snapshot.mainThreadLatencyMS,
-            metadata: [
+            metadata: PerformanceDiagnosticsPrivacy.sanitizedMetadata([
                 "reason": reason,
                 "cpuPercent": String(format: "%.2f", snapshot.cpuPercent),
                 "memoryMB": String(format: "%.2f", snapshot.memoryMB),
                 "residentMemoryBytes": "\(snapshot.residentMemoryBytes)",
                 "threadCount": "\(snapshot.threadCount)",
                 "mainThreadLatencyMS": String(format: "%.2f", snapshot.mainThreadLatencyMS)
-            ],
+            ]),
             cpuPercent: snapshot.cpuPercent,
             memoryMB: snapshot.memoryMB,
             threadCount: snapshot.threadCount,
@@ -477,12 +647,98 @@ final class PerformanceDiagnosticsService: ObservableObject {
     }
 
     private func write(_ event: PerformanceDiagnosticEvent) {
-        guard let diagnosticsStoreURL else {
+        guard mode.persistenceEnabled, diagnosticsStoreURL != nil else {
             return
         }
 
+        diagnosticsIngressBuffer.enqueue(event)
+        droppedEventCount = diagnosticsIngressBuffer.droppedEventCount
+            + diagnosticsWriterDroppedEventCount
+        scheduleDiagnosticsWritePump()
+    }
+
+    private func scheduleDiagnosticsWritePump() {
+        let delay = diagnosticsIngressBuffer.count >= PerformanceDiagnosticsQueuePolicy.batchSize
+            ? 0
+            : PerformanceDiagnosticsQueuePolicy.flushIntervalNanoseconds
+        if let scheduledDelay = diagnosticsWritePumpScheduledDelayNanoseconds {
+            guard delay < scheduledDelay else {
+                return
+            }
+            diagnosticsWritePumpTask?.cancel()
+            diagnosticsWritePumpTask = nil
+        }
+        diagnosticsWritePumpScheduledDelayNanoseconds = delay
+        diagnosticsWritePumpTask = Task { @MainActor [weak self] in
+            if delay > 0 {
+                do {
+                    try await Task.sleep(nanoseconds: delay)
+                } catch {
+                    return
+                }
+            } else {
+                await Task.yield()
+            }
+            await self?.flushNextDiagnosticsBatch()
+        }
+    }
+
+    private func flushNextDiagnosticsBatch() async {
+        diagnosticsWritePumpTask = nil
+        diagnosticsWritePumpScheduledDelayNanoseconds = nil
+        guard mode.persistenceEnabled, let diagnosticsStoreURL else {
+            return
+        }
+
+        let batch = diagnosticsIngressBuffer.removeFirst(
+            PerformanceDiagnosticsQueuePolicy.batchSize
+        )
+        let retentionPolicy = PerformanceDiagnosticsRetentionPolicy(
+            retentionDays: retentionDays,
+            maxLogSizeMB: maxLogSizeMB
+        )
+        for event in batch {
+            diagnosticsWriterDroppedEventCount = await diagnosticsWriter.enqueue(
+                event,
+                to: diagnosticsStoreURL,
+                policy: retentionPolicy
+            )
+        }
+        droppedEventCount = diagnosticsIngressBuffer.droppedEventCount
+            + diagnosticsWriterDroppedEventCount
+
+        if !diagnosticsIngressBuffer.isEmpty {
+            scheduleDiagnosticsWritePump()
+        }
+    }
+
+    private func scheduleModeTransitionDrain() {
+        diagnosticsWritePumpTask?.cancel()
+        diagnosticsWritePumpTask = nil
+        diagnosticsWritePumpScheduledDelayNanoseconds = nil
+        guard let diagnosticsStoreURL else {
+            _ = diagnosticsIngressBuffer.removeAll()
+            return
+        }
+
+        let bufferedEvents = diagnosticsIngressBuffer.removeAll()
+        let diagnosticsWriter = diagnosticsWriter
+        let retentionPolicy = PerformanceDiagnosticsRetentionPolicy(
+            retentionDays: retentionDays,
+            maxLogSizeMB: maxLogSizeMB
+        )
         Task.detached(priority: .utility) {
-            await Self.diagnosticsWriter.append(event, to: diagnosticsStoreURL)
+            for event in bufferedEvents {
+                _ = await diagnosticsWriter.enqueue(
+                    event,
+                    to: diagnosticsStoreURL,
+                    policy: retentionPolicy
+                )
+            }
+            _ = await diagnosticsWriter.drain(
+                to: diagnosticsStoreURL,
+                policy: retentionPolicy
+            )
         }
     }
 

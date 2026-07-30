@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import UniformTypeIdentifiers
 
@@ -24,6 +25,20 @@ enum ClipboardRichTextPasteboardPayload: Sendable {
 struct ClipboardRichTextImportResult: Sendable {
     let data: Data
     let plainText: String
+    let rawAsset: ClipboardRichTextRawAsset?
+    let previewSkipReason: ClipboardPayloadProcessingReason?
+
+    init(
+        data: Data,
+        plainText: String,
+        rawAsset: ClipboardRichTextRawAsset? = nil,
+        previewSkipReason: ClipboardPayloadProcessingReason? = nil
+    ) {
+        self.data = data
+        self.plainText = plainText
+        self.rawAsset = rawAsset
+        self.previewSkipReason = previewSkipReason
+    }
 }
 
 typealias ClipboardRichTextImporter = @Sendable (
@@ -31,13 +46,91 @@ typealias ClipboardRichTextImporter = @Sendable (
 ) async -> ClipboardRichTextImportResult?
 
 enum ClipboardMonitorPayloadImportRequest: Sendable {
+    case image(
+        stagedPayload: ClipboardStagedPayload,
+        declaredTypeIdentifier: String
+    )
+    case richText(
+        stagedPayload: ClipboardStagedPayload,
+        fallbackPlainText: String?
+    )
+    case pdf(stagedPayload: ClipboardStagedPayload)
+}
+
+private enum ClipboardMonitorPayloadStagingRequest: Sendable {
     case image(data: Data, declaredTypeIdentifier: String)
     case richText(ClipboardRichTextPasteboardPayload)
+    case pdf(data: Data)
+
+    var source: ClipboardPayloadStagingSource {
+        switch self {
+        case .image(let data, let declaredTypeIdentifier):
+            ClipboardPayloadStagingSource(
+                data: data,
+                contentKind: .image,
+                preferredFileExtension: UTType(declaredTypeIdentifier)?
+                    .preferredFilenameExtension
+            )
+        case .richText(let payload):
+            ClipboardPayloadStagingSource(
+                data: payload.data,
+                contentKind: {
+                    switch payload {
+                    case .rtf: .richTextRTF
+                    case .html: .richTextHTML
+                    }
+                }()
+            )
+        case .pdf(let data):
+            ClipboardPayloadStagingSource(
+                data: data,
+                contentKind: .pdf,
+                preferredFileExtension: "pdf"
+            )
+        }
+    }
+
+    var stagedDescriptor: ClipboardMonitorStagedPayloadDescriptor {
+        switch self {
+        case .image(_, let declaredTypeIdentifier):
+            .image(declaredTypeIdentifier: declaredTypeIdentifier)
+        case .richText(let payload):
+            .richText(fallbackPlainText: payload.fallbackPlainText)
+        case .pdf:
+            .pdf
+        }
+    }
+}
+
+private enum ClipboardMonitorStagedPayloadDescriptor: Sendable {
+    case image(declaredTypeIdentifier: String)
+    case richText(fallbackPlainText: String?)
+    case pdf
+
+    func importRequest(
+        stagedPayload: ClipboardStagedPayload
+    ) -> ClipboardMonitorPayloadImportRequest {
+        switch self {
+        case .image(let declaredTypeIdentifier):
+            .image(
+                stagedPayload: stagedPayload,
+                declaredTypeIdentifier: declaredTypeIdentifier
+            )
+        case .richText(let fallbackPlainText):
+            .richText(
+                stagedPayload: stagedPayload,
+                fallbackPlainText: fallbackPlainText
+            )
+        case .pdf:
+            .pdf(stagedPayload: stagedPayload)
+        }
+    }
 }
 
 enum ClipboardMonitorPayloadImportResult: Sendable {
     case image(ClipboardImportedImage)
     case richText(ClipboardRichTextImportResult?)
+    case pdf(ClipboardImportedPDF)
 }
 
 extension ClipboardMonitorPayloadImportResult {
@@ -49,6 +142,7 @@ extension ClipboardMonitorPayloadImportResult {
 private enum ClipboardMonitorPreparedImport: Sendable {
     case image(ClipboardImportedImage)
     case richText(ClipboardRichTextImportResult)
+    case pdf(ClipboardImportedPDF)
     case completed(storedType: String, payloadByteCount: Int)
 }
 
@@ -144,6 +238,20 @@ private final class ClipboardMonitorActivePayloadImport: @unchecked Sendable {
     }
 }
 
+private final class ClipboardMonitorPayloadStagingOperation: @unchecked Sendable {
+    let context: ClipboardMonitorPayloadImportContext
+    let completion: ClipboardMonitorPayloadImportCompletion
+    var task: Task<Void, Never>?
+
+    init(
+        context: ClipboardMonitorPayloadImportContext,
+        completion: ClipboardMonitorPayloadImportCompletion
+    ) {
+        self.context = context
+        self.completion = completion
+    }
+}
+
 private struct ClipboardMonitorPendingPayloadImport: Sendable {
     let request: ClipboardMonitorPayloadImportRequest
     let context: ClipboardMonitorPayloadImportContext
@@ -153,6 +261,7 @@ private struct ClipboardMonitorPendingPayloadImport: Sendable {
 @MainActor
 protocol ClipboardMonitorTimerToken: AnyObject {
     var timeInterval: TimeInterval { get }
+    var tolerance: TimeInterval { get set }
     func invalidate()
 }
 
@@ -181,6 +290,7 @@ private enum ClipboardPasteboardSnapshot {
     case files([URL])
     case richText(ClipboardRichTextPasteboardPayload)
     case image(data: Data, declaredTypeIdentifier: String)
+    case pdf(data: Data)
     case unsupported
 
     var selfWritePayload: ClipboardSelfWritePayload? {
@@ -191,7 +301,7 @@ private enum ClipboardPasteboardSnapshot {
             .files(urls)
         case .richText(let payload):
             payload.fallbackPlainText.map(ClipboardSelfWritePayload.richText)
-        case .image, .unsupported:
+        case .image, .pdf, .unsupported:
             nil
         }
     }
@@ -209,23 +319,159 @@ struct ClipboardMonitorPasteboardReadSnapshot {
 }
 
 struct ClipboardPollingPolicy: Sendable {
+    static let maximumScheduledInterval: TimeInterval = 0.25
+    static let timerTolerance: TimeInterval = 0.025
+
     let activeInterval: TimeInterval
     let idleInterval: TimeInterval
     let idleThreshold: Int
 
     static let `default` = ClipboardPollingPolicy(
         activeInterval: 0.25,
-        idleInterval: 0.75,
+        idleInterval: 0.25,
         idleThreshold: 12
     )
 
     func interval(afterUnchangedPollCount unchangedPollCount: Int) -> TimeInterval {
-        unchangedPollCount >= idleThreshold ? idleInterval : activeInterval
+        min(
+            unchangedPollCount >= idleThreshold ? idleInterval : activeInterval,
+            Self.maximumScheduledInterval
+        )
+    }
+}
+
+enum ClipboardPayloadImportQueueError: Error, Equatable, Sendable {
+    case residentTaskLimitExceeded
+    case retainedDataLimitExceeded
+}
+
+struct ClipboardPayloadImportQueue<Element: Sendable>: Sendable {
+    private struct Entry: Sendable {
+        let element: Element
+        let retainedByteCount: Int
+    }
+
+    let maximumResidentTasks: Int
+    let maximumRetainedBytes: Int
+    private var entries: [Entry] = []
+    private(set) var retainedByteCount = 0
+
+    var residentTaskCount: Int {
+        entries.count
+    }
+
+    var first: Element? {
+        entries.first?.element
+    }
+
+    var values: [Element] {
+        entries.map(\.element)
+    }
+
+    init(maximumResidentTasks: Int, maximumRetainedBytes: Int) {
+        self.maximumResidentTasks = max(0, maximumResidentTasks)
+        self.maximumRetainedBytes = max(0, maximumRetainedBytes)
+    }
+
+    mutating func enqueue(
+        _ element: Element,
+        retaining retainedBytes: Int
+    ) -> ClipboardPayloadImportQueueError? {
+        guard entries.count < maximumResidentTasks else {
+            return .residentTaskLimitExceeded
+        }
+        let boundedBytes = max(0, retainedBytes)
+        guard boundedBytes <= maximumRetainedBytes - retainedByteCount else {
+            return .retainedDataLimitExceeded
+        }
+        entries.append(Entry(element: element, retainedByteCount: boundedBytes))
+        retainedByteCount += boundedBytes
+        return nil
+    }
+
+    @discardableResult
+    mutating func dequeue() -> Element? {
+        guard !entries.isEmpty else {
+            return nil
+        }
+        let entry = entries.removeFirst()
+        retainedByteCount -= entry.retainedByteCount
+        return entry.element
+    }
+
+    mutating func removeAll() -> [Element] {
+        defer {
+            entries.removeAll(keepingCapacity: true)
+            retainedByteCount = 0
+        }
+        return values
+    }
+}
+
+private final class ClipboardMonitorNotificationObserver: @unchecked Sendable {
+    private let notificationCenter: NotificationCenter
+    private let token: NSObjectProtocol
+
+    init(notificationCenter: NotificationCenter, token: NSObjectProtocol) {
+        self.notificationCenter = notificationCenter
+        self.token = token
+    }
+
+    deinit {
+        notificationCenter.removeObserver(token)
+    }
+}
+
+private final class ClipboardMonitorDistributedNotificationObserver: @unchecked Sendable {
+    private let notificationCenter: DistributedNotificationCenter
+    private let token: NSObjectProtocol
+
+    init(notificationCenter: DistributedNotificationCenter, token: NSObjectProtocol) {
+        self.notificationCenter = notificationCenter
+        self.token = token
+    }
+
+    deinit {
+        notificationCenter.removeObserver(token)
+    }
+}
+
+enum ClipboardMonitorLifecycleEvent: Sendable {
+    case willSleep
+    case didWake
+    case sessionLocked
+    case sessionUnlocked
+}
+
+@MainActor
+final class ClipboardMonitorLifecycleState {
+    private(set) var isSleeping = false
+    private(set) var isSessionLocked = false
+
+    var isSuspended: Bool {
+        isSleeping || isSessionLocked
+    }
+
+    func apply(_ event: ClipboardMonitorLifecycleEvent) {
+        switch event {
+        case .willSleep:
+            isSleeping = true
+        case .didWake:
+            isSleeping = false
+        case .sessionLocked:
+            isSessionLocked = true
+        case .sessionUnlocked:
+            isSessionLocked = false
+        }
     }
 }
 
 @MainActor
 final class ClipboardMonitor {
+    private static let maximumQueuedPayloadImports = 64
+    private static let maximumPayloadQueueHandoffs = 4
+    private static let screenLockedNotification = Notification.Name("com.apple.screenIsLocked")
+    private static let screenUnlockedNotification = Notification.Name("com.apple.screenIsUnlocked")
     private static let filenamesPasteboardType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
     private static let publicFileURLPasteboardType = NSPasteboard.PasteboardType("public.file-url")
     private static let fileURLPromisePasteboardType = NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url")
@@ -238,21 +484,45 @@ final class ClipboardMonitor {
     private let pasteboard: NSPasteboard
     private let store: ClipboardHistoryStore
     private let pollingPolicy: ClipboardPollingPolicy
-    private let sourceAppProvider: () -> SourceAppInfo
+    private let sourceAppSnapshot: ClipboardSourceAppSnapshot
     private let isPaused: () -> Bool
     private let isIgnored: (String?) -> Bool
     private let timerScheduler: ClipboardMonitorTimerScheduler
+    private let pasteboardChangeCountProvider: @MainActor () -> Int
     private let pasteboardSnapshotProvider: (@MainActor () -> ClipboardMonitorPasteboardReadSnapshot)?
     private let payloadImporter: ClipboardMonitorPayloadImporter
+    private let payloadStager: ClipboardPayloadStager
     private let payloadImportRunnerEventRecorder: ClipboardMonitorPayloadImportRunnerEventRecorder
     private let importDiagnosticRecorder: ClipboardMonitorImportDiagnosticRecorder
+    private let payloadProcessingRecorder: ClipboardPayloadProcessingRecorder
+    private let lifecycleState: ClipboardMonitorLifecycleState
     var shouldSuppressRecording: (() -> Bool)?
     private var timer: (any ClipboardMonitorTimerToken)?
     private var lastChangeCount: Int
-    private var stableSourceApp: SourceAppInfo
+    private var sourceActivationObserver: ClipboardMonitorNotificationObserver?
+    private var workspaceLifecycleObservers: [ClipboardMonitorNotificationObserver] = []
+    private var distributedLifecycleObservers: [ClipboardMonitorDistributedNotificationObserver] = []
+    private var recordingPauseObserver: AnyCancellable?
+    private var isMonitoringRequested = false
     private var unchangedPollCount = 0
+    private var payloadStagingOperations: [
+        UUID: ClipboardMonitorPayloadStagingOperation
+    ] = [:]
+    private var payloadStagingOrder: [UUID] = []
+    private var payloadStagingReadyBuffer: [
+        UUID: ClipboardMonitorPendingPayloadImport
+    ] = [:]
+    private var pendingPayloadChangeCounts: Set<Int> = []
     private var activePayloadImport: ClipboardMonitorActivePayloadImport?
-    private var pendingPayloadImports: [ClipboardMonitorPendingPayloadImport] = []
+    private var payloadImportQueue = ClipboardPayloadImportQueue<ClipboardMonitorPendingPayloadImport>(
+        maximumResidentTasks: ClipboardMonitor.maximumQueuedPayloadImports,
+        maximumRetainedBytes: 128 * 1_024 * 1_024
+    )
+    private var payloadQueueHandoffBuffer: [ClipboardMonitorPendingPayloadImport] = []
+    private var payloadSkipReasons: [UUID: ClipboardPayloadProcessingReason] = [:]
+    private var isDrainingPayloads = false
+    private var payloadDrainWaiters: [CheckedContinuation<Void, Never>] = []
+    private var payloadStagingStartupTask: Task<Void, Never>?
 
     var hasActivePayloadImportForTesting: Bool {
         activePayloadImport != nil
@@ -265,8 +535,14 @@ final class ClipboardMonitor {
     var payloadImportPumpDiagnosticsForTesting: ClipboardMonitorPayloadImportPumpDiagnostics {
         ClipboardMonitorPayloadImportPumpDiagnostics(
             hasActiveImport: activePayloadImport != nil,
-            hasPendingImport: !pendingPayloadImports.isEmpty,
-            ownedRequestCount: (activePayloadImport == nil ? 0 : 1) + pendingPayloadImports.count
+            hasPendingImport: !payloadStagingOperations.isEmpty
+                || !payloadStagingReadyBuffer.isEmpty
+                || payloadImportQueue.residentTaskCount > (activePayloadImport == nil ? 0 : 1)
+                || !payloadQueueHandoffBuffer.isEmpty,
+            ownedRequestCount: payloadStagingOperations.count
+                + payloadStagingReadyBuffer.count
+                + payloadImportQueue.residentTaskCount
+                + payloadQueueHandoffBuffer.count
         )
     }
     private var payloadImportGeneration: UInt64 = 0
@@ -284,8 +560,16 @@ final class ClipboardMonitor {
             pollingPolicy: pollingPolicy,
             sourceAppProvider: { Self.monitoredSourceApp(SourceAppInfo.current) },
             isPaused: { recordingController.isPaused },
-            isIgnored: { ignoredAppSettings.contains(bundleID: $0) }
+            isIgnored: { ignoredAppSettings.contains(bundleID: $0) },
+            payloadProcessingRecorder: ClipboardPayloadProcessingStatusPresenter.present
         )
+        recordingPauseObserver = recordingController.$isPaused
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshSuspensionState()
+                }
+            }
     }
 
     init(
@@ -296,67 +580,159 @@ final class ClipboardMonitor {
         isPaused: @escaping () -> Bool,
         isIgnored: @escaping (String?) -> Bool,
         timerScheduler: ClipboardMonitorTimerScheduler = .live,
+        pasteboardChangeCountProvider: (@MainActor () -> Int)? = nil,
         pasteboardSnapshotProvider: (@MainActor () -> ClipboardMonitorPasteboardReadSnapshot)? = nil,
         richTextImporter: ClipboardRichTextImporter? = nil,
         payloadImporter: ClipboardMonitorPayloadImporter? = nil,
         payloadImportRunnerEventRecorder: @escaping ClipboardMonitorPayloadImportRunnerEventRecorder = { _ in },
-        importDiagnosticRecorder: @escaping ClipboardMonitorImportDiagnosticRecorder = { _ in }
+        importDiagnosticRecorder: @escaping ClipboardMonitorImportDiagnosticRecorder = { _ in },
+        payloadStager: ClipboardPayloadStager = ClipboardPayloadStager(),
+        payloadProcessingRecorder: @escaping ClipboardPayloadProcessingRecorder = { _ in },
+        lifecycleState: ClipboardMonitorLifecycleState = ClipboardMonitorLifecycleState(),
+        observesSystemLifecycle: Bool = true
     ) {
         self.store = store
         self.pollingPolicy = pollingPolicy
         self.pasteboard = pasteboard
-        self.sourceAppProvider = sourceAppProvider
+        let initialSourceApp = Self.monitoredSourceApp(sourceAppProvider())
+        self.sourceAppSnapshot = ClipboardSourceAppSnapshot(initial: initialSourceApp)
         self.isPaused = isPaused
         self.isIgnored = isIgnored
         self.timerScheduler = timerScheduler
+        self.pasteboardChangeCountProvider = pasteboardChangeCountProvider ?? {
+            pasteboard.changeCount
+        }
         self.pasteboardSnapshotProvider = pasteboardSnapshotProvider
         self.payloadImportRunnerEventRecorder = payloadImportRunnerEventRecorder
         self.importDiagnosticRecorder = importDiagnosticRecorder
+        self.payloadStager = payloadStager
+        self.payloadProcessingRecorder = payloadProcessingRecorder
+        self.lifecycleState = lifecycleState
         if let payloadImporter {
             self.payloadImporter = payloadImporter
         } else {
-            let boundedImporter = store.makeClipboardPayloadImporter()
+            let boundedImporter = store.makeClipboardPayloadImporter(
+                payloadStager: payloadStager
+            )
             self.payloadImporter = { request in
                 switch request {
-                case .image(let data, let declaredTypeIdentifier):
+                case .image(let stagedPayload, let declaredTypeIdentifier):
                     return .image(try await boundedImporter.importImageForMonitor(
-                        data,
+                        stagedPayload,
                         declaredTypeIdentifier: declaredTypeIdentifier
                     ))
-                case .richText(let payload):
+                case .richText(let stagedPayload, let fallbackPlainText):
                     if let richTextImporter {
+                        let data = try stagedPayload.readData()
+                        let payload: ClipboardRichTextPasteboardPayload
+                        switch stagedPayload.contentKind {
+                        case .richTextRTF:
+                            payload = .rtf(
+                                data: data,
+                                fallbackPlainText: fallbackPlainText
+                            )
+                        case .richTextHTML:
+                            payload = .html(
+                                data: data,
+                                fallbackPlainText: fallbackPlainText
+                            )
+                        case .image, .pdf:
+                            throw ClipboardPayloadStagingError.stagedFileUnreadable
+                        }
                         return .richText(await richTextImporter(payload))
                     }
-                    return .richText(try await boundedImporter.importRichText(payload))
+                    return .richText(try await boundedImporter.importRichText(
+                        stagedPayload,
+                        fallbackPlainText: fallbackPlainText
+                    ))
+                case .pdf(let stagedPayload):
+                    return .pdf(try await boundedImporter.importPDF(stagedPayload))
                 }
             }
         }
-        self.lastChangeCount = pasteboardSnapshotProvider?().changeCount ?? pasteboard.changeCount
-        self.stableSourceApp = Self.monitoredSourceApp(sourceAppProvider())
+        self.lastChangeCount = self.pasteboardChangeCountProvider()
+        let sourceActivationNotificationCenter = NSWorkspace.shared.notificationCenter
+        let sourceAppSnapshot = self.sourceAppSnapshot
+        let sourceActivationObserver = sourceActivationNotificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak sourceAppSnapshot] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication else {
+                return
+            }
+            Task { @MainActor in
+                sourceAppSnapshot?.recordActivation(
+                    Self.monitoredSourceApp(SourceAppInfo.sourceAppInfo(for: app))
+                )
+            }
+        }
+        self.sourceActivationObserver = ClipboardMonitorNotificationObserver(
+            notificationCenter: sourceActivationNotificationCenter,
+            token: sourceActivationObserver
+        )
+        if observesSystemLifecycle {
+            installSystemLifecycleObservers()
+        }
     }
 
     deinit {
+        payloadStagingStartupTask?.cancel()
+        for operation in payloadStagingOperations.values {
+            operation.context.authority.invalidate()
+            operation.task?.cancel()
+            operation.completion.finish()
+        }
         activePayloadImport?.context.authority.invalidate()
         activePayloadImport?.task?.cancel()
-        for pending in pendingPayloadImports {
+        for pending in payloadImportQueue.values {
             pending.context.authority.invalidate()
+            pending.request.discardStagedPayload()
             pending.completion.finish()
         }
+        for pending in payloadStagingReadyBuffer.values {
+            pending.context.authority.invalidate()
+            pending.request.discardStagedPayload()
+            pending.completion.finish()
+        }
+        for pending in payloadQueueHandoffBuffer {
+            pending.context.authority.invalidate()
+            pending.request.discardStagedPayload()
+            pending.completion.finish()
+        }
+        payloadDrainWaiters.forEach { $0.resume() }
     }
 
     func start() {
-        guard timer == nil else {
+        guard !isMonitoringRequested else {
             return
         }
 
-        scheduleTimer(interval: pollingPolicy.activeInterval)
+        isMonitoringRequested = true
+        if payloadStagingStartupTask == nil {
+            let payloadStager = self.payloadStager
+            payloadStagingStartupTask = Task {
+                try? await payloadStager.initializeAndScavenge()
+            }
+        }
+        refreshSuspensionState()
     }
 
     private func scheduleTimer(interval: TimeInterval) {
         timer?.invalidate()
-        timer = timerScheduler.schedule(interval) { [weak self] in
-            self?.pollNow()
+        let scheduledTimer = timerScheduler.schedule(
+            min(interval, ClipboardPollingPolicy.maximumScheduledInterval)
+        ) { [weak self] in
+            guard let self,
+                  self.isMonitoringRequested,
+                  self.refreshSuspensionState() else {
+                return
+            }
+            self.pollNow()
         }
+        scheduledTimer.tolerance = ClipboardPollingPolicy.timerTolerance
+        timer = scheduledTimer
     }
 
     private func updatePollingIntervalForCurrentActivity() {
@@ -370,34 +746,73 @@ final class ClipboardMonitor {
     }
 
     func stop() {
-        if let timer {
-            timer.invalidate()
-            self.timer = nil
-        }
+        isMonitoringRequested = false
+        invalidateTimer()
         unchangedPollCount = 0
         payloadImportGeneration &+= 1
+        clearPayloadStagingOperations()
         invalidateActivePayloadImport()
         clearPendingPayloadImports()
+        pendingPayloadChangeCounts.removeAll()
+        payloadSkipReasons.removeAll()
+    }
+
+    @discardableResult
+    func refreshSuspensionState() -> Bool {
+        let isSuspended = lifecycleState.isSuspended || isPaused()
+        guard isMonitoringRequested else {
+            return false
+        }
+        guard !isSuspended else {
+            invalidateTimer()
+            return false
+        }
+
+        if timer == nil {
+            scheduleTimer(interval: pollingPolicy.activeInterval)
+            pollNow()
+        }
+        return true
     }
 
     @discardableResult
     func pollNow() -> Task<Void, Never>? {
+        guard isMonitoringRequested,
+              !lifecycleState.isSuspended,
+              !isPaused() else {
+            return nil
+        }
         let startedAt = CFAbsoluteTimeGetCurrent()
-        let currentSourceApp = Self.monitoredSourceApp(sourceAppProvider())
-        let suppliedSnapshot = pasteboardSnapshotProvider?()
-        let currentChangeCount = suppliedSnapshot?.changeCount ?? pasteboard.changeCount
+        let currentChangeCount = pasteboardChangeCountProvider()
         guard currentChangeCount != lastChangeCount else {
-            stableSourceApp = currentSourceApp
             unchangedPollCount += 1
             updatePollingIntervalForCurrentActivity()
             return nil
         }
+        guard !pendingPayloadChangeCounts.contains(currentChangeCount) else {
+            return nil
+        }
+        let ownedPayloadCount = payloadStagingOperations.count
+            + payloadStagingReadyBuffer.count
+            + payloadImportQueue.residentTaskCount
+            + payloadQueueHandoffBuffer.count
+        guard ownedPayloadCount
+            < Self.maximumQueuedPayloadImports + Self.maximumPayloadQueueHandoffs else {
+            return nil
+        }
+        let captureInterval = PerformanceDiagnosticsSignposter.beginInterval(
+            name: "clipboard.capture",
+            category: "capture"
+        )
+        defer {
+            PerformanceDiagnosticsSignposter.endInterval(captureInterval)
+        }
 
         unchangedPollCount = 0
         updatePollingIntervalForCurrentActivity()
-        lastChangeCount = currentChangeCount
         payloadImportGeneration &+= 1
         let changeDetectedAt = CFAbsoluteTimeGetCurrent()
+        let suppliedSnapshot = pasteboardSnapshotProvider?()
         let availableTypes = suppliedSnapshot?.types ?? Set(pasteboard.types ?? [])
         let snapshot = pasteboardSnapshot(availableTypes: availableTypes, suppliedSnapshot: suppliedSnapshot)
         let typesLoadedAt = CFAbsoluteTimeGetCurrent()
@@ -405,18 +820,17 @@ final class ClipboardMonitor {
             changeCount: currentChangeCount,
             payload: snapshot.selfWritePayload
         ) else {
+            lastChangeCount = currentChangeCount
             return nil
         }
         guard shouldSuppressRecording?() != true else {
+            lastChangeCount = currentChangeCount
             return nil
         }
-        guard !isPaused() else {
-            return nil
-        }
-
-        let sourceApp = currentSourceApp
+        let sourceApp = sourceAppSnapshot.current
         let sourceResolvedAt = CFAbsoluteTimeGetCurrent()
         guard !isIgnored(sourceApp.bundleID) else {
+            lastChangeCount = currentChangeCount
             return nil
         }
 
@@ -432,11 +846,24 @@ final class ClipboardMonitor {
             recordPollDuration(startedAt: startedAt, capturedType: "image.scheduled")
             return task
         }
+        if case .pdf(let data) = snapshot {
+            let task = schedulePayloadImport(
+                request: .pdf(data: data),
+                sourceApp: sourceApp,
+                changeCount: currentChangeCount,
+                startedAt: startedAt,
+                capturedType: "pdf",
+                generation: payloadImportGeneration
+            )
+            recordPollDuration(startedAt: startedAt, capturedType: "pdf.scheduled")
+            return task
+        }
 
         switch snapshot {
         case .text(let text, let fastPath):
             let payloadLoadedAt = CFAbsoluteTimeGetCurrent()
             store.addText(text, sourceApp: sourceApp)
+            lastChangeCount = currentChangeCount
             recordPollDuration(
                 startedAt: startedAt,
                 changeDetectedAt: changeDetectedAt,
@@ -448,6 +875,7 @@ final class ClipboardMonitor {
             return nil
         case .files(let fileURLs):
             store.addFiles(fileURLs, sourceApp: sourceApp)
+            lastChangeCount = currentChangeCount
             recordPollDuration(startedAt: startedAt, capturedType: "file")
             return nil
         case .richText(let payload):
@@ -468,9 +896,10 @@ final class ClipboardMonitor {
             )
             recordPollDuration(startedAt: startedAt, capturedType: "\(capturedType).scheduled")
             return task
-        case .image:
+        case .image, .pdf:
             return nil
         case .unsupported:
+            lastChangeCount = currentChangeCount
             return nil
         }
     }
@@ -496,6 +925,11 @@ final class ClipboardMonitor {
         let fileURLs = suppliedSnapshot?.fileURLs ?? localFileURLsFromPasteboard(availableTypes: availableTypes)
         if !fileURLs.isEmpty {
             return .files(fileURLs)
+        }
+
+        if availableTypes.contains(.pdf),
+           let pdfData = data(.pdf) {
+            return .pdf(data: pdfData)
         }
 
         if pasteboardHasRichTextTypes(availableTypes),
@@ -566,33 +1000,179 @@ final class ClipboardMonitor {
     }
 
     private func schedulePayloadImport(
-        request: ClipboardMonitorPayloadImportRequest,
+        request: ClipboardMonitorPayloadStagingRequest,
         sourceApp: SourceAppInfo,
         changeCount: Int,
         startedAt: CFAbsoluteTime,
         capturedType: String,
         generation: UInt64
     ) -> Task<Void, Never> {
-        let pending = ClipboardMonitorPendingPayloadImport(
-            request: request,
-            context: ClipboardMonitorPayloadImportContext(
-                id: UUID(),
-                sourceApp: sourceApp,
-                changeCount: changeCount,
-                startedAt: startedAt,
-                capturedType: capturedType,
-                generation: generation,
-                authority: ClipboardImportAuthority()
-            ),
-            completion: ClipboardMonitorPayloadImportCompletion()
+        let context = ClipboardMonitorPayloadImportContext(
+            id: UUID(),
+            sourceApp: sourceApp,
+            changeCount: changeCount,
+            startedAt: startedAt,
+            capturedType: capturedType,
+            generation: generation,
+            authority: ClipboardImportAuthority()
         )
-        guard activePayloadImport != nil else {
-            startPayloadImport(pending)
-            return pending.completion.task
+        let completion = ClipboardMonitorPayloadImportCompletion()
+        recordPayloadProcessingStatus(.queued, context: context)
+        pendingPayloadChangeCounts.insert(changeCount)
+
+        let stagingSource = request.source
+        let stagedDescriptor = request.stagedDescriptor
+        let operation = ClipboardMonitorPayloadStagingOperation(
+            context: context,
+            completion: completion
+        )
+        payloadStagingOperations[context.id] = operation
+        payloadStagingOrder.append(context.id)
+        recordPayloadProcessingStatus(.processing, context: context)
+
+        let payloadStager = self.payloadStager
+        let reservation: ClipboardPayloadStagingReservation
+        do {
+            reservation = try payloadStager.reserveImmediately(
+                byteCount: stagingSource.data.count
+            )
+        } catch let error as ClipboardPayloadStagingError {
+            completePayloadStagingFailure(
+                error,
+                context: context,
+                completion: completion,
+                processingStatus: .deferred(error.processingReason)
+            )
+            return completion.task
+        } catch {
+            completePayloadStagingFailure(
+                .atomicWriteFailed,
+                context: context,
+                completion: completion
+            )
+            return completion.task
+        }
+        let task = Task.detached(priority: .utility) { [weak self] in
+            do {
+                let stagedPayload = try await payloadStager.stage(
+                    stagingSource,
+                    reservation: reservation
+                )
+                await self?.completePayloadStaging(
+                    stagedPayload,
+                    descriptor: stagedDescriptor,
+                    context: context,
+                    completion: completion
+                )
+            } catch is CancellationError {
+                await self?.completePayloadStagingCancellation(
+                    context: context,
+                    completion: completion
+                )
+            } catch let error as ClipboardPayloadStagingError {
+                await self?.completePayloadStagingFailure(
+                    error,
+                    context: context,
+                    completion: completion
+                )
+            } catch {
+                await self?.completePayloadStagingFailure(
+                    .atomicWriteFailed,
+                    context: context,
+                    completion: completion
+                )
+            }
+        }
+        operation.task = task
+        return completion.task
+    }
+
+    private func completePayloadStaging(
+        _ stagedPayload: ClipboardStagedPayload,
+        descriptor: ClipboardMonitorStagedPayloadDescriptor,
+        context: ClipboardMonitorPayloadImportContext,
+        completion: ClipboardMonitorPayloadImportCompletion
+    ) {
+        guard payloadStagingOperations.removeValue(forKey: context.id) != nil else {
+            stagedPayload.discard()
+            completion.finish()
+            return
+        }
+        pendingPayloadChangeCounts.remove(context.changeCount)
+        if pasteboardChangeCountProvider() == context.changeCount {
+            lastChangeCount = context.changeCount
+        }
+        guard (isMonitoringRequested || isDrainingPayloads),
+              context.authority.isCurrent else {
+            stagedPayload.discard()
+            removePayloadStagingOrder(context.id)
+            flushCompletedPayloadStagingInCaptureOrder()
+            recordPayloadProcessingStatus(
+                .deferred(.staleGeneration),
+                context: context
+            )
+            completion.finish()
+            return
         }
 
-        pendingPayloadImports.append(pending)
-        return pending.completion.task
+        let pending = ClipboardMonitorPendingPayloadImport(
+            request: descriptor.importRequest(stagedPayload: stagedPayload),
+            context: context,
+            completion: completion
+        )
+        payloadStagingReadyBuffer[context.id] = pending
+        flushCompletedPayloadStagingInCaptureOrder()
+    }
+
+    private func completePayloadStagingFailure(
+        _ error: ClipboardPayloadStagingError,
+        context: ClipboardMonitorPayloadImportContext,
+        completion: ClipboardMonitorPayloadImportCompletion,
+        processingStatus: ClipboardPayloadProcessingStatus? = nil
+    ) {
+        guard payloadStagingOperations.removeValue(forKey: context.id) != nil else {
+            completion.finish()
+            return
+        }
+        pendingPayloadChangeCounts.remove(context.changeCount)
+        if pasteboardChangeCountProvider() == context.changeCount {
+            lastChangeCount = context.changeCount
+        }
+        removePayloadStagingOrder(context.id)
+        flushCompletedPayloadStagingInCaptureOrder()
+        context.authority.invalidate()
+        recordPayloadProcessingStatus(
+            processingStatus ?? .failed(error.processingReason),
+            context: context
+        )
+        importDiagnosticRecorder(.failure(capturedType: context.capturedType))
+        PerformanceDiagnosticsService.shared.recordError(
+            "clipboard.payload.staging.failed",
+            category: "clipboard",
+            error: error,
+            metadata: ["capturedType": context.capturedType]
+        )
+        NSLog("ClipEase failed to stage clipboard payload: \(error.processingReason.rawValue)")
+        completion.finish()
+    }
+
+    private func completePayloadStagingCancellation(
+        context: ClipboardMonitorPayloadImportContext,
+        completion: ClipboardMonitorPayloadImportCompletion
+    ) {
+        guard payloadStagingOperations.removeValue(forKey: context.id) != nil else {
+            completion.finish()
+            return
+        }
+        pendingPayloadChangeCounts.remove(context.changeCount)
+        removePayloadStagingOrder(context.id)
+        flushCompletedPayloadStagingInCaptureOrder()
+        context.authority.invalidate()
+        recordPayloadProcessingStatus(
+            .deferred(.staleGeneration),
+            context: context
+        )
+        completion.finish()
     }
 
     private func startPayloadImport(_ pending: ClipboardMonitorPendingPayloadImport) {
@@ -634,6 +1214,11 @@ final class ClipboardMonitor {
                         context: context
                     )
                 },
+                recordSkipped: { [weak self] in
+                    await self?.completePayloadImportWithoutCommit(
+                        context: context
+                    )
+                },
                 didFinish: { [weak self] in
                     runnerEventRecorder(.finished(context.id))
                     await self?.completeActivePayloadImport(ifCurrent: context.id)
@@ -644,17 +1229,110 @@ final class ClipboardMonitor {
         active.task = task
     }
 
+    private func flushCompletedPayloadStagingInCaptureOrder() {
+        while let firstID = payloadStagingOrder.first,
+              let pending = payloadStagingReadyBuffer.removeValue(forKey: firstID) {
+            payloadStagingOrder.removeFirst()
+            enqueueStagedPayloadForImport(pending)
+        }
+    }
+
+    private func removePayloadStagingOrder(_ id: UUID) {
+        if let index = payloadStagingOrder.firstIndex(of: id) {
+            payloadStagingOrder.remove(at: index)
+        }
+        payloadStagingReadyBuffer.removeValue(forKey: id)
+    }
+
+    private func enqueueStagedPayloadForImport(
+        _ pending: ClipboardMonitorPendingPayloadImport
+    ) {
+        if payloadImportQueue.enqueue(pending, retaining: 0) != nil {
+            guard payloadQueueHandoffBuffer.count
+                    < Self.maximumPayloadQueueHandoffs else {
+                pending.context.authority.invalidate()
+                pending.request.discardStagedPayload()
+                recordPayloadProcessingStatus(
+                    .failed(.residentTaskLimitExceeded),
+                    context: pending.context
+                )
+                importDiagnosticRecorder(
+                    .failure(capturedType: pending.context.capturedType)
+                )
+                pending.completion.finish()
+                return
+            }
+            payloadQueueHandoffBuffer.append(pending)
+            return
+        }
+
+        if activePayloadImport == nil {
+            startPayloadImport(pending)
+        }
+    }
+
     private func invalidateActivePayloadImport() {
-        activePayloadImport?.context.authority.invalidate()
-        activePayloadImport?.task?.cancel()
+        guard let active = activePayloadImport else {
+            return
+        }
+        activePayloadImport = nil
+        active.context.authority.invalidate()
+        active.task?.cancel()
+        recordPayloadProcessingStatus(
+            .deferred(.staleGeneration),
+            context: active.context
+        )
+        active.completion.finish()
+    }
+
+    private func clearPayloadStagingOperations() {
+        let operations = Array(payloadStagingOperations.values)
+        let operationIDs = Set(operations.map(\.context.id))
+        payloadStagingOperations.removeAll(keepingCapacity: true)
+        for operation in operations {
+            pendingPayloadChangeCounts.remove(operation.context.changeCount)
+            operation.context.authority.invalidate()
+            operation.task?.cancel()
+            recordPayloadProcessingStatus(
+                .deferred(.staleGeneration),
+                context: operation.context
+            )
+            operation.completion.finish()
+        }
+        payloadStagingOrder.removeAll { operationIDs.contains($0) }
     }
 
     private func clearPendingPayloadImports() {
-        for pending in pendingPayloadImports {
+        for pending in payloadStagingReadyBuffer.values {
             pending.context.authority.invalidate()
+            pending.request.discardStagedPayload()
+            recordPayloadProcessingStatus(
+                .deferred(.staleGeneration),
+                context: pending.context
+            )
             pending.completion.finish()
         }
-        pendingPayloadImports.removeAll()
+        payloadStagingReadyBuffer.removeAll(keepingCapacity: true)
+        payloadStagingOrder.removeAll(keepingCapacity: true)
+        for pending in payloadImportQueue.removeAll() {
+            pending.context.authority.invalidate()
+            pending.request.discardStagedPayload()
+            recordPayloadProcessingStatus(
+                .deferred(.staleGeneration),
+                context: pending.context
+            )
+            pending.completion.finish()
+        }
+        for pending in payloadQueueHandoffBuffer {
+            pending.context.authority.invalidate()
+            pending.request.discardStagedPayload()
+            recordPayloadProcessingStatus(
+                .deferred(.staleGeneration),
+                context: pending.context
+            )
+            pending.completion.finish()
+        }
+        payloadQueueHandoffBuffer.removeAll(keepingCapacity: true)
     }
 
     private func completeActivePayloadImport(ifCurrent taskID: UUID) {
@@ -662,13 +1340,157 @@ final class ClipboardMonitor {
               active.context.id == taskID else {
             return
         }
-        active.completion.finish()
         activePayloadImport = nil
-        guard !pendingPayloadImports.isEmpty else {
+        _ = payloadImportQueue.dequeue()
+        if !payloadQueueHandoffBuffer.isEmpty {
+            let durablePending = payloadQueueHandoffBuffer.removeFirst()
+            if payloadImportQueue.enqueue(durablePending, retaining: 0) != nil {
+                payloadQueueHandoffBuffer.insert(durablePending, at: 0)
+            }
+        }
+        if let pending = payloadImportQueue.first {
+            startPayloadImport(pending)
+        }
+    }
+
+    func waitForPayloadImportsForTesting() async -> Bool {
+        if let payloadStagingStartupTask {
+            await payloadStagingStartupTask.value
+        }
+        let completionTasks = payloadStagingOperations.values.map(\.completion.task)
+            + payloadStagingReadyBuffer.values.map(\.completion.task)
+            + payloadImportQueue.values.map(\.completion.task)
+            + payloadQueueHandoffBuffer.map(\.completion.task)
+            + [activePayloadImport?.completion.task].compactMap { $0 }
+        for task in completionTasks {
+            await task.value
+        }
+        await payloadStager.drainCleanup()
+        return payloadStagingOperations.isEmpty
+            && payloadStagingReadyBuffer.isEmpty
+            && activePayloadImport == nil
+            && payloadImportQueue.residentTaskCount == 0
+            && payloadQueueHandoffBuffer.isEmpty
+    }
+
+    func stopAndDrainPayloads() async {
+        if isDrainingPayloads {
+            await withCheckedContinuation { continuation in
+                payloadDrainWaiters.append(continuation)
+            }
             return
         }
-        let pending = pendingPayloadImports.removeFirst()
-        startPayloadImport(pending)
+
+        isDrainingPayloads = true
+        isMonitoringRequested = false
+        invalidateTimer()
+        unchangedPollCount = 0
+        let completionTasks = payloadStagingOperations.values.map(\.completion.task)
+            + payloadStagingReadyBuffer.values.map(\.completion.task)
+            + payloadImportQueue.values.map(\.completion.task)
+            + payloadQueueHandoffBuffer.map(\.completion.task)
+            + [activePayloadImport?.completion.task].compactMap { $0 }
+        for task in completionTasks {
+            await task.value
+        }
+        if let payloadStagingStartupTask {
+            await payloadStagingStartupTask.value
+        }
+        await payloadStager.drainCleanup()
+        isDrainingPayloads = false
+        let waiters = payloadDrainWaiters
+        payloadDrainWaiters.removeAll(keepingCapacity: true)
+        waiters.forEach { $0.resume() }
+    }
+
+    private func invalidateTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func handleLifecycleEvent(_ event: ClipboardMonitorLifecycleEvent) {
+        lifecycleState.apply(event)
+        refreshSuspensionState()
+    }
+
+    private func installSystemLifecycleObservers() {
+        let workspaceNotificationCenter = NSWorkspace.shared.notificationCenter
+        observeWorkspaceLifecycle(
+            NSWorkspace.willSleepNotification,
+            event: .willSleep,
+            notificationCenter: workspaceNotificationCenter
+        )
+        observeWorkspaceLifecycle(
+            NSWorkspace.didWakeNotification,
+            event: .didWake,
+            notificationCenter: workspaceNotificationCenter
+        )
+        observeWorkspaceLifecycle(
+            NSWorkspace.sessionDidResignActiveNotification,
+            event: .sessionLocked,
+            notificationCenter: workspaceNotificationCenter
+        )
+        observeWorkspaceLifecycle(
+            NSWorkspace.sessionDidBecomeActiveNotification,
+            event: .sessionUnlocked,
+            notificationCenter: workspaceNotificationCenter
+        )
+
+        let distributedNotificationCenter = DistributedNotificationCenter.default()
+        observeDistributedLifecycle(
+            Self.screenLockedNotification,
+            event: .sessionLocked,
+            notificationCenter: distributedNotificationCenter
+        )
+        observeDistributedLifecycle(
+            Self.screenUnlockedNotification,
+            event: .sessionUnlocked,
+            notificationCenter: distributedNotificationCenter
+        )
+    }
+
+    private func observeWorkspaceLifecycle(
+        _ name: Notification.Name,
+        event: ClipboardMonitorLifecycleEvent,
+        notificationCenter: NotificationCenter
+    ) {
+        let token = notificationCenter.addObserver(
+            forName: name,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleLifecycleEvent(event)
+            }
+        }
+        workspaceLifecycleObservers.append(
+            ClipboardMonitorNotificationObserver(
+                notificationCenter: notificationCenter,
+                token: token
+            )
+        )
+    }
+
+    private func observeDistributedLifecycle(
+        _ name: Notification.Name,
+        event: ClipboardMonitorLifecycleEvent,
+        notificationCenter: DistributedNotificationCenter
+    ) {
+        let token = notificationCenter.addObserver(
+            forName: name,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleLifecycleEvent(event)
+            }
+        }
+        distributedLifecycleObservers.append(
+            ClipboardMonitorDistributedNotificationObserver(
+                notificationCenter: notificationCenter,
+                token: token
+            )
+        )
     }
 
     nonisolated private static func runPayloadImport(
@@ -678,13 +1500,19 @@ final class ClipboardMonitor {
         context: ClipboardMonitorPayloadImportContext,
         prepare: @escaping @Sendable (ClipboardMonitorPayloadImportResult) async -> ClipboardMonitorPreparedImport?,
         recordSuccess: @escaping @Sendable (
-            (storedType: String, payloadByteCount: Int),
+            (
+                storedType: String,
+                payloadByteCount: Int,
+                status: ClipboardPayloadProcessingStatus
+            ),
             CFAbsoluteTime,
             CFAbsoluteTime
         ) async -> Void,
         recordFailure: @escaping @Sendable (Error, Int) async -> Void,
+        recordSkipped: @escaping @Sendable () async -> Void,
         didFinish: @escaping @Sendable () async -> Void
     ) async {
+        defer { request.discardStagedPayload() }
         let parseStartedAt = CFAbsoluteTimeGetCurrent()
         let result: ClipboardMonitorPayloadImportResult
         do {
@@ -709,6 +1537,7 @@ final class ClipboardMonitor {
         let parsedAt = CFAbsoluteTimeGetCurrent()
         guard let prepared = await prepare(result) else {
             await rollbackImportedImageIfNeeded(result, store: store)
+            await recordSkipped()
             await didFinish()
             return
         }
@@ -722,6 +1551,8 @@ final class ClipboardMonitor {
                 capturedType: context.capturedType
             ) {
                 await recordSuccess(completion, parseStartedAt, parsedAt)
+            } else {
+                await recordSkipped()
             }
         } catch is CancellationError {
             // Cancellation is advisory once an import has reached Store work.
@@ -737,8 +1568,13 @@ final class ClipboardMonitor {
         _ result: ClipboardMonitorPayloadImportResult,
         store: ClipboardHistoryStore
     ) async {
-        if case .image(let importedImage) = result {
+        switch result {
+        case .image(let importedImage):
             await store.rollbackImportedClipboardImage(importedImage.storedImage)
+        case .pdf(let importedPDF):
+            await store.rollbackImportedOwnedFile(importedPDF.storedFile)
+        case .richText:
+            break
         }
     }
 
@@ -752,17 +1588,15 @@ final class ClipboardMonitor {
 
         switch result {
         case .image(let importedImage):
-            let isSelfWrite: Bool
-            if let fingerprint = importedImage.fingerprint {
-                isSelfWrite = await store.consumeImageSelfWrite(
-                    changeCount: context.changeCount,
-                    fingerprint: fingerprint
-                )
-            } else {
-                isSelfWrite = false
-            }
+            let isSelfWrite = await store.consumeImageSelfWrite(
+                changeCount: context.changeCount,
+                fingerprint: importedImage.fingerprint
+            )
             guard isCurrentPayloadImport(context),
                   !isSelfWrite else {
+                if isSelfWrite {
+                    payloadSkipReasons[context.id] = .selfWrite
+                }
                 return nil
             }
             return .image(importedImage)
@@ -770,7 +1604,11 @@ final class ClipboardMonitor {
             guard let richTextResult else {
                 return nil
             }
-            if richTextResult.data.isEmpty || shouldCaptureRichTextAsPlainText(richTextResult.plainText) {
+            if shouldCaptureRichTextAsPlainText(richTextResult.plainText)
+                || (
+                    richTextResult.rawAsset == nil
+                        && richTextResult.data.isEmpty
+                ) {
                 store.addText(richTextResult.plainText, sourceApp: context.sourceApp)
                 return .completed(
                     storedType: "\(context.capturedType)AsText",
@@ -778,6 +1616,8 @@ final class ClipboardMonitor {
                 )
             }
             return .richText(richTextResult)
+        case .pdf(let importedPDF):
+            return .pdf(importedPDF)
         }
     }
 
@@ -787,30 +1627,68 @@ final class ClipboardMonitor {
         sourceApp: SourceAppInfo,
         authority: ClipboardImportAuthority,
         capturedType: String
-    ) async throws -> (storedType: String, payloadByteCount: Int)? {
+    ) async throws -> (
+        storedType: String,
+        payloadByteCount: Int,
+        status: ClipboardPayloadProcessingStatus
+    )? {
         switch prepared {
         case .image(let importedImage):
             guard try await store.addImage(
                 importedImage.storedImage,
                 sourceApp: sourceApp,
-                importAuthority: authority
+                importAuthority: authority,
+                automaticOCRAllowed: importedImage.previewSkipReason
+                    != .previewLimitExceeded
             ) != nil else { return nil }
-            return (capturedType, 0)
+            return (
+                capturedType,
+                0,
+                importedImage.previewSkipReason.map {
+                    ClipboardPayloadProcessingStatus.skipped($0)
+                } ?? .completed
+            )
         case .richText(let result):
             guard try await store.addRichText(
                 result.data,
                 plainText: result.plainText,
                 sourceApp: sourceApp,
-                importAuthority: authority
+                importAuthority: authority,
+                rawAsset: result.rawAsset
             ) != nil else { return nil }
-            return (capturedType, result.data.count)
+            return (
+                capturedType,
+                result.rawAsset?.stagedPayload.byteCount ?? result.data.count,
+                result.previewSkipReason.map {
+                    ClipboardPayloadProcessingStatus.skipped($0)
+                } ?? .completed
+            )
+        case .pdf(let importedPDF):
+            guard try await store.addOwnedFile(
+                importedPDF.storedFile,
+                sourceApp: sourceApp,
+                importAuthority: authority,
+                automaticOCRAllowed: importedPDF.previewSkipReason
+                    != .ocrLimitExceeded
+            ) != nil else { return nil }
+            return (
+                capturedType,
+                importedPDF.storedFile.byteCount,
+                importedPDF.previewSkipReason.map {
+                    ClipboardPayloadProcessingStatus.skipped($0)
+                } ?? .completed
+            )
         case .completed(let storedType, let payloadByteCount):
-            return (storedType, payloadByteCount)
+            return (storedType, payloadByteCount, .completed)
         }
     }
 
     private func finishPayloadImport(
-        _ completion: (storedType: String, payloadByteCount: Int),
+        _ completion: (
+            storedType: String,
+            payloadByteCount: Int,
+            status: ClipboardPayloadProcessingStatus
+        ),
         startedAt: CFAbsoluteTime,
         parseStartedAt: CFAbsoluteTime,
         parsedAt: CFAbsoluteTime,
@@ -824,6 +1702,8 @@ final class ClipboardMonitor {
             capturedType: completion.storedType,
             payloadByteCount: completion.payloadByteCount
         )
+        payloadSkipReasons.removeValue(forKey: context.id)
+        recordPayloadProcessingStatus(completion.status, context: context)
         importDiagnosticRecorder(.success(capturedType: completion.storedType))
     }
 
@@ -847,17 +1727,68 @@ final class ClipboardMonitor {
         context: ClipboardMonitorPayloadImportContext
     ) {
         guard isCurrentPayloadImport(context) else { return }
+        let processingReason = Self.payloadProcessingReason(for: error)
+        recordPayloadProcessingStatus(
+            .failed(processingReason),
+            context: context
+        )
         importDiagnosticRecorder(.failure(capturedType: context.capturedType))
         PerformanceDiagnosticsService.shared.recordError(
             "clipboard.richText.import.failed",
             category: "clipboard",
-            error: error,
+            error: ClipboardPayloadProcessingFailure(reason: processingReason),
             metadata: [
                 "capturedType": context.capturedType,
                 "payloadBytes": "\(payloadByteCount)"
             ]
         )
-        NSLog("ClipEase failed to import clipboard payload: \(error.localizedDescription)")
+        NSLog("ClipEase failed to import clipboard payload: \(processingReason.rawValue)")
+    }
+
+    private func completePayloadImportWithoutCommit(
+        context: ClipboardMonitorPayloadImportContext
+    ) {
+        guard isMatchingPayloadImport(context) else {
+            return
+        }
+        let reason = payloadSkipReasons.removeValue(forKey: context.id)
+            ?? .notPersisted
+        recordPayloadProcessingStatus(.skipped(reason), context: context)
+    }
+
+    nonisolated private static func payloadProcessingReason(
+        for error: Error
+    ) -> ClipboardPayloadProcessingReason {
+        if let stagingError = error as? ClipboardPayloadStagingError {
+            return stagingError.processingReason
+        }
+        if let imageStagingError = error as? ClipboardImageStagingError {
+            switch imageStagingError {
+            case .diskFull:
+                return .diskFull
+            case .writeFailed, .thumbnailFailed:
+                return .atomicWriteFailed
+            case .encodingFailed, .outputTooLarge:
+                return .importFailed
+            }
+        }
+        if ClipboardFileSystemErrorClassifier.isDiskFull(error) {
+            return .diskFull
+        }
+        return .importFailed
+    }
+
+    private func recordPayloadProcessingStatus(
+        _ status: ClipboardPayloadProcessingStatus,
+        context: ClipboardMonitorPayloadImportContext
+    ) {
+        payloadProcessingRecorder(
+            ClipboardPayloadProcessingUpdate(
+                id: context.id,
+                capturedType: context.capturedType,
+                status: status
+            )
+        )
     }
 
     private func isCurrentPayloadImport(_ context: ClipboardMonitorPayloadImportContext) -> Bool {
@@ -1217,10 +2148,30 @@ final class ClipboardMonitor {
 private extension ClipboardMonitorPayloadImportRequest {
     var payloadByteCount: Int {
         switch self {
-        case .image(let data, _):
-            data.count
-        case .richText(let payload):
-            payload.data.count
+        case .image(let stagedPayload, _),
+             .richText(let stagedPayload, _),
+             .pdf(let stagedPayload):
+            stagedPayload.byteCount
+        }
+    }
+
+    func discardStagedPayload() {
+        switch self {
+        case .image(let stagedPayload, _),
+             .richText(let stagedPayload, _),
+             .pdf(let stagedPayload):
+            stagedPayload.discard()
+        }
+    }
+}
+
+private extension ClipboardPayloadImportQueueError {
+    var processingReason: ClipboardPayloadProcessingReason {
+        switch self {
+        case .residentTaskLimitExceeded:
+            .residentTaskLimitExceeded
+        case .retainedDataLimitExceeded:
+            .retainedDataLimitExceeded
         }
     }
 }

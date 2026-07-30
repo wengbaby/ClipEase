@@ -380,7 +380,8 @@ extension ClipboardItem {
 
     static func file(
         references: [ClipboardFileReference],
-        sourceApp: SourceAppInfo
+        sourceApp: SourceAppInfo,
+        ownedAttachmentFileName: String? = nil
     ) -> ClipboardItem {
         let itemID = references.first?.itemID ?? UUID()
         let normalizedReferences = references.enumerated().map { index, reference in
@@ -413,7 +414,7 @@ extension ClipboardItem {
             imageWidth: nil,
             imageHeight: nil,
             imageHash: nil,
-            richTextFileName: nil,
+            richTextFileName: ownedAttachmentFileName,
             fileReferences: normalizedReferences,
             createdAt: Date(),
             sourceAppName: sourceApp.name,

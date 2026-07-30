@@ -137,7 +137,11 @@ struct AdaptiveGlassCardSurface: View {
     var body: some View {
 #if compiler(>=6.2)
         if #available(macOS 26.0, *), visualState.renderPlan.path == .native {
-            if visualState.isSelected || visualState.cardStyle == .liquidGlass {
+            if HistoryNativeGlassSurfacePolicy.rendersSurface(
+                role: visualState.isSelected ? .selectedCard : .card,
+                plan: visualState.renderPlan,
+                cardStyle: visualState.cardStyle
+            ) {
                 Color.clear
                     .glassEffect(
                         visualState.isSelected ? .regular.interactive() : .regular,

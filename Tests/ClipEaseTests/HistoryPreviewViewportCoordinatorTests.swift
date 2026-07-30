@@ -116,23 +116,20 @@ import Testing
 }
 
 @MainActor
-@Test func historyPreviewCoordinatorClearsPendingFollowAfterRetries() async {
+@Test func historyPreviewCoordinatorClearsPendingFollowAfterRetries() async throws {
     let coordinator = HistoryPreviewCoordinator(retryDelaysNanoseconds: [1, 1])
     let id = UUID()
     var movedFrames: [CGRect] = []
 
-    coordinator.scheduleFollow(
+    let pendingFollowTask = coordinator.scheduleFollow(
         itemID: id,
         isPreviewVisible: { true },
         currentPreviewItemID: { id },
         frameForItem: { _ in CGRect(x: 12, y: 34, width: 250, height: 270) },
         onMovePreview: { frame in movedFrames.append(frame) }
     )
-
-    let deadline = Date().addingTimeInterval(1)
-    while (movedFrames.count < 2 || coordinator.pendingFollowItemID != nil) && Date() < deadline {
-        try? await Task.sleep(nanoseconds: 10_000_000)
-    }
+    let followTask = try #require(pendingFollowTask)
+    await followTask.value
 
     #expect(movedFrames == [
         CGRect(x: 12, y: 34, width: 250, height: 270),

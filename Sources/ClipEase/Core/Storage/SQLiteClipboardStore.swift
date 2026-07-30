@@ -1,7 +1,9 @@
 import Foundation
 
+typealias SQLiteClipboardSearchPage = ClipboardSearchPage
+
 struct SQLiteClipboardStore: ClipboardHistoryRepository {
-    static let currentSchemaVersion = 4
+    static let currentSchemaVersion = 5
     private static let mutationBatchSize = 400
     private static let retentionEligibilitySQL = """
         clipboard_items.is_deleted = 0
@@ -14,18 +16,32 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             WHERE group_items.item_id = clipboard_items.id
         )
         """
-    private static let defaultItemOrderSQL = """
-        clipboard_items.is_pinned DESC,
-        clipboard_items.created_at DESC,
-        COALESCE(clipboard_items.pinned_at, clipboard_items.created_at) DESC
-        """
+    private static let defaultItemOrderSQL = SQLiteHistoryPageQuery.orderSQL
 
     let databaseURL: URL
     private let fileManager: FileManager
+    private let connectionCoordinator: SQLiteConnectionCoordinator
+    private let migrationCreateSchema: ((SQLiteDatabase) throws -> Void)?
+    private let migrationRecordSchemaVersion: ((SQLiteDatabase) throws -> Void)?
 
-    init(databaseURL: URL, fileManager: FileManager = .default) {
+    var coordinatedWriterConnectionCount: Int {
+        connectionCoordinator.createdWriterCount
+    }
+
+    init(
+        databaseURL: URL,
+        fileManager: FileManager = .default,
+        migrationCreateSchema: ((SQLiteDatabase) throws -> Void)? = nil,
+        migrationRecordSchemaVersion: ((SQLiteDatabase) throws -> Void)? = nil
+    ) {
         self.databaseURL = databaseURL
         self.fileManager = fileManager
+        self.migrationCreateSchema = migrationCreateSchema
+        self.migrationRecordSchemaVersion = migrationRecordSchemaVersion
+        connectionCoordinator = SQLiteConnectionCoordinator(
+            databaseURL: databaseURL,
+            maximumReaderCount: 2
+        )
     }
 
     init(fileManager: FileManager = .default) throws {
@@ -116,6 +132,20 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         )
     }
 
+    func loadItemPage(
+        limit: Int,
+        after cursor: HistoryPagingService.ItemCursor?
+    ) throws -> HistoryPagingService.ItemPage {
+        try prepareConnectionCoordinatorIfNeeded()
+        return try connectionCoordinator.withReader { database in
+            try SQLiteHistoryPageQuery.loadPage(
+                after: cursor,
+                limit: limit,
+                in: database
+            )
+        }
+    }
+
     func loadSnapshot(itemLimit: Int, offset: Int) throws -> ClipboardHistorySnapshot {
         guard itemLimit > 0 else {
             let database = try openReadyDatabase()
@@ -142,33 +172,158 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         let database = try openReadyDatabase()
         defer { database.close() }
 
-        var whereSQL = "clipboard_items.is_deleted = 0 AND clipboard_items.content_hash = ?"
-        var values: [SQLiteValue] = [.text(contentHash)]
+        let digest = SQLiteContentDigest.digest(for: contentHash)
+        var digestWhereSQL = """
+            clipboard_items.is_deleted = 0
+            AND clipboard_items.digest_version = ?
+            AND clipboard_items.content_digest = ?
+            """
+        var digestValues: [SQLiteValue] = [
+            .int(SQLiteContentDigest.currentVersion),
+            .blob(digest)
+        ]
+        var legacyWhereSQL = """
+            clipboard_items.is_deleted = 0
+            AND clipboard_items.content_hash = ?
+            """
+        var legacyValues: [SQLiteValue] = [.text(contentHash)]
         if let sourceBundleID {
-            whereSQL += " AND clipboard_items.source_bundle_id = ?"
-            values.append(.text(sourceBundleID))
+            digestWhereSQL += " AND clipboard_items.source_bundle_id = ?"
+            digestValues.append(.text(sourceBundleID))
+            legacyWhereSQL += " AND clipboard_items.source_bundle_id = ?"
+            legacyValues.append(.text(sourceBundleID))
         }
 
-        return try SQLiteItemDAO.loadItems(
+        let digestCandidates = try SQLiteItemDAO.loadItems(
             in: database,
-            whereSQL: whereSQL,
-            values: values,
+            whereSQL: digestWhereSQL,
+            values: digestValues,
             orderSQL: Self.defaultItemOrderSQL
         )
+        let legacyCandidates = try SQLiteItemDAO.loadItems(
+            in: database,
+            whereSQL: legacyWhereSQL,
+            values: legacyValues,
+            orderSQL: Self.defaultItemOrderSQL
+        )
+        // A digest narrows the lookup, but the stable legacy value remains the
+        // collision-verification authority during the dual-read release.
+        var seenIDs = Set<ClipboardItem.ID>()
+        return (digestCandidates + legacyCandidates)
+            .filter { $0.contentHash == contentHash && seenIDs.insert($0.id).inserted }
+            .sorted(by: Self.shouldSortItemBefore)
+    }
+
+    func backfillContentDigests(limit: Int) throws -> Int {
+        let database = try openReadyDatabase()
+        defer { database.close() }
+        return try SQLiteItemDAO.backfillContentDigests(in: database, limit: limit)
+    }
+
+    private static func shouldSortItemBefore(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
+        if lhs.isPinned != rhs.isPinned {
+            return lhs.isPinned && !rhs.isPinned
+        }
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        let lhsPinnedOrCreatedAt = lhs.pinnedAt ?? lhs.createdAt
+        let rhsPinnedOrCreatedAt = rhs.pinnedAt ?? rhs.createdAt
+        if lhsPinnedOrCreatedAt != rhsPinnedOrCreatedAt {
+            return lhsPinnedOrCreatedAt > rhsPinnedOrCreatedAt
+        }
+        return lhs.id.uuidString > rhs.id.uuidString
     }
 
     func searchItems(_ query: ClipboardSearchQuery) throws -> [ClipboardItem] {
-        let rawQuery = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawQuery.isEmpty,
-              query.limit > 0 else {
+        guard query.limit > 0 else {
             return []
         }
 
-        let database = try openReadyDatabase()
-        defer { database.close() }
+        try prepareConnectionCoordinatorIfNeeded()
+        return try connectionCoordinator.withReader { database in
+            let ids = try SQLiteSearchIndexDAO.searchItemIDs(query, in: database)
+            return try SQLiteItemDAO.loadItems(
+                withOrderedIDs: ids,
+                orderSQL: Self.defaultItemOrderSQL,
+                in: database
+            )
+        }
+    }
 
-        let ids = try SQLiteSearchIndexDAO.searchItemIDs(query, in: database)
-        return try SQLiteItemDAO.loadItems(withOrderedIDs: ids, orderSQL: Self.defaultItemOrderSQL, in: database)
+    func searchPage(
+        _ query: ClipboardSearchQuery,
+        after cursor: SQLiteSearchCursor?
+    ) throws -> SQLiteClipboardSearchPage {
+        try prepareConnectionCoordinatorIfNeeded()
+        return try connectionCoordinator.withReader { database in
+            let idPage = try SQLiteSearchIndexDAO.searchPage(
+                query,
+                after: cursor,
+                in: database
+            )
+            let items = try SQLiteItemDAO.loadItems(
+                withOrderedIDs: idPage.itemIDs,
+                orderSQL: Self.defaultItemOrderSQL,
+                in: database
+            )
+            return SQLiteClipboardSearchPage(
+                items: items,
+                nextCursor: idPage.nextCursor
+            )
+        }
+    }
+
+    func searchPage(
+        _ query: ClipboardSearchQuery,
+        after cursor: ClipboardSearchCursor?,
+        cancellation: ClipboardSearchCancellationToken
+    ) throws -> ClipboardSearchPage {
+        try prepareConnectionCoordinatorIfNeeded()
+        return try connectionCoordinator.withCancellableReader(
+            cancellation: cancellation
+        ) { database in
+            try cancellation.throwIfCancelled()
+            let idPage = try SQLiteSearchIndexDAO.searchPage(
+                query,
+                after: cursor,
+                in: database
+            )
+            try cancellation.throwIfCancelled()
+            let items = try SQLiteItemDAO.loadItems(
+                withOrderedIDs: idPage.itemIDs,
+                orderSQL: Self.defaultItemOrderSQL,
+                in: database
+            )
+            return ClipboardSearchPage(
+                items: items,
+                nextCursor: idPage.nextCursor
+            )
+        }
+    }
+
+    func searchPageCancellable(
+        _ query: ClipboardSearchQuery,
+        after cursor: SQLiteSearchCursor?
+    ) async throws -> SQLiteClipboardSearchPage {
+        try prepareConnectionCoordinatorIfNeeded()
+        return try await connectionCoordinator.withReaderAsync { database in
+            let idPage = try await SQLiteSearchIndexDAO.searchPageCancellable(
+                query,
+                after: cursor,
+                in: database
+            )
+            try Task.checkCancellation()
+            let items = try SQLiteItemDAO.loadItems(
+                withOrderedIDs: idPage.itemIDs,
+                orderSQL: Self.defaultItemOrderSQL,
+                in: database
+            )
+            return SQLiteClipboardSearchPage(
+                items: items,
+                nextCursor: idPage.nextCursor
+            )
+        }
     }
 
     func prepareSearchIndex() throws {
@@ -208,6 +363,24 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         }
     }
 
+    func upsertGroups(_ groups: [ClipboardGroup]) throws {
+        guard !groups.isEmpty else {
+            return
+        }
+
+        try prepareConnectionCoordinatorIfNeeded()
+        try connectionCoordinator.withWriter { database in
+            try database.execute("BEGIN IMMEDIATE TRANSACTION")
+            do {
+                try SQLiteGroupDAO.upsert(groups, in: database)
+                try database.execute("COMMIT")
+            } catch {
+                try? database.execute("ROLLBACK")
+                throw error
+            }
+        }
+    }
+
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws {
         let database = try openReadyDatabase()
         defer { database.close() }
@@ -225,6 +398,44 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         } catch {
             try? database.execute("ROLLBACK")
             throw error
+        }
+    }
+
+    func applyMutations(
+        _ mutations: [ClipboardHistoryRepositoryMutation]
+    ) throws {
+        guard !mutations.isEmpty else {
+            return
+        }
+
+        try prepareConnectionCoordinatorIfNeeded()
+        try connectionCoordinator.withWriter { database in
+            try database.execute("BEGIN IMMEDIATE TRANSACTION")
+            do {
+                for mutation in mutations {
+                    switch mutation {
+                    case .upsert(let upsert):
+                        try deleteItems(
+                            with: upsert.deletedIDs.union([upsert.item.id]),
+                            in: database
+                        )
+                        try SQLiteGroupDAO.upsert(upsert.groups, in: database)
+                        try insertItem(upsert.item, in: database)
+                        if upsert.item.groupID != nil {
+                            try SQLiteGroupDAO.insertGroupItem(
+                                for: upsert.item,
+                                in: database
+                            )
+                        }
+                    case .update(let update):
+                        try SQLiteItemDAO.updateItem(update, in: database)
+                    }
+                }
+                try database.execute("COMMIT")
+            } catch {
+                try? database.execute("ROLLBACK")
+                throw error
+            }
         }
     }
 
@@ -404,6 +615,13 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         )
     }
 
+    private func prepareConnectionCoordinatorIfNeeded() throws {
+        try connectionCoordinator.prepareIfNeeded {
+            let database = try openReadyDatabase()
+            database.close()
+        }
+    }
+
     private func openReadyDatabase() throws -> SQLiteDatabase {
         try createParentDirectory()
         let databaseExisted = fileManager.fileExists(atPath: databaseURL.path)
@@ -467,12 +685,26 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     ) throws {
         try database.execute("PRAGMA foreign_keys = ON")
         try ensureWALMode(in: database)
-        guard createsSchema else {
-            return
+        if createsSchema {
+            try createSchema(in: database)
+            try recordSchemaVersion(in: database)
         }
+        try ensureMeasuredQueryIndexes(in: database)
+    }
 
-        try createSchema(in: database)
-        try recordSchemaVersion(in: database)
+    private func ensureMeasuredQueryIndexes(in database: SQLiteDatabase) throws {
+        try database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_clipboard_items_live_order
+            ON clipboard_items(
+                is_pinned DESC,
+                created_at DESC,
+                COALESCE(pinned_at, created_at) DESC,
+                id DESC
+            )
+            WHERE is_deleted = 0
+            """
+        )
     }
 
     private func ensureWALMode(in database: SQLiteDatabase) throws {
@@ -488,6 +720,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     private func removeExistingDatabaseFiles() throws {
+        connectionCoordinator.invalidate()
         for url in databaseSidecarURLs() where fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
         }
@@ -523,8 +756,8 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             _ = try migrator.migrateIfNeeded(
                 databaseURL: databaseURL,
                 fileManager: fileManager,
-                createSchema: createSchema(in:),
-                recordSchemaVersion: recordSchemaVersion(in:)
+                createSchema: migrationCreateSchema ?? createSchema(in:),
+                recordSchemaVersion: migrationRecordSchemaVersion ?? recordSchemaVersion(in:)
             )
             Task { @MainActor in
                 PerformanceDiagnosticsService.shared.record(
@@ -534,11 +767,15 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                     metadata: [
                         "fromVersion": "\(userVersion)",
                         "toVersion": "\(Self.currentSchemaVersion)",
-                        "backup": backup?.directoryURL.path ?? ""
+                        "backupRestored": "false"
                     ]
                 )
             }
         } catch {
+            connectionCoordinator.invalidate()
+            if let backup {
+                try backupManager.restoreDatabaseFiles(from: backup, to: databaseURL)
+            }
             Task { @MainActor in
                 PerformanceDiagnosticsService.shared.recordError(
                     "history.sqlite.migration.failed",
@@ -547,7 +784,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                     metadata: [
                         "fromVersion": "\(userVersion)",
                         "toVersion": "\(Self.currentSchemaVersion)",
-                        "backup": backup?.directoryURL.path ?? ""
+                        "backupRestored": "\(backup != nil)"
                     ]
                 )
             }

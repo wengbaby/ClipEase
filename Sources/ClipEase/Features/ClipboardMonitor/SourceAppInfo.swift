@@ -22,15 +22,13 @@ struct SourceAppInfo: Sendable {
         } ?? NSWorkspace.shared.frontmostApplication
 
         guard let app else {
-            return SourceAppInfo(
-                name: L("未知应用"),
-                bundleID: nil,
-                iconName: "app.fill",
-                iconFileName: nil,
-                headerColorHex: "#2E8CFF"
-            )
+            return unknown
         }
 
+        return sourceAppInfo(for: app)
+    }
+
+    static func sourceAppInfo(for app: NSRunningApplication) -> SourceAppInfo {
         cacheIconAsync(for: app)
         return SourceAppInfo(
             name: app.localizedName ?? L("未知应用"),
@@ -46,10 +44,18 @@ struct SourceAppInfo: Sendable {
             return
         }
 
-        Task.detached(priority: .utility) {
-            _ = AppIconCache.cacheIcon(for: app)
+        Task(priority: .utility) {
+            _ = await AppIconCache.cacheIcon(for: app)
         }
     }
+
+    static let unknown = SourceAppInfo(
+        name: L("未知应用"),
+        bundleID: nil,
+        iconName: "app.fill",
+        iconFileName: nil,
+        headerColorHex: "#2E8CFF"
+    )
 
     static let clipease = SourceAppInfo(
         name: L("轻贴"),
@@ -114,5 +120,18 @@ struct SourceAppInfo: Sendable {
             return "#338FFF"
         }
         return "#2E8CFF"
+    }
+}
+
+@MainActor
+final class ClipboardSourceAppSnapshot {
+    private(set) var current: SourceAppInfo
+
+    init(initial: SourceAppInfo) {
+        self.current = initial
+    }
+
+    func recordActivation(_ sourceApp: SourceAppInfo) {
+        current = sourceApp
     }
 }

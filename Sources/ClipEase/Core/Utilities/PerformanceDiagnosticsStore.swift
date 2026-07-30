@@ -56,30 +56,46 @@ struct PerformanceDiagnosticsStore {
     }
 
     func append(_ event: PerformanceDiagnosticEvent) throws {
+        try append([event])
+    }
+
+    func append(_ events: [PerformanceDiagnosticEvent]) throws {
+        guard !events.isEmpty else {
+            return
+        }
         let database = try SQLiteDatabase(url: databaseURL)
         defer { database.close() }
-        let payload = try encoder.encode(event)
-        let payloadText = String(data: payload, encoding: .utf8) ?? "{}"
-        try database.execute(
-            """
-            INSERT INTO performance_events (
-                id, timestamp, name, category, duration_ms, item_count, result_count,
-                payload, payload_bytes
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            values: [
-                .text(event.id.uuidString),
-                .double(event.timestamp.timeIntervalSince1970),
-                .text(event.name),
-                .text(event.category),
-                .double(event.durationMS),
-                .optionalInt(event.itemCount),
-                .optionalInt(event.resultCount),
-                .text(payloadText),
-                .int(payload.count)
-            ]
-        )
+        try database.execute("BEGIN IMMEDIATE")
+        do {
+            for event in events {
+                let payload = try encoder.encode(event)
+                let payloadText = String(data: payload, encoding: .utf8) ?? "{}"
+                try database.execute(
+                    """
+                    INSERT INTO performance_events (
+                        id, timestamp, name, category, duration_ms, item_count, result_count,
+                        payload, payload_bytes
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    values: [
+                        .text(event.id.uuidString),
+                        .double(event.timestamp.timeIntervalSince1970),
+                        .text(event.name),
+                        .text(event.category),
+                        .double(event.durationMS),
+                        .optionalInt(event.itemCount),
+                        .optionalInt(event.resultCount),
+                        .text(payloadText),
+                        .int(payload.count)
+                    ]
+                )
+            }
+            try database.execute("COMMIT")
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
+        }
     }
 
     func recentEvents(limit: Int) throws -> [PerformanceDiagnosticEvent] {
@@ -144,14 +160,52 @@ struct PerformanceDiagnosticsStore {
         }
         try database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         try database.execute("VACUUM")
+        try database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        if policy.maxBytes >= PerformanceDiagnosticsRetentionPolicy.bytesPerMiB {
+            while physicalFootprintBytes > policy.maxBytes {
+                let rowCount = try database.queryInt(
+                    "SELECT COUNT(*) FROM performance_events"
+                )
+                guard rowCount > 0 else {
+                    break
+                }
+
+                try database.execute(
+                    """
+                    DELETE FROM performance_events
+                    WHERE rowid IN (
+                        SELECT rowid
+                        FROM performance_events
+                        ORDER BY timestamp ASC, rowid ASC
+                        LIMIT 32
+                    )
+                    """
+                )
+                try database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                try database.execute("VACUUM")
+                try database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            }
+        }
     }
 
     var fileSize: UInt64 {
-        guard let values = try? databaseURL.resourceValues(forKeys: [.fileSizeKey]),
-              let size = values.fileSize else {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: databaseURL.path),
+              let size = attributes[.size] as? NSNumber else {
             return 0
         }
-        return UInt64(size)
+        return size.uint64Value
+    }
+
+    var physicalFootprintBytes: Int {
+        [
+            databaseURL,
+            URL(fileURLWithPath: databaseURL.path + "-wal"),
+            URL(fileURLWithPath: databaseURL.path + "-shm")
+        ].reduce(0) { total, url in
+            let attributes = try? fileManager.attributesOfItem(atPath: url.path)
+            let size = attributes?[.size] as? NSNumber
+            return total + (size?.intValue ?? 0)
+        }
     }
 
     private func initialize() throws {

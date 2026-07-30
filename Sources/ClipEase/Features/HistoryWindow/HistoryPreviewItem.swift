@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 
 enum HistoryPreviewType: Sendable, Equatable {
@@ -38,6 +39,7 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
     let groupedAt: Date?
     let normalizedSearchText: String
     let searchFingerprint: Int
+    let highlightContentDigest: Data
 
     var searchText: String {
         [
@@ -87,6 +89,7 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
         )
         self.normalizedSearchText = normalizedSearchText
         self.searchFingerprint = Self.searchFingerprint(for: normalizedSearchText)
+        self.highlightContentDigest = Self.highlightContentDigest(for: item.preview)
     }
 
     init(
@@ -137,6 +140,7 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
         )
         self.normalizedSearchText = normalizedSearchText
         self.searchFingerprint = Self.searchFingerprint(for: normalizedSearchText)
+        self.highlightContentDigest = Self.highlightContentDigest(for: preview)
     }
 
     private static func normalizedSearchText(
@@ -161,6 +165,10 @@ struct HistoryPreviewItem: Identifiable, Equatable, Sendable {
         var hasher = Hasher()
         hasher.combine(normalizedSearchText)
         return hasher.finalize()
+    }
+
+    private static func highlightContentDigest(for text: String) -> Data {
+        Data(SHA256.hash(data: Data(text.utf8)))
     }
 
     static let samples: [HistoryPreviewItem] = [

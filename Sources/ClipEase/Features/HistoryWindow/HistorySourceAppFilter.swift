@@ -16,12 +16,23 @@ struct HistorySourceAppFilterOption: Identifiable, Equatable, Sendable {
 
 enum HistorySourceAppFilter {
     static func snapshot(from sourceItems: [ClipboardItem]) -> HistorySourceAppFilterSnapshot {
+        (try? cancellableSnapshot(from: sourceItems))
+            ?? HistorySourceAppFilterSnapshot(options: [], iconFileNameByName: [:])
+    }
+
+    static func cancellableSnapshot(
+        from sourceItems: [ClipboardItem]
+    ) throws -> HistorySourceAppFilterSnapshot {
+        try Task.checkCancellation()
         var seen = Set<String>()
         var options: [HistorySourceAppFilterOption] = []
         var iconFileNameByName: [String: String] = [:]
 
         options.reserveCapacity(min(sourceItems.count, 128))
-        for item in sourceItems {
+        for (index, item) in sourceItems.enumerated() {
+            if index.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
             let name = item.sourceAppName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else {
                 continue

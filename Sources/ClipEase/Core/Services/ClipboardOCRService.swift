@@ -4,6 +4,79 @@ import ImageIO
 import PDFKit
 import Vision
 
+enum ClipboardOCRSkipReason: String, Sendable, Equatable {
+    case imageByteLimit
+    case imagePixelLimit
+    case pdfByteLimit
+    case pdfPageLimit
+    case unsupportedItem
+}
+
+enum ClipboardOCRFailureReason: String, Sendable, Equatable {
+    case sourceUnavailable
+    case recognitionFailed
+    case timedOut
+    case pageTimedOut
+}
+
+enum ClipboardOCRExecutionOutcome: Sendable, Equatable {
+    case completed
+    case deferred
+    case skipped(ClipboardOCRSkipReason)
+    case failed(ClipboardOCRFailureReason)
+}
+
+enum ClipboardOCRInputDecision: Sendable, Equatable {
+    case accepted
+    case skipped(ClipboardOCRSkipReason)
+}
+
+enum ClipboardOCRServiceResult: Sendable, Equatable {
+    case completed(ClipboardOCRMatch)
+    case skipped(ClipboardOCRSkipReason)
+    case failed(ClipboardOCRFailureReason)
+}
+
+enum ClipboardOCRInputPolicy {
+    static let maximumImageBytes = 32 * 1_024 * 1_024
+    static let maximumImagePixels = 32_000_000
+    static let downsampleMaxPixelEdge = 4_096
+    static let maximumPDFBytes = 50 * 1_024 * 1_024
+    static let maximumPDFPages = 25
+    static let itemTimeoutNanoseconds: UInt64 = 10_000_000_000
+    static let pageTimeoutNanoseconds: UInt64 = 2_000_000_000
+
+    static func imageDecision(
+        byteCount: Int,
+        pixelWidth: Int,
+        pixelHeight: Int
+    ) -> ClipboardOCRInputDecision {
+        guard byteCount <= maximumImageBytes else {
+            return .skipped(.imageByteLimit)
+        }
+        let (pixelCount, overflow) = max(0, pixelWidth).multipliedReportingOverflow(
+            by: max(0, pixelHeight)
+        )
+        guard !overflow, pixelCount <= maximumImagePixels else {
+            return .skipped(.imagePixelLimit)
+        }
+        return .accepted
+    }
+
+    static func pdfDecision(
+        byteCount: Int,
+        pageCount: Int
+    ) -> ClipboardOCRInputDecision {
+        guard byteCount <= maximumPDFBytes else {
+            return .skipped(.pdfByteLimit)
+        }
+        guard pageCount <= maximumPDFPages else {
+            return .skipped(.pdfPageLimit)
+        }
+        return .accepted
+    }
+}
+
 struct ClipboardOCRTextRegion: Codable, Sendable, Equatable {
     let text: String
     let x: Double
@@ -24,20 +97,57 @@ actor ClipboardOCRService {
     static let shared = ClipboardOCRService()
 
     func recognizeImage(at url: URL) async -> ClipboardOCRMatch? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        guard case .completed(let match) = await recognizeImageResult(at: url) else {
             return nil
         }
+        return match
+    }
 
-        let orientation = Self.imageOrientation(from: source)
-        return await recognize(cgImage: cgImage, orientation: orientation)
+    func recognizeImageResult(at url: URL) async -> ClipboardOCRServiceResult {
+        guard let byteCount = Self.fileByteCount(at: url),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let pixelWidth = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let pixelHeight = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue else {
+            return .failed(.sourceUnavailable)
+        }
+
+        switch ClipboardOCRInputPolicy.imageDecision(
+            byteCount: byteCount,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight
+        ) {
+        case .accepted:
+            break
+        case .skipped(let reason):
+            return .skipped(reason)
+        }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: ClipboardOCRInputPolicy.downsampleMaxPixelEdge,
+            kCGImageSourceShouldCacheImmediately: false
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+              let match = await recognize(cgImage: cgImage, orientation: .up) else {
+            return .failed(.recognitionFailed)
+        }
+        return .completed(match)
     }
 
     func recognizePDF(at url: URL) async -> ClipboardOCRMatch? {
-        guard let pdfDocument = PDFDocument(url: url) else {
+        guard case .completed(let match) = await recognizePDFResult(at: url) else {
             return nil
         }
+        return match
+    }
 
+    func recognizePDFResult(at url: URL) async -> ClipboardOCRServiceResult {
+        guard let byteCount = Self.fileByteCount(at: url),
+              let pdfDocument = PDFDocument(url: url) else {
+            return .failed(.sourceUnavailable)
+        }
         var recognizedTexts: [String] = []
         var emails: Set<String> = []
         var phoneNumbers: Set<String> = []
@@ -45,46 +155,83 @@ actor ClipboardOCRService {
 
         let pageCount = pdfDocument.pageCount
         guard pageCount > 0 else {
-            return nil
+            return .failed(.recognitionFailed)
+        }
+        switch ClipboardOCRInputPolicy.pdfDecision(
+            byteCount: byteCount,
+            pageCount: pageCount
+        ) {
+        case .accepted:
+            break
+        case .skipped(let reason):
+            return .skipped(reason)
         }
 
         for index in 0..<pageCount {
+            guard !Task.isCancelled else {
+                return .failed(.recognitionFailed)
+            }
             guard let page = pdfDocument.page(at: index) else {
                 continue
             }
 
-            if let pageImage = page.thumbnail(of: NSSize(width: 2048, height: 2048), for: .mediaBox).cgImage(forProposedRect: nil, context: nil, hints: nil),
-               let pageMatch = await recognize(cgImage: pageImage, orientation: .up) {
+            if let pageImage = page.thumbnail(
+                of: NSSize(width: 2048, height: 2048),
+                for: .mediaBox
+            ).cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                let pageTask = Task {
+                    await self.recognize(cgImage: pageImage, orientation: .up)
+                }
+                let pageResult = await ClipboardOCRTimeout.wait(
+                    for: pageTask,
+                    nanoseconds: ClipboardOCRInputPolicy.pageTimeoutNanoseconds
+                )
+                let pageMatch: ClipboardOCRMatch?
+                switch pageResult {
+                case .value(let match):
+                    pageMatch = match
+                case .timedOut:
+                    pageTask.cancel()
+                    return .failed(.pageTimedOut)
+                case .cancelled:
+                    pageTask.cancel()
+                    return .failed(.recognitionFailed)
+                }
+                if let pageMatch {
                 if !pageMatch.text.isEmpty {
                     recognizedTexts.append(pageMatch.text)
                 }
                 emails.formUnion(pageMatch.emails)
                 phoneNumbers.formUnion(pageMatch.phoneNumbers)
                 urls.formUnion(pageMatch.urls)
+                }
             }
         }
 
         let text = recognizedTexts.joined(separator: "\n")
         guard !text.isEmpty || !emails.isEmpty || !phoneNumbers.isEmpty || !urls.isEmpty else {
-            return nil
+            return .failed(.recognitionFailed)
         }
 
-        return ClipboardOCRMatch(
-            text: text,
-            emails: Array(emails).sorted(),
-            phoneNumbers: Array(phoneNumbers).sorted(),
-            urls: Array(urls).sorted(),
-            textRegions: []
+        return .completed(
+            ClipboardOCRMatch(
+                text: text,
+                emails: Array(emails).sorted(),
+                phoneNumbers: Array(phoneNumbers).sorted(),
+                urls: Array(urls).sorted(),
+                textRegions: []
+            )
         )
     }
 
     private func recognize(cgImage: CGImage, orientation: CGImagePropertyOrientation) async -> ClipboardOCRMatch? {
         await withCheckedContinuation { (continuation: CheckedContinuation<ClipboardOCRMatch?, Never>) in
+            let resolution = ClipboardOCROneShotContinuation(continuation)
             DispatchQueue.global(qos: .userInitiated).async {
                 let request = VNRecognizeTextRequest { request, error in
                     guard error == nil,
                           let observations = request.results as? [VNRecognizedTextObservation] else {
-                        continuation.resume(returning: nil)
+                        resolution.resolve(nil)
                         return
                     }
 
@@ -110,7 +257,14 @@ actor ClipboardOCRService {
                         )
                         }
                     )
-                    continuation.resume(returning: matches.text.isEmpty && matches.emails.isEmpty && matches.phoneNumbers.isEmpty && matches.urls.isEmpty ? nil : matches)
+                    resolution.resolve(
+                        matches.text.isEmpty
+                            && matches.emails.isEmpty
+                            && matches.phoneNumbers.isEmpty
+                            && matches.urls.isEmpty
+                            ? nil
+                            : matches
+                    )
                 }
 
                 request.recognitionLevel = .accurate
@@ -121,7 +275,7 @@ actor ClipboardOCRService {
                 do {
                     try handler.perform([request])
                 } catch {
-                    continuation.resume(returning: nil)
+                    resolution.resolve(nil)
                 }
             }
         }
@@ -135,6 +289,10 @@ actor ClipboardOCRService {
         }
 
         return orientation
+    }
+
+    nonisolated private static func fileByteCount(at url: URL) -> Int? {
+        try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
     }
 
     nonisolated static func extractMatches(
@@ -186,5 +344,99 @@ actor ClipboardOCRService {
 
             return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
         }
+    }
+}
+
+final class ClipboardOCROneShotContinuation<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Never>?
+
+    init(_ continuation: CheckedContinuation<Value, Never>) {
+        self.continuation = continuation
+    }
+
+    @discardableResult
+    func resolve(_ value: sending Value) -> Bool {
+        let continuation = lock.withLock {
+            () -> CheckedContinuation<Value, Never>? in
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        guard let continuation else {
+            return false
+        }
+        continuation.resume(returning: value)
+        return true
+    }
+}
+
+enum ClipboardOCRTimeoutResult<Value: Sendable>: Sendable {
+    case value(Value)
+    case timedOut
+    case cancelled
+}
+
+enum ClipboardOCRTimeout {
+    static func wait<Value: Sendable>(
+        for task: Task<Value, Never>,
+        nanoseconds: UInt64
+    ) async -> ClipboardOCRTimeoutResult<Value> {
+        let driver = ClipboardOCRTimeoutDriver<Value>()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                driver.install(continuation)
+                Task {
+                    driver.resolve(.value(await task.value))
+                }
+                Task {
+                    do {
+                        try await Task.sleep(nanoseconds: nanoseconds)
+                        driver.resolve(.timedOut)
+                    } catch {
+                        // The result task or caller cancellation owns completion.
+                    }
+                }
+            }
+        } onCancel: {
+            task.cancel()
+            driver.resolve(.cancelled)
+        }
+    }
+}
+
+private final class ClipboardOCRTimeoutDriver<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<ClipboardOCRTimeoutResult<Value>, Never>?
+    private var pendingResult: ClipboardOCRTimeoutResult<Value>?
+    private var isResolved = false
+
+    func install(
+        _ continuation: CheckedContinuation<ClipboardOCRTimeoutResult<Value>, Never>
+    ) {
+        lock.lock()
+        if let pendingResult {
+            lock.unlock()
+            continuation.resume(returning: pendingResult)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resolve(_ result: ClipboardOCRTimeoutResult<Value>) {
+        lock.lock()
+        guard !isResolved else {
+            lock.unlock()
+            return
+        }
+        isResolved = true
+        guard let continuation else {
+            pendingResult = result
+            lock.unlock()
+            return
+        }
+        self.continuation = nil
+        lock.unlock()
+        continuation.resume(returning: result)
     }
 }

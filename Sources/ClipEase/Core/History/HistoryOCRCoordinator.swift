@@ -4,6 +4,7 @@ import Foundation
 final class HistoryOCRCoordinator {
     typealias ImageRecognizer = @Sendable (URL) async -> ClipboardOCRMatch?
     typealias PDFRecognizer = @Sendable (URL) async -> ClipboardOCRMatch?
+    private typealias ServiceRecognizer = @Sendable (URL) async -> ClipboardOCRServiceResult
 
     private struct TaskEntry {
         let generation: UUID
@@ -12,22 +13,43 @@ final class HistoryOCRCoordinator {
 
     private var taskByItemID: [ClipboardItem.ID: TaskEntry] = [:]
     private let limiter: ClipboardOCRConcurrencyLimiter
-    private let imageRecognizer: ImageRecognizer
-    private let pdfRecognizer: PDFRecognizer
+    private let imageRecognizer: ServiceRecognizer
+    private let pdfRecognizer: ServiceRecognizer
+    private let itemTimeoutNanoseconds: UInt64
 
     init(
         limiter: ClipboardOCRConcurrencyLimiter = .shared,
         service: ClipboardOCRService = .shared,
         imageRecognizer: ImageRecognizer? = nil,
-        pdfRecognizer: PDFRecognizer? = nil
+        pdfRecognizer: PDFRecognizer? = nil,
+        itemTimeoutNanoseconds: UInt64 = ClipboardOCRInputPolicy.itemTimeoutNanoseconds
     ) {
         self.limiter = limiter
-        self.imageRecognizer = imageRecognizer ?? { url in
-            await service.recognizeImage(at: url)
+        if let imageRecognizer {
+            self.imageRecognizer = { url in
+                if let match = await imageRecognizer(url) {
+                    return .completed(match)
+                }
+                return .failed(.recognitionFailed)
+            }
+        } else {
+            self.imageRecognizer = { url in
+                await service.recognizeImageResult(at: url)
+            }
         }
-        self.pdfRecognizer = pdfRecognizer ?? { url in
-            await service.recognizePDF(at: url)
+        if let pdfRecognizer {
+            self.pdfRecognizer = { url in
+                if let match = await pdfRecognizer(url) {
+                    return .completed(match)
+                }
+                return .failed(.recognitionFailed)
+            }
+        } else {
+            self.pdfRecognizer = { url in
+                await service.recognizePDFResult(at: url)
+            }
         }
+        self.itemTimeoutNanoseconds = itemTimeoutNanoseconds
     }
 
     func setInteractiveThrottleActive(_ isActive: Bool) {
@@ -40,7 +62,8 @@ final class HistoryOCRCoordinator {
         item: ClipboardItem,
         sourceURL: URL?,
         setProcessing: @escaping @MainActor (_ id: ClipboardItem.ID) -> Void,
-        applyResult: @escaping @MainActor (_ result: ClipboardOCRMatch, _ status: ClipboardOCRStatus, _ id: ClipboardItem.ID) -> Void
+        applyResult: @escaping @MainActor (_ result: ClipboardOCRMatch, _ status: ClipboardOCRStatus, _ id: ClipboardItem.ID) -> Void,
+        applyOutcome: @escaping @MainActor (_ outcome: ClipboardOCRExecutionOutcome, _ id: ClipboardItem.ID) -> Void = { _, _ in }
     ) {
         guard item.ocrStatus == .pending else {
             return
@@ -57,7 +80,8 @@ final class HistoryOCRCoordinator {
                 sourceURL: sourceURL,
                 generation: generation,
                 setProcessing: setProcessing,
-                applyResult: applyResult
+                applyResult: applyResult,
+                applyOutcome: applyOutcome
             )
         }
         taskByItemID[item.id] = TaskEntry(generation: generation, task: task)
@@ -90,7 +114,8 @@ final class HistoryOCRCoordinator {
         sourceURL: URL?,
         generation: UUID,
         setProcessing: @escaping @MainActor (_ id: ClipboardItem.ID) -> Void,
-        applyResult: @escaping @MainActor (_ result: ClipboardOCRMatch, _ status: ClipboardOCRStatus, _ id: ClipboardItem.ID) -> Void
+        applyResult: @escaping @MainActor (_ result: ClipboardOCRMatch, _ status: ClipboardOCRStatus, _ id: ClipboardItem.ID) -> Void,
+        applyOutcome: @escaping @MainActor (_ outcome: ClipboardOCRExecutionOutcome, _ id: ClipboardItem.ID) -> Void
     ) async {
         guard item.ocrStatus == .pending else {
             finishTask(for: item.id, generation: generation)
@@ -99,32 +124,71 @@ final class HistoryOCRCoordinator {
 
         guard let sourceURL else {
             applyResult(Self.emptyResult, .failed, item.id)
+            applyOutcome(.failed(.sourceUnavailable), item.id)
             finishTask(for: item.id, generation: generation)
             return
         }
 
-        await limiter.waitForTurn()
-        defer {
-            Task {
-                await limiter.finishTurn()
+        let turn = await limiter.waitForTurn()
+        guard turn == .acquired else {
+            if turn == .deferred {
+                applyOutcome(.deferred, item.id)
             }
+            finishTask(for: item.id, generation: generation)
+            return
         }
 
         guard !Task.isCancelled else {
+            await limiter.finishTurn()
             finishTask(for: item.id, generation: generation)
             return
         }
 
         setProcessing(item.id)
+        let ocrInterval = PerformanceDiagnosticsSignposter.beginInterval(
+            name: "asset.ocr",
+            category: "ocr"
+        )
+        defer {
+            PerformanceDiagnosticsSignposter.endInterval(ocrInterval)
+        }
 
-        let result: ClipboardOCRMatch?
+        let recognitionTask: Task<ClipboardOCRServiceResult, Never>
         switch item.type {
         case .image:
-            result = await imageRecognizer(sourceURL)
+            recognitionTask = Task {
+                await imageRecognizer(sourceURL)
+            }
         case .file:
-            result = await pdfRecognizer(sourceURL)
+            recognitionTask = Task {
+                await pdfRecognizer(sourceURL)
+            }
         default:
-            result = nil
+            await limiter.finishTurn()
+            applyResult(Self.emptyResult, .failed, item.id)
+            applyOutcome(.skipped(.unsupportedItem), item.id)
+            finishTask(for: item.id, generation: generation)
+            return
+        }
+
+        let timedResult = await ClipboardOCRTimeout.wait(
+            for: recognitionTask,
+            nanoseconds: itemTimeoutNanoseconds
+        )
+        let serviceResult: ClipboardOCRServiceResult
+        switch timedResult {
+        case .value(let result):
+            await limiter.finishTurn()
+            serviceResult = result
+        case .timedOut:
+            recognitionTask.cancel()
+            await limiter.finishTurn()
+            serviceResult = .failed(.timedOut)
+        case .cancelled:
+            recognitionTask.cancel()
+            await limiter.finishTurn()
+            finishTask(for: item.id, generation: generation)
+            return
         }
 
         guard !Task.isCancelled else {
@@ -132,10 +196,16 @@ final class HistoryOCRCoordinator {
             return
         }
 
-        if let result {
+        switch serviceResult {
+        case .completed(let result):
             applyResult(result, .completed, item.id)
-        } else {
+            applyOutcome(.completed, item.id)
+        case .skipped(let reason):
             applyResult(Self.emptyResult, .failed, item.id)
+            applyOutcome(.skipped(reason), item.id)
+        case .failed(let reason):
+            applyResult(Self.emptyResult, .failed, item.id)
+            applyOutcome(.failed(reason), item.id)
         }
         finishTask(for: item.id, generation: generation)
     }
@@ -156,18 +226,38 @@ final class HistoryOCRCoordinator {
     )
 }
 
+enum ClipboardOCRTurn: Sendable, Equatable {
+    case acquired
+    case deferred
+    case cancelled
+}
+
 actor ClipboardOCRConcurrencyLimiter {
     static let shared = ClipboardOCRConcurrencyLimiter()
+    static let defaultIdleLimit = 2
+    static let defaultInteractiveLimit = 1
+    static let defaultMaximumWaitingCount = 64
+
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<ClipboardOCRTurn, Never>
+    }
 
     private let idleLimit: Int
     private let interactiveLimit: Int
+    private let maximumWaitingCount: Int
     private var isInteractionActive = false
     private var activeCount = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [Waiter] = []
 
-    init(idleLimit: Int = 5, interactiveLimit: Int = 2) {
-        self.idleLimit = idleLimit
-        self.interactiveLimit = interactiveLimit
+    init(
+        idleLimit: Int = defaultIdleLimit,
+        interactiveLimit: Int = defaultInteractiveLimit,
+        maximumWaitingCount: Int = defaultMaximumWaitingCount
+    ) {
+        self.idleLimit = max(0, idleLimit)
+        self.interactiveLimit = max(0, interactiveLimit)
+        self.maximumWaitingCount = max(0, maximumWaitingCount)
     }
 
     func setInteractionActive(_ isActive: Bool) {
@@ -175,14 +265,27 @@ actor ClipboardOCRConcurrencyLimiter {
         resumeAvailableWaiters()
     }
 
-    func waitForTurn() async {
+    func waitForTurn() async -> ClipboardOCRTurn {
+        guard !Task.isCancelled else {
+            return .cancelled
+        }
         if activeCount < currentLimit {
             activeCount += 1
-            return
+            return .acquired
+        }
+        guard waiters.count < maximumWaitingCount else {
+            return .deferred
         }
 
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters.append(Waiter(id: waiterID, continuation: continuation))
+            }
+        } onCancel: {
+            Task {
+                await self.cancelWaiter(id: waiterID)
+            }
         }
     }
 
@@ -199,7 +302,15 @@ actor ClipboardOCRConcurrencyLimiter {
         while activeCount < currentLimit, !waiters.isEmpty {
             activeCount += 1
             let next = waiters.removeFirst()
-            next.resume()
+            next.continuation.resume(returning: .acquired)
         }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(returning: .cancelled)
     }
 }

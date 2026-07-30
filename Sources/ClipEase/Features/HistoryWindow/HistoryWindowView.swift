@@ -148,7 +148,16 @@ struct HistoryWindowView: View {
 
     private var selectedItemID: HistoryPreviewItem.ID? {
         get { cardInteractionState.selectedItemID }
-        nonmutating set { cardInteractionState.selectedItemID = newValue }
+        nonmutating set { cardInteractionState.select(newValue) }
+    }
+
+    private var trackedCardGeometryIDs: Set<HistoryPreviewItem.ID> {
+        HistoryCardGeometryCollectionPolicy.trackedIDs(
+            previewedID: previewState.isVisible ? previewState.itemID : nil,
+            selectedID: selectedItemID,
+            pendingScrollID: viewportState.pendingItemScrollID,
+            pendingProgrammaticJumpID: focusState.pendingProgrammaticJumpItemID
+        )
     }
 
     private var enteringItemIDs: Set<ClipboardItem.ID> {
@@ -424,8 +433,13 @@ struct HistoryWindowView: View {
     }
 
     private func scheduleCardViewportFramesUpdate(_ frames: [HistoryPreviewItem.ID: CGRect]) {
+        let backingScaleFactor = hostWindow?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         DispatchQueue.main.async { [self] in
-            guard viewportState.cardViewportFrames != frames else {
+            guard HistoryCardGeometryCollectionPolicy.shouldPublish(
+                current: viewportState.cardViewportFrames,
+                incoming: frames,
+                backingScaleFactor: backingScaleFactor
+            ) else {
                 return
             }
             viewportState.cardViewportFrames = frames
@@ -893,15 +907,11 @@ struct HistoryWindowView: View {
             onMouseExitedWindow: closeWindowForCardDrag
         )
         .equatable()
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .preference(
-                        key: CardViewportFramePreferenceKey.self,
-                        value: [item.id: proxy.frame(in: .named("historyWindow"))]
-                    )
+        .background {
+            if trackedCardGeometryIDs.contains(item.id) {
+                CardViewportFrameReader(itemID: item.id)
             }
-        )
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(
@@ -4910,37 +4920,6 @@ struct HistoryWindowView: View {
             return
         }
 
-        let signatureUpdate = HistoryPreviewBuildCoordinator.previewSignatureUpdate(
-            sourceItems: sourceItems,
-            currentSourceSignature: currentSourceSignature
-        )
-        guard signatureUpdate.hasChanges else {
-            PerformanceDiagnosticsService.shared.record(
-                "preview.rebuild.skip",
-                category: "history",
-                durationMS: (CFAbsoluteTimeGetCurrent() - signatureStartedAt) * 1_000,
-                itemCount: sourceItems.count,
-                resultCount: previewItemsState.allItems.count,
-                metadata: [
-                    "reason": "sourceSignatureUnchanged",
-                    "cacheStored": "\(previewItemsState.previewItemCache.count)"
-                ]
-            )
-            scheduleSearchUpdate(sourceItems: previewItemsState.allItems, immediate: true)
-            convergeLatestClipboardFocusIfNeeded()
-            HistoryWindowLifecycleDiagnostics.record(
-                .openPreviewReady,
-                itemCount: store.items.count,
-                wasVisible: inputState.isWindowVisibleSnapshot,
-                shouldAnimate: false,
-                hasPendingFocus: focusState.pendingLatestFocusItemID != nil || focusState.pendingDefaultFocusOnShow,
-                visibleItemCount: renderedWindowItems.count,
-                previewItemCount: previewItemsState.allItems.count
-            )
-            return
-        }
-
-        let sourceSignature = signatureUpdate.sourceSignature
         previewBuildTask?.cancel()
         previewBuildGeneration &+= 1
         let generation = previewBuildGeneration
@@ -4953,6 +4932,62 @@ struct HistoryWindowView: View {
 
         previewBuildTask = Task {
             PerformanceDiagnosticsService.shared.recordResourceCheckpoint("preview.rebuild.start")
+            let signatureTask = Task.detached(priority: .userInitiated) {
+                try HistoryPreviewBuildCoordinator.previewSignatureUpdateCheckingCancellation(
+                    sourceItems: sourceItems,
+                    currentSourceSignature: currentSourceSignature
+                )
+            }
+            let signatureUpdate: HistoryPreviewBuildCoordinator.PreviewSignatureUpdate
+            do {
+                signatureUpdate = try await withTaskCancellationHandler {
+                    try await signatureTask.value
+                } onCancel: {
+                    signatureTask.cancel()
+                }
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled else {
+                return
+            }
+            guard signatureUpdate.hasChanges else {
+                await MainActor.run {
+                    guard HistoryPreviewBuildCoordinator.shouldApplyResult(
+                        isTaskCancelled: Task.isCancelled,
+                        generation: generation,
+                        currentGeneration: previewBuildGeneration
+                    ) else {
+                        return
+                    }
+                    PerformanceDiagnosticsService.shared.record(
+                        "preview.rebuild.skip",
+                        category: "history",
+                        durationMS: (CFAbsoluteTimeGetCurrent() - signatureStartedAt) * 1_000,
+                        itemCount: sourceItems.count,
+                        resultCount: previewItemsState.allItems.count,
+                        metadata: [
+                            "reason": "sourceSignatureUnchanged",
+                            "cacheStored": "\(previewItemsState.previewItemCache.count)"
+                        ]
+                    )
+                    scheduleSearchUpdate(sourceItems: previewItemsState.allItems, immediate: true)
+                    convergeLatestClipboardFocusIfNeeded()
+                    HistoryWindowLifecycleDiagnostics.record(
+                        .openPreviewReady,
+                        itemCount: store.items.count,
+                        wasVisible: inputState.isWindowVisibleSnapshot,
+                        shouldAnimate: false,
+                        hasPendingFocus: focusState.pendingLatestFocusItemID != nil || focusState.pendingDefaultFocusOnShow,
+                        visibleItemCount: renderedWindowItems.count,
+                        previewItemCount: previewItemsState.allItems.count
+                    )
+                }
+                return
+            }
+
+            let sourceSignature = signatureUpdate.sourceSignature
             let buildTask = Task.detached(priority: .userInitiated) {
                 try HistoryPreviewBuildCoordinator.rebuild(
                     sourceItems: sourceItems,
@@ -8131,12 +8166,14 @@ final class HistoryScrollCoordinator {
                 }
                 clipView.animator().setBoundsOrigin(NSPoint(x: nextX, y: clipView.bounds.minY))
             } completionHandler: {
-                scrollView.reflectScrolledClipView(clipView)
-                self.saveOffset(preserveSavedOffset ?? nextX)
-                if suppressUserOffsetSave {
-                    self.pendingOffsetForNextBinding = nil
+                MainActor.assumeIsolated {
+                    scrollView.reflectScrolledClipView(clipView)
+                    self.saveOffset(preserveSavedOffset ?? nextX)
+                    if suppressUserOffsetSave {
+                        self.pendingOffsetForNextBinding = nil
+                    }
+                    self.isProgrammaticScroll = false
                 }
-                self.isProgrammaticScroll = false
             }
         } else {
             isProgrammaticScroll = true
@@ -8250,6 +8287,60 @@ private struct SearchInteractionFramePreferenceKey: PreferenceKey {
 
     static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
         value.append(contentsOf: nextValue())
+    }
+}
+
+enum HistoryCardGeometryCollectionPolicy {
+    static func trackedIDs(
+        previewedID: HistoryPreviewItem.ID?,
+        selectedID: HistoryPreviewItem.ID?,
+        pendingScrollID: HistoryPreviewItem.ID?,
+        pendingProgrammaticJumpID: HistoryPreviewItem.ID?
+    ) -> Set<HistoryPreviewItem.ID> {
+        Set([
+            previewedID,
+            selectedID,
+            pendingScrollID,
+            pendingProgrammaticJumpID
+        ].compactMap { $0 })
+    }
+
+    static func shouldPublish(
+        current: [HistoryPreviewItem.ID: CGRect],
+        incoming: [HistoryPreviewItem.ID: CGRect],
+        backingScaleFactor: CGFloat
+    ) -> Bool {
+        guard Set(current.keys) == Set(incoming.keys) else {
+            return true
+        }
+
+        let onePhysicalPixel = 1 / max(abs(backingScaleFactor), 1)
+        return incoming.contains { id, incomingFrame in
+            guard let currentFrame = current[id] else {
+                return true
+            }
+
+            return [
+                abs(currentFrame.minX - incomingFrame.minX),
+                abs(currentFrame.minY - incomingFrame.minY),
+                abs(currentFrame.width - incomingFrame.width),
+                abs(currentFrame.height - incomingFrame.height)
+            ].contains { $0 >= onePhysicalPixel }
+        }
+    }
+}
+
+private struct CardViewportFrameReader: View {
+    let itemID: HistoryPreviewItem.ID
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .preference(
+                    key: CardViewportFramePreferenceKey.self,
+                    value: [itemID: proxy.frame(in: .named("historyWindow"))]
+                )
+        }
     }
 }
 

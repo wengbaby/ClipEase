@@ -172,11 +172,14 @@ final class HistoryPreviewWindowController {
             panel.contentView?.animator().alphaValue = 1
             panel.contentView?.layer?.opacity = 1
             panel.contentView?.layer?.transform = CATransform3DIdentity
-        } completionHandler: { [weak panel] in
-            guard self.attachedAnimationGeneration == animationGeneration else {
-                return
+        } completionHandler: { [weak self, weak panel] in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.attachedAnimationGeneration == animationGeneration else {
+                    return
+                }
+                self.resetContentBloomLayer(panel)
             }
-            self.resetContentBloomLayer(panel)
         }
     }
 
@@ -274,16 +277,18 @@ final class HistoryPreviewWindowController {
             panel.contentView?.animator().alphaValue = 0
             panel.contentView?.layer?.opacity = 0
         } completionHandler: { [weak self, weak panel] in
-            guard self?.attachedAnimationGeneration == animationGeneration else {
-                return
+            MainActor.assumeIsolated {
+                guard self?.attachedAnimationGeneration == animationGeneration else {
+                    return
+                }
+                self?.isAttachedClosing = false
+                panel?.contentView?.alphaValue = 0
+                panel?.contentView?.layer?.opacity = 0
+                panel?.contentView?.layer?.transform = CATransform3DIdentity
+                panel?.orderOut(nil)
+                parentWindow?.makeKey()
+                Self.releaseHostedContent(from: panel)
             }
-            self?.isAttachedClosing = false
-            panel?.contentView?.alphaValue = 0
-            panel?.contentView?.layer?.opacity = 0
-            panel?.contentView?.layer?.transform = CATransform3DIdentity
-            panel?.orderOut(nil)
-            parentWindow?.makeKey()
-            Self.releaseHostedContent(from: panel)
         }
     }
 
@@ -670,8 +675,10 @@ final class HistoryPreviewWindowController {
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
             detachedPanel.animator().alphaValue = 0
         } completionHandler: { [weak detachedPanel] in
-            detachedPanel?.orderOut(nil)
-            detachedPanel?.alphaValue = 1
+            MainActor.assumeIsolated {
+                detachedPanel?.orderOut(nil)
+                detachedPanel?.alphaValue = 1
+            }
         }
     }
 

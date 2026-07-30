@@ -27,6 +27,126 @@ struct ClipboardGroupDeletionResult: Equatable, Sendable {
     }
 }
 
+private final class ClipboardSearchPagingCoordinator: @unchecked Sendable {
+    struct CursorRequest: Sendable {
+        let generation: UInt64
+        let signature: Signature
+        let cursor: ClipboardSearchCursor?
+        let cancellation: ClipboardSearchCancellationToken
+    }
+
+    enum Request: Sendable {
+        case cursor(CursorRequest)
+        case compatibility
+    }
+
+    struct Signature: Equatable, Sendable {
+        let text: String
+        let limit: Int
+        let filters: ClipboardSearchQueryFilters
+
+        init(query: ClipboardSearchQuery) {
+            text = query.text
+            limit = query.limit
+            filters = query.filters
+        }
+    }
+
+    private let lock = NSLock()
+    private var generation: UInt64 = 0
+    private var activeSignature: Signature?
+    private var loadedItemCount = 0
+    private var nextCursor: ClipboardSearchCursor?
+    private var activeCancellation: ClipboardSearchCancellationToken?
+
+    func prepare(_ query: ClipboardSearchQuery) -> Request {
+        var cancellationToSignal: ClipboardSearchCancellationToken?
+        let request: Request = lock.withLock {
+            let signature = Signature(query: query)
+            if query.offset == 0 {
+                cancellationToSignal = activeCancellation
+                generation &+= 1
+                let cancellation = ClipboardSearchCancellationToken()
+                activeSignature = signature
+                loadedItemCount = 0
+                nextCursor = nil
+                activeCancellation = cancellation
+                return .cursor(CursorRequest(
+                    generation: generation,
+                    signature: signature,
+                    cursor: nil,
+                    cancellation: cancellation
+                ))
+            }
+
+            guard activeSignature == signature,
+                  query.offset == loadedItemCount,
+                  let nextCursor,
+                  let activeCancellation,
+                  !activeCancellation.isCancelled else {
+                cancellationToSignal = self.activeCancellation
+                clearActiveRequest()
+                return .compatibility
+            }
+            return .cursor(CursorRequest(
+                generation: generation,
+                signature: signature,
+                cursor: nextCursor,
+                cancellation: activeCancellation
+            ))
+        }
+        cancellationToSignal?.cancel()
+        return request
+    }
+
+    func complete(
+        _ request: CursorRequest,
+        page: ClipboardSearchPage
+    ) -> Bool {
+        lock.withLock {
+            guard generation == request.generation,
+                  activeSignature == request.signature,
+                  activeCancellation === request.cancellation else {
+                return false
+            }
+            loadedItemCount += page.items.count
+            nextCursor = page.nextCursor
+            return true
+        }
+    }
+
+    func fail(_ request: CursorRequest) {
+        let cancellation: ClipboardSearchCancellationToken? = lock.withLock {
+            guard generation == request.generation,
+                  activeSignature == request.signature,
+                  activeCancellation === request.cancellation else {
+                return nil
+            }
+            let cancellation = activeCancellation
+            clearActiveRequest()
+            return cancellation
+        }
+        cancellation?.cancel()
+    }
+
+    func cancelAll() {
+        let cancellation: ClipboardSearchCancellationToken? = lock.withLock {
+            generation &+= 1
+            let cancellation = activeCancellation
+            clearActiveRequest()
+            return cancellation
+        }
+        cancellation?.cancel()
+    }
+
+    private func clearActiveRequest() {
+        activeSignature = nil
+        loadedItemCount = 0
+        nextCursor = nil
+        activeCancellation = nil
+    }
+}
+
 @MainActor
 final class ClipboardHistoryStore: ObservableObject {
     typealias ImageSelfWriteConsumer = @Sendable (Int, String?) async -> Bool
@@ -56,13 +176,12 @@ final class ClipboardHistoryStore: ObservableObject {
     @Published var retentionPolicy: HistoryRetentionPolicy {
         didSet {
             userDefaults.set(retentionPolicy.rawValue, forKey: Self.retentionPolicyKey)
-            pruneExpiredItems()
+            pruneExpiredItems(force: true)
         }
     }
 
     nonisolated private static let retentionPolicyKey = "history.retentionPolicy"
     nonisolated private static let debugTextPrefix = "轻贴性能测试文本 "
-    nonisolated private static let deferredSaveDelay: UInt64 = 350_000_000
     nonisolated private static let debugBatchSize = 500
     nonisolated static let startupItemPageSize = HistoryPagingService.startupItemPageSize
     nonisolated static let incrementalItemPageSize = HistoryPagingService.incrementalItemPageSize
@@ -87,6 +206,7 @@ final class ClipboardHistoryStore: ObservableObject {
     private var isLoadingNextPage = false
     private var didLoadAllPersistedItems = false
     private var nextPersistedItemOffset = 0
+    private var nextPersistedItemCursor: HistoryPagingService.ItemCursor?
     private var pendingDeletedItemIDs = Set<ClipboardItem.ID>()
     private var pendingDeletedGroupIDs = Set<ClipboardGroup.ID>()
     private var pagedLoadTask: Task<Void, Never>?
@@ -94,9 +214,13 @@ final class ClipboardHistoryStore: ObservableObject {
     private var searchIndexWarmupTask: Task<Void, Never>?
     private var pendingAttachmentCleanup = ClipboardAttachmentCleanup.empty
     private var activeRetentionCutoff: Date?
+    private var retentionRunSchedule = HistoryRetentionRunSchedule()
     private var retentionRequestGeneration: UInt64 = 0
     private var pendingRetentionRequestGeneration: UInt64?
     private var pendingPageLoadReason: String?
+    private var ocrOutcomeByItemID: [ClipboardItem.ID: ClipboardOCRExecutionOutcome] = [:]
+    private var isTerminationDrainSealed = false
+    private let searchPagingCoordinator = ClipboardSearchPagingCoordinator()
 
     var debugTextItemCount: Int {
         items.lazy.filter(Self.isDebugTextItem).count
@@ -158,13 +282,22 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     func makeClipboardPayloadImporter(
-        limits: ClipboardPayloadImportLimits = ClipboardPayloadImportLimits()
+        limits: ClipboardPayloadImportLimits = ClipboardPayloadImportLimits(),
+        payloadStager: ClipboardPayloadStager? = nil
     ) -> ClipboardPayloadImporter {
-        ClipboardPayloadImporter(persistence: persistence, limits: limits)
+        ClipboardPayloadImporter(
+            persistence: persistence,
+            limits: limits,
+            payloadStager: payloadStager
+        )
     }
 
     func rollbackImportedClipboardImage(_ storedImage: StoredClipboardImage) async {
         await persistence.rollbackOwnedStagedImageBeforeCommit(storedImage)
+    }
+
+    func rollbackImportedOwnedFile(_ storedFile: StoredOwnedClipboardFile) async {
+        await persistence.rollbackOwnedFileBeforeCommit(storedFile)
     }
 
     func deleteUnreferencedAttachmentCandidates(
@@ -275,6 +408,9 @@ final class ClipboardHistoryStore: ObservableObject {
         self.items = snapshot.items
         self.groups = snapshot.groups
         self.nextPersistedItemOffset = snapshot.items.count
+        self.nextPersistedItemCursor = snapshot.items.last.map(
+            HistoryPagingService.ItemCursor.init(item:)
+        )
         self.didLoadAllPersistedItems = HistoryPagingService.didLoadAllAfterStartup(itemCount: snapshot.items.count)
         let sortStartedAt = CFAbsoluteTimeGetCurrent()
         rebuildItemIndexes()
@@ -287,7 +423,7 @@ final class ClipboardHistoryStore: ObservableObject {
             resultCount: groups.count,
             metadata: ["mode": "snapshotOrder.indexOnly"]
         )
-        pruneExpiredItems()
+        pruneExpiredItems(force: true)
         let hashStartedAt = CFAbsoluteTimeGetCurrent()
         rebuildRecentHashes()
         PerformanceDiagnosticsService.shared.record(
@@ -348,13 +484,17 @@ final class ClipboardHistoryStore: ObservableObject {
         plainText: String,
         sourceApp: SourceAppInfo,
         groupID: ClipboardGroup.ID? = nil,
-        importAuthority: ClipboardImportAuthority = ClipboardImportAuthority()
+        importAuthority: ClipboardImportAuthority = ClipboardImportAuthority(),
+        rawAsset: ClipboardRichTextRawAsset? = nil
     ) async throws -> ClipboardItem? {
         let normalizedText = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else {
             return nil
         }
-        let storedRichText = try await persistence.saveRichTextOrThrow(data)
+        let storedRichText = try await persistence.saveRichTextOrThrow(
+            data,
+            rawAsset: rawAsset
+        )
         do {
             try Task.checkCancellation()
         } catch {
@@ -445,7 +585,8 @@ final class ClipboardHistoryStore: ObservableObject {
     func addImage(
         _ storedImage: StoredClipboardImage,
         sourceApp: SourceAppInfo,
-        importAuthority: ClipboardImportAuthority = ClipboardImportAuthority()
+        importAuthority: ClipboardImportAuthority = ClipboardImportAuthority(),
+        automaticOCRAllowed: Bool = true
     ) async throws -> ClipboardItem? {
         do {
             try Task.checkCancellation()
@@ -454,13 +595,16 @@ final class ClipboardHistoryStore: ObservableObject {
             throw error
         }
 
-        let item = ClipboardItem.image(
+        var item = ClipboardItem.image(
             fileName: storedImage.fileName,
             width: storedImage.width,
             height: storedImage.height,
             hash: storedImage.hash,
             sourceApp: sourceApp
         )
+        if !automaticOCRAllowed {
+            item.ocrStatus = .none
+        }
         let preparedUpsert = prepareClipboardItemUpsert(item)
         imageCommitWillBegin()
         let revision = nextSaveRevision()
@@ -522,6 +666,77 @@ final class ClipboardHistoryStore: ObservableObject {
         playExternalCopyFeedbackIfNeeded(for: insertedItem)
     }
 
+    func addOwnedFile(
+        _ storedFile: StoredOwnedClipboardFile,
+        sourceApp: SourceAppInfo,
+        importAuthority: ClipboardImportAuthority = ClipboardImportAuthority(),
+        automaticOCRAllowed: Bool = true
+    ) async throws -> ClipboardItem? {
+        do {
+            try Task.checkCancellation()
+        } catch {
+            await persistence.rollbackOwnedFileBeforeCommit(storedFile)
+            throw error
+        }
+        let references = fileReferences(from: [storedFile.fileURL])
+        guard !references.isEmpty else {
+            await persistence.rollbackOwnedFileBeforeCommit(storedFile)
+            return nil
+        }
+        var item = ClipboardItem.file(
+            references: references,
+            sourceApp: sourceApp,
+            ownedAttachmentFileName: storedFile.fileName
+        )
+        if !automaticOCRAllowed {
+            item.ocrStatus = .none
+        }
+        let preparedUpsert = prepareClipboardItemUpsert(item)
+        let revision = nextSaveRevision()
+        let mutationGeneration = persistenceMutationGeneration
+        let receipt: ClipboardImportCommitReceipt
+        do {
+            receipt = try await saveWriter.commitImportedItemAwaitingDecision(
+                preparedUpsert.item,
+                deleting: preparedUpsert.duplicateIDs,
+                displacedItems: preparedUpsert.duplicateItems,
+                groups: groups,
+                acceptedCleanup: preparedUpsert.attachmentCleanup,
+                stagedAttachmentReservations: [storedFile.reservation].compactMap { $0 },
+                revision: revision
+            )
+        } catch is CancellationError {
+            await persistence.rollbackOwnedFileBeforeCommit(storedFile)
+            throw CancellationError()
+        } catch let failure as ClipboardHistoryCommitFailure {
+            await discardStagedAttachments([storedFile.reservation])
+            throw failure.underlyingError
+        } catch {
+            await discardStagedAttachments([storedFile.reservation])
+            throw error
+        }
+
+        guard isCurrentMutationGeneration(mutationGeneration),
+              importAuthority.tryAccept() else {
+            do {
+                try await saveWriter.compensateImportedItem(receipt)
+            } catch let failure as ClipboardHistoryCommitFailure {
+                throw failure.underlyingError
+            }
+            return nil
+        }
+        guard saveWriter.acceptImportedItem(receipt) else {
+            return nil
+        }
+        let insertedItem = applyPreparedClipboardItemUpsert(
+            preparedUpsert,
+            persist: false
+        ).item
+        enqueueOCRIfNeeded(for: insertedItem)
+        playExternalCopyFeedbackIfNeeded(for: insertedItem)
+        return insertedItem
+    }
+
     func item(with id: ClipboardItem.ID?) -> ClipboardItem? {
         guard let id else {
             return nil
@@ -570,7 +785,31 @@ final class ClipboardHistoryStore: ObservableObject {
 
     nonisolated func searchItems(_ query: ClipboardSearchQuery) -> [ClipboardItem] {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        let items = persistence.searchItems(query)
+        let request = searchPagingCoordinator.prepare(query)
+        let items: [ClipboardItem]
+        switch request {
+        case .compatibility:
+            items = persistence.searchItems(query)
+        case .cursor(let cursorRequest):
+            do {
+                let page = try persistence.searchPage(
+                    query,
+                    after: cursorRequest.cursor,
+                    cancellation: cursorRequest.cancellation
+                )
+                guard searchPagingCoordinator.complete(cursorRequest, page: page) else {
+                    return []
+                }
+                items = page.items
+            } catch is CancellationError {
+                searchPagingCoordinator.fail(cursorRequest)
+                return []
+            } catch {
+                searchPagingCoordinator.fail(cursorRequest)
+                NSLog("ClipEase failed to search clipboard history cursor page: \(error.localizedDescription)")
+                return []
+            }
+        }
         let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
         Task { @MainActor in
             PerformanceDiagnosticsService.shared.record(
@@ -597,6 +836,16 @@ final class ClipboardHistoryStore: ObservableObject {
             }
 
             let startedAt = CFAbsoluteTimeGetCurrent()
+            while !Task.isCancelled {
+                let backfilledCount = persistence.backfillContentDigests()
+                guard backfilledCount == SQLiteContentDigest.batchSize else {
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            guard !Task.isCancelled else {
+                return
+            }
             persistence.prepareSearchIndex()
             let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
             await MainActor.run {
@@ -653,12 +902,16 @@ final class ClipboardHistoryStore: ObservableObject {
         sortItems()
         pruneExpiredItems()
         rebuildRecentHashesAndGroupCounts()
-        scheduleSave()
+        persistIncrementalInsert(newItems)
         return newItems.count
     }
 
     func importBackupItems(_ importedItems: [ClipboardItem], groups importedGroups: [ClipboardGroup] = []) -> Int {
+        let groupCountBeforeImport = groups.count
         let groupIDMapping = importBackupGroups(importedGroups)
+        if groups.count != groupCountBeforeImport {
+            persistGroupsIncrementally()
+        }
         let validGroupIDs = Set(groups.map(\.id))
         let sanitizedItems = importedItems.map { item in
             sanitizedBackupItem(item, groupIDMapping: groupIDMapping, validGroupIDs: validGroupIDs)
@@ -667,9 +920,6 @@ final class ClipboardHistoryStore: ObservableObject {
         let newItems = nonDuplicateItems(from: sanitizedItems)
 
         guard !newItems.isEmpty else {
-            if !importedGroups.isEmpty {
-                saveImmediately()
-            }
             return 0
         }
 
@@ -677,7 +927,7 @@ final class ClipboardHistoryStore: ObservableObject {
         sortItems()
         pruneExpiredItems()
         rebuildRecentHashesAndGroupCounts()
-        scheduleSave()
+        persistIncrementalInsert(newItems)
         return newItems.count
     }
 
@@ -695,9 +945,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items[index].pinnedAt = items[index].isPinned ? Date() : nil
         sortItems()
         if let updatedItem = item(with: id) {
-            persistIncrementalUpsert(updatedItem, deleting: [])
-        } else {
-            scheduleSave()
+            persistItemMutation(updatedItem, fields: [.pin])
         }
     }
 
@@ -732,7 +980,7 @@ final class ClipboardHistoryStore: ObservableObject {
         )
         groups.append(group)
         sortGroups()
-        scheduleSave()
+        persistGroupsIncrementally()
         return group
     }
 
@@ -745,7 +993,7 @@ final class ClipboardHistoryStore: ObservableObject {
             indexByID: &groupIndexByID
         )
         if result == .renamed {
-            scheduleSave()
+            persistGroupsIncrementally()
         }
         return GroupRenameResult(result)
     }
@@ -762,7 +1010,7 @@ final class ClipboardHistoryStore: ObservableObject {
             return
         }
 
-        scheduleSave()
+        persistGroupsIncrementally()
     }
 
     func deleteGroup(_ id: ClipboardGroup.ID) -> Int {
@@ -804,6 +1052,7 @@ final class ClipboardHistoryStore: ObservableObject {
             groupIDs: existingGroupIDs,
             attachmentCleanup: attachmentCleanup
         )
+        persistGroupsIncrementally()
         return ClipboardGroupDeletionResult(
             deletedGroupIDs: existingGroupIDs,
             removedItemCount: removedItems.count
@@ -812,8 +1061,11 @@ final class ClipboardHistoryStore: ObservableObject {
 
     func moveGroup(fromOffsets source: IndexSet, toOffset destination: Int) {
         groups.move(fromOffsets: source, toOffset: destination)
-        sortGroups()
-        scheduleSave()
+        for index in groups.indices {
+            groups[index].sortOrder = index
+        }
+        rebuildGroupIndex()
+        persistGroupsIncrementally()
     }
 
     func addItem(_ id: ClipboardItem.ID?, toGroup groupID: ClipboardGroup.ID) {
@@ -825,11 +1077,15 @@ final class ClipboardHistoryStore: ObservableObject {
 
         let now = Date()
         let oldGroupID = items[index].groupID
+        guard oldGroupID != groupID || items[index].groupedAt == nil else {
+            return
+        }
         items[index].groupID = groupID
         items[index].groupedAt = now
+        let updatedItem = items[index]
         updateGroupCountOnMove(from: oldGroupID, to: groupID)
         sortItems()
-        scheduleSave()
+        persistItemMutation(updatedItem, fields: [.group])
     }
 
     @discardableResult
@@ -841,6 +1097,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
         let now = Date()
         var changedCount = 0
+        var changedItems: [ClipboardItem] = []
         for index in items.indices where ids.contains(items[index].id) {
             var didChangeItem = false
             let oldGroupID = items[index].groupID
@@ -855,6 +1112,7 @@ final class ClipboardHistoryStore: ObservableObject {
 
             if didChangeItem {
                 changedCount += 1
+                changedItems.append(items[index])
                 updateGroupCountOnMove(from: oldGroupID, to: groupID)
             }
         }
@@ -864,13 +1122,16 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         sortItems()
-        scheduleSave()
+        for item in changedItems {
+            persistItemMutation(item, fields: [.group])
+        }
         return changedCount
     }
 
     func removeItemFromGroup(_ id: ClipboardItem.ID?) {
         guard let id,
-              let index = itemIndex(for: id) else {
+              let index = itemIndex(for: id),
+              items[index].groupID != nil else {
             return
         }
 
@@ -878,7 +1139,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items[index].groupID = nil
         items[index].groupedAt = nil
         updateGroupCountOnMove(from: oldGroupID, to: nil)
-        scheduleSave()
+        persistItemMutation(items[index], fields: [.group])
     }
 
     func group(with id: ClipboardGroup.ID?) -> ClipboardGroup? {
@@ -907,9 +1168,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items[index].createdAt = Date()
         sortItems()
         if let updatedItem = item(with: id) {
-            persistIncrementalUpsert(updatedItem, deleting: [])
-        } else {
-            scheduleSave()
+            persistItemMutation(updatedItem, fields: [.metadata])
         }
     }
 
@@ -968,19 +1227,24 @@ final class ClipboardHistoryStore: ObservableObject {
         guard let updatedItem = self.item(with: id) else {
             return nil
         }
+        var attachmentCleanup = ClipboardAttachmentCleanup.empty
         if let richTextFileName = item.richTextFileName,
            updatedItem.richTextFileName == nil {
-            pendingAttachmentCleanup = pendingAttachmentCleanup.union(
+            attachmentCleanup = attachmentCleanup.union(
                 ClipboardAttachmentCleanup(richTextFileNames: [richTextFileName])
             )
         }
         if let imageFileName = item.imageFileName,
            updatedItem.imageFileName == nil {
-            pendingAttachmentCleanup = pendingAttachmentCleanup.union(
+            attachmentCleanup = attachmentCleanup.union(
                 ClipboardAttachmentCleanup(imageFileNames: [imageFileName])
             )
         }
-        scheduleSave()
+        persistItemMutation(
+            updatedItem,
+            fields: [.content, .metadata],
+            attachmentCleanup: attachmentCleanup
+        )
         latestItemFocusRequest = ClipboardItemFocusRequest(itemID: updatedItem.id, reason: .refreshed)
 
         if updatedItem.type == .link,
@@ -1062,9 +1326,9 @@ final class ClipboardHistoryStore: ObservableObject {
             imageHeight: storedImage?.height,
             imageHash: storedImage?.hash
         )
-        persistIncrementalUpsert(
+        persistItemMutation(
             items[index],
-            deleting: [],
+            fields: [.metadata],
             attachmentCleanup: attachmentCleanup,
             stagedAttachmentReservations: [storedImage?.reservation].compactMap { $0 }
         )
@@ -1117,7 +1381,40 @@ final class ClipboardHistoryStore: ObservableObject {
     func flushPendingSave() {
         debugGenerationTask?.cancel()
         debugGenerationTask = nil
-        saveImmediately()
+        if isTerminationDrainSealed {
+            saveWriter.flush()
+            return
+        }
+        if deferredSaveTask != nil || requiresFullSnapshotSave {
+            // Deferred snapshot mutations still require the existing repair/full-save
+            // path. The normal capture path is incremental and only needs a bounded
+            // writer barrier at termination.
+            saveImmediately()
+            return
+        }
+
+        saveWriter.flush()
+    }
+
+    func makeTerminationDrainHandle() -> ClipboardHistoryTerminationDrainHandle {
+        if !isTerminationDrainSealed {
+            isTerminationDrainSealed = true
+            deferredSaveTask?.cancel()
+            deferredSaveTask = nil
+            debugGenerationTask?.cancel()
+            debugGenerationTask = nil
+            cancelPagedLoad()
+            searchIndexWarmupTask?.cancel()
+            searchIndexWarmupTask = nil
+            cancelAllLinkMetadataTasks()
+            cancelAllOCRTasks()
+            searchPagingCoordinator.cancelAll()
+        }
+
+        let writer = saveWriter
+        return ClipboardHistoryTerminationDrainHandle {
+            await writer.flushAsync()
+        }
     }
 
     private func mergeDebugTextItems(_ newItems: [ClipboardItem]) {
@@ -1454,6 +1751,12 @@ final class ClipboardHistoryStore: ObservableObject {
         ocrCoordinator.setInteractiveThrottleActive(isActive)
     }
 
+    func ocrExecutionOutcome(
+        for id: ClipboardItem.ID
+    ) -> ClipboardOCRExecutionOutcome? {
+        ocrOutcomeByItemID[id]
+    }
+
     private func enqueueOCRIfNeeded(for item: ClipboardItem) {
         guard item.ocrStatus == .pending else {
             return
@@ -1477,6 +1780,9 @@ final class ClipboardHistoryStore: ObservableObject {
             },
             applyResult: { [weak self] result, status, id in
                 self?.applyOCRResult(result, status: status, to: id)
+            },
+            applyOutcome: { [weak self] outcome, id in
+                self?.ocrOutcomeByItemID[id] = outcome
             }
         )
     }
@@ -1487,7 +1793,7 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         items[index].ocrStatus = status
-        persistIncrementalUpsert(items[index], deleting: [])
+        persistItemMutation(items[index], fields: [.ocr])
     }
 
     private func applyOCRResult(_ result: ClipboardOCRMatch, status: ClipboardOCRStatus, to id: ClipboardItem.ID) {
@@ -1505,22 +1811,27 @@ final class ClipboardHistoryStore: ObservableObject {
         )
         sortItems()
         if let updatedItem = item(with: id) {
-            persistIncrementalUpsert(updatedItem, deleting: [])
-        } else {
-            scheduleSave()
+            persistItemMutation(updatedItem, fields: [.ocr])
         }
     }
 
     private func cancelOCRTasks(for removedItems: [ClipboardItem]) {
         ocrCoordinator.cancelTasks(for: removedItems)
+        for id in removedItems.map(\.id) {
+            ocrOutcomeByItemID[id] = nil
+        }
     }
 
     private func cancelOCRTasks(for ids: Set<ClipboardItem.ID>) {
         ocrCoordinator.cancelTasks(for: ids)
+        for id in ids {
+            ocrOutcomeByItemID[id] = nil
+        }
     }
 
     private func cancelAllOCRTasks() {
         ocrCoordinator.cancelAllTasks()
+        ocrOutcomeByItemID.removeAll()
     }
 
     private func sortItems() {
@@ -1564,7 +1875,13 @@ final class ClipboardHistoryStore: ObservableObject {
             return lhs.createdAt > rhs.createdAt
         }
 
-        return (lhs.pinnedAt ?? lhs.createdAt) > (rhs.pinnedAt ?? rhs.createdAt)
+        let lhsPinnedOrCreatedAt = lhs.pinnedAt ?? lhs.createdAt
+        let rhsPinnedOrCreatedAt = rhs.pinnedAt ?? rhs.createdAt
+        if lhsPinnedOrCreatedAt != rhsPinnedOrCreatedAt {
+            return lhsPinnedOrCreatedAt > rhsPinnedOrCreatedAt
+        }
+
+        return lhs.id.uuidString > rhs.id.uuidString
     }
 
     private func persistedDuplicateItems(for item: ClipboardItem) -> [ClipboardItem] {
@@ -1599,42 +1916,6 @@ final class ClipboardHistoryStore: ObservableObject {
         groupIndexByID = GroupService.rebuildGroupIndex(groups)
     }
 
-    private func scheduleSave() {
-        deferredSaveTask?.cancel()
-        requiresFullSnapshotSave = true
-        do {
-            try loadAllPersistedItemsBeforeFullSave()
-        } catch {
-            recordFullSnapshotPreparationFailure(error)
-            deferredSaveTask = nil
-            return
-        }
-        let snapshot = ClipboardHistorySnapshot(items: items, groups: groups)
-        let revision = nextSaveRevision()
-        deferredSaveTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: ClipboardHistoryStore.deferredSaveDelay)
-            } catch {
-                return
-            }
-
-            guard !Task.isCancelled,
-                  let self else {
-                return
-            }
-
-            let attachmentCleanup = self.drainPendingAttachmentCleanup()
-            self.deferredSaveTask = nil
-            self.requiresFullSnapshotSave = false
-            self.fullSnapshotPreparationError = nil
-            self.saveWriter.saveAsync(
-                snapshot,
-                attachmentCleanup: attachmentCleanup,
-                revision: revision
-            )
-        }
-    }
-
     private func scheduleInitialBackgroundPageLoadIfNeeded() {
         guard !didLoadAllPersistedItems else {
             return
@@ -1648,7 +1929,8 @@ final class ClipboardHistoryStore: ObservableObject {
 
     @discardableResult
     private func loadNextItemPage(reason: String) -> Task<Void, Never>? {
-        guard !didLoadAllPersistedItems else {
+        guard !isTerminationDrainSealed,
+              !didLoadAllPersistedItems else {
             return nil
         }
         guard pendingRetentionRequestGeneration == nil else {
@@ -1662,17 +1944,24 @@ final class ClipboardHistoryStore: ObservableObject {
         isLoadingNextPage = true
         pagedLoadGeneration &+= 1
         let generation = pagedLoadGeneration
-        let request = HistoryPagingService.nextPageRequest(itemCount: nextPersistedItemOffset)
+        let request = HistoryPagingService.nextPageRequest(
+            itemCount: nextPersistedItemOffset,
+            cursor: nextPersistedItemCursor
+        )
         let persistence = persistence
         let task = Task(priority: .utility) {
             let startedAt = CFAbsoluteTimeGetCurrent()
             let page = await Task.detached(priority: .utility) {
-                persistence.loadItems(limit: request.limit, offset: request.offset)
+                persistence.loadItemPage(
+                    limit: request.limit,
+                    after: request.cursor
+                )
             }.value
             let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
             mergeLoadedPage(
                 page,
                 offset: request.offset,
+                requestedCursor: request.cursor,
                 limit: request.limit,
                 durationMS: durationMS,
                 reason: reason,
@@ -1697,8 +1986,9 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func mergeLoadedPage(
-        _ page: [ClipboardItem],
+        _ page: HistoryPagingService.ItemPage,
         offset: Int,
+        requestedCursor: HistoryPagingService.ItemCursor?,
         limit: Int,
         durationMS: Double,
         reason: String,
@@ -1714,16 +2004,19 @@ final class ClipboardHistoryStore: ObservableObject {
         }
 
         switch HistoryPagingService.mergeResult(
-            pageCount: page.count,
-            requestedOffset: offset,
-            currentItemCount: nextPersistedItemOffset,
+            pageCount: page.items.count,
+            requestedCursor: requestedCursor,
+            currentCursor: nextPersistedItemCursor,
             limit: limit
         ) {
         case .stale:
             return
         case .append(let didLoadAll):
-            nextPersistedItemOffset += page.count
-            appendLoadedItems(page)
+            nextPersistedItemOffset += page.items.count
+            if let nextCursor = page.nextCursor {
+                nextPersistedItemCursor = nextCursor
+            }
+            appendLoadedItems(page.items)
             didLoadAllPersistedItems = didLoadAll
         }
 
@@ -1731,7 +2024,7 @@ final class ClipboardHistoryStore: ObservableObject {
             "history.store.loadNextPage",
             category: "storage",
             durationMS: durationMS,
-            itemCount: page.count,
+            itemCount: page.items.count,
             resultCount: items.count,
             metadata: [
                 "offset": "\(offset)",
@@ -1780,6 +2073,10 @@ final class ClipboardHistoryStore: ObservableObject {
         attachmentCleanup: ClipboardAttachmentCleanup = .empty,
         stagedAttachmentReservations: [ClipboardAttachmentReservation] = []
     ) {
+        guard !isTerminationDrainSealed else {
+            scheduleStagedAttachmentDiscard(stagedAttachmentReservations.map(Optional.some))
+            return
+        }
         pendingDeletedItemIDs.formUnion(deletedIDs)
         let mustSaveFullSnapshot = requiresFullSnapshotSave
         deferredSaveTask?.cancel()
@@ -1805,11 +2102,88 @@ final class ClipboardHistoryStore: ObservableObject {
         )
     }
 
+    private func persistItemMutation(
+        _ item: ClipboardItem,
+        fields: ClipboardHistoryItemMutationFields,
+        attachmentCleanup: ClipboardAttachmentCleanup = .empty,
+        stagedAttachmentReservations: [ClipboardAttachmentReservation] = []
+    ) {
+        guard !fields.isEmpty else {
+            return
+        }
+        guard !isTerminationDrainSealed else {
+            scheduleStagedAttachmentDiscard(stagedAttachmentReservations.map(Optional.some))
+            return
+        }
+
+        let mustSaveFullSnapshot = requiresFullSnapshotSave
+        deferredSaveTask?.cancel()
+        deferredSaveTask = nil
+        if mustSaveFullSnapshot {
+            persistCurrentSnapshotAsync(
+                adding: attachmentCleanup,
+                stagedAttachmentReservations: stagedAttachmentReservations
+            )
+            return
+        }
+
+        let cleanup = drainPendingAttachmentCleanup(adding: attachmentCleanup)
+        saveWriter.updateItemAsync(
+            ClipboardHistoryItemMutation(item: item, fields: fields),
+            attachmentCleanup: cleanup,
+            stagedAttachmentReservations: stagedAttachmentReservations,
+            revision: nextSaveRevision()
+        )
+    }
+
+    private func persistIncrementalInsert(_ insertedItems: [ClipboardItem]) {
+        guard !insertedItems.isEmpty,
+              !isTerminationDrainSealed else {
+            return
+        }
+
+        let mustSaveFullSnapshot = requiresFullSnapshotSave
+        deferredSaveTask?.cancel()
+        deferredSaveTask = nil
+        if mustSaveFullSnapshot {
+            persistCurrentSnapshotAsync()
+            return
+        }
+
+        saveWriter.insertItemsAsync(
+            insertedItems,
+            revision: nextSaveRevision()
+        )
+    }
+
+    private func persistGroupsIncrementally() {
+        guard !groups.isEmpty,
+              !isTerminationDrainSealed else {
+            return
+        }
+
+        let mustSaveFullSnapshot = requiresFullSnapshotSave
+        deferredSaveTask?.cancel()
+        deferredSaveTask = nil
+        if mustSaveFullSnapshot {
+            persistCurrentSnapshotAsync()
+            return
+        }
+
+        saveWriter.upsertGroupsAsync(
+            groups,
+            revision: nextSaveRevision()
+        )
+    }
+
     private func persistIncrementalDelete(
         itemIDs: Set<ClipboardItem.ID>,
         groupIDs: Set<ClipboardGroup.ID> = [],
         attachmentCleanup: ClipboardAttachmentCleanup = .empty
     ) {
+        guard !isTerminationDrainSealed else {
+            return
+        }
         pendingDeletedItemIDs.formUnion(itemIDs)
         pendingDeletedGroupIDs.formUnion(groupIDs)
         nextPersistedItemOffset = max(0, nextPersistedItemOffset - itemIDs.count)
@@ -1833,11 +2207,15 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func persistDeleteAll(attachmentCleanup: ClipboardAttachmentCleanup = .empty) {
+        guard !isTerminationDrainSealed else {
+            return
+        }
         deferredSaveTask?.cancel()
         deferredSaveTask = nil
         cancelPagedLoad()
         requiresFullSnapshotSave = false
         nextPersistedItemOffset = 0
+        nextPersistedItemCursor = nil
         let revision = nextSaveRevision()
         let saveWriter = saveWriter
         let attachmentCleanup = drainPendingAttachmentCleanup(adding: attachmentCleanup)
@@ -1862,6 +2240,9 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     private func saveImmediatelyOrThrow() throws {
+        guard !isTerminationDrainSealed else {
+            return
+        }
         deferredSaveTask?.cancel()
         deferredSaveTask = nil
         requiresFullSnapshotSave = true
@@ -1896,6 +2277,10 @@ final class ClipboardHistoryStore: ObservableObject {
         adding attachmentCleanup: ClipboardAttachmentCleanup = .empty,
         stagedAttachmentReservations: [ClipboardAttachmentReservation] = []
     ) -> Bool {
+        guard !isTerminationDrainSealed else {
+            scheduleStagedAttachmentDiscard(stagedAttachmentReservations.map(Optional.some))
+            return false
+        }
         do {
             try loadAllPersistedItemsBeforeFullSave()
         } catch {
@@ -1954,6 +2339,9 @@ final class ClipboardHistoryStore: ObservableObject {
         }
         groups.append(contentsOf: missingGroups)
         nextPersistedItemOffset = persistedSnapshot.items.count
+        nextPersistedItemCursor = persistedSnapshot.items.last.map(
+            HistoryPagingService.ItemCursor.init(item:)
+        )
         didLoadAllPersistedItems = true
         sortItems()
         sortGroups()
@@ -2368,7 +2756,14 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     @discardableResult
-    private func pruneExpiredItems(now: Date = Date()) -> Bool {
+    private func pruneExpiredItems(
+        now: Date = Date(),
+        force: Bool = false
+    ) -> Bool {
+        guard retentionRunSchedule.shouldRun(now: now, force: force) else {
+            return false
+        }
+
         let cutoff = HistoryRetentionService.cutoffDate(for: retentionPolicy, now: now)
         activeRetentionCutoff = cutoff
         guard let cutoff else {

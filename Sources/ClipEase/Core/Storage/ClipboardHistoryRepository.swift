@@ -66,16 +66,94 @@ struct ClipboardSearchQueryGroupCriteria: Sendable, Equatable {
     }
 }
 
+typealias ClipboardSearchCursor = SQLiteSearchCursor
+
+struct ClipboardSearchPage: Equatable, Sendable {
+    let items: [ClipboardItem]
+    let nextCursor: ClipboardSearchCursor?
+}
+
+final class ClipboardSearchCancellationToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancellationHandlers: [UUID: @Sendable () -> Void] = [:]
+    private var storedIsCancelled = false
+
+    var isCancelled: Bool {
+        lock.withLock { storedIsCancelled }
+    }
+
+    func cancel() {
+        let handlers: [@Sendable () -> Void] = lock.withLock {
+            guard !storedIsCancelled else {
+                return []
+            }
+            storedIsCancelled = true
+            let handlers = Array(cancellationHandlers.values)
+            cancellationHandlers.removeAll(keepingCapacity: false)
+            return handlers
+        }
+        for handler in handlers {
+            handler()
+        }
+    }
+
+    func throwIfCancelled() throws {
+        guard !isCancelled else {
+            throw CancellationError()
+        }
+    }
+
+    @discardableResult
+    func registerCancellationHandler(
+        _ handler: @escaping @Sendable () -> Void
+    ) -> UUID? {
+        let id = UUID()
+        let shouldInvokeImmediately = lock.withLock {
+            guard !storedIsCancelled else {
+                return true
+            }
+            cancellationHandlers[id] = handler
+            return false
+        }
+        if shouldInvokeImmediately {
+            handler()
+            return nil
+        }
+        return id
+    }
+
+    func unregisterCancellationHandler(_ id: UUID?) {
+        guard let id else {
+            return
+        }
+        lock.withLock {
+            cancellationHandlers[id] = nil
+        }
+    }
+}
+
 protocol ClipboardHistoryRepository {
     func loadSnapshot() throws -> ClipboardHistorySnapshot
     func loadSnapshot(itemLimit: Int, offset: Int) throws -> ClipboardHistorySnapshot
     func loadItems(limit: Int, offset: Int) throws -> [ClipboardItem]
+    func loadItemPage(
+        limit: Int,
+        after cursor: HistoryPagingService.ItemCursor?
+    ) throws -> HistoryPagingService.ItemPage
     func loadItems(contentHash: String, sourceBundleID: String?) throws -> [ClipboardItem]
+    func backfillContentDigests(limit: Int) throws -> Int
     func prepareSearchIndex() throws
     func searchItems(_ query: ClipboardSearchQuery) throws -> [ClipboardItem]
+    func searchPage(
+        _ query: ClipboardSearchQuery,
+        after cursor: ClipboardSearchCursor?,
+        cancellation: ClipboardSearchCancellationToken
+    ) throws -> ClipboardSearchPage
     func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) throws
     func insertItems(_ items: [ClipboardItem]) throws
+    func upsertGroups(_ groups: [ClipboardGroup]) throws
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws
+    func applyMutations(_ mutations: [ClipboardHistoryRepositoryMutation]) throws
     @discardableResult
     func compensateImportedItem(
         insertedItemID: ClipboardItem.ID,
@@ -98,6 +176,10 @@ protocol ClipboardHistoryRepository {
 }
 
 extension ClipboardHistoryRepository {
+    func backfillContentDigests(limit: Int) throws -> Int {
+        0
+    }
+
     func deleteExpiredItemsWithResult(
         before cutoff: Date
     ) throws -> ClipboardHistoryRetentionDeletionResult {
@@ -171,6 +253,28 @@ extension ClipboardHistoryRepository {
         return Array(try loadSnapshot().items.dropFirst(boundedOffset).prefix(boundedLimit))
     }
 
+    func loadItemPage(
+        limit: Int,
+        after cursor: HistoryPagingService.ItemCursor?
+    ) throws -> HistoryPagingService.ItemPage {
+        guard limit > 0 else {
+            return HistoryPagingService.ItemPage(items: [])
+        }
+
+        let sortedItems = try loadSnapshot().items.sorted(by: clipboardHistoryStableOrder)
+        let eligibleItems: [ClipboardItem]
+        if let cursor {
+            eligibleItems = sortedItems.filter {
+                clipboardHistoryItem($0, appearsAfter: cursor)
+            }
+        } else {
+            eligibleItems = sortedItems
+        }
+        return HistoryPagingService.ItemPage(
+            items: Array(eligibleItems.prefix(limit))
+        )
+    }
+
     func loadItems(contentHash: String, sourceBundleID: String?) throws -> [ClipboardItem] {
         try loadSnapshot().items.filter { item in
             guard item.contentHash == contentHash else {
@@ -219,6 +323,58 @@ extension ClipboardHistoryRepository {
         return result
     }
 
+    func searchPage(
+        _ query: ClipboardSearchQuery,
+        after cursor: ClipboardSearchCursor?,
+        cancellation: ClipboardSearchCancellationToken
+    ) throws -> ClipboardSearchPage {
+        let normalizedQuery = query.text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let usesTextSearch = !normalizedQuery.isEmpty
+        guard query.limit > 0,
+              usesTextSearch || query.filters.hasDatabaseFilters else {
+            return ClipboardSearchPage(items: [], nextCursor: nil)
+        }
+
+        var matches: [ClipboardItem] = []
+        for item in try loadSnapshot().items {
+            try cancellation.throwIfCancelled()
+            guard item.matchesSearchFilters(query.filters) else {
+                continue
+            }
+            guard !usesTextSearch || item.cardSearchText.contains(normalizedQuery) else {
+                continue
+            }
+            matches.append(item)
+        }
+        matches.sort(by: clipboardHistoryStableOrder)
+
+        let rank: Double? = usesTextSearch ? 0 : nil
+        let eligibleMatches: [ClipboardItem]
+        if let cursor {
+            eligibleMatches = matches.filter {
+                clipboardHistoryItem($0, rank: rank, appearsAfter: cursor)
+            }
+        } else {
+            eligibleMatches = matches
+        }
+        let pageItems = Array(eligibleMatches.prefix(query.limit))
+        try cancellation.throwIfCancelled()
+        return ClipboardSearchPage(
+            items: pageItems,
+            nextCursor: pageItems.last.map {
+                ClipboardSearchCursor(
+                    rank: rank,
+                    isPinned: $0.isPinned,
+                    createdAt: $0.createdAt,
+                    pinnedOrCreatedAt: $0.pinnedAt ?? $0.createdAt,
+                    id: $0.id
+                )
+            }
+        )
+    }
+
     func saveItems(_ items: [ClipboardItem]) throws {
         try saveSnapshot(ClipboardHistorySnapshot(items: items, groups: []))
     }
@@ -233,12 +389,50 @@ extension ClipboardHistoryRepository {
         try saveSnapshot(snapshot)
     }
 
+    func upsertGroups(_ groups: [ClipboardGroup]) throws {
+        guard !groups.isEmpty else {
+            return
+        }
+
+        var snapshot = try loadSnapshot()
+        let incomingIDs = Set(groups.map(\.id))
+        snapshot.groups.removeAll { incomingIDs.contains($0.id) }
+        snapshot.groups.append(contentsOf: groups)
+        snapshot.groups.sort {
+            if $0.sortOrder != $1.sortOrder {
+                return $0.sortOrder < $1.sortOrder
+            }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+        try saveSnapshot(snapshot)
+    }
+
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws {
         var snapshot = try loadSnapshot()
         snapshot.items.removeAll { deletedIDs.contains($0.id) || $0.id == item.id }
         snapshot.items.insert(item, at: 0)
         snapshot.groups = groups
         try saveSnapshot(snapshot)
+    }
+
+    func applyMutations(_ mutations: [ClipboardHistoryRepositoryMutation]) throws {
+        for mutation in mutations {
+            switch mutation {
+            case .upsert(let upsert):
+                try upsertItem(
+                    upsert.item,
+                    deleting: upsert.deletedIDs,
+                    groups: upsert.groups
+                )
+            case .update(let update):
+                var snapshot = try loadSnapshot()
+                guard let index = snapshot.items.firstIndex(where: { $0.id == update.item.id }) else {
+                    throw ClipboardHistoryWriteMutationError.itemNotFound(update.item.id)
+                }
+                snapshot.items[index] = update.item
+                try saveSnapshot(snapshot)
+            }
+        }
     }
 
     @discardableResult
@@ -290,6 +484,76 @@ extension ClipboardHistoryRepository {
         try saveSnapshot(snapshot)
         return ClipboardAttachmentCleanup(items: removedItems)
     }
+}
+
+private extension ClipboardSearchQueryFilters {
+    var hasDatabaseFilters: Bool {
+        !types.isEmpty
+            || !sourceAppNames.isEmpty
+            || requiresPinned
+            || !requiredGroupIDs.isEmpty
+            || !groupCriteria.isEmpty
+    }
+}
+
+private func clipboardHistoryStableOrder(
+    _ lhs: ClipboardItem,
+    _ rhs: ClipboardItem
+) -> Bool {
+    if lhs.isPinned != rhs.isPinned {
+        return lhs.isPinned && !rhs.isPinned
+    }
+    if lhs.createdAt != rhs.createdAt {
+        return lhs.createdAt > rhs.createdAt
+    }
+    let lhsPinnedOrCreatedAt = lhs.pinnedAt ?? lhs.createdAt
+    let rhsPinnedOrCreatedAt = rhs.pinnedAt ?? rhs.createdAt
+    if lhsPinnedOrCreatedAt != rhsPinnedOrCreatedAt {
+        return lhsPinnedOrCreatedAt > rhsPinnedOrCreatedAt
+    }
+    return lhs.id.uuidString > rhs.id.uuidString
+}
+
+private func clipboardHistoryItem(
+    _ item: ClipboardItem,
+    appearsAfter cursor: HistoryPagingService.ItemCursor
+) -> Bool {
+    if item.isPinned != cursor.isPinned {
+        return !item.isPinned && cursor.isPinned
+    }
+    if item.createdAt != cursor.createdAt {
+        return item.createdAt < cursor.createdAt
+    }
+    let pinnedOrCreatedAt = item.pinnedAt ?? item.createdAt
+    if pinnedOrCreatedAt != cursor.pinnedOrCreatedAt {
+        return pinnedOrCreatedAt < cursor.pinnedOrCreatedAt
+    }
+    return item.id.uuidString < cursor.id.uuidString
+}
+
+private func clipboardHistoryItem(
+    _ item: ClipboardItem,
+    rank: Double?,
+    appearsAfter cursor: ClipboardSearchCursor
+) -> Bool {
+    if rank != cursor.rank {
+        guard let rank,
+              let cursorRank = cursor.rank else {
+            return false
+        }
+        return rank > cursorRank
+    }
+    if item.isPinned != cursor.isPinned {
+        return !item.isPinned && cursor.isPinned
+    }
+    if item.createdAt != cursor.createdAt {
+        return item.createdAt < cursor.createdAt
+    }
+    let pinnedOrCreatedAt = item.pinnedAt ?? item.createdAt
+    if pinnedOrCreatedAt != cursor.pinnedOrCreatedAt {
+        return pinnedOrCreatedAt < cursor.pinnedOrCreatedAt
+    }
+    return item.id.uuidString < cursor.id.uuidString
 }
 
 extension ClipboardItem {

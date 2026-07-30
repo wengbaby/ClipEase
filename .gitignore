@@ -1,9 +1,11 @@
 .DS_Store
 /.agents/
+/.serena/
 /.codegraph/
 /.codex/
 /.trellis/
 /.build
+/*.profraw
 /dist
 /Packages
 xcuserdata/
@@ -22,4 +24,9 @@ DerivedData/
 !/scripts/
 !/scripts/build-app.sh
 !/scripts/bump_version.py
+!/scripts/run-performance-benchmarks.sh
+!/scripts/capture-performance-traces.sh
+!/scripts/performance/
+!/scripts/performance/*.py
+/scripts/performance/__pycache__/
 /windows/

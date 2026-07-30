@@ -9,6 +9,7 @@ enum ClipboardHistoryWriteOperation: String, Equatable, Sendable {
     case save
     case upsert
     case insertItems
+    case upsertGroups
     case delete
     case deleteAll
     case retention
@@ -51,11 +52,20 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         let protectedGroupIDs: Set<ClipboardGroup.ID>
     }
 
+    private struct PendingMutation {
+        let repositoryMutation: ClipboardHistoryRepositoryMutation
+        let attachmentCleanup: ClipboardAttachmentCleanup
+        let stagedAttachmentReservations: [ClipboardAttachmentReservation]
+        let revision: Int
+    }
+
     private let queue = DispatchQueue(label: "app.clipease.history-save", qos: .utility)
     private let persistence: ClipboardHistoryPersistence
-    private let attachmentCleanup: @Sendable (ClipboardAttachmentCleanup) -> Void
+    private let attachmentCleanup: @Sendable (ClipboardAttachmentCleanup) throws -> Void
+    private let usesPersistentAttachmentCleanupRetry: Bool
     private var recoveryRequest: @Sendable () -> Void
     private let compactionScheduler = ClipboardDatabaseCompactionScheduler()
+    private let batchPolicy: ClipboardHistoryWriteBatchPolicy
     private var latestRevision = 0
     private var recovery: ClipboardHistoryWriteRecovery = .incrementalAllowed
     private var isRecoveryRequestPending = false
@@ -67,21 +77,44 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
     private var fullSnapshotRevision = 0
     private var fullSnapshotItemIDs = Set<ClipboardItem.ID>()
     private var retentionRestorationAuthorities: [RetentionRestorationAuthority] = []
+    private var pendingMutations: [PendingMutation] = []
+    private var accumulatedBarrierDrainResult = ClipboardHistoryWriteDrainResult.empty
+    private var scheduledBatchToken: UInt64 = 0
+    private var scheduledAttachmentCleanupRetryToken: UInt64 = 0
+    private var retainedAttachmentCleanupFailure: String?
 
     var unresolvedImportReceiptCountForTesting: Int {
         queue.sync { unresolvedImportReceiptCount }
     }
 
+    var attachmentCleanupFailureForTesting: String? {
+        queue.sync { retainedAttachmentCleanupFailure }
+    }
+
     init(
         persistence: ClipboardHistoryPersistence,
-        attachmentCleanup: (@Sendable (ClipboardAttachmentCleanup) -> Void)? = nil,
-        recoveryRequest: @escaping @Sendable () -> Void = {}
+        attachmentCleanup: (@Sendable (ClipboardAttachmentCleanup) throws -> Void)? = nil,
+        recoveryRequest: @escaping @Sendable () -> Void = {},
+        batchPolicy: ClipboardHistoryWriteBatchPolicy = .enterpriseDefault
     ) {
         self.persistence = persistence
-        self.attachmentCleanup = attachmentCleanup ?? { cleanup in
-            _ = persistence.deleteUnreferencedAttachments(cleanup)
+        if let attachmentCleanup {
+            self.attachmentCleanup = attachmentCleanup
+            self.usesPersistentAttachmentCleanupRetry = false
+        } else {
+            self.attachmentCleanup = { cleanup in
+                _ = try persistence.scheduleAttachmentCleanupOrThrow(cleanup)
+            }
+            self.usesPersistentAttachmentCleanupRetry =
+                persistence.hasPersistentAttachmentCleanupRetryLedger
         }
         self.recoveryRequest = recoveryRequest
+        self.batchPolicy = batchPolicy
+        if usesPersistentAttachmentCleanupRetry {
+            queue.async { [weak self] in
+                self?.replayPersistedAttachmentCleanup()
+            }
+        }
     }
 
     func setRecoveryRequestHandler(_ handler: @escaping @Sendable () -> Void) {
@@ -108,6 +141,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                     guard !driver.isCompleted else {
                         return
                     }
+                    _ = drainPendingMutations()
 
                     if case .fullResyncRequired(let failedRevision) = recovery {
                         let failure = retainedPersistenceFailure ?? .persistenceFailed(
@@ -151,6 +185,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                     guard !driver.isCompleted else {
                         return
                     }
+                    _ = drainPendingMutations()
 
                     if case .fullResyncRequired(let failedRevision) = recovery {
                         let failure = retainedPersistenceFailure ?? .persistenceFailed(
@@ -185,6 +220,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         revision: Int
     ) {
         queue.async { [self] in
+            _ = drainPendingMutations()
             do {
                 if let persistedCleanup = try saveIfCurrent(snapshot, revision: revision) {
                     completeFullSave(
@@ -213,28 +249,41 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         revision: Int
     ) {
         queue.async { [self] in
-            guard shouldAttemptIncrementalWrite(
-                revision: revision,
-                attachmentCleanup: attachmentCleanup
-            ) else {
-                discardStagedAttachments(stagedAttachmentReservations)
-                return
-            }
+            enqueueMutation(
+                PendingMutation(
+                    repositoryMutation: .upsert(
+                        ClipboardHistoryUpsertMutation(
+                            item: item,
+                            deletedIDs: deletedIDs,
+                            groups: groups
+                        )
+                    ),
+                    attachmentCleanup: attachmentCleanup,
+                    stagedAttachmentReservations: stagedAttachmentReservations,
+                    revision: revision
+                )
+            )
+        }
+    }
 
-            do {
-                if try upsertIfCurrent(item, deleting: deletedIDs, groups: groups, revision: revision) {
-                    self.attachmentCleanup(attachmentCleanup)
-                    releaseStagedAttachments(stagedAttachmentReservations)
-                } else {
-                    discardStagedAttachments(stagedAttachmentReservations)
-                }
-            } catch {
-                discardStagedAttachments(stagedAttachmentReservations)
-                retainPersistenceFailure(operation: .upsert, revision: revision, error: error)
-                requireFullResync(afterFailureAt: revision, attachmentCleanup: attachmentCleanup)
-                NSLog("ClipEase failed to upsert clipboard history: \(error.localizedDescription)")
-                recordPersistenceError("history.persistence.upsert.failed", error: error, revision: revision)
-            }
+    func updateItemAsync(
+        _ mutation: ClipboardHistoryItemMutation,
+        attachmentCleanup: ClipboardAttachmentCleanup = .empty,
+        stagedAttachmentReservations: [ClipboardAttachmentReservation] = [],
+        revision: Int
+    ) {
+        guard !mutation.fields.isEmpty else {
+            return
+        }
+        queue.async { [self] in
+            enqueueMutation(
+                PendingMutation(
+                    repositoryMutation: .update(mutation),
+                    attachmentCleanup: attachmentCleanup,
+                    stagedAttachmentReservations: stagedAttachmentReservations,
+                    revision: revision
+                )
+            )
         }
     }
 
@@ -257,6 +306,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                     guard !driver.isCompleted else {
                         return
                     }
+                    _ = drainPendingMutations()
                     guard shouldAttemptIncrementalWrite(
                         revision: revision,
                         attachmentCleanup: attachmentCleanup
@@ -291,7 +341,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                             )
                             return
                         }
-                        self.attachmentCleanup(attachmentCleanup)
+                        performAttachmentCleanup(attachmentCleanup)
                         releaseStagedAttachments(stagedAttachmentReservations)
                         driver.finish(.success(()))
                     } catch {
@@ -333,6 +383,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 guard driver.install(continuation) else { return }
                 queue.async { [self] in
                     guard !driver.isCompleted else { return }
+                    _ = drainPendingMutations()
                     guard shouldAttemptIncrementalWrite(
                         revision: revision,
                         attachmentCleanup: acceptedCleanup
@@ -395,7 +446,8 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
     func acceptImportedItem(_ receipt: ClipboardImportCommitReceipt) -> Bool {
         guard receipt.resolveAccepted() else { return false }
         queue.async { [self] in
-            attachmentCleanup(receipt.acceptedCleanup)
+            _ = drainPendingMutations()
+            performAttachmentCleanup(receipt.acceptedCleanup)
             releaseStagedAttachments(receipt.stagedReservations)
             importReceiptDidResolve()
         }
@@ -408,6 +460,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         try await withCheckedThrowingContinuation { continuation in
             guard driver.install(continuation) else { return }
             queue.async { [self] in
+                _ = drainPendingMutations()
                 defer { importReceiptDidResolve() }
                 let restorations = receipt.displacedItems.filter {
                     shouldRestoreDisplacedItem($0, from: receipt)
@@ -419,7 +472,9 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                         restoring: restorations
                     )
                     releaseStagedAttachments(receipt.stagedReservations)
-                    attachmentCleanup(cleanup.union(Self.candidates(for: receipt.stagedReservations)))
+                    performAttachmentCleanup(
+                        cleanup.union(Self.candidates(for: receipt.stagedReservations))
+                    )
                     driver.finish(.success(()))
                 } catch {
                     releaseStagedAttachments(receipt.stagedReservations)
@@ -436,6 +491,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
 
     func insertItemsAsync(_ items: [ClipboardItem], revision: Int) {
         queue.async { [self] in
+            _ = drainPendingMutations()
             guard shouldAttemptIncrementalWrite(
                 revision: revision,
                 attachmentCleanup: .empty
@@ -454,6 +510,35 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         }
     }
 
+    func upsertGroupsAsync(_ groups: [ClipboardGroup], revision: Int) {
+        guard !groups.isEmpty else {
+            return
+        }
+
+        queue.async { [self] in
+            accumulateBarrierDrainResult(drainPendingMutations())
+            guard shouldAttemptIncrementalWrite(
+                revision: revision,
+                attachmentCleanup: .empty
+            ) else {
+                return
+            }
+
+            do {
+                try upsertGroupsIfCurrent(groups, revision: revision)
+            } catch {
+                retainPersistenceFailure(operation: .upsertGroups, revision: revision, error: error)
+                requireFullResync(afterFailureAt: revision, attachmentCleanup: .empty)
+                NSLog("ClipEase failed to upsert clipboard history groups: \(error.localizedDescription)")
+                recordPersistenceError(
+                    "history.persistence.upsertGroups.failed",
+                    error: error,
+                    revision: revision
+                )
+            }
+        }
+    }
+
     func deleteAsync(
         itemIDs: Set<ClipboardItem.ID>,
         groupIDs: Set<ClipboardGroup.ID>,
@@ -461,6 +546,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         revision: Int
     ) {
         queue.async { [self] in
+            _ = drainPendingMutations()
             guard shouldAttemptIncrementalWrite(
                 revision: revision,
                 attachmentCleanup: attachmentCleanup
@@ -474,7 +560,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                     groupIDs: groupIDs,
                     revision: revision
                 ) {
-                    self.attachmentCleanup(attachmentCleanup.union(repositoryCleanup))
+                    performAttachmentCleanup(attachmentCleanup.union(repositoryCleanup))
                 }
             } catch {
                 retainPersistenceFailure(operation: .delete, revision: revision, error: error)
@@ -491,6 +577,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         revision: Int
     ) {
         queue.async { [self] in
+            _ = drainPendingMutations()
             guard shouldAttemptIncrementalWrite(
                 revision: revision,
                 attachmentCleanup: attachmentCleanup
@@ -503,7 +590,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                     preserving: groups,
                     revision: revision
                 ) {
-                    self.attachmentCleanup(attachmentCleanup.union(repositoryCleanup))
+                    performAttachmentCleanup(attachmentCleanup.union(repositoryCleanup))
                 }
             } catch {
                 retainPersistenceFailure(operation: .deleteAll, revision: revision, error: error)
@@ -520,6 +607,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         completion: @escaping @Sendable () -> Void = {}
     ) {
         queue.async { [self] in
+            _ = drainPendingMutations()
             defer { completion() }
             guard shouldAttemptIncrementalWrite(
                 revision: revision,
@@ -533,7 +621,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                     before: cutoff,
                     revision: revision
                 ) {
-                    attachmentCleanup(repositoryCleanup)
+                    performAttachmentCleanup(repositoryCleanup)
                 }
             } catch {
                 retainPersistenceFailure(operation: .retention, revision: revision, error: error)
@@ -551,6 +639,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         revision: Int
     ) throws {
         try queue.sync { [self] in
+            _ = drainPendingMutations()
             do {
                 if let persistedCleanup = try saveIfCurrent(snapshot, revision: revision) {
                     completeFullSave(
@@ -570,7 +659,232 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
     }
 
     func flush() {
-        queue.sync {}
+        _ = drain()
+    }
+
+    @discardableResult
+    func drain() -> ClipboardHistoryWriteDrainResult {
+        queue.sync { [self] in
+            drainIncludingBarrierResults()
+        }
+    }
+
+    func flushAsync() async -> ClipboardHistoryWriteDrainResult {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                continuation.resume(returning: drainIncludingBarrierResults())
+            }
+        }
+    }
+
+    private func accumulateBarrierDrainResult(_ result: ClipboardHistoryWriteDrainResult) {
+        accumulatedBarrierDrainResult = Self.mergingDrainResults(
+            accumulatedBarrierDrainResult,
+            result
+        )
+    }
+
+    private func drainIncludingBarrierResults() -> ClipboardHistoryWriteDrainResult {
+        let result = Self.mergingDrainResults(
+            accumulatedBarrierDrainResult,
+            drainPendingMutations()
+        )
+        accumulatedBarrierDrainResult = .empty
+        return result
+    }
+
+    private static func mergingDrainResults(
+        _ lhs: ClipboardHistoryWriteDrainResult,
+        _ rhs: ClipboardHistoryWriteDrainResult
+    ) -> ClipboardHistoryWriteDrainResult {
+        ClipboardHistoryWriteDrainResult(
+            attemptedMutationCount: lhs.attemptedMutationCount + rhs.attemptedMutationCount,
+            committedMutationCount: lhs.committedMutationCount + rhs.committedMutationCount,
+            requiresFullResync: lhs.requiresFullResync || rhs.requiresFullResync
+        )
+    }
+
+    private func enqueueMutation(_ mutation: PendingMutation) {
+        let newestQueuedRevision = pendingMutations.last?.revision ?? latestRevision
+        guard mutation.revision > newestQueuedRevision,
+              shouldAttemptIncrementalWrite(
+                  revision: mutation.revision,
+                  attachmentCleanup: mutation.attachmentCleanup
+              ) else {
+            discardStagedAttachments(mutation.stagedAttachmentReservations)
+            return
+        }
+
+        let wasEmpty = pendingMutations.isEmpty
+        if !coalescePendingMutation(mutation) {
+            pendingMutations.append(mutation)
+        }
+
+        if pendingMutations.count >= batchPolicy.maximumMutationCount {
+            _ = drainPendingMutations()
+        } else if wasEmpty {
+            schedulePendingMutationDrain()
+        }
+    }
+
+    private func coalescePendingMutation(_ newer: PendingMutation) -> Bool {
+        for index in pendingMutations.indices.reversed() {
+            let existing = pendingMutations[index]
+            if case .upsert(let interveningUpsert) = existing.repositoryMutation,
+               interveningUpsert.deletedIDs.contains(newer.repositoryMutation.itemID) {
+                return false
+            }
+            guard existing.repositoryMutation.itemID == newer.repositoryMutation.itemID else {
+                continue
+            }
+
+            let mergedRepositoryMutation: ClipboardHistoryRepositoryMutation
+            switch (existing.repositoryMutation, newer.repositoryMutation) {
+            case let (.update(older), .update(latest)):
+                guard existing.attachmentCleanup.isEmpty,
+                      newer.attachmentCleanup.isEmpty,
+                      existing.stagedAttachmentReservations.isEmpty,
+                      newer.stagedAttachmentReservations.isEmpty,
+                      let merged = older.merging(latest) else {
+                    return false
+                }
+                mergedRepositoryMutation = .update(merged)
+            case let (.upsert(older), .upsert(latest)):
+                guard existing.attachmentCleanup.isEmpty,
+                      newer.attachmentCleanup.isEmpty,
+                      existing.stagedAttachmentReservations.isEmpty,
+                      newer.stagedAttachmentReservations.isEmpty,
+                      older.deletedIDs.isEmpty,
+                      latest.deletedIDs.isEmpty,
+                      older.groups == latest.groups else {
+                    return false
+                }
+                mergedRepositoryMutation = .upsert(latest)
+            default:
+                return false
+            }
+
+            pendingMutations.remove(at: index)
+            pendingMutations.append(
+                PendingMutation(
+                    repositoryMutation: mergedRepositoryMutation,
+                    attachmentCleanup: newer.attachmentCleanup,
+                    stagedAttachmentReservations: newer.stagedAttachmentReservations,
+                    revision: newer.revision
+                )
+            )
+            return true
+        }
+        return false
+    }
+
+    private func schedulePendingMutationDrain() {
+        scheduledBatchToken &+= 1
+        let token = scheduledBatchToken
+        queue.asyncAfter(
+            deadline: .now() + .milliseconds(batchPolicy.maximumDelayMilliseconds)
+        ) { [self] in
+            guard token == scheduledBatchToken else {
+                return
+            }
+            _ = drainPendingMutations()
+        }
+    }
+
+    private func drainPendingMutations() -> ClipboardHistoryWriteDrainResult {
+        guard !pendingMutations.isEmpty else {
+            return ClipboardHistoryWriteDrainResult(
+                attemptedMutationCount: 0,
+                committedMutationCount: 0,
+                requiresFullResync: isFullResyncRequired
+            )
+        }
+
+        let batch = pendingMutations
+        pendingMutations.removeAll(keepingCapacity: true)
+        scheduledBatchToken &+= 1
+        let finalRevision = batch.last?.revision ?? latestRevision
+        latestRevision = finalRevision
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        let persistenceInterval = PerformanceDiagnosticsSignposter.beginInterval(
+            name: "history.persistence.batch",
+            category: "storage"
+        )
+        defer {
+            PerformanceDiagnosticsSignposter.endInterval(persistenceInterval)
+        }
+
+        do {
+            try persistence.applyMutationsOrThrow(batch.map(\.repositoryMutation))
+            var cleanup = ClipboardAttachmentCleanup.empty
+            var deletedItemCount = 0
+            for mutation in batch {
+                cleanup = cleanup.union(mutation.attachmentCleanup)
+                releaseStagedAttachments(mutation.stagedAttachmentReservations)
+                if case .upsert(let upsert) = mutation.repositoryMutation {
+                    deletedItemCount += upsert.deletedIDs.count
+                    for id in upsert.deletedIDs {
+                        deletedItemRevision[id] = max(
+                            deletedItemRevision[id] ?? 0,
+                            mutation.revision
+                        )
+                    }
+                }
+            }
+            if !cleanup.isEmpty {
+                performAttachmentCleanup(cleanup)
+            }
+            compactDatabaseIfNeeded()
+            let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+            let committedMutationCount = batch.count
+            Task { @MainActor in
+                PerformanceDiagnosticsService.shared.record(
+                    "history.persistence.upsertBatch",
+                    category: "storage",
+                    durationMS: durationMS,
+                    itemCount: committedMutationCount,
+                    resultCount: committedMutationCount,
+                    metadata: [
+                        "revision": "\(finalRevision)",
+                        "deletedCount": "\(deletedItemCount)"
+                    ]
+                )
+            }
+            return ClipboardHistoryWriteDrainResult(
+                attemptedMutationCount: committedMutationCount,
+                committedMutationCount: committedMutationCount,
+                requiresFullResync: false
+            )
+        } catch {
+            let cleanup = batch.reduce(into: ClipboardAttachmentCleanup.empty) { result, mutation in
+                result = result.union(mutation.attachmentCleanup)
+                discardStagedAttachments(mutation.stagedAttachmentReservations)
+            }
+            retainPersistenceFailure(operation: .upsert, revision: finalRevision, error: error)
+            requireFullResync(afterFailureAt: finalRevision, attachmentCleanup: cleanup)
+            NSLog(
+                "ClipEase failed to apply clipboard history batch; count=%d errorType=%@",
+                batch.count,
+                String(describing: type(of: error))
+            )
+            recordPersistenceError(
+                "history.persistence.upsertBatch.failed",
+                error: error,
+                revision: finalRevision
+            )
+            return ClipboardHistoryWriteDrainResult(
+                attemptedMutationCount: batch.count,
+                committedMutationCount: 0,
+                requiresFullResync: true
+            )
+        }
+    }
+
+    private var isFullResyncRequired: Bool {
+        if case .fullResyncRequired = recovery {
+            return true
+        }
+        return false
     }
 
     private func saveIfCurrent(
@@ -637,7 +951,74 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
         recovery = .incrementalAllowed
         isRecoveryRequestPending = false
         retainedPersistenceFailure = nil
-        self.attachmentCleanup(cleanup)
+        performAttachmentCleanup(cleanup)
+    }
+
+    private func performAttachmentCleanup(_ cleanup: ClipboardAttachmentCleanup) {
+        guard !cleanup.isEmpty else {
+            return
+        }
+        do {
+            try attachmentCleanup(cleanup)
+            refreshAttachmentCleanupRetryState()
+        } catch {
+            retainAttachmentCleanupFailure(error)
+        }
+    }
+
+    private func replayPersistedAttachmentCleanup() {
+        guard usesPersistentAttachmentCleanupRetry else {
+            return
+        }
+        do {
+            _ = try persistence.replayPendingAttachmentCleanupOrThrow()
+            refreshAttachmentCleanupRetryState()
+        } catch {
+            retainAttachmentCleanupFailure(error)
+        }
+    }
+
+    private func refreshAttachmentCleanupRetryState() {
+        guard usesPersistentAttachmentCleanupRetry else {
+            retainedAttachmentCleanupFailure = nil
+            return
+        }
+        do {
+            let status = try persistence.attachmentCleanupRetryStatusOrThrow()
+            if status.terminalEntryCount > 0 || status.rejectedCandidateCount > 0 {
+                retainedAttachmentCleanupFailure =
+                    "terminal=\(status.totalTerminalFailureCount),"
+                    + "rejected=\(status.rejectedCandidateCount)"
+            } else {
+                retainedAttachmentCleanupFailure = nil
+            }
+
+            scheduledAttachmentCleanupRetryToken &+= 1
+            let token = scheduledAttachmentCleanupRetryToken
+            guard let delay = status.retryDelay else {
+                return
+            }
+            queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self,
+                      token == scheduledAttachmentCleanupRetryToken else {
+                    return
+                }
+                replayPersistedAttachmentCleanup()
+            }
+        } catch {
+            retainAttachmentCleanupFailure(error)
+        }
+    }
+
+    private func retainAttachmentCleanupFailure(_ error: Error) {
+        let nsError = error as NSError
+        retainedAttachmentCleanupFailure =
+            "\(String(describing: type(of: error))):\(nsError.code)"
+        NSLog(
+            "ClipEase attachment cleanup retry failed; errorType=%@ code=%d",
+            String(describing: type(of: error)),
+            nsError.code
+        )
     }
 
     private func releaseStagedAttachments(_ reservations: [ClipboardAttachmentReservation]) {
@@ -652,7 +1033,7 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
             cleanup = cleanup.union(reservation.candidates)
         }
         releaseStagedAttachments(reservations)
-        self.attachmentCleanup(candidates)
+        performAttachmentCleanup(candidates)
     }
 
     private static func candidates(
@@ -723,6 +1104,28 @@ final class ClipboardHistorySaveWriter: @unchecked Sendable {
                 category: "storage",
                 durationMS: durationMS,
                 itemCount: items.count,
+                metadata: ["revision": "\(revision)"]
+            )
+        }
+    }
+
+    private func upsertGroupsIfCurrent(_ groups: [ClipboardGroup], revision: Int) throws {
+        guard revision > latestRevision,
+              !groups.isEmpty else {
+            return
+        }
+
+        latestRevision = revision
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        try persistence.upsertGroupsOrThrow(groups)
+        compactDatabaseIfNeeded()
+        let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
+        Task { @MainActor in
+            PerformanceDiagnosticsService.shared.record(
+                "history.persistence.upsertGroups",
+                category: "storage",
+                durationMS: durationMS,
+                itemCount: groups.count,
                 metadata: ["revision": "\(revision)"]
             )
         }

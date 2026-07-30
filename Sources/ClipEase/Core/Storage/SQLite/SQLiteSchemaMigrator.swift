@@ -26,9 +26,14 @@ struct SQLiteSchemaMigrator: Sendable {
         }
 
         try database.execute("PRAGMA foreign_keys = OFF")
-        try createSchema(database)
-        try recordSchemaVersion(database)
-        try database.execute("PRAGMA foreign_keys = ON")
-        return true
+        do {
+            try createSchema(database)
+            try recordSchemaVersion(database)
+            try database.execute("PRAGMA foreign_keys = ON")
+            return true
+        } catch {
+            try? database.execute("PRAGMA foreign_keys = ON")
+            throw error
+        }
     }
 }

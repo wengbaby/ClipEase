@@ -114,9 +114,42 @@ enum HistoryPreviewBuildCoordinator {
         sourceItems: [ClipboardItem],
         currentSourceSignature: [HistoryPreviewSourceSignature]
     ) -> PreviewSignatureUpdate {
+        do {
+            return try previewSignatureUpdate(
+                sourceItems: sourceItems,
+                currentSourceSignature: currentSourceSignature,
+                cancellationCheck: {}
+            )
+        } catch {
+            preconditionFailure("Non-cancelling preview signature construction unexpectedly failed")
+        }
+    }
+
+    static func previewSignatureUpdateCheckingCancellation(
+        sourceItems: [ClipboardItem],
+        currentSourceSignature: [HistoryPreviewSourceSignature]
+    ) throws -> PreviewSignatureUpdate {
+        try previewSignatureUpdate(
+            sourceItems: sourceItems,
+            currentSourceSignature: currentSourceSignature,
+            cancellationCheck: {
+                try Task.checkCancellation()
+            }
+        )
+    }
+
+    private static func previewSignatureUpdate(
+        sourceItems: [ClipboardItem],
+        currentSourceSignature: [HistoryPreviewSourceSignature],
+        cancellationCheck: () throws -> Void
+    ) throws -> PreviewSignatureUpdate {
+        try cancellationCheck()
         guard !currentSourceSignature.isEmpty,
               sourceItems.count >= currentSourceSignature.count else {
-            let sourceSignature = sourceItems.map(HistoryPreviewSourceSignature.init)
+            let sourceSignature = try sourceSignature(
+                from: sourceItems,
+                cancellationCheck: cancellationCheck
+            )
             return PreviewSignatureUpdate(
                 sourceSignature: sourceSignature,
                 hasChanges: sourceSignature != currentSourceSignature
@@ -126,7 +159,10 @@ enum HistoryPreviewBuildCoordinator {
         let insertedCount = sourceItems.count - currentSourceSignature.count
         guard insertedCount > 0,
               insertedCount <= 8 else {
-            let sourceSignature = sourceItems.map(HistoryPreviewSourceSignature.init)
+            let sourceSignature = try sourceSignature(
+                from: sourceItems,
+                cancellationCheck: cancellationCheck
+            )
             return PreviewSignatureUpdate(
                 sourceSignature: sourceSignature,
                 hasChanges: sourceSignature != currentSourceSignature
@@ -134,8 +170,14 @@ enum HistoryPreviewBuildCoordinator {
         }
 
         for (offset, signature) in currentSourceSignature.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
             guard signature.matches(item: sourceItems[offset + insertedCount]) else {
-                let sourceSignature = sourceItems.map(HistoryPreviewSourceSignature.init)
+                let sourceSignature = try sourceSignature(
+                    from: sourceItems,
+                    cancellationCheck: cancellationCheck
+                )
                 return PreviewSignatureUpdate(
                     sourceSignature: sourceSignature,
                     hasChanges: sourceSignature != currentSourceSignature
@@ -147,6 +189,22 @@ enum HistoryPreviewBuildCoordinator {
         sourceSignature.reserveCapacity(sourceItems.count)
         sourceSignature.append(contentsOf: currentSourceSignature)
         return PreviewSignatureUpdate(sourceSignature: sourceSignature, hasChanges: true)
+    }
+
+    private static func sourceSignature(
+        from sourceItems: [ClipboardItem],
+        cancellationCheck: () throws -> Void
+    ) throws -> [HistoryPreviewSourceSignature] {
+        var sourceSignature: [HistoryPreviewSourceSignature] = []
+        sourceSignature.reserveCapacity(sourceItems.count)
+        for (index, item) in sourceItems.enumerated() {
+            if index.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            sourceSignature.append(HistoryPreviewSourceSignature(item: item))
+        }
+        try cancellationCheck()
+        return sourceSignature
     }
 
     static func shouldApplyResult(
@@ -166,7 +224,7 @@ enum HistoryPreviewBuildCoordinator {
         retainedCacheIDs: Set<ClipboardItem.ID>
     ) throws -> RebuildResult {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        if let insertion = incrementalPreviewInsertion(
+        if let insertion = try incrementalPreviewInsertion(
             sourceItems: sourceItems,
             sourceSignature: sourceSignature,
             currentPreviewItems: currentPreviewItems,
@@ -199,7 +257,7 @@ enum HistoryPreviewBuildCoordinator {
             }
 
             try Task.checkCancellation()
-            let sourceAppSnapshot = HistorySourceAppFilter.snapshot(from: sourceItems)
+            let sourceAppSnapshot = try HistorySourceAppFilter.cancellableSnapshot(from: sourceItems)
             let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
             return .prepend(
                 insertedItems: insertion.insertedItems,
@@ -238,7 +296,7 @@ enum HistoryPreviewBuildCoordinator {
         }
 
         try Task.checkCancellation()
-        let sourceAppSnapshot = HistorySourceAppFilter.snapshot(from: sourceItems)
+        let sourceAppSnapshot = try HistorySourceAppFilter.cancellableSnapshot(from: sourceItems)
         let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
         return .full(
             previewItems: previewItems,
@@ -254,7 +312,8 @@ enum HistoryPreviewBuildCoordinator {
         sourceSignature: [HistoryPreviewSourceSignature],
         currentPreviewItems: [HistoryPreviewItem],
         currentSourceSignature: [HistoryPreviewSourceSignature]
-    ) -> IncrementalPreviewInsertion? {
+    ) throws -> IncrementalPreviewInsertion? {
+        try Task.checkCancellation()
         guard !currentPreviewItems.isEmpty,
               sourceItems.count >= currentPreviewItems.count,
               currentSourceSignature.count == currentPreviewItems.count,
@@ -264,9 +323,16 @@ enum HistoryPreviewBuildCoordinator {
 
         let insertedCount = sourceItems.count - currentPreviewItems.count
         guard insertedCount >= 0,
-              insertedCount <= 8,
-              sourceSignature.dropFirst(insertedCount).elementsEqual(currentSourceSignature) else {
+              insertedCount <= 8 else {
             return nil
+        }
+        for index in currentSourceSignature.indices {
+            if index.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
+            guard sourceSignature[index + insertedCount] == currentSourceSignature[index] else {
+                return nil
+            }
         }
 
         var insertedItems: [HistoryPreviewItem] = []

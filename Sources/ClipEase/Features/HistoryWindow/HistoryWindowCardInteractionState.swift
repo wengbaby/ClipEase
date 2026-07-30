@@ -10,24 +10,43 @@ struct HistoryWindowCardInteractionState {
     var hoveredCardID: HistoryPreviewItem.ID?
     var pressedCardID: HistoryPreviewItem.ID?
 
-    mutating func select(_ id: HistoryPreviewItem.ID?) {
+    @discardableResult
+    mutating func select(_ id: HistoryPreviewItem.ID?) -> Bool {
+        guard selectedItemID != id else {
+            return false
+        }
         selectedItemID = id
+        return true
     }
 
-    mutating func setHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
+    @discardableResult
+    mutating func setHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) -> Bool {
         if isHovered {
+            guard hoveredCardID != id else {
+                return false
+            }
             hoveredCardID = id
         } else if hoveredCardID == id {
             hoveredCardID = nil
+        } else {
+            return false
         }
+        return true
     }
 
-    mutating func setPress(_ id: HistoryPreviewItem.ID, isPressed: Bool) {
+    @discardableResult
+    mutating func setPress(_ id: HistoryPreviewItem.ID, isPressed: Bool) -> Bool {
         if isPressed {
+            guard pressedCardID != id else {
+                return false
+            }
             pressedCardID = id
         } else if pressedCardID == id {
             pressedCardID = nil
+        } else {
+            return false
         }
+        return true
     }
 
     mutating func startEntranceAnimation(for id: ClipboardItem.ID, startTime: CFTimeInterval) {

@@ -30,6 +30,34 @@ import Testing
     #expect(!guardStore.consume(changeCount: 3, payload: .files([fileURL])))
 }
 
+@Test func clipboardSelfWriteGuardConsumesPendingImageByExactChangeCountWhenPreviewIsSkipped() async {
+    let release = DispatchSemaphore(value: 0)
+    let guardStore = ClipboardSelfWriteGuard(imageFingerprint: { _ in
+        release.wait()
+        return nil
+    })
+    guardStore.registerPendingImage(
+        changeCount: 42,
+        payload: ClipboardEncodedImagePayload(
+            data: Data([0x01]),
+            declaredTypeIdentifier: "public.png"
+        )
+    )
+
+    let matched = await guardStore.consumeImage(
+        changeCount: 42,
+        fingerprint: nil
+    )
+    release.signal()
+    let duplicate = await guardStore.consumeImage(
+        changeCount: 42,
+        fingerprint: nil
+    )
+
+    #expect(matched)
+    #expect(!duplicate)
+}
+
 @MainActor
 @Test func pasteboardWriterKeepsRichTextPlainTextAndRegistersSelfWrite() {
     let pasteboard = NSPasteboard(name: NSPasteboard.Name("ClipEaseTests-\(UUID().uuidString)"))

@@ -173,6 +173,13 @@ struct HistoryImageAssetDecoder {
 
     func decode(_ request: HistoryImageAssetRequest) throws -> HistoryImageAsset? {
         try Task.checkCancellation()
+        let decodeInterval = PerformanceDiagnosticsSignposter.beginInterval(
+            name: "asset.image-decode",
+            category: "image"
+        )
+        defer {
+            PerformanceDiagnosticsSignposter.endInterval(decodeInterval)
+        }
 
         var primaryError: Error?
         if fileManager.fileExists(atPath: request.primaryURL.path) {

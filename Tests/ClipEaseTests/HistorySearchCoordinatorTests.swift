@@ -147,7 +147,7 @@ import Testing
         trigger: "typing",
         pageSize: 1
     ))
-    coordinator.startSearch(
+    let initialSearchTask = coordinator.startSearch(
         request: request,
         immediate: true,
         debounceNanoseconds: 0,
@@ -158,10 +158,11 @@ import Testing
             initialSearchApplied = true
         }
     )
-    try await waitUntil { initialSearchApplied }
+    await initialSearchTask.value
+    #expect(initialSearchApplied)
 
     let loadMoreGate = DispatchSemaphore(value: 0)
-    coordinator.loadMoreIfNeeded(
+    let pendingLoadMoreTask = coordinator.loadMoreIfNeeded(
         visibleUpperBound: 1,
         preloadMargin: 0,
         existingItems: [first],
@@ -178,6 +179,7 @@ import Testing
             loadMoreAppliedCount += 1
         }
     )
+    let loadMoreTask = try #require(pendingLoadMoreTask)
 
     _ = coordinator.prepareSearch(
         sourceItems: [first],
@@ -190,7 +192,7 @@ import Testing
     )
     loadMoreGate.signal()
 
-    try await Task.sleep(nanoseconds: 100_000_000)
+    await loadMoreTask.value
     #expect(loadMoreAppliedCount == 0)
 }
 
@@ -215,7 +217,7 @@ import Testing
 
     let queryRecorder = SearchQueryRecorder()
     var appliedResult: HistorySearchFilterResult?
-    coordinator.startSearch(
+    let searchTask = coordinator.startSearch(
         request: request,
         immediate: true,
         debounceNanoseconds: 0,
@@ -240,7 +242,8 @@ import Testing
         }
     )
 
-    try await waitUntil { appliedResult != nil }
+    await searchTask.value
+    #expect(appliedResult != nil)
 
     #expect(queryRecorder.queries.map(\.offset) == [0, 2])
     #expect(appliedResult?.items.map(\.sourceAppName) == [targetApp.name, targetApp.name])
@@ -271,7 +274,7 @@ import Testing
 
     let queryRecorder = SearchQueryRecorder()
     var appliedResult: HistorySearchFilterResult?
-    coordinator.startSearch(
+    let searchTask = coordinator.startSearch(
         request: request,
         immediate: true,
         debounceNanoseconds: 0,
@@ -284,7 +287,8 @@ import Testing
         }
     )
 
-    try await waitUntil { appliedResult != nil }
+    await searchTask.value
+    #expect(appliedResult != nil)
     let query = try #require(queryRecorder.queries.first)
     #expect(query.filters.types == [.image])
     #expect(query.filters.sourceAppNames == [targetApp.name])
@@ -307,19 +311,5 @@ private final class SearchQueryRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         storedQueries.append(query)
-    }
-}
-
-private func waitUntil(
-    timeoutNanoseconds: UInt64 = 1_000_000_000,
-    condition: @escaping @MainActor () -> Bool
-) async throws {
-    let startedAt = ContinuousClock.now
-    while !(await condition()) {
-        try await Task.sleep(nanoseconds: 10_000_000)
-        if startedAt.duration(to: ContinuousClock.now) > .nanoseconds(Int64(timeoutNanoseconds)) {
-            Issue.record("Timed out waiting for condition")
-            return
-        }
     }
 }

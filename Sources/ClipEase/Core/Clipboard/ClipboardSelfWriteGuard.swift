@@ -486,13 +486,24 @@ final class ClipboardSelfWriteGuard: @unchecked Sendable {
         }
         guard let expectedIdentity = fingerprint.flatMap(Self.canonicalImageIdentity) else {
             let timestamp = now()
-            let retiredWorks = lock.withLock {
+            let result = lock.withLock {
                 var retiredWorks = removeExpiredTokens(at: timestamp)
+                let matched = tokens.contains { token in
+                    guard token.changeCount == changeCount else {
+                        return false
+                    }
+                    switch token.state {
+                    case .resolved(let identity):
+                        return identity.kind == .image
+                    case .pendingImage:
+                        return true
+                    }
+                }
                 retiredWorks.append(contentsOf: removeTokens { $0.changeCount <= changeCount })
-                return retiredWorks
+                return (matched, retiredWorks)
             }
-            completeRetiredWorks(retiredWorks)
-            return false
+            completeRetiredWorks(result.1)
+            return result.0
         }
 
         let claim = ImageConsumeClaim()

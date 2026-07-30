@@ -10,6 +10,7 @@ enum SQLiteStoreError: Error, LocalizedError {
     case prepareFailed(String)
     case executeFailed(String)
     case bindFailed(String)
+    case interrupted
     case queryReturnedNoRows
     case incompatibleSchemaVersion(found: Int, supported: Int)
 
@@ -23,6 +24,8 @@ enum SQLiteStoreError: Error, LocalizedError {
             "SQLite execute failed: \(message)"
         case .bindFailed(let message):
             "SQLite bind failed: \(message)"
+        case .interrupted:
+            "SQLite query was interrupted"
         case .queryReturnedNoRows:
             "SQLite query returned no rows"
         case .incompatibleSchemaVersion(let found, let supported):
@@ -31,9 +34,11 @@ enum SQLiteStoreError: Error, LocalizedError {
     }
 }
 
-final class SQLiteConnection {
+final class SQLiteConnection: @unchecked Sendable {
     static let defaultBusyTimeoutMilliseconds = 5_000
 
+    private let operationLock = NSRecursiveLock()
+    private let handleLock = NSLock()
     private var handle: OpaquePointer?
 
     init(url: URL) throws {
@@ -52,83 +57,182 @@ final class SQLiteConnection {
         }
     }
 
+    deinit {
+        close()
+    }
+
     func close() {
-        sqlite3_close(handle)
-        handle = nil
+        operationLock.withLock {
+            handleLock.withLock {
+                guard let handle else {
+                    return
+                }
+                sqlite3_close(handle)
+                self.handle = nil
+            }
+        }
+    }
+
+    @discardableResult
+    func interrupt() -> Bool {
+        handleLock.withLock {
+            guard let handle else {
+                return false
+            }
+            sqlite3_interrupt(handle)
+            return true
+        }
     }
 
     func execute(_ sql: String, values: [SQLiteValue] = []) throws {
-        let statement = try prepare(sql)
-        defer { sqlite3_finalize(statement) }
+        try operationLock.withLock {
+            let statement = try prepare(sql)
+            defer { sqlite3_finalize(statement) }
 
-        try bind(values, to: statement)
+            try bind(values, to: statement)
 
-        let result = sqlite3_step(statement)
-        guard result == SQLITE_DONE || result == SQLITE_ROW else {
-            throw SQLiteStoreError.executeFailed(lastErrorMessage)
+            let result = sqlite3_step(statement)
+            if result == SQLITE_INTERRUPT {
+                throw SQLiteStoreError.interrupted
+            }
+            guard result == SQLITE_DONE || result == SQLITE_ROW else {
+                throw SQLiteStoreError.executeFailed(lastErrorMessage)
+            }
         }
     }
 
     func queryInt(_ sql: String, values: [SQLiteValue] = []) throws -> Int {
-        let statement = try prepare(sql)
-        defer { sqlite3_finalize(statement) }
+        try operationLock.withLock {
+            let statement = try prepare(sql)
+            defer { sqlite3_finalize(statement) }
 
-        try bind(values, to: statement)
+            try bind(values, to: statement)
 
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw SQLiteStoreError.queryReturnedNoRows
+            let result = sqlite3_step(statement)
+            if result == SQLITE_INTERRUPT {
+                throw SQLiteStoreError.interrupted
+            }
+            guard result == SQLITE_ROW else {
+                throw SQLiteStoreError.queryReturnedNoRows
+            }
+
+            return Int(sqlite3_column_int64(statement, 0))
         }
-
-        return Int(sqlite3_column_int64(statement, 0))
     }
 
     func query(_ sql: String, values: [SQLiteValue] = []) throws -> [SQLiteRow] {
-        let statement = try prepare(sql)
-        defer { sqlite3_finalize(statement) }
+        try query(
+            sql,
+            values: values,
+            cancellationCheck: { false }
+        )
+    }
 
-        try bind(values, to: statement)
-
-        var rows: [SQLiteRow] = []
-        while true {
-            let result = sqlite3_step(statement)
-            if result == SQLITE_DONE {
-                break
+    func queryCancellable(
+        _ sql: String,
+        values: [SQLiteValue] = []
+    ) async throws -> [SQLiteRow] {
+        let cancellationState = SQLiteQueryCancellationState()
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            do {
+                return try await Task.detached(priority: .userInitiated) { [self] in
+                    try query(
+                        sql,
+                        values: values,
+                        cancellationCheck: cancellationState.isCancelled
+                    )
+                }.value
+            } catch SQLiteStoreError.interrupted {
+                throw CancellationError()
             }
-
-            guard result == SQLITE_ROW else {
-                throw SQLiteStoreError.executeFailed(lastErrorMessage)
-            }
-
-            var values: [String: SQLiteCell] = [:]
-            for index in 0..<sqlite3_column_count(statement) {
-                guard let namePointer = sqlite3_column_name(statement, index) else {
-                    continue
-                }
-
-                let name = String(cString: namePointer)
-                switch sqlite3_column_type(statement, index) {
-                case SQLITE_NULL:
-                    values[name] = .null
-                case SQLITE_INTEGER:
-                    values[name] = .int(Int(sqlite3_column_int64(statement, index)))
-                case SQLITE_FLOAT:
-                    values[name] = .double(sqlite3_column_double(statement, index))
-                default:
-                    let text = sqlite3_column_text(statement, index)
-                        .map { String(cString: $0) } ?? ""
-                    values[name] = .text(text)
-                }
-            }
-
-            rows.append(SQLiteRow(values: values))
+        } onCancel: {
+            cancellationState.cancel()
+            interrupt()
         }
+    }
 
-        return rows
+    private func query(
+        _ sql: String,
+        values: [SQLiteValue],
+        cancellationCheck: @escaping @Sendable () -> Bool
+    ) throws -> [SQLiteRow] {
+        try operationLock.withLock {
+            if cancellationCheck() {
+                throw CancellationError()
+            }
+
+            let statement = try prepare(sql)
+            defer { sqlite3_finalize(statement) }
+
+            try bind(values, to: statement)
+            if cancellationCheck() {
+                throw CancellationError()
+            }
+
+            var rows: [SQLiteRow] = []
+            while true {
+                if cancellationCheck() {
+                    throw CancellationError()
+                }
+
+                let result = sqlite3_step(statement)
+                if result == SQLITE_DONE {
+                    break
+                }
+                if result == SQLITE_INTERRUPT {
+                    throw SQLiteStoreError.interrupted
+                }
+
+                guard result == SQLITE_ROW else {
+                    throw SQLiteStoreError.executeFailed(lastErrorMessage)
+                }
+
+                var values: [String: SQLiteCell] = [:]
+                for index in 0..<sqlite3_column_count(statement) {
+                    guard let namePointer = sqlite3_column_name(statement, index) else {
+                        continue
+                    }
+
+                    let name = String(cString: namePointer)
+                    switch sqlite3_column_type(statement, index) {
+                    case SQLITE_NULL:
+                        values[name] = .null
+                    case SQLITE_INTEGER:
+                        values[name] = .int(Int(sqlite3_column_int64(statement, index)))
+                    case SQLITE_FLOAT:
+                        values[name] = .double(sqlite3_column_double(statement, index))
+                    case SQLITE_BLOB:
+                        let byteCount = Int(sqlite3_column_bytes(statement, index))
+                        if byteCount == 0 {
+                            values[name] = .blob(Data())
+                        } else if let bytes = sqlite3_column_blob(statement, index) {
+                            values[name] = .blob(Data(bytes: bytes, count: byteCount))
+                        } else {
+                            values[name] = .blob(Data())
+                        }
+                    default:
+                        let text = sqlite3_column_text(statement, index)
+                            .map { String(cString: $0) } ?? ""
+                        values[name] = .text(text)
+                    }
+                }
+
+                rows.append(SQLiteRow(values: values))
+            }
+
+            return rows
+        }
     }
 
     private func prepare(_ sql: String) throws -> OpaquePointer? {
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
+        let handle = handleLock.withLock { self.handle }
+        let result = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
+        if result == SQLITE_INTERRUPT {
+            throw SQLiteStoreError.interrupted
+        }
+        guard result == SQLITE_OK else {
             throw SQLiteStoreError.prepareFailed(lastErrorMessage)
         }
         return statement
@@ -150,6 +254,16 @@ final class SQLiteConnection {
                 result = sqlite3_bind_double(statement, sqliteIndex, double)
             case .bool(let bool):
                 result = sqlite3_bind_int(statement, sqliteIndex, bool ? 1 : 0)
+            case .blob(let data):
+                result = data.withUnsafeBytes { bytes in
+                    sqlite3_bind_blob(
+                        statement,
+                        sqliteIndex,
+                        bytes.baseAddress,
+                        Int32(bytes.count),
+                        sqliteTransient
+                    )
+                }
             }
 
             guard result == SQLITE_OK else {
@@ -159,16 +273,34 @@ final class SQLiteConnection {
     }
 
     private var lastErrorMessage: String {
-        handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
+        handleLock.withLock {
+            handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
+        }
     }
 }
 
-enum SQLiteValue {
+private final class SQLiteQueryCancellationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    func cancel() {
+        lock.withLock {
+            cancelled = true
+        }
+    }
+
+    func isCancelled() -> Bool {
+        lock.withLock { cancelled }
+    }
+}
+
+enum SQLiteValue: Sendable {
     case null
     case text(String)
     case int(Int)
     case double(Double)
     case bool(Bool)
+    case blob(Data)
 
     static func optionalText(_ text: String?) -> SQLiteValue {
         text.map(SQLiteValue.text) ?? .null
@@ -181,9 +313,13 @@ enum SQLiteValue {
     static func optionalDouble(_ double: Double?) -> SQLiteValue {
         double.map(SQLiteValue.double) ?? .null
     }
+
+    static func optionalBlob(_ data: Data?) -> SQLiteValue {
+        data.map(SQLiteValue.blob) ?? .null
+    }
 }
 
-struct SQLiteRow {
+struct SQLiteRow: Sendable {
     let values: [String: SQLiteCell]
 
     func requiredText(_ key: String) -> String {
@@ -198,7 +334,7 @@ struct SQLiteRow {
             String(int)
         case .double(let double):
             String(double)
-        case .null, .none:
+        case .blob, .null, .none:
             nil
         }
     }
@@ -215,7 +351,7 @@ struct SQLiteRow {
             Double(int)
         case .text(let text):
             Double(text)
-        case .null, .none:
+        case .blob, .null, .none:
             nil
         }
     }
@@ -228,7 +364,7 @@ struct SQLiteRow {
             Int(double)
         case .text(let text):
             Int(text)
-        case .null, .none:
+        case .blob, .null, .none:
             nil
         }
     }
@@ -242,9 +378,10 @@ struct SQLiteRow {
     }
 }
 
-enum SQLiteCell {
+enum SQLiteCell: Sendable {
     case null
     case text(String)
     case int(Int)
     case double(Double)
+    case blob(Data)
 }

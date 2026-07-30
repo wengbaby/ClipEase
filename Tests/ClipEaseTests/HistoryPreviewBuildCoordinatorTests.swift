@@ -79,6 +79,37 @@ import Testing
     ))
 }
 
+@Test func previewBuildCoordinatorBuildsOneHundredThousandSignaturesInDetachedTask() async throws {
+    let itemCount = 100_000
+    var sourceItems = (0..<itemCount).map { index in
+        previewBuildItem(
+            id: UUID(),
+            text: "item-\(index)",
+            createdAt: TimeInterval(index)
+        )
+    }
+    let currentSourceSignature = sourceItems.map(HistoryPreviewSourceSignature.init)
+    let changedIndex = itemCount / 2
+    sourceItems[changedIndex] = previewBuildItem(
+        id: sourceItems[changedIndex].id,
+        text: "item-\(changedIndex)-revised",
+        createdAt: TimeInterval(changedIndex)
+    )
+
+    let update = try await Task.detached(priority: .userInitiated) {
+        try HistoryPreviewBuildCoordinator.previewSignatureUpdateCheckingCancellation(
+            sourceItems: sourceItems,
+            currentSourceSignature: currentSourceSignature
+        )
+    }.value
+
+    #expect(update.hasChanges)
+    #expect(update.sourceSignature.count == itemCount)
+    #expect(update.sourceSignature.first?.text == "item-0")
+    #expect(update.sourceSignature[changedIndex].text == "item-\(changedIndex)-revised")
+    #expect(update.sourceSignature.last?.text == "item-\(itemCount - 1)")
+}
+
 private func previewBuildItem(id: UUID, text: String, createdAt: TimeInterval) -> ClipboardItem {
     ClipboardItem(
         id: id,

@@ -255,7 +255,13 @@ struct HistoryCardView: View, Equatable {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
-                highlightedText(item.preview, baseColor: Color(red: 0.12, green: 0.14, blue: 0.17))
+                HistoryCardHighlightedText(
+                    itemID: item.id,
+                    text: item.preview,
+                    searchQuery: searchQuery,
+                    contentDigest: item.highlightContentDigest,
+                    baseColor: Color(red: 0.12, green: 0.14, blue: 0.17)
+                )
                     .font(cardFont(size: 16))
                     .lineLimit(textPreviewLineLimit)
                     .truncationMode(.tail)
@@ -356,38 +362,6 @@ struct HistoryCardView: View, Equatable {
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
         .background(Color.white)
-    }
-
-    private func highlightedText(_ text: String, baseColor: Color) -> Text {
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            return Text(text).foregroundColor(baseColor)
-        }
-
-        var attributedText = AttributedString(text)
-        attributedText.foregroundColor = baseColor
-
-        var searchStart = text.startIndex
-        var hasMatch = false
-
-        while searchStart < text.endIndex,
-              let matchRange = text.range(
-                of: query,
-                options: [.caseInsensitive, .diacriticInsensitive],
-                range: searchStart..<text.endIndex
-              ) {
-            guard let lowerBound = AttributedString.Index(matchRange.lowerBound, within: attributedText),
-                  let upperBound = AttributedString.Index(matchRange.upperBound, within: attributedText) else {
-                break
-            }
-
-            attributedText[lowerBound..<upperBound].backgroundColor = Color.yellow.opacity(0.55)
-            attributedText[lowerBound..<upperBound].foregroundColor = baseColor
-            hasMatch = true
-            searchStart = matchRange.upperBound
-        }
-
-        return hasMatch ? Text(attributedText) : Text(text).foregroundColor(baseColor)
     }
 
     private func rgbText(from components: ClipEaseColorComponents) -> String {
@@ -1231,7 +1205,7 @@ final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .enabledDuringMouseDrag, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .activeAlways, .enabledDuringMouseDrag, .inVisibleRect],
             owner: self
         )
         trackingArea = area
@@ -1240,10 +1214,6 @@ final class FileCardDragSourceNSView: NSView, NSDraggingSource {
 
     override func mouseEntered(with event: NSEvent) {
         onHoverChanged?(true)
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        onHoverChanged?(bounds.contains(convert(event.locationInWindow, from: nil)))
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -1266,7 +1236,7 @@ final class FileCardDragSourceNSView: NSView, NSDraggingSource {
             pendingDragPayload = nil
             didSelectForDrag = false
             dragPreviewController.finish()
-            resetTransientInteractionState()
+            finishPress(at: event)
             return
         }
 
@@ -1274,7 +1244,7 @@ final class FileCardDragSourceNSView: NSView, NSDraggingSource {
         pendingDragPayload = nil
         didSelectForDrag = false
         dragPreviewController.finish()
-        resetTransientInteractionState()
+        finishPress(at: event)
         let deltaX = event.locationInWindow.x - startingEvent.locationInWindow.x
         let deltaY = event.locationInWindow.y - startingEvent.locationInWindow.y
         guard hypot(deltaX, deltaY) <= clickMoveTolerance else {
@@ -1289,7 +1259,7 @@ final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        resetTransientInteractionState()
+        finishPress(at: event)
         onRightMouseDown?()
         guard let menu = onMenu?() else {
             return
@@ -1360,6 +1330,12 @@ final class FileCardDragSourceNSView: NSView, NSDraggingSource {
     private func resetTransientInteractionState() {
         onPressChanged?(false)
         onHoverChanged?(false)
+    }
+
+    private func finishPress(at event: NSEvent) {
+        onPressChanged?(false)
+        let localPoint = convert(event.locationInWindow, from: nil)
+        onHoverChanged?(bounds.contains(localPoint))
     }
 
     private func updateFloatingDragIfNeeded(_ event: NSEvent) {
