@@ -830,57 +830,8 @@ final class ClipboardHistoryStore: ObservableObject {
         searchIndexWarmupTask?.cancel()
         let persistence = persistence
         searchIndexWarmupTask = Task.detached(priority: .utility) {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            guard !Task.isCancelled else {
-                return
-            }
-
             let startedAt = CFAbsoluteTimeGetCurrent()
-            var didFinishDigestBackfill = false
-            var attempt = 0
-            while !Task.isCancelled && attempt < 3 {
-                attempt += 1
-                do {
-                    while !Task.isCancelled {
-                        let backfilledCount = try persistence.backfillContentDigestsOrThrow()
-                        guard backfilledCount == SQLiteContentDigest.batchSize else {
-                            didFinishDigestBackfill = true
-                            break
-                        }
-                        try await Task.sleep(nanoseconds: 50_000_000)
-                    }
-                    break
-                } catch is CancellationError {
-                    return
-                } catch {
-                    await MainActor.run {
-                        PerformanceDiagnosticsService.shared.recordError(
-                            "history.store.searchIndexWarmup.backfill.failed",
-                            category: "search",
-                            error: error,
-                            metadata: ["attempt": "\(attempt)"]
-                        )
-                    }
-                    guard attempt < 3 else {
-                        return
-                    }
-                    let retryDelay: UInt64 = attempt == 1 ? 50_000_000 : 200_000_000
-                    try? await Task.sleep(nanoseconds: retryDelay)
-                }
-            }
-            guard !Task.isCancelled, didFinishDigestBackfill else {
-                return
-            }
-            do {
-                try persistence.prepareSearchIndexOrThrow()
-            } catch {
-                await MainActor.run {
-                    PerformanceDiagnosticsService.shared.recordError(
-                        "history.store.searchIndexWarmup.prepare.failed",
-                        category: "search",
-                        error: error
-                    )
-                }
+            guard await Self.performSearchIndexWarmup(persistence: persistence) else {
                 return
             }
             let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
@@ -891,6 +842,76 @@ final class ClipboardHistoryStore: ObservableObject {
                     durationMS: durationMS
                 )
             }
+        }
+    }
+
+    nonisolated static func performSearchIndexWarmup(
+        persistence: ClipboardHistoryPersistence,
+        initialDelayNanoseconds: UInt64 = 1_000_000_000,
+        batchDelayNanoseconds: UInt64 = 50_000_000,
+        retryDelaysNanoseconds: [UInt64] = [50_000_000, 200_000_000]
+    ) async -> Bool {
+        do {
+            try await Task.sleep(nanoseconds: initialDelayNanoseconds)
+        } catch is CancellationError {
+            return false
+        } catch {
+            return false
+        }
+        guard !Task.isCancelled else {
+            return false
+        }
+
+        var didFinishDigestBackfill = false
+        var attempt = 0
+        while !Task.isCancelled && attempt < 3 {
+            attempt += 1
+            do {
+                while !Task.isCancelled {
+                    let backfilledCount = try persistence.backfillContentDigestsOrThrow()
+                    guard backfilledCount == SQLiteContentDigest.batchSize else {
+                        didFinishDigestBackfill = true
+                        break
+                    }
+                    try await Task.sleep(nanoseconds: batchDelayNanoseconds)
+                }
+                break
+            } catch is CancellationError {
+                return false
+            } catch {
+                await MainActor.run {
+                    PerformanceDiagnosticsService.shared.recordError(
+                        "history.store.searchIndexWarmup.backfill.failed",
+                        category: "search",
+                        error: error,
+                        metadata: ["attempt": "\(attempt)"]
+                    )
+                }
+                guard attempt < 3 else {
+                    return false
+                }
+                let delayIndex = min(attempt - 1, retryDelaysNanoseconds.count - 1)
+                guard delayIndex >= 0 else {
+                    return false
+                }
+                try? await Task.sleep(nanoseconds: retryDelaysNanoseconds[delayIndex])
+            }
+        }
+        guard !Task.isCancelled, didFinishDigestBackfill else {
+            return false
+        }
+        do {
+            try persistence.prepareSearchIndexOrThrow()
+            return true
+        } catch {
+            await MainActor.run {
+                PerformanceDiagnosticsService.shared.recordError(
+                    "history.store.searchIndexWarmup.prepare.failed",
+                    category: "search",
+                    error: error
+                )
+            }
+            return false
         }
     }
 

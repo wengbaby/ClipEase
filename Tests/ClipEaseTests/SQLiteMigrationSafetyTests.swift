@@ -365,6 +365,34 @@ import Testing
     }
 }
 
+@Test func searchIndexWarmupRetriesBackfillBeforePreparingIndex() async {
+    let repository = SearchIndexWarmupRepository(failuresBeforeSuccess: 2)
+    let didPrepare = await ClipboardHistoryStore.performSearchIndexWarmup(
+        persistence: ClipboardHistoryPersistence(repository: repository),
+        initialDelayNanoseconds: 0,
+        batchDelayNanoseconds: 0,
+        retryDelaysNanoseconds: [0, 0]
+    )
+
+    #expect(didPrepare)
+    #expect(repository.backfillCallCount == 3)
+    #expect(repository.prepareCallCount == 1)
+}
+
+@Test func searchIndexWarmupStopsAfterBoundedBackfillFailures() async {
+    let repository = SearchIndexWarmupRepository(failuresBeforeSuccess: 3)
+    let didPrepare = await ClipboardHistoryStore.performSearchIndexWarmup(
+        persistence: ClipboardHistoryPersistence(repository: repository),
+        initialDelayNanoseconds: 0,
+        batchDelayNanoseconds: 0,
+        retryDelaysNanoseconds: [0, 0]
+    )
+
+    #expect(!didPrepare)
+    #expect(repository.backfillCallCount == 3)
+    #expect(repository.prepareCallCount == 0)
+}
+
 @Test func sqliteStoreMigrationFailureRestoresBackupAndRetriesFromLegacyVersion() throws {
     let directory = try makeSQLiteMigrationTestDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -484,4 +512,36 @@ private struct SQLiteMigrationStoreFixture {
 
 private enum SQLiteMigrationTestError: Error, Equatable {
     case injectedFailure
+}
+
+private final class SearchIndexWarmupRepository: ClipboardHistoryRepository {
+    private var failuresRemaining: Int
+    private(set) var backfillCallCount = 0
+    private(set) var prepareCallCount = 0
+
+    init(failuresBeforeSuccess: Int) {
+        failuresRemaining = failuresBeforeSuccess
+    }
+
+    func loadSnapshot() throws -> ClipboardHistorySnapshot {
+        ClipboardHistorySnapshot(items: [], groups: [])
+    }
+
+    func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) throws {
+        _ = snapshot
+    }
+
+    func backfillContentDigests(limit: Int) throws -> Int {
+        _ = limit
+        backfillCallCount += 1
+        if failuresRemaining > 0 {
+            failuresRemaining -= 1
+            throw SQLiteMigrationTestError.injectedFailure
+        }
+        return 0
+    }
+
+    func prepareSearchIndex() throws {
+        prepareCallCount += 1
+    }
 }
