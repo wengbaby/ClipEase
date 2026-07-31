@@ -44,6 +44,9 @@ actor AppIconCacheCoordinator {
     private let generation: AppIconCacheGeneration
     private var memory: [ScopedKey: CachedAppIcon] = [:]
     private var inFlight: [ScopedKey: Task<CachedAppIcon?, Never>] = [:]
+    private var nextProbeSequence: UInt64 = 0
+    private var latestProbeSequence: [ScopedKey: UInt64] = [:]
+    private var activeProbeCounts: [ScopedKey: Int] = [:]
 
     init(generation: AppIconCacheGeneration = AppIconCacheGeneration()) {
         self.generation = generation
@@ -62,17 +65,52 @@ actor AppIconCacheCoordinator {
         if let task = inFlight[scopedKey] {
             return await task.value
         }
+
+        nextProbeSequence &+= 1
+        let probeSequence = nextProbeSequence
+        latestProbeSequence[scopedKey] = probeSequence
+        activeProbeCounts[scopedKey, default: 0] += 1
+        defer {
+            finishProbe(for: scopedKey)
+        }
         if let cached = await cachedValue() {
             if generation.isCurrent(generationToken) {
                 memory[scopedKey] = cached
             }
             return cached
         }
+
+        // A newer probe may have completed while this one was suspended. Give
+        // that caller a bounded chance to claim the load slot first, making
+        // the single-flight ordering deterministic without waiting forever on
+        // a broken disk probe.
+        if latestProbeSequence[scopedKey] != probeSequence {
+            for _ in 0..<4 {
+                if let cached = memory[scopedKey] {
+                    return cached
+                }
+                if let task = inFlight[scopedKey] {
+                    return await task.value
+                }
+                guard latestProbeSequence[scopedKey] != probeSequence else {
+                    break
+                }
+                await Task.yield()
+            }
+        }
+
+        if let cached = memory[scopedKey] {
+            return cached
+        }
+        // Disk probes may overlap, but the actor re-checks this map after the
+        // suspension so only one expensive icon load is ever in flight.
         if let task = inFlight[scopedKey] {
             return await task.value
         }
 
-        let task = Task { await loadValue() }
+        let task = Task {
+            await loadValue()
+        }
         inFlight[scopedKey] = task
         let value = await task.value
         inFlight[scopedKey] = nil
@@ -94,6 +132,20 @@ actor AppIconCacheCoordinator {
         let staleKeys = inFlight.keys.filter { $0.generation < currentGeneration }
         for key in staleKeys {
             inFlight.removeValue(forKey: key)?.cancel()
+        }
+        latestProbeSequence = latestProbeSequence.filter { $0.key.generation >= currentGeneration }
+        activeProbeCounts = activeProbeCounts.filter { $0.key.generation >= currentGeneration }
+    }
+
+    private func finishProbe(for key: ScopedKey) {
+        guard let count = activeProbeCounts[key] else {
+            return
+        }
+        if count <= 1 {
+            activeProbeCounts[key] = nil
+            latestProbeSequence[key] = nil
+        } else {
+            activeProbeCounts[key] = count - 1
         }
     }
 }
