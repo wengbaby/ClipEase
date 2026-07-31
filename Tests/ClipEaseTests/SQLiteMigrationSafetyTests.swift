@@ -318,6 +318,45 @@ import Testing
     )
 }
 
+@Test func sqliteMigrationRepairsPartialClipboardSchemaForReadAndWrite() throws {
+    let fixture = try SQLiteMigrationStoreFixture.make(userVersion: 4)
+    defer { fixture.remove() }
+
+    do {
+        let database = try SQLiteDatabase(url: fixture.databaseURL)
+        defer { database.close() }
+        try database.execute(
+            """
+            CREATE TABLE clipboard_items (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                plain_text TEXT NOT NULL DEFAULT '',
+                source_app_name TEXT NOT NULL DEFAULT '',
+                source_icon_name TEXT NOT NULL DEFAULT '',
+                header_color TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                is_pinned INTEGER NOT NULL DEFAULT 0,
+                is_deleted INTEGER NOT NULL DEFAULT 0,
+                content_hash TEXT
+            )
+            """
+        )
+    }
+
+    let store = SQLiteClipboardStore(databaseURL: fixture.databaseURL)
+    try store.initialize()
+
+    let item = ClipboardItem.text("migrated", sourceApp: .clipease)
+    try store.insertItems([item])
+
+    let snapshot = try store.loadSnapshot()
+    #expect(snapshot.items.map(\.id) == [item.id])
+    let migratedDatabase = try SQLiteDatabase(url: fixture.databaseURL)
+    defer { migratedDatabase.close() }
+    #expect(try migratedDatabase.queryInt("PRAGMA user_version") == SQLiteClipboardStore.currentSchemaVersion)
+}
+
 @Test func sqliteDigestBootstrapMarksAlreadyCompleteCurrentDatabase() throws {
     let fixture = try SQLiteMigrationStoreFixture.make(userVersion: 5)
     defer { fixture.remove() }

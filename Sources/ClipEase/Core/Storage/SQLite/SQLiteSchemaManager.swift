@@ -38,18 +38,7 @@ struct SQLiteSchemaManager {
                 digest_version INTEGER
             )
             """)
-        try addColumnIfNeeded(
-            "clipboard_items",
-            column: "content_digest",
-            definition: "BLOB",
-            in: database
-        )
-        try addColumnIfNeeded(
-            "clipboard_items",
-            column: "digest_version",
-            definition: "INTEGER",
-            in: database
-        )
+        try ensureClipboardItemColumns(in: database)
 
         try database.execute("""
             CREATE TABLE IF NOT EXISTS item_assets (
@@ -214,6 +203,44 @@ struct SQLiteSchemaManager {
             "INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)",
             values: [.int(currentSchemaVersion), .double(Date().timeIntervalSince1970)]
         )
+    }
+
+    private func ensureClipboardItemColumns(in database: SQLiteDatabase) throws {
+        // `CREATE TABLE IF NOT EXISTS` does not alter an existing legacy table.
+        // Keep this additive list in lockstep with the current table definition
+        // so old installations can be opened before indexes and DAO queries run.
+        let columns: [(name: String, definition: String)] = [
+            ("type", "TEXT NOT NULL DEFAULT 'text'"),
+            ("plain_text", "TEXT NOT NULL DEFAULT ''"),
+            ("url", "TEXT"),
+            ("link_title", "TEXT"),
+            ("link_subtitle", "TEXT"),
+            ("source_app_name", "TEXT NOT NULL DEFAULT ''"),
+            ("source_bundle_id", "TEXT"),
+            ("source_icon_name", "TEXT NOT NULL DEFAULT ''"),
+            ("source_icon_file_name", "TEXT"),
+            ("header_color", "TEXT NOT NULL DEFAULT ''"),
+            ("created_at", "REAL NOT NULL DEFAULT 0"),
+            ("updated_at", "REAL NOT NULL DEFAULT 0"),
+            ("last_used_at", "REAL"),
+            ("pinned_at", "REAL"),
+            ("is_pinned", "INTEGER NOT NULL DEFAULT 0"),
+            ("is_deleted", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_edited_at", "REAL"),
+            ("group_sort_order", "INTEGER"),
+            ("content_hash", "TEXT"),
+            ("content_digest", "BLOB"),
+            ("digest_version", "INTEGER")
+        ]
+
+        for column in columns {
+            try addColumnIfNeeded(
+                "clipboard_items",
+                column: column.name,
+                definition: column.definition,
+                in: database
+            )
+        }
     }
 
     private func addColumnIfNeeded(
