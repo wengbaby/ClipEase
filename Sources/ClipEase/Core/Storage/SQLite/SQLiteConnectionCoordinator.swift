@@ -22,7 +22,6 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
     private var isInvalidating = false
     private var isPreparing = false
     private var isPrepared = false
-    private var didClaimInitialDirectRead = false
 
     init(databaseURL: URL, maximumReaderCount: Int = 2) {
         self.databaseURL = databaseURL
@@ -39,21 +38,6 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
 
     var createdWriterCount: Int {
         writerLock.withLock { totalWriterCount }
-    }
-
-    /// Allows the first safe read to use the store's already-open connection
-    /// directly. Subsequent reads use the bounded resident reader pool.
-    func claimInitialDirectRead() -> Bool {
-        readerCondition.withLock {
-            guard !isPrepared,
-                  !isPreparing,
-                  !isInvalidating,
-                  !didClaimInitialDirectRead else {
-                return false
-            }
-            didClaimInitialDirectRead = true
-            return true
-        }
     }
 
     /// Runs schema/configuration work once before pooled access. A failed
@@ -287,7 +271,6 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
 
         readerCondition.withLock {
             isInvalidating = false
-            didClaimInitialDirectRead = false
             readerCondition.broadcast()
         }
     }

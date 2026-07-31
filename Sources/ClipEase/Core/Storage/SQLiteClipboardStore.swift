@@ -2,9 +2,31 @@ import Foundation
 
 typealias SQLiteClipboardSearchPage = ClipboardSearchPage
 
+private final class SQLiteMeasuredIndexReadiness: @unchecked Sendable {
+    private let lock = NSLock()
+    private var verifiedPaths: Set<String> = []
+
+    func contains(_ path: String) -> Bool {
+        lock.withLock { verifiedPaths.contains(path) }
+    }
+
+    func insert(_ path: String) {
+        _ = lock.withLock {
+            verifiedPaths.insert(path)
+        }
+    }
+
+    func remove(_ path: String) {
+        _ = lock.withLock {
+            verifiedPaths.remove(path)
+        }
+    }
+}
+
 struct SQLiteClipboardStore: ClipboardHistoryRepository {
     static let currentSchemaVersion = 5
     private static let schemaMigrationGate = SQLiteSchemaMigrationGate()
+    private static let measuredIndexReadiness = SQLiteMeasuredIndexReadiness()
     private static let mutationBatchSize = 400
     private static let retentionEligibilitySQL = """
         clipboard_items.is_deleted = 0
@@ -280,17 +302,6 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     func searchItems(_ query: ClipboardSearchQuery) throws -> [ClipboardItem] {
         guard query.limit > 0 else {
             return []
-        }
-
-        if connectionCoordinator.claimInitialDirectRead() {
-            let database = try openReadDatabase()
-            defer { database.close() }
-            let ids = try SQLiteSearchIndexDAO.searchItemIDs(query, in: database)
-            return try SQLiteItemDAO.loadItems(
-                withOrderedIDs: ids,
-                orderSQL: Self.defaultItemOrderSQL,
-                in: database
-            )
         }
 
         try prepareConnectionCoordinatorIfNeeded()
@@ -800,6 +811,11 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     private func ensureMeasuredQueryIndexesIfMissing(in database: SQLiteDatabase) throws {
+        let readinessKey = databaseURL.standardizedFileURL.path
+        if Self.measuredIndexReadiness.contains(readinessKey) {
+            return
+        }
+
         let indexExists = try database.queryInt(
             """
             SELECT COUNT(*)
@@ -808,6 +824,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             """
         ) == 1
         guard !indexExists else {
+            Self.measuredIndexReadiness.insert(readinessKey)
             return
         }
 
@@ -823,6 +840,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             WHERE is_deleted = 0
             """
         )
+        Self.measuredIndexReadiness.insert(readinessKey)
     }
 
     private func ensureWALMode(in database: SQLiteDatabase) throws {
@@ -839,6 +857,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
     private func removeExistingDatabaseFiles() throws {
         connectionCoordinator.invalidate()
+        Self.measuredIndexReadiness.remove(databaseURL.standardizedFileURL.path)
         for url in databaseSidecarURLs() where fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
         }
@@ -867,6 +886,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     private func migrateLegacyDatabase(from userVersion: Int) throws {
+        Self.measuredIndexReadiness.remove(databaseURL.standardizedFileURL.path)
         let backupManager = SQLiteBackupManager(fileManager: fileManager)
         let backup = try backupManager.backupDatabaseFiles(for: databaseURL, reason: "schema-\(userVersion)-to-\(Self.currentSchemaVersion)")
         do {
