@@ -476,6 +476,7 @@ private struct EnterprisePerformanceBenchmarkContext {
         }
 
         let dailyStore = SQLiteClipboardStore(databaseURL: databaseURL(for: "T10K"))
+        try dailyStore.initialize()
         metrics["search_t10k_sqlite"] = try measure {
             let items = try dailyStore.searchItems(
                 ClipboardSearchQuery(text: "deterministic performance item 9999", limit: 50)

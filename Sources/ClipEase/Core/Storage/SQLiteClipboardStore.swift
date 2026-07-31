@@ -718,6 +718,11 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
     private func openVerifiedSearchReaderDatabase() throws -> SQLiteDatabase? {
         let database = try SQLiteDatabase(url: databaseURL, readOnly: true)
+        let readinessKey = databaseURL.standardizedFileURL.path
+        if Self.measuredIndexReadiness.contains(readinessKey) {
+            return database
+        }
+
         do {
             let userVersion = try database.queryInt("PRAGMA user_version")
             let measuredIndexExists = try database.queryInt(
