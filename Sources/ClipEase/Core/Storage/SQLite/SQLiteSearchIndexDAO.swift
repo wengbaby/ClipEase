@@ -15,11 +15,7 @@ struct SQLiteSearchIDPage: Equatable, Sendable {
 
 enum SQLiteSearchIndexDAO {
     static func searchItemIDs(_ query: ClipboardSearchQuery, in database: SQLiteDatabase) throws -> [ClipboardItem.ID] {
-        guard let statement = searchStatement(
-            query,
-            after: nil,
-            offset: query.offset
-        ) else {
+        guard let statement = searchItemsStatement(query) else {
             return []
         }
         let rows = try database.query(statement.sql, values: statement.values)
@@ -157,6 +153,69 @@ enum SQLiteSearchIndexDAO {
     private struct SearchStatement {
         let sql: String
         let values: [SQLiteValue]
+    }
+
+    /// The compatibility `searchItems` API does not expose a cursor. Keep its
+    /// projection narrow and avoid materializing the cursor columns in a CTE;
+    /// cursor-aware callers use `searchStatement` below.
+    private static func searchItemsStatement(
+        _ query: ClipboardSearchQuery
+    ) -> SearchStatement? {
+        let boundedLimit = max(0, query.limit)
+        guard boundedLimit > 0 else {
+            return nil
+        }
+
+        let rawQuery = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let usesFTS = !rawQuery.isEmpty
+        guard usesFTS || hasDatabaseFilters(query.filters) else {
+            return nil
+        }
+
+        let filter = searchFilterSQL(for: query.filters)
+        var predicates = ["clipboard_items.is_deleted = 0"]
+        var values: [SQLiteValue] = []
+        let fromSQL: String
+        let orderSQL: String
+        if usesFTS {
+            predicates.append("clipboard_items_fts MATCH ?")
+            values.append(.text(SQLiteRowMapper.escapedFTS5Query(rawQuery)))
+            fromSQL = """
+                clipboard_items_fts
+                INNER JOIN clipboard_items
+                    ON clipboard_items.id = clipboard_items_fts.item_id
+                """
+            orderSQL = """
+                clipboard_items_fts.rank ASC,
+                clipboard_items.is_pinned DESC,
+                clipboard_items.created_at DESC,
+                COALESCE(clipboard_items.pinned_at, clipboard_items.created_at) DESC,
+                clipboard_items.id DESC
+                """
+        } else {
+            fromSQL = "clipboard_items"
+            orderSQL = """
+                clipboard_items.is_pinned DESC,
+                clipboard_items.created_at DESC,
+                COALESCE(clipboard_items.pinned_at, clipboard_items.created_at) DESC,
+                clipboard_items.id DESC
+                """
+        }
+        predicates.append(contentsOf: filter.predicates)
+        values.append(contentsOf: filter.values)
+        values.append(.int(boundedLimit))
+        values.append(.int(max(0, query.offset)))
+
+        return SearchStatement(
+            sql: """
+                SELECT clipboard_items.id
+                FROM \(fromSQL)
+                WHERE \(predicates.joined(separator: "\n                  AND "))
+                ORDER BY \(orderSQL)
+                LIMIT ? OFFSET ?
+                """,
+            values: values
+        )
     }
 
     private static func searchStatement(

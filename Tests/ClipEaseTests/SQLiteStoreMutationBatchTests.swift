@@ -117,6 +117,28 @@ import Testing
     #expect(fixture.store.coordinatedWriterConnectionCount == 1)
 }
 
+@Test func sqliteStoreSingleUpsertsReuseTheResidentWriterConnection() throws {
+    let fixture = try SQLiteStoreMutationBatchFixture.make()
+    defer { fixture.remove() }
+
+    let first = ClipboardItem.debugText(
+        "single upsert one",
+        createdAt: Date(timeIntervalSince1970: 100),
+        sourceApp: .clipease
+    )
+    let second = ClipboardItem.debugText(
+        "single upsert two",
+        createdAt: Date(timeIntervalSince1970: 200),
+        sourceApp: .clipease
+    )
+
+    try fixture.store.upsertItem(first, deleting: [], groups: [])
+    try fixture.store.upsertItem(second, deleting: [], groups: [])
+
+    #expect(fixture.store.coordinatedWriterConnectionCount == 1)
+    #expect(try fixture.store.countItems() == 2)
+}
+
 private struct SQLiteStoreMutationBatchFixture {
     let directory: URL
     let store: SQLiteClipboardStore

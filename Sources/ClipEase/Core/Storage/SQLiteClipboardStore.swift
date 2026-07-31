@@ -423,22 +423,21 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func upsertItem(_ item: ClipboardItem, deleting deletedIDs: Set<ClipboardItem.ID>, groups: [ClipboardGroup]) throws {
-        let database = try openReadyDatabase()
-        defer { database.close() }
+        try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try database.execute("BEGIN IMMEDIATE TRANSACTION")
 
-        try database.execute("BEGIN IMMEDIATE TRANSACTION")
-
-        do {
-            try deleteItems(with: deletedIDs.union([item.id]), in: database)
-            try SQLiteGroupDAO.upsert(groups, in: database)
-            try insertItem(item, in: database)
-            if item.groupID != nil {
-                try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
+            do {
+                try deleteItems(with: deletedIDs.union([item.id]), in: database)
+                try SQLiteGroupDAO.upsert(groups, in: database)
+                try insertItem(item, in: database)
+                if item.groupID != nil {
+                    try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
+                }
+                try database.execute("COMMIT")
+            } catch {
+                try? database.execute("ROLLBACK")
+                throw error
             }
-            try database.execute("COMMIT")
-        } catch {
-            try? database.execute("ROLLBACK")
-            throw error
         }
     }
 
