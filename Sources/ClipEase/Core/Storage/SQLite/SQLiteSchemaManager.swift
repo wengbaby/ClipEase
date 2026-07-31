@@ -10,6 +10,7 @@ struct SQLiteSchemaManager {
                 applied_at REAL NOT NULL
             )
             """)
+        try SQLiteSchemaMigrationStateStore.ensureTable(in: database)
 
         try database.execute("""
             CREATE TABLE IF NOT EXISTS clipboard_items (

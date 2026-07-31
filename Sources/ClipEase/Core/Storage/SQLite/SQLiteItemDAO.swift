@@ -46,6 +46,23 @@ enum SQLiteItemDAO {
         return try makeItems(from: rows, in: database)
     }
 
+    static func loadItemIDs(
+        in database: SQLiteDatabase,
+        whereSQL: String,
+        values: [SQLiteValue],
+        orderSQL: String
+    ) throws -> [UUID] {
+        try database.query(
+            """
+            SELECT id
+            FROM clipboard_items
+            WHERE \(whereSQL)
+            ORDER BY \(orderSQL)
+            """,
+            values: values
+        ).compactMap { UUID(uuidString: $0.requiredText("id")) }
+    }
+
     static func loadItems(
         withOrderedIDs ids: [UUID],
         orderSQL: String,
@@ -318,7 +335,8 @@ enum SQLiteItemDAO {
     ) throws -> Bool {
         guard let row = try database.query(
             """
-            SELECT plain_text, url, link_subtitle, content_hash, digest_version
+            SELECT plain_text, url, link_subtitle, content_hash, digest_version,
+                   content_digest
             FROM clipboard_items
             WHERE id = ? AND is_deleted = 0
             """,
@@ -332,8 +350,10 @@ enum SQLiteItemDAO {
         let searchableFieldsChanged = row.requiredText("plain_text") != item.text
             || row.optionalText("url") != item.url?.absoluteString
             || row.optionalText("link_subtitle") != item.linkSubtitle
+        let digestChanged = row.optionalBlob("content_digest") != contentDigest
         let coreFieldsChanged = searchableFieldsChanged
             || row.optionalText("content_hash") != legacyContentHash
+            || digestChanged
             || row.optionalInt("digest_version")
                 != (contentDigest == nil ? nil : SQLiteContentDigest.currentVersion)
 
@@ -593,12 +613,16 @@ enum SQLiteItemDAO {
                 """
                 SELECT id, content_hash
                 FROM clipboard_items
-                WHERE content_digest IS NULL
-                  AND content_hash IS NOT NULL
+                WHERE content_hash IS NOT NULL
+                  AND (
+                      content_digest IS NULL
+                      OR digest_version != ?
+                      OR length(content_digest) != 32
+                  )
                 ORDER BY rowid ASC
                 LIMIT ?
                 """,
-                values: [.int(boundedLimit)]
+                values: [.int(SQLiteContentDigest.currentVersion), .int(boundedLimit)]
             )
 
             for row in rows {
@@ -608,21 +632,141 @@ enum SQLiteItemDAO {
                     UPDATE clipboard_items
                     SET content_digest = ?, digest_version = ?
                     WHERE id = ?
-                      AND content_digest IS NULL
+                      AND content_hash IS NOT NULL
+                      AND (
+                          content_digest IS NULL
+                          OR digest_version != ?
+                          OR length(content_digest) != 32
+                      )
                     """,
                     values: [
                         .blob(SQLiteContentDigest.digest(for: legacyContentHash)),
                         .int(SQLiteContentDigest.currentVersion),
-                        .text(row.requiredText("id"))
+                        .text(row.requiredText("id")),
+                        .int(SQLiteContentDigest.currentVersion)
                     ]
                 )
             }
 
+            let structurallyBackfilled = rows.count
+            let remainingCapacity = boundedLimit - structurallyBackfilled
             try database.execute("COMMIT")
-            return rows.count
+            if remainingCapacity > 0 {
+                let repaired = try repairInvalidContentDigests(
+                    in: database,
+                    limit: remainingCapacity
+                )
+                return structurallyBackfilled + repaired.repaired
+            }
+            return structurallyBackfilled
         } catch {
             try? database.execute("ROLLBACK")
             throw error
+        }
+    }
+
+    static func repairInvalidContentDigests(
+        in database: SQLiteDatabase,
+        limit: Int
+    ) throws -> (repaired: Int, remainingInvalid: Bool) {
+        let boundedLimit = min(max(0, limit), SQLiteContentDigest.batchSize)
+        guard boundedLimit > 0 else {
+            return (0, false)
+        }
+
+        var invalid: [(id: String, digest: Data)] = []
+        var remainingInvalid = false
+        var lastRowID = 0
+        scan: while true {
+            let rows = try database.query(
+                """
+                SELECT rowid, id, content_hash, content_digest, digest_version
+                FROM clipboard_items
+                WHERE content_hash IS NOT NULL AND rowid > ?
+                ORDER BY rowid ASC
+                LIMIT ?
+                """,
+                values: [.int(lastRowID), .int(SQLiteContentDigest.batchSize)]
+            )
+            guard !rows.isEmpty else {
+                break
+            }
+
+            for row in rows {
+                lastRowID = row.requiredInt("rowid")
+                let expectedDigest = SQLiteContentDigest.digest(for: row.requiredText("content_hash"))
+                let isValid = row.optionalInt("digest_version") == SQLiteContentDigest.currentVersion
+                    && row.optionalBlob("content_digest") == expectedDigest
+                guard !isValid else {
+                    continue
+                }
+                if invalid.count == boundedLimit {
+                    remainingInvalid = true
+                    break scan
+                }
+                invalid.append((id: row.requiredText("id"), digest: expectedDigest))
+            }
+
+            if rows.count < SQLiteContentDigest.batchSize {
+                break
+            }
+        }
+
+        guard !invalid.isEmpty else {
+            return (0, remainingInvalid)
+        }
+
+        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            for entry in invalid {
+                try database.execute(
+                    """
+                    UPDATE clipboard_items
+                    SET content_digest = ?, digest_version = ?
+                    WHERE id = ?
+                    """,
+                    values: [
+                        .blob(entry.digest),
+                        .int(SQLiteContentDigest.currentVersion),
+                        .text(entry.id)
+                    ]
+                )
+            }
+            try database.execute("COMMIT")
+            return (invalid.count, remainingInvalid)
+        } catch {
+            try? database.execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    static func validateContentDigests(in database: SQLiteDatabase) throws -> Bool {
+        var lastRowID = 0
+        while true {
+            let rows = try database.query(
+                """
+                SELECT rowid, content_hash, content_digest, digest_version
+                FROM clipboard_items
+                WHERE content_hash IS NOT NULL AND rowid > ?
+                ORDER BY rowid ASC
+                LIMIT ?
+                """,
+                values: [.int(lastRowID), .int(SQLiteContentDigest.batchSize)]
+            )
+            guard !rows.isEmpty else {
+                return true
+            }
+            for row in rows {
+                lastRowID = row.requiredInt("rowid")
+                guard row.optionalInt("digest_version") == SQLiteContentDigest.currentVersion,
+                      row.optionalBlob("content_digest")
+                        == SQLiteContentDigest.digest(for: row.requiredText("content_hash")) else {
+                    return false
+                }
+            }
+            if rows.count < SQLiteContentDigest.batchSize {
+                return true
+            }
         }
     }
 

@@ -435,6 +435,15 @@ struct SQLiteRow: Sendable {
     func requiredBool(_ key: String) -> Bool {
         (optionalInt(key) ?? 0) != 0
     }
+
+    func optionalBlob(_ key: String) -> Data? {
+        switch values[key] {
+        case .blob(let data):
+            data
+        case .null, .none, .text, .int, .double:
+            nil
+        }
+    }
 }
 
 enum SQLiteCell: Sendable {

@@ -4,6 +4,7 @@ typealias SQLiteClipboardSearchPage = ClipboardSearchPage
 
 struct SQLiteClipboardStore: ClipboardHistoryRepository {
     static let currentSchemaVersion = 5
+    private static let schemaMigrationGate = SQLiteSchemaMigrationGate()
     private static let mutationBatchSize = 400
     private static let retentionEligibilitySQL = """
         clipboard_items.is_deleted = 0
@@ -194,30 +195,63 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             legacyValues.append(.text(sourceBundleID))
         }
 
-        let digestCandidates = try SQLiteItemDAO.loadItems(
-            in: database,
-            whereSQL: digestWhereSQL,
-            values: digestValues,
-            orderSQL: Self.defaultItemOrderSQL
-        )
-        let legacyCandidates = try SQLiteItemDAO.loadItems(
+        // A digest index or column can be unavailable while an additive
+        // migration is being retried. Preserve duplicate detection through
+        // the stable legacy hash whenever that fast path fails.
+        let digestCandidateIDs: [ClipboardItem.ID]
+        do {
+            digestCandidateIDs = try SQLiteItemDAO.loadItemIDs(
+                in: database,
+                whereSQL: digestWhereSQL,
+                values: digestValues,
+                orderSQL: Self.defaultItemOrderSQL
+            )
+        } catch {
+            digestCandidateIDs = []
+        }
+        let legacyCandidateIDs = try SQLiteItemDAO.loadItemIDs(
             in: database,
             whereSQL: legacyWhereSQL,
             values: legacyValues,
             orderSQL: Self.defaultItemOrderSQL
         )
+        var candidateIDs: [ClipboardItem.ID] = []
+        candidateIDs.reserveCapacity(digestCandidateIDs.count + legacyCandidateIDs.count)
+        var seenIDs = Set<ClipboardItem.ID>()
+        for id in digestCandidateIDs + legacyCandidateIDs where seenIDs.insert(id).inserted {
+            candidateIDs.append(id)
+        }
+        let candidates = try SQLiteItemDAO.loadItems(
+            withOrderedIDs: candidateIDs,
+            orderSQL: Self.defaultItemOrderSQL,
+            in: database
+        )
         // A digest narrows the lookup, but the stable legacy value remains the
         // collision-verification authority during the dual-read release.
-        var seenIDs = Set<ClipboardItem.ID>()
-        return (digestCandidates + legacyCandidates)
-            .filter { $0.contentHash == contentHash && seenIDs.insert($0.id).inserted }
+        return candidates
+            .filter { $0.contentHash == contentHash }
             .sorted(by: Self.shouldSortItemBefore)
     }
 
     func backfillContentDigests(limit: Int) throws -> Int {
         let database = try openReadyDatabase()
         defer { database.close() }
-        return try SQLiteItemDAO.backfillContentDigests(in: database, limit: limit)
+        try SQLiteSchemaMigrationStateStore.bootstrapIfNeeded(
+            currentSchemaVersion: Self.currentSchemaVersion,
+            in: database
+        )
+        try SQLiteSchemaMigrationStateStore.markBackfillPendingIfStarted(in: database)
+        let backfilledCount = try SQLiteItemDAO.backfillContentDigests(in: database, limit: limit)
+        let boundedLimit = min(max(0, limit), SQLiteContentDigest.batchSize)
+        let shouldValidate = boundedLimit > 0 && backfilledCount < boundedLimit
+        let validationPassed = shouldValidate
+            ? try SQLiteItemDAO.validateContentDigests(in: database)
+            : false
+        try SQLiteSchemaMigrationStateStore.markCompletedIfBackfillReady(
+            in: database,
+            validationPassed: validationPassed
+        )
+        return backfilledCount
     }
 
     private static func shouldSortItemBefore(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
@@ -644,7 +678,26 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
         if databaseExisted, userVersion < Self.currentSchemaVersion {
             database.close()
-            try migrateLegacyDatabase(from: userVersion)
+            try Self.schemaMigrationGate.withLock {
+                // A reader or writer may have prepared the old schema while
+                // this first-open probe was running. Drain those handles and
+                // re-read the version while holding the process-wide gate so
+                // two stores cannot migrate/restore the same inode at once.
+                connectionCoordinator.invalidateForMigration()
+                let migrationDatabase = try SQLiteDatabase(url: databaseURL)
+                let latestUserVersion = try migrationDatabase.queryInt("PRAGMA user_version")
+                migrationDatabase.close()
+                guard latestUserVersion <= Self.currentSchemaVersion else {
+                    throw SQLiteStoreError.incompatibleSchemaVersion(
+                        found: latestUserVersion,
+                        supported: Self.currentSchemaVersion
+                    )
+                }
+                guard latestUserVersion < Self.currentSchemaVersion else {
+                    return
+                }
+                try migrateLegacyDatabase(from: latestUserVersion)
+            }
             return try openCurrentDatabase()
         }
 
@@ -783,6 +836,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             }
         } catch {
             if let backup {
+                connectionCoordinator.invalidateForMigration()
                 try backupManager.restoreDatabaseFiles(from: backup, to: databaseURL)
             }
             Task { @MainActor in

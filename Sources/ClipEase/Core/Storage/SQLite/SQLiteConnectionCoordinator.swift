@@ -206,8 +206,23 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
     /// Interrupts active readers, waits for their leases to return, and closes
     /// every retained handle. The coordinator remains reusable afterwards.
     func invalidate() {
+        invalidate(skipIfPreparing: false)
+    }
+
+    /// Migration can be entered from `prepareIfNeeded`'s preparation closure.
+    /// In that case no reader has been published yet, so waiting for
+    /// `isPreparing` would deadlock the preparation thread itself.
+    func invalidateForMigration() {
+        invalidate(skipIfPreparing: true)
+    }
+
+    private func invalidate(skipIfPreparing: Bool) {
         readerCondition.lock()
         while isPreparing {
+            if skipIfPreparing {
+                readerCondition.unlock()
+                return
+            }
             readerCondition.wait()
         }
         isInvalidating = true

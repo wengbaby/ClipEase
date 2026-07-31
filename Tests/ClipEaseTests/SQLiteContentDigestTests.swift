@@ -225,6 +225,35 @@ import Testing
     #expect(try SQLiteItemDAO.backfillContentDigests(in: database) == 0)
 }
 
+@Test func sqliteContentDigestBackfillRepairsInvalidExistingDigest() throws {
+    let fixture = try SQLiteContentDigestFixture.make()
+    defer { fixture.remove() }
+    try fixture.store.initialize()
+    let database = try SQLiteDatabase(url: fixture.databaseURL)
+    defer { database.close() }
+    let item = ClipboardItem.text("repair me", sourceApp: .clipease)
+    try SQLiteItemDAO.insert(item, in: database)
+    try database.execute(
+        """
+        UPDATE clipboard_items
+        SET content_digest = ?, digest_version = ?
+        WHERE id = ?
+        """,
+        values: [
+            .blob(Data(repeating: 0, count: 32)),
+            .int(SQLiteContentDigest.currentVersion),
+            .text(item.id.uuidString)
+        ]
+    )
+
+    #expect(try SQLiteItemDAO.backfillContentDigests(in: database) == 1)
+    let repairedRow = try #require(database.query(
+        "SELECT content_digest FROM clipboard_items WHERE id = ?",
+        values: [.text(item.id.uuidString)]
+    ).first)
+    #expect(repairedRow.optionalBlob("content_digest") == SQLiteContentDigest.digest(for: "repair me"))
+}
+
 private struct SQLiteContentDigestFixture {
     let directory: URL
     let databaseURL: URL

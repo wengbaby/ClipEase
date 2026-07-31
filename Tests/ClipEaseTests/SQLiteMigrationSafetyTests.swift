@@ -128,6 +128,129 @@ import Testing
     ) == 1)
 }
 
+@Test func sqliteMigrationPersistsPhaseAcrossFailureAndCompletesOnRetry() throws {
+    let directory = try makeSQLiteMigrationTestDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    try createLegacyDatabase(at: databaseURL, userVersion: 4)
+    let migrator = SQLiteSchemaMigrator(
+        currentSchemaVersion: SQLiteClipboardStore.currentSchemaVersion
+    )
+
+    #expect(throws: SQLiteMigrationTestError.injectedFailure) {
+        _ = try migrator.migrateIfNeeded(
+            databaseURL: databaseURL,
+            fileManager: .default,
+            createSchema: { database in
+                try database.execute("CREATE TABLE IF NOT EXISTS partial_phase_marker (value TEXT)")
+                throw SQLiteMigrationTestError.injectedFailure
+            },
+            recordSchemaVersion: { _ in
+                Issue.record("A failed migration must not record the completed phase")
+            }
+        )
+    }
+
+    do {
+        let database = try SQLiteDatabase(url: databaseURL)
+        defer { database.close() }
+        #expect(
+            try database.queryInt(
+                "SELECT COUNT(*) FROM schema_migration_state WHERE id = 1 AND phase = 'started'"
+            ) == 1
+        )
+        #expect(try database.queryInt("PRAGMA user_version") == 4)
+    }
+
+    let schemaManager = SQLiteSchemaManager(
+        currentSchemaVersion: SQLiteClipboardStore.currentSchemaVersion
+    )
+    #expect(try migrator.migrateIfNeeded(
+        databaseURL: databaseURL,
+        fileManager: .default,
+        createSchema: { try schemaManager.createSchema(in: $0) },
+        recordSchemaVersion: { try schemaManager.recordSchemaVersion(in: $0) }
+    ))
+
+    let database = try SQLiteDatabase(url: databaseURL)
+    defer { database.close() }
+    #expect(
+        try database.queryInt(
+            "SELECT COUNT(*) FROM schema_migration_state WHERE id = 1 AND phase = 'backfill_pending'"
+        ) == 1
+    )
+    #expect(try database.queryInt("PRAGMA user_version") == SQLiteClipboardStore.currentSchemaVersion)
+}
+
+@Test func sqlitePooledFirstUseMigratesLegacyDatabaseWithoutSelfDeadlock() throws {
+    let fixture = try SQLiteMigrationStoreFixture.make(userVersion: 4)
+    defer { fixture.remove() }
+
+    let page = try SQLiteClipboardStore(databaseURL: fixture.databaseURL)
+        .loadItemPage(limit: 1, after: nil)
+    #expect(page.items.isEmpty)
+}
+
+@Test func sqliteDigestBackfillCompletesPersistedMigrationPhase() throws {
+    let fixture = try SQLiteMigrationStoreFixture.make(userVersion: 4)
+    defer { fixture.remove() }
+    let legacyID = UUID()
+
+    do {
+        let database = try SQLiteDatabase(url: fixture.databaseURL)
+        defer { database.close() }
+        try database.execute(
+            """
+            CREATE TABLE clipboard_items (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                plain_text TEXT NOT NULL DEFAULT '',
+                source_bundle_id TEXT,
+                pinned_at REAL,
+                source_app_name TEXT NOT NULL DEFAULT '',
+                source_icon_name TEXT NOT NULL DEFAULT '',
+                header_color TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                is_pinned INTEGER NOT NULL DEFAULT 0,
+                is_deleted INTEGER NOT NULL DEFAULT 0,
+                content_hash TEXT
+            )
+            """
+        )
+        try database.execute(
+            """
+            INSERT INTO clipboard_items (
+                id, type, plain_text, source_app_name, source_icon_name,
+                header_color, created_at, updated_at, content_hash
+            ) VALUES (?, 'text', 'legacy-value', 'Legacy', 'app.fill', '#000000', 1, 1, 'legacy-value')
+            """,
+            values: [.text(legacyID.uuidString)]
+        )
+    }
+
+    let store = SQLiteClipboardStore(databaseURL: fixture.databaseURL)
+    try store.initialize()
+    do {
+        let database = try SQLiteDatabase(url: fixture.databaseURL)
+        defer { database.close() }
+        #expect(
+            try database.queryInt(
+                "SELECT COUNT(*) FROM schema_migration_state WHERE id = 1 AND phase = 'backfill_pending'"
+            ) == 1
+        )
+    }
+
+    #expect(try store.backfillContentDigests(limit: 500) == 1)
+    let database = try SQLiteDatabase(url: fixture.databaseURL)
+    defer { database.close() }
+    #expect(
+        try database.queryInt(
+            "SELECT COUNT(*) FROM schema_migration_state WHERE id = 1 AND phase = 'completed'"
+        ) == 1
+    )
+}
+
 @Test func sqliteStoreMigrationFailureRestoresBackupAndRetriesFromLegacyVersion() throws {
     let directory = try makeSQLiteMigrationTestDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -225,6 +348,24 @@ private func createLegacyDatabase(at url: URL, userVersion: Int) throws {
     try database.execute("PRAGMA user_version = \(userVersion)")
     try database.execute("CREATE TABLE legacy_marker (value TEXT NOT NULL)")
     try database.execute("INSERT INTO legacy_marker (value) VALUES ('keep')")
+}
+
+private struct SQLiteMigrationStoreFixture {
+    let directory: URL
+    let databaseURL: URL
+
+    static func make(userVersion: Int) throws -> SQLiteMigrationStoreFixture {
+        let directory = try makeSQLiteMigrationTestDirectory()
+        let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+        let database = try SQLiteDatabase(url: databaseURL)
+        try database.execute("PRAGMA user_version = \(userVersion)")
+        database.close()
+        return SQLiteMigrationStoreFixture(directory: directory, databaseURL: databaseURL)
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: directory)
+    }
 }
 
 private enum SQLiteMigrationTestError: Error, Equatable {

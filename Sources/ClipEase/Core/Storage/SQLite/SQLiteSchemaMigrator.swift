@@ -25,9 +25,15 @@ struct SQLiteSchemaMigrator: Sendable {
             return false
         }
 
+        try SQLiteSchemaMigrationStateStore.begin(
+            sourceVersion: userVersion,
+            targetVersion: currentSchemaVersion,
+            in: database
+        )
         try database.execute("PRAGMA foreign_keys = OFF")
         do {
             try createSchema(database)
+            try SQLiteSchemaMigrationStateStore.markBackfillPending(in: database)
             try recordSchemaVersion(database)
             try database.execute("PRAGMA foreign_keys = ON")
             return true
