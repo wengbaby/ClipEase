@@ -59,8 +59,7 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         do {
             let preparedConnection = try prepare()
             do {
-                try preparedConnection.execute("PRAGMA foreign_keys = ON")
-                try preparedConnection.execute("PRAGMA query_only = ON")
+                try configureReader(preparedConnection)
             } catch {
                 preparedConnection.close()
                 throw error
@@ -155,8 +154,7 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         do {
             let opened = try opening()
             do {
-                try opened.execute("PRAGMA foreign_keys = ON")
-                try opened.execute("PRAGMA query_only = ON")
+                try configureReader(opened)
             } catch {
                 opened.close()
                 throw error
@@ -344,8 +342,12 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
             totalReaderCount += 1
             do {
                 let opened = try SQLiteConnection(url: databaseURL)
-                try opened.execute("PRAGMA foreign_keys = ON")
-                try opened.execute("PRAGMA query_only = ON")
+                do {
+                    try configureReader(opened)
+                } catch {
+                    opened.close()
+                    throw error
+                }
                 connection = opened
             } catch {
                 totalReaderCount -= 1
@@ -356,6 +358,11 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
 
         leasedReaders[ObjectIdentifier(connection)] = connection
         return connection
+    }
+
+    private func configureReader(_ connection: SQLiteConnection) throws {
+        try connection.execute("PRAGMA foreign_keys = ON")
+        try connection.execute("PRAGMA query_only = ON")
     }
 
     private func releaseReader(_ connection: SQLiteConnection) {
