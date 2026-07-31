@@ -282,6 +282,17 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return []
         }
 
+        if connectionCoordinator.claimInitialDirectRead() {
+            let database = try openReadDatabase()
+            defer { database.close() }
+            let ids = try SQLiteSearchIndexDAO.searchItemIDs(query, in: database)
+            return try SQLiteItemDAO.loadItems(
+                withOrderedIDs: ids,
+                orderSQL: Self.defaultItemOrderSQL,
+                in: database
+            )
+        }
+
         try prepareConnectionCoordinatorIfNeeded()
         return try connectionCoordinator.withReader { database in
             let ids = try SQLiteSearchIndexDAO.searchItemIDs(query, in: database)
