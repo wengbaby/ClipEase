@@ -61,11 +61,13 @@ enum SQLiteStoreError: Error, LocalizedError {
 final class SQLiteConnection: @unchecked Sendable {
     static let defaultBusyTimeoutMilliseconds = 5_000
 
+    let openedReadOnly: Bool
     private let operationLock = NSRecursiveLock()
     private let handleLock = NSLock()
     private var handle: OpaquePointer?
 
     init(url: URL, readOnly: Bool = false) throws {
+        openedReadOnly = readOnly
         let flags: Int32 = readOnly
             ? SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
             : SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX

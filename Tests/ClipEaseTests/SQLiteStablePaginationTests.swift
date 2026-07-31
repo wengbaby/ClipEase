@@ -137,6 +137,40 @@ import Testing
     #expect(ftsPlan.contains { $0.localizedCaseInsensitiveContains("VIRTUAL TABLE INDEX") })
 }
 
+@Test func sqlitePagedSearchUsesReadOnlyReaderOnReadOnlyDatabase() throws {
+    let fixture = try SQLiteStablePaginationFixture.make()
+    defer { fixture.remove() }
+
+    let item = ClipboardItem.debugText(
+        "read only page",
+        createdAt: Date(timeIntervalSince1970: 100),
+        sourceApp: .clipease
+    )
+    try fixture.store.insertItems([item])
+    try FileManager.default.setAttributes(
+        [.posixPermissions: NSNumber(value: 0o444)],
+        ofItemAtPath: fixture.databaseURL.path
+    )
+    try FileManager.default.setAttributes(
+        [.posixPermissions: NSNumber(value: 0o555)],
+        ofItemAtPath: fixture.directory.path
+    )
+    defer {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o755)],
+            ofItemAtPath: fixture.directory.path
+        )
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o644)],
+            ofItemAtPath: fixture.databaseURL.path
+        )
+    }
+
+    let page = try fixture.store.loadItemPage(limit: 1, after: nil)
+    #expect(page.items.map(\.id) == [item.id])
+    #expect(fixture.store.coordinatedReaderConnectionsAreReadOnlyForTesting)
+}
+
 private struct SQLiteStablePaginationFixture {
     let directory: URL
     let databaseURL: URL

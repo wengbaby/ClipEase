@@ -40,6 +40,13 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         writerLock.withLock { totalWriterCount }
     }
 
+    var readerConnectionsOpenedReadOnlyForTesting: Bool {
+        readerCondition.withLock {
+            let connections = idleReaders + Array(leasedReaders.values)
+            return !connections.isEmpty && connections.allSatisfy(\.openedReadOnly)
+        }
+    }
+
     /// Runs schema/configuration work once before pooled access. A failed
     /// preparation remains retryable and never publishes a half-ready state.
     func prepareIfNeeded(

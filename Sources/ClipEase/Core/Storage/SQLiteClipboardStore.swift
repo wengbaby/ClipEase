@@ -51,6 +51,10 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         connectionCoordinator.createdWriterCount
     }
 
+    var coordinatedReaderConnectionsAreReadOnlyForTesting: Bool {
+        connectionCoordinator.readerConnectionsOpenedReadOnlyForTesting
+    }
+
     init(
         databaseURL: URL,
         fileManager: FileManager = .default,
@@ -677,7 +681,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
     private func prepareConnectionCoordinatorIfNeeded() throws {
         try connectionCoordinator.prepareIfNeeded {
-            try openReadDatabase()
+            try openSearchReaderDatabase()
         }
     }
 
