@@ -76,6 +76,34 @@ enum SQLiteSchemaMigrationStateStore {
         )
     }
 
+    static func phase(in database: SQLiteDatabase) throws -> SQLiteSchemaMigrationPhase? {
+        guard try database.queryInt(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migration_state'"
+        ) == 1 else {
+            return nil
+        }
+        guard let rawValue = try database.query(
+            "SELECT phase FROM schema_migration_state WHERE id = 1 LIMIT 1"
+        ).first?.optionalText("phase") else {
+            return nil
+        }
+        return SQLiteSchemaMigrationPhase(rawValue: rawValue)
+    }
+
+    static func markCompleted(in database: SQLiteDatabase) throws {
+        try database.execute(
+            """
+            UPDATE schema_migration_state
+            SET phase = ?, updated_at = ?
+            WHERE id = 1
+            """,
+            values: [
+                .text(SQLiteSchemaMigrationPhase.completed.rawValue),
+                .double(Date().timeIntervalSince1970)
+            ]
+        )
+    }
+
     /// Bootstraps a state row for databases that already reached the current
     /// schema before migration state was introduced. Only rows still needing
     /// a digest enter the pending phase; an already-complete database stays
@@ -90,7 +118,7 @@ enum SQLiteSchemaMigrationStateStore {
         ) == 0 else {
             return
         }
-        guard try database.queryInt(
+        let hasStructurallyMissingDigests = try database.queryInt(
             """
             SELECT COUNT(*)
             FROM clipboard_items
@@ -102,7 +130,21 @@ enum SQLiteSchemaMigrationStateStore {
               )
             """,
             values: [.int(SQLiteContentDigest.currentVersion)]
-        ) > 0 else {
+        ) > 0
+        if !hasStructurallyMissingDigests {
+            // A 32-byte blob can still be corrupt. Do not publish the
+            // digest-only read phase until the bytes have been checked
+            // against every legacy hash in the same maintenance pass.
+            try begin(
+                sourceVersion: currentSchemaVersion,
+                targetVersion: currentSchemaVersion,
+                in: database
+            )
+            if try SQLiteItemDAO.validateContentDigests(in: database) {
+                try markCompleted(in: database)
+            } else {
+                try markBackfillPending(in: database)
+            }
             return
         }
         try begin(

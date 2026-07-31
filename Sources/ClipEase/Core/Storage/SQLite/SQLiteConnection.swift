@@ -65,8 +65,10 @@ final class SQLiteConnection: @unchecked Sendable {
     private let handleLock = NSLock()
     private var handle: OpaquePointer?
 
-    init(url: URL) throws {
-        let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+    init(url: URL, readOnly: Bool = false) throws {
+        let flags: Int32 = readOnly
+            ? SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
+            : SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
         if sqlite3_open_v2(url.path, &handle, flags, nil) != SQLITE_OK {
             let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
             sqlite3_close(handle)

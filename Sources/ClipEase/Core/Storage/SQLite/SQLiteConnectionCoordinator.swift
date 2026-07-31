@@ -82,9 +82,26 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
     }
 
     func withWriter<Result>(
+        opening: (() throws -> SQLiteConnection)? = nil,
         _ operation: (SQLiteConnection) throws -> Result
     ) throws -> Result {
-        try writerLock.withLock {
+        // A caller may need to run migration before the coordinator's writer
+        // lock is taken. Migration invalidation itself drains this coordinator
+        // and therefore cannot be invoked while the lock is held.
+        if let opening, !hasWriterConnection {
+            let preparedConnection = try opening()
+            return try writerLock.withLock {
+                if let writerConnection {
+                    preparedConnection.close()
+                    return try operation(writerConnection)
+                }
+                writerConnection = preparedConnection
+                totalWriterCount += 1
+                return try operation(preparedConnection)
+            }
+        }
+
+        return try writerLock.withLock {
             let connection: SQLiteConnection
             if let writerConnection {
                 connection = writerConnection
@@ -102,6 +119,10 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
             }
             return try operation(connection)
         }
+    }
+
+    private var hasWriterConnection: Bool {
+        writerLock.withLock { writerConnection != nil }
     }
 
     func withReader<Result>(

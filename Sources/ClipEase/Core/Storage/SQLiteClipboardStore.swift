@@ -101,7 +101,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func loadSnapshot() throws -> ClipboardHistorySnapshot {
-        let database = try openReadyDatabase()
+        let database = try openReadDatabase()
         defer { database.close() }
 
         let groups = try SQLiteGroupDAO.loadGroups(in: database)
@@ -120,7 +120,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return []
         }
 
-        let database = try openReadyDatabase()
+        let database = try openReadDatabase()
         defer { database.close() }
 
         return try SQLiteItemDAO.loadItems(
@@ -149,12 +149,12 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
     func loadSnapshot(itemLimit: Int, offset: Int) throws -> ClipboardHistorySnapshot {
         guard itemLimit > 0 else {
-            let database = try openReadyDatabase()
+            let database = try openReadDatabase()
             defer { database.close() }
             return ClipboardHistorySnapshot(items: [], groups: try SQLiteGroupDAO.loadGroups(in: database))
         }
 
-        let database = try openReadyDatabase()
+        let database = try openReadDatabase()
         defer { database.close() }
 
         let groups = try SQLiteGroupDAO.loadGroups(in: database)
@@ -170,7 +170,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func loadItems(contentHash: String, sourceBundleID: String?) throws -> [ClipboardItem] {
-        let database = try openReadyDatabase()
+        let database = try openReadDatabase()
         defer { database.close() }
 
         let digest = SQLiteContentDigest.digest(for: contentHash)
@@ -195,10 +195,14 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             legacyValues.append(.text(sourceBundleID))
         }
 
-        // A digest index or column can be unavailable while an additive
-        // migration is being retried. Preserve duplicate detection through
-        // the stable legacy hash whenever that fast path fails.
+        let migrationPhase = (try? SQLiteSchemaMigrationStateStore.phase(in: database)) ?? nil
+        // Once the durable backfill marker is complete, the digest index is
+        // authoritative. During migration (or on an old database without a
+        // marker), retain the legacy hash as a compatibility read path. If a
+        // completed database unexpectedly lacks the digest columns, fall back
+        // to the stable legacy hash rather than turning a read into an error.
         let digestCandidateIDs: [ClipboardItem.ID]
+        var digestQueryFailed = false
         do {
             digestCandidateIDs = try SQLiteItemDAO.loadItemIDs(
                 in: database,
@@ -207,14 +211,18 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                 orderSQL: Self.defaultItemOrderSQL
             )
         } catch {
+            digestQueryFailed = true
             digestCandidateIDs = []
         }
-        let legacyCandidateIDs = try SQLiteItemDAO.loadItemIDs(
-            in: database,
-            whereSQL: legacyWhereSQL,
-            values: legacyValues,
-            orderSQL: Self.defaultItemOrderSQL
-        )
+        let shouldReadLegacyHash = migrationPhase != .completed || digestQueryFailed
+        let legacyCandidateIDs = shouldReadLegacyHash
+            ? try SQLiteItemDAO.loadItemIDs(
+                in: database,
+                whereSQL: legacyWhereSQL,
+                values: legacyValues,
+                orderSQL: Self.defaultItemOrderSQL
+            )
+            : []
         var candidateIDs: [ClipboardItem.ID] = []
         candidateIDs.reserveCapacity(digestCandidateIDs.count + legacyCandidateIDs.count)
         var seenIDs = Set<ClipboardItem.ID>()
@@ -402,8 +410,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return
         }
 
-        try prepareConnectionCoordinatorIfNeeded()
-        try connectionCoordinator.withWriter { database in
+        try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
             try database.execute("BEGIN IMMEDIATE TRANSACTION")
             do {
                 try SQLiteGroupDAO.upsert(groups, in: database)
@@ -442,8 +449,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return
         }
 
-        try prepareConnectionCoordinatorIfNeeded()
-        try connectionCoordinator.withWriter { database in
+        try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
             try database.execute("BEGIN IMMEDIATE TRANSACTION")
             do {
                 for mutation in mutations {
@@ -616,7 +622,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func countItems() throws -> Int {
-        let database = try openReadyDatabase()
+        let database = try openReadDatabase()
         defer { database.close() }
         return try database.queryInt("SELECT COUNT(*) FROM clipboard_items")
     }
@@ -628,7 +634,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return .empty
         }
 
-        let database = try openReadyDatabase()
+        let database = try openReadDatabase()
         defer { database.close() }
         return try SQLiteItemDAO.referencedAttachments(in: candidates, database: database)
     }
@@ -651,7 +657,46 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
     private func prepareConnectionCoordinatorIfNeeded() throws {
         try connectionCoordinator.prepareIfNeeded {
-            try openReadyDatabase()
+            try openReadDatabase()
+        }
+    }
+
+    /// Reads remain available while an additive migration is retried. A
+    /// failed migration restores the backup before this fallback is opened;
+    /// writes never call this path and therefore cannot mutate a legacy
+    /// schema with current-schema SQL.
+    private func openReadDatabase() throws -> SQLiteDatabase {
+        do {
+            return try openReadyDatabase()
+        } catch let readyError {
+            do {
+                return try openLegacyReadOnlyDatabase()
+            } catch {
+                throw readyError
+            }
+        }
+    }
+
+    private func openLegacyReadOnlyDatabase() throws -> SQLiteDatabase {
+        let database = try SQLiteDatabase(url: databaseURL, readOnly: true)
+        do {
+            let userVersion = try database.queryInt("PRAGMA user_version")
+            guard userVersion < Self.currentSchemaVersion else {
+                throw SQLiteStoreError.incompatibleSchemaVersion(
+                    found: userVersion,
+                    supported: Self.currentSchemaVersion
+                )
+            }
+            guard try database.queryInt(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'clipboard_items'"
+            ) == 1 else {
+                throw SQLiteStoreError.openFailed("legacy clipboard_items table is unavailable")
+            }
+            try database.execute("PRAGMA query_only = ON")
+            return database
+        } catch {
+            database.close()
+            throw error
         }
     }
 

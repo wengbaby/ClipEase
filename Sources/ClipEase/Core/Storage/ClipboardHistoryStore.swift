@@ -836,17 +836,53 @@ final class ClipboardHistoryStore: ObservableObject {
             }
 
             let startedAt = CFAbsoluteTimeGetCurrent()
-            while !Task.isCancelled {
-                let backfilledCount = persistence.backfillContentDigests()
-                guard backfilledCount == SQLiteContentDigest.batchSize else {
+            var didFinishDigestBackfill = false
+            var attempt = 0
+            while !Task.isCancelled && attempt < 3 {
+                attempt += 1
+                do {
+                    while !Task.isCancelled {
+                        let backfilledCount = try persistence.backfillContentDigestsOrThrow()
+                        guard backfilledCount == SQLiteContentDigest.batchSize else {
+                            didFinishDigestBackfill = true
+                            break
+                        }
+                        try await Task.sleep(nanoseconds: 50_000_000)
+                    }
                     break
+                } catch is CancellationError {
+                    return
+                } catch {
+                    await MainActor.run {
+                        PerformanceDiagnosticsService.shared.recordError(
+                            "history.store.searchIndexWarmup.backfill.failed",
+                            category: "search",
+                            error: error,
+                            metadata: ["attempt": "\(attempt)"]
+                        )
+                    }
+                    guard attempt < 3 else {
+                        return
+                    }
+                    let retryDelay: UInt64 = attempt == 1 ? 50_000_000 : 200_000_000
+                    try? await Task.sleep(nanoseconds: retryDelay)
                 }
-                try? await Task.sleep(nanoseconds: 50_000_000)
             }
-            guard !Task.isCancelled else {
+            guard !Task.isCancelled, didFinishDigestBackfill else {
                 return
             }
-            persistence.prepareSearchIndex()
+            do {
+                try persistence.prepareSearchIndexOrThrow()
+            } catch {
+                await MainActor.run {
+                    PerformanceDiagnosticsService.shared.recordError(
+                        "history.store.searchIndexWarmup.prepare.failed",
+                        category: "search",
+                        error: error
+                    )
+                }
+                return
+            }
             let durationMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000
             await MainActor.run {
                 PerformanceDiagnosticsService.shared.record(

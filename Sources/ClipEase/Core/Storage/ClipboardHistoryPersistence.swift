@@ -313,19 +313,32 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
 
     func backfillContentDigests(limit: Int = SQLiteContentDigest.batchSize) -> Int {
         do {
-            return try repository.backfillContentDigests(limit: limit)
+            return try backfillContentDigestsOrThrow(limit: limit)
         } catch {
             NSLog("ClipEase failed to backfill clipboard content digests: \(error.localizedDescription)")
             return 0
         }
     }
 
+    /// Background maintenance uses this boundary so a failed batch cannot be
+    /// mistaken for an already-complete migration. The compatibility wrapper
+    /// above intentionally retains its non-throwing UI-facing contract.
+    func backfillContentDigestsOrThrow(
+        limit: Int = SQLiteContentDigest.batchSize
+    ) throws -> Int {
+        try repository.backfillContentDigests(limit: limit)
+    }
+
     func prepareSearchIndex() {
         do {
-            try repository.prepareSearchIndex()
+            try prepareSearchIndexOrThrow()
         } catch {
             NSLog("ClipEase failed to prepare clipboard search index: \(error.localizedDescription)")
         }
+    }
+
+    func prepareSearchIndexOrThrow() throws {
+        try repository.prepareSearchIndex()
     }
 
     func searchItems(_ query: ClipboardSearchQuery) -> [ClipboardItem] {

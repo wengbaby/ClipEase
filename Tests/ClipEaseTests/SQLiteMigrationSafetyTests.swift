@@ -191,6 +191,73 @@ import Testing
     #expect(page.items.isEmpty)
 }
 
+@Test func sqliteReadPathFallsBackToLegacyDatabaseWhenMigrationFails() throws {
+    let fixture = try SQLiteMigrationStoreFixture.make(userVersion: 5)
+    defer { fixture.remove() }
+    let item = ClipboardItem.text("legacy fallback", sourceApp: .clipease)
+
+    do {
+        let database = try SQLiteDatabase(url: fixture.databaseURL)
+        let schemaManager = SQLiteSchemaManager(
+            currentSchemaVersion: SQLiteClipboardStore.currentSchemaVersion
+        )
+        try schemaManager.createSchema(in: database)
+        try schemaManager.recordSchemaVersion(in: database)
+        try SQLiteItemDAO.insert(item, in: database)
+        try database.execute("PRAGMA user_version = 4")
+        database.close()
+    }
+
+    let failingStore = SQLiteClipboardStore(
+        databaseURL: fixture.databaseURL,
+        migrationCreateSchema: { _ in
+            throw SQLiteMigrationTestError.injectedFailure
+        }
+    )
+
+    let snapshot = try failingStore.loadSnapshot()
+    #expect(snapshot.items.map(\.id) == [item.id])
+}
+
+@Test func sqliteWriterRetryMigratesAfterPooledLegacyReadFallback() throws {
+    let fixture = try SQLiteMigrationStoreFixture.make(userVersion: 5)
+    defer { fixture.remove() }
+    let schemaManager = SQLiteSchemaManager(
+        currentSchemaVersion: SQLiteClipboardStore.currentSchemaVersion
+    )
+    do {
+        let database = try SQLiteDatabase(url: fixture.databaseURL)
+        try schemaManager.createSchema(in: database)
+        try schemaManager.recordSchemaVersion(in: database)
+        try database.execute("PRAGMA user_version = 4")
+        database.close()
+    }
+
+    var shouldFailMigration = true
+    let store = SQLiteClipboardStore(
+        databaseURL: fixture.databaseURL,
+        migrationCreateSchema: { database in
+            if shouldFailMigration {
+                throw SQLiteMigrationTestError.injectedFailure
+            }
+            try schemaManager.createSchema(in: database)
+        }
+    )
+
+    let page = try store.loadItemPage(limit: 1, after: nil)
+    #expect(page.items.isEmpty)
+    shouldFailMigration = false
+
+    try store.upsertGroups([
+        ClipboardGroup.makeDefault(name: "Recovered", sortOrder: 0)
+    ])
+
+    let database = try SQLiteDatabase(url: fixture.databaseURL)
+    defer { database.close() }
+    #expect(try database.queryInt("PRAGMA user_version") == SQLiteClipboardStore.currentSchemaVersion)
+    #expect(try database.queryInt("SELECT COUNT(*) FROM groups WHERE name = 'Recovered'") == 1)
+}
+
 @Test func sqliteDigestBackfillCompletesPersistedMigrationPhase() throws {
     let fixture = try SQLiteMigrationStoreFixture.make(userVersion: 4)
     defer { fixture.remove() }
@@ -249,6 +316,53 @@ import Testing
             "SELECT COUNT(*) FROM schema_migration_state WHERE id = 1 AND phase = 'completed'"
         ) == 1
     )
+}
+
+@Test func sqliteDigestBootstrapMarksAlreadyCompleteCurrentDatabase() throws {
+    let fixture = try SQLiteMigrationStoreFixture.make(userVersion: 5)
+    defer { fixture.remove() }
+
+    do {
+        let database = try SQLiteDatabase(url: fixture.databaseURL)
+        let schemaManager = SQLiteSchemaManager(
+            currentSchemaVersion: SQLiteClipboardStore.currentSchemaVersion
+        )
+        try schemaManager.createSchema(in: database)
+        try schemaManager.recordSchemaVersion(in: database)
+        try SQLiteItemDAO.insert(
+            ClipboardItem.text("already complete", sourceApp: .clipease),
+            in: database
+        )
+        database.close()
+    }
+
+    let store = SQLiteClipboardStore(databaseURL: fixture.databaseURL)
+    #expect(try store.backfillContentDigests(limit: 500) == 0)
+
+    let database = try SQLiteDatabase(url: fixture.databaseURL)
+    defer { database.close() }
+    #expect(
+        try database.queryInt(
+            "SELECT COUNT(*) FROM schema_migration_state WHERE id = 1 AND phase = 'completed'"
+        ) == 1
+    )
+}
+
+@Test func clipboardPersistenceExposesDigestBackfillFailuresToWarmupCallers() throws {
+    let fixture = try SQLiteMigrationStoreFixture.make(userVersion: 4)
+    defer { fixture.remove() }
+    let persistence = ClipboardHistoryPersistence(
+        repository: SQLiteClipboardStore(
+            databaseURL: fixture.databaseURL,
+            migrationCreateSchema: { _ in
+                throw SQLiteMigrationTestError.injectedFailure
+            }
+        )
+    )
+
+    #expect(throws: SQLiteMigrationTestError.injectedFailure) {
+        _ = try persistence.backfillContentDigestsOrThrow(limit: 500)
+    }
 }
 
 @Test func sqliteStoreMigrationFailureRestoresBackupAndRetriesFromLegacyVersion() throws {
