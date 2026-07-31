@@ -19,5 +19,10 @@ import Testing
     #expect(try database.queryInt("SELECT COUNT(*) FROM schema_versions WHERE version = ?", values: [.int(SQLiteClipboardStore.currentSchemaVersion)]) == 1)
     #expect(try database.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'clipboard_items'") == 1)
     #expect(try database.queryInt("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'clipboard_items_fts'") == 1)
+    #expect(
+        try database.queryInt(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_clipboard_items_live_order'"
+        ) == 1
+    )
     #expect(try database.query("PRAGMA table_info('item_ocr_results')").contains { $0.requiredText("name") == "text_regions" })
 }

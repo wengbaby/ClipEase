@@ -156,6 +156,18 @@ struct SQLiteSchemaManager {
         try database.execute(
             "CREATE INDEX IF NOT EXISTS idx_clipboard_items_pinned ON clipboard_items(is_pinned, pinned_at DESC)"
         )
+        try database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_clipboard_items_live_order
+            ON clipboard_items(
+                is_pinned DESC,
+                created_at DESC,
+                COALESCE(pinned_at, created_at) DESC,
+                id DESC
+            )
+            WHERE is_deleted = 0
+            """
+        )
         // `is_deleted` has very low selectivity and this full index can win over
         // the measured active-row duplicate indexes on the production-width
         // table. Remove it for both fresh databases and upgraded installations.

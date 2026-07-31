@@ -17,6 +17,28 @@ import Testing
     #expect((try Data(contentsOf: databaseURL)).count >= originalBytes.count)
 }
 
+@Test func currentSQLiteStoreRepairsMissingMeasuredOrderIndex() throws {
+    let directory = try makeSQLiteMigrationTestDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let database = try SQLiteConnection(url: databaseURL)
+    let schemaManager = SQLiteSchemaManager(currentSchemaVersion: SQLiteClipboardStore.currentSchemaVersion)
+    try schemaManager.createSchema(in: database)
+    try schemaManager.recordSchemaVersion(in: database)
+    try database.execute("DROP INDEX idx_clipboard_items_live_order")
+    database.close()
+
+    try SQLiteClipboardStore(databaseURL: databaseURL).initialize()
+
+    let repaired = try SQLiteConnection(url: databaseURL)
+    defer { repaired.close() }
+    #expect(
+        try repaired.queryInt(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_clipboard_items_live_order'"
+        ) == 1
+    )
+}
+
 @Test func legacySQLiteInitializationCreatesBackupWithSidecars() throws {
     let directory = try makeSQLiteMigrationTestDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

@@ -688,10 +688,21 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             try createSchema(in: database)
             try recordSchemaVersion(in: database)
         }
-        try ensureMeasuredQueryIndexes(in: database)
+        try ensureMeasuredQueryIndexesIfMissing(in: database)
     }
 
-    private func ensureMeasuredQueryIndexes(in database: SQLiteDatabase) throws {
+    private func ensureMeasuredQueryIndexesIfMissing(in database: SQLiteDatabase) throws {
+        let indexExists = try database.queryInt(
+            """
+            SELECT COUNT(*)
+            FROM sqlite_master
+            WHERE type = 'index' AND name = 'idx_clipboard_items_live_order'
+            """
+        ) == 1
+        guard !indexExists else {
+            return
+        }
+
         try database.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_clipboard_items_live_order
