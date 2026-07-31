@@ -461,6 +461,7 @@ private struct EnterprisePerformanceBenchmarkContext {
             }
         }
         try validateAssetFixture()
+        try prepareAssetScanFixture()
     }
 
     func sample(iteration: Int) throws -> SampleRow {
@@ -517,17 +518,27 @@ private struct EnterprisePerformanceBenchmarkContext {
             try loadStableM100KPage(after: pageCursor)
         }
 
+        let assetScanReferences = try assetReferences()
+        guard assetScanReferences.count == 3_000 else {
+            throw EnterprisePerformanceBenchmarkError.invalidResult("A3K reference count changed")
+        }
+        let assetScanExpectation = try EnterpriseBenchmarkAssetScanLayout.expectation(
+            references: assetScanReferences
+        )
         metrics["asset_scan_a3k"] = try measure {
-            let references = try assetReferences()
-            guard references.count == 3_000 else {
-                throw EnterprisePerformanceBenchmarkError.invalidResult("A3K reference count changed")
-            }
-            let totalBytes = try references.reduce(into: 0) { result, reference in
-                let url = try assetURL(for: reference)
-                result += try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            }
-            guard totalBytes > 0 else {
-                throw EnterprisePerformanceBenchmarkError.invalidResult("A3K assets are empty")
+            let report = HistoryDataHealthChecker.check(
+                items: assetScanExpectation.referencedItems,
+                fileManager: EnterpriseBenchmarkApplicationSupportFileManager(
+                    rootURL: assetScanApplicationSupportRoot
+                )
+            )
+            guard report.missingImageFiles == 0,
+                  report.missingRichTextFiles == 0,
+                  report.orphanedAttachmentFiles == assetScanExpectation.expectedOrphanedFiles,
+                  report.orphanedAttachmentBytes == assetScanExpectation.expectedOrphanedBytes else {
+                throw EnterprisePerformanceBenchmarkError.invalidResult(
+                    "A3K product attachment scan did not match the reference/orphan contract"
+                )
             }
         }
         metrics["asset_decode_a3k"] = try measure {
@@ -574,6 +585,31 @@ private struct EnterprisePerformanceBenchmarkContext {
 
     private func databaseURL(for fixtureID: String) -> URL {
         workRoot.appendingPathComponent("\(fixtureID).sqlite")
+    }
+
+    private var assetScanApplicationSupportRoot: URL {
+        workRoot.appendingPathComponent("asset-scan-support", isDirectory: true)
+    }
+
+    private func prepareAssetScanFixture() throws {
+        let root = assetScanApplicationSupportRoot
+        guard !FileManager.default.fileExists(atPath: root.path) else {
+            throw EnterprisePerformanceBenchmarkError.invalidEnvironment(
+                "benchmark work directory must be fresh: \(root.lastPathComponent)"
+            )
+        }
+        let fixture = try requiredFixture("A3K")
+        let references = try assetReferences()
+        guard references.count == fixture.itemCount else {
+            throw EnterprisePerformanceBenchmarkError.invalidFixture(
+                "A3K asset reference count does not match its manifest"
+            )
+        }
+        _ = try EnterpriseBenchmarkAssetScanLayout.prepare(
+            references: references,
+            sourceRoot: try validatedFixtureURL(for: fixture),
+            applicationSupportRoot: root
+        )
     }
 
     private func itemRecords(
@@ -917,6 +953,179 @@ private struct EnterprisePerformanceBenchmarkContext {
     }
 }
 
+private final class EnterpriseBenchmarkApplicationSupportFileManager: FileManager, @unchecked Sendable {
+    private let rootURL: URL
+
+    init(rootURL: URL) {
+        self.rootURL = rootURL
+        super.init()
+    }
+
+    override func url(
+        for directory: FileManager.SearchPathDirectory,
+        in domain: FileManager.SearchPathDomainMask,
+        appropriateFor url: URL?,
+        create shouldCreate: Bool
+    ) throws -> URL {
+        guard directory == .applicationSupportDirectory,
+              domain == .userDomainMask else {
+            return try super.url(
+                for: directory,
+                in: domain,
+                appropriateFor: url,
+                create: shouldCreate
+            )
+        }
+        if shouldCreate {
+            try createDirectory(at: rootURL, withIntermediateDirectories: true)
+        }
+        return rootURL
+    }
+}
+
+private struct EnterpriseBenchmarkAssetScanLayout {
+    let fileManager: EnterpriseBenchmarkApplicationSupportFileManager
+    private let applicationSupportRoot: URL
+    let referencedItems: [ClipboardItem]
+    let expectedOrphanedFiles: Int
+    let expectedOrphanedBytes: UInt64
+
+    static func prepare(
+        references: [EnterprisePerformanceBenchmarkContext.AssetReference],
+        sourceRoot: URL,
+        applicationSupportRoot: URL
+    ) throws -> EnterpriseBenchmarkAssetScanLayout {
+        let expected = try expectation(references: references)
+        let fileManager = EnterpriseBenchmarkApplicationSupportFileManager(
+            rootURL: applicationSupportRoot
+        )
+        let imagesDirectory = try ClipEaseStoragePaths.imagesDirectory(fileManager: fileManager)
+        let thumbnailsDirectory = try ClipEaseStoragePaths.thumbnailsDirectory(fileManager: fileManager)
+        let richTextsDirectory = try ClipEaseStoragePaths.richTextsDirectory(fileManager: fileManager)
+        for directory in [imagesDirectory, thumbnailsDirectory, richTextsDirectory] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        var imageReferences: [EnterprisePerformanceBenchmarkContext.AssetReference] = []
+        var richTextReferences: [EnterprisePerformanceBenchmarkContext.AssetReference] = []
+        let canonicalSourceRoot = sourceRoot.standardizedFileURL
+        let sourceRootPrefix = canonicalSourceRoot.path.hasSuffix("/")
+            ? canonicalSourceRoot.path
+            : canonicalSourceRoot.path + "/"
+        for reference in references {
+            let sourceURL = canonicalSourceRoot
+                .appendingPathComponent(reference.relativePath)
+                .standardizedFileURL
+            guard sourceURL.path.hasPrefix(sourceRootPrefix) else {
+                throw EnterprisePerformanceBenchmarkError.invalidFixture(
+                    "A3K asset reference escaped the source fixture root"
+                )
+            }
+            let destinationDirectory: URL
+            switch reference.kind {
+            case "png", "heic":
+                destinationDirectory = imagesDirectory
+                imageReferences.append(reference)
+            case "rtf":
+                destinationDirectory = richTextsDirectory
+                richTextReferences.append(reference)
+            case "pdf", "txt":
+                // PDF and file assets are covered by asset decoding, not by the
+                // product's image/rich-text orphan scanner.
+                continue
+            default:
+                throw EnterprisePerformanceBenchmarkError.invalidFixture(
+                    "unsupported A3K kind \(reference.kind) for product attachment scan"
+                )
+            }
+            let destinationURL = destinationDirectory.appendingPathComponent(
+                sourceURL.lastPathComponent,
+                isDirectory: false
+            )
+            try fileManager.linkItem(at: sourceURL, to: destinationURL)
+
+            if reference.kind == "png" || reference.kind == "heic" {
+                try fileManager.linkItem(
+                    at: sourceURL,
+                    to: thumbnailsDirectory.appendingPathComponent(
+                        sourceURL.lastPathComponent,
+                        isDirectory: false
+                    )
+                )
+            }
+        }
+
+        guard !imageReferences.isEmpty, !richTextReferences.isEmpty else {
+            throw EnterprisePerformanceBenchmarkError.invalidFixture(
+                "A3K product attachment scan requires an image reference"
+            )
+        }
+
+        return EnterpriseBenchmarkAssetScanLayout(
+            fileManager: fileManager,
+            applicationSupportRoot: applicationSupportRoot,
+            referencedItems: expected.referencedItems,
+            expectedOrphanedFiles: expected.expectedOrphanedFiles,
+            expectedOrphanedBytes: expected.expectedOrphanedBytes
+        )
+    }
+
+    static func expectation(
+        references: [EnterprisePerformanceBenchmarkContext.AssetReference]
+    ) throws -> (referencedItems: [ClipboardItem], expectedOrphanedFiles: Int, expectedOrphanedBytes: UInt64) {
+        guard let firstImage = references.first(where: { $0.kind == "png" || $0.kind == "heic" }),
+              let firstRichText = references.first(where: { $0.kind == "rtf" }) else {
+            throw EnterprisePerformanceBenchmarkError.invalidFixture(
+                "A3K product attachment scan requires image and rich-text references"
+            )
+        }
+        let imageName = URL(fileURLWithPath: firstImage.relativePath).lastPathComponent
+        let richTextName = URL(fileURLWithPath: firstRichText.relativePath).lastPathComponent
+        let imageReferences = references.filter { $0.kind == "png" || $0.kind == "heic" }
+        let richTextReferences = references.filter { $0.kind == "rtf" }
+        guard !imageReferences.isEmpty, !richTextReferences.isEmpty else {
+            throw EnterprisePerformanceBenchmarkError.invalidFixture(
+                "A3K product attachment scan requires image and rich-text references"
+            )
+        }
+        let physicalFileCount = imageReferences.count * 2 + richTextReferences.count
+        let referencedPhysicalFileCount = 3
+        let physicalByteCount = imageReferences.reduce(UInt64(0)) {
+            $0 + UInt64($1.byteCount) * 2
+        } + richTextReferences.reduce(UInt64(0)) {
+            $0 + UInt64($1.byteCount)
+        }
+        let referencedByteCount = UInt64(firstImage.byteCount * 2 + firstRichText.byteCount)
+        return (
+            referencedItems: [
+                .image(
+                    fileName: imageName,
+                    width: firstImage.pixelWidth ?? 1,
+                    height: firstImage.pixelHeight ?? 1,
+                    hash: firstImage.sha256,
+                    sourceApp: .clipease
+                ),
+                .richText(
+                    plainText: "A3K deterministic rich text",
+                    fileName: richTextName,
+                    sourceApp: .clipease
+                ),
+            ],
+            expectedOrphanedFiles: physicalFileCount - referencedPhysicalFileCount,
+            expectedOrphanedBytes: physicalByteCount - referencedByteCount
+        )
+    }
+
+    func fileExists(in directoryName: String, named fileName: String) -> Bool {
+        let url = applicationSupportRoot
+            .appendingPathComponent("ClipEase", isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+        return fileManager.fileExists(atPath: url.path)
+    }
+
+}
+
 @Test func enterpriseBenchmarkTreeHashCanonicalizesTemporaryDirectoryAliases() throws {
     let identifier = "clipease-fixture-\(UUID().uuidString)"
     let physicalRoot = URL(
@@ -1052,4 +1261,86 @@ private struct EnterprisePerformanceBenchmarkContext {
     #expect(itemsByID[image.id]?.imageHeight == 360)
     #expect(itemsByID[richText.id]?.type == .text)
     #expect(itemsByID[richText.id]?.richTextFileName == "\(richText.id.uuidString).rtf")
+}
+
+@Test func enterpriseA3KAssetScanUsesProductDirectoriesAndReferenceFiltering() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "clipease-enterprise-asset-scan-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    let sourceRoot = root.appendingPathComponent("fixture", isDirectory: true)
+    let applicationSupportRoot = root.appendingPathComponent("support", isDirectory: true)
+    let sourceFiles: [(String, String, Int)] = [
+        ("png", "assets/png/000000.png", 11),
+        ("pdf", "assets/pdf/000001.pdf", 13),
+        ("rtf", "assets/rtf/000002.rtf", 17),
+        ("txt", "assets/txt/000003.txt", 19),
+    ]
+    try FileManager.default.createDirectory(
+        at: sourceRoot,
+        withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    var references: [EnterprisePerformanceBenchmarkContext.AssetReference] = []
+    for (kind, relativePath, byteCount) in sourceFiles {
+        let sourceURL = sourceRoot.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(
+            at: sourceURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(repeating: 0xA3, count: byteCount).write(to: sourceURL, options: .atomic)
+        references.append(
+            EnterprisePerformanceBenchmarkContext.AssetReference(
+                kind: kind,
+                relativePath: relativePath,
+                byteCount: byteCount,
+                sha256: "fixture",
+                profile: nil,
+                pixelWidth: nil,
+                pixelHeight: nil,
+                pageCount: nil
+            )
+        )
+    }
+
+    let layout = try EnterpriseBenchmarkAssetScanLayout.prepare(
+        references: references,
+        sourceRoot: sourceRoot,
+        applicationSupportRoot: applicationSupportRoot
+    )
+    let report = HistoryDataHealthChecker.check(
+        items: layout.referencedItems,
+        fileManager: layout.fileManager
+    )
+
+    #expect(report.missingImageFiles == 0)
+    #expect(report.missingRichTextFiles == 0)
+    #expect(report.orphanedAttachmentFiles == layout.expectedOrphanedFiles)
+    #expect(report.orphanedAttachmentBytes == layout.expectedOrphanedBytes)
+    #expect(layout.fileExists(in: "Images", named: "000000.png"))
+    #expect(layout.fileExists(in: "Thumbnails", named: "000000.png"))
+    #expect(layout.fileExists(in: "RichTexts", named: "000002.rtf"))
+    #expect(!layout.fileExists(in: "RichTexts", named: "000001.pdf"))
+    #expect(!layout.fileExists(in: "RichTexts", named: "000003.txt"))
+
+    var escapedReferences = references
+    escapedReferences[0] = EnterprisePerformanceBenchmarkContext.AssetReference(
+        kind: "png",
+        relativePath: "../outside.png",
+        byteCount: 11,
+        sha256: "fixture",
+        profile: nil,
+        pixelWidth: nil,
+        pixelHeight: nil,
+        pageCount: nil
+    )
+    #expect(throws: EnterprisePerformanceBenchmarkError.self) {
+        try EnterpriseBenchmarkAssetScanLayout.prepare(
+            references: escapedReferences,
+            sourceRoot: sourceRoot,
+            applicationSupportRoot: root.appendingPathComponent("escaped-support", isDirectory: true)
+        )
+    }
 }

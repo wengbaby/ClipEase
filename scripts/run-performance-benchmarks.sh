@@ -44,7 +44,10 @@ runner_arguments=(
 )
 
 if [[ "${PERFORMANCE_CANDIDATE_ONLY:-0}" == "1" ]]; then
-    runner_arguments+=(--candidate-only)
+    runner_arguments+=(
+        --candidate-only
+        --candidate-subject-sha "$(git -C "$ROOT_DIR" rev-parse HEAD)"
+    )
 else
     if [[ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all)" ]]; then
         echo "Gating benchmarks require a clean candidate worktree." >&2

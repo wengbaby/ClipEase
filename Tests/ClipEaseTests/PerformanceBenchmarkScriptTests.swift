@@ -15,6 +15,7 @@ import Testing
     #expect(script.contains("ad4013c"))
     #expect(script.contains("--baseline-subject-sha"))
     #expect(script.contains("PERFORMANCE_CANDIDATE_ONLY"))
+    #expect(script.contains("--candidate-subject-sha \"$(git -C \"$ROOT_DIR\" rev-parse HEAD)\""))
     #expect(script.contains("Gating benchmarks require a clean candidate worktree"))
     #expect(!script.contains("system_profiler"))
 }
@@ -83,6 +84,22 @@ import Testing
     }
     #expect(!driver.contains("metrics[\"cold_start\"]"))
     #expect(!driver.contains("metrics[\"first_window_usable\"]"))
+}
+
+@Test func benchmarkA3KMeasuresProductAttachmentScanPath() throws {
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    let driver = try String(
+        contentsOf: root.appendingPathComponent(
+            "Tests/ClipEaseTests/EnterprisePerformanceBenchmarkDriverTests.swift"
+        )
+    )
+
+    #expect(driver.contains("HistoryDataHealthChecker.check"))
+    #expect(driver.contains("prepareAssetScanFixture"))
+    #expect(driver.contains("linkItem"))
+    #expect(driver.contains("Images"))
+    #expect(driver.contains("Thumbnails"))
+    #expect(driver.contains("RichTexts"))
 }
 
 @Test func instrumentsCaptureMatrixIncludesEveryRequiredProfiler() throws {
