@@ -143,6 +143,45 @@ import Testing
     #expect(coordinator.createdReaderCount == 1)
 }
 
+@Test func sqliteConnectionCoordinatorOpensAndLeasesFirstReaderAtomically() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "clipease-sqlite-coordinator-first-reader-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let coordinator = SQLiteConnectionCoordinator(
+        databaseURL: databaseURL,
+        maximumReaderCount: 2
+    )
+    defer { coordinator.invalidate() }
+
+    var openCount = 0
+    let firstReaderID = try coordinator.withReader(opening: {
+        openCount += 1
+        let connection = try SQLiteConnection(url: databaseURL)
+        try connection.execute("CREATE TABLE sample (value INTEGER NOT NULL)")
+        return connection
+    }) { connection in
+        let queryOnly = try connection.queryInt("PRAGMA query_only")
+        #expect(queryOnly == 1)
+        return ObjectIdentifier(connection)
+    }
+
+    let secondReaderID = try coordinator.withReader { connection in
+        let rowCount = try connection.queryInt("SELECT COUNT(*) FROM sample")
+        #expect(rowCount == 0)
+        return ObjectIdentifier(connection)
+    }
+
+    #expect(openCount == 1)
+    #expect(firstReaderID == secondReaderID)
+    #expect(coordinator.createdReaderCount == 1)
+}
+
 @Test func sqliteCancellationHandlerGateQuiescesBeforeReaderReuse() {
     let gate = SQLiteCancellationHandlerGate()
     let handlerEntered = DispatchSemaphore(value: 0)

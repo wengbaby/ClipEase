@@ -304,8 +304,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return []
         }
 
-        try prepareConnectionCoordinatorIfNeeded()
-        return try connectionCoordinator.withReader { database in
+        return try connectionCoordinator.withReader(opening: { try openSearchReaderDatabase() }) { database in
             let ids = try SQLiteSearchIndexDAO.searchItemIDs(query, in: database)
             return try SQLiteItemDAO.loadItems(
                 withOrderedIDs: ids,
@@ -695,6 +694,47 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             } catch {
                 throw readyError
             }
+        }
+    }
+
+    /// A prepared v5 database can be opened read-only without repeating WAL,
+    /// schema, and measured-index setup. The readiness cache is invalidated
+    /// whenever this store replaces or migrates its database files.
+    private func openSearchReaderDatabase() throws -> SQLiteDatabase {
+        let readinessKey = databaseURL.standardizedFileURL.path
+        let database: SQLiteDatabase?
+        do {
+            database = try openVerifiedSearchReaderDatabase()
+        } catch {
+            return try openReadDatabase()
+        }
+
+        guard let database else {
+            return try openReadDatabase()
+        }
+        Self.measuredIndexReadiness.insert(readinessKey)
+        return database
+    }
+
+    private func openVerifiedSearchReaderDatabase() throws -> SQLiteDatabase? {
+        let database = try SQLiteDatabase(url: databaseURL, readOnly: true)
+        do {
+            let userVersion = try database.queryInt("PRAGMA user_version")
+            let measuredIndexExists = try database.queryInt(
+                """
+                SELECT COUNT(*)
+                FROM sqlite_master
+                WHERE type = 'index' AND name = 'idx_clipboard_items_live_order'
+                """
+            ) == 1
+            guard userVersion == Self.currentSchemaVersion, measuredIndexExists else {
+                database.close()
+                return nil
+            }
+            return database
+        } catch {
+            database.close()
+            throw error
         }
     }
 

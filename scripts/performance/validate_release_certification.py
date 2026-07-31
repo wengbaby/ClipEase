@@ -47,7 +47,7 @@ REQUIRED_FAULT_TESTS = {
     "sigkillDuringWrite": "sqliteWALSurvivesSIGKILLDuringUncommittedWrite",
     "sourceAppRapidSwitch": "sourceApplicationSnapshotUsesMostRecentRapidActivation",
     "lockSleepResume": "suspendedClipboardMonitorDoesNotReadPayloadAndResumePollsImmediately",
-    "imageBurst30x8MiB": "thirtyIndependentEightMiBImagesAllReachDurableStagingWithFourActiveTasks",
+    "imageBurst30x8MiB": "thirtyIndependentEightMiBImagesApplyDeterministicMemoryBackpressure",
     "pdf25Pages": "pdfTwentyFivePageBoundaryIsAcceptedWithoutUnboundedOCR",
     "windowCycles100": "historyWindowOneHundredOpenCloseCyclesRemainBoundedAndLeakFree",
 }

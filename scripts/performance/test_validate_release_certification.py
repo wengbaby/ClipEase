@@ -18,6 +18,14 @@ certification = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(certification)
 
+FAULT_RUNNER_SPEC = importlib.util.spec_from_file_location(
+    "run_fault_injection_suite",
+    ROOT / "scripts/performance/run_fault_injection_suite.py",
+)
+fault_runner = importlib.util.module_from_spec(FAULT_RUNNER_SPEC)
+assert FAULT_RUNNER_SPEC.loader is not None
+FAULT_RUNNER_SPEC.loader.exec_module(fault_runner)
+
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -222,7 +230,7 @@ class ReleaseCertificationTests(unittest.TestCase):
         "sigkillDuringWrite": "sqliteWALSurvivesSIGKILLDuringUncommittedWrite",
         "sourceAppRapidSwitch": "sourceApplicationSnapshotUsesMostRecentRapidActivation",
         "lockSleepResume": "suspendedClipboardMonitorDoesNotReadPayloadAndResumePollsImmediately",
-        "imageBurst30x8MiB": "thirtyIndependentEightMiBImagesAllReachDurableStagingWithFourActiveTasks",
+        "imageBurst30x8MiB": "thirtyIndependentEightMiBImagesApplyDeterministicMemoryBackpressure",
         "pdf25Pages": "pdfTwentyFivePageBoundaryIsAcceptedWithoutUnboundedOCR",
         "windowCycles100": "historyWindowOneHundredOpenCloseCyclesRemainBoundedAndLeakFree",
     }
@@ -235,6 +243,12 @@ class ReleaseCertificationTests(unittest.TestCase):
         "allocations": "Allocations",
         "leaks": "Leaks",
     }
+
+    def test_fault_test_contract_matches_fault_runner(self):
+        self.assertEqual(
+            certification.REQUIRED_FAULT_TESTS,
+            fault_runner.REQUIRED_FAULT_TESTS,
+        )
 
     @staticmethod
     def trace_toc(template: str = "SwiftUI") -> str:

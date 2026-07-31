@@ -133,6 +133,54 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         return try operation(connection)
     }
 
+    /// Opens, configures, and leases the first reader as one operation. This
+    /// avoids a second condition-lock round trip on cold compatibility reads,
+    /// while still publishing the connection to the bounded pool for reuse.
+    func withReader<Result>(
+        opening: () throws -> SQLiteConnection,
+        _ operation: (SQLiteConnection) throws -> Result
+    ) throws -> Result {
+        readerCondition.lock()
+        while isPreparing || isInvalidating {
+            readerCondition.wait()
+        }
+        if isPrepared {
+            readerCondition.unlock()
+            return try withReader(operation)
+        }
+        isPreparing = true
+        readerCondition.unlock()
+
+        let connection: SQLiteConnection
+        do {
+            let opened = try opening()
+            do {
+                try opened.execute("PRAGMA foreign_keys = ON")
+                try opened.execute("PRAGMA query_only = ON")
+            } catch {
+                opened.close()
+                throw error
+            }
+            connection = opened
+        } catch {
+            readerCondition.withLock {
+                isPreparing = false
+                readerCondition.broadcast()
+            }
+            throw error
+        }
+
+        readerCondition.withLock {
+            leasedReaders[ObjectIdentifier(connection)] = connection
+            totalReaderCount += 1
+            isPreparing = false
+            isPrepared = true
+            readerCondition.broadcast()
+        }
+        defer { releaseReader(connection) }
+        return try operation(connection)
+    }
+
     func withReaderAsync<Result: Sendable>(
         _ operation: @escaping @Sendable (SQLiteConnection) async throws -> Result
     ) async throws -> Result {
