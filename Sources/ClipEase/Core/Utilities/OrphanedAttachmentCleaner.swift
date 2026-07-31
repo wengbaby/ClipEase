@@ -1,5 +1,7 @@
 import Foundation
 
+typealias AttachmentResourceValuesProvider = @Sendable (URL, Set<URLResourceKey>) throws -> URLResourceValues
+
 struct OrphanedAttachmentCleanupResult: Sendable {
     let removedFiles: Int
     let removedBytes: UInt64
@@ -15,22 +17,31 @@ struct OrphanedAttachmentCleanupResult: Sendable {
 enum OrphanedAttachmentCleaner {
     static func candidates(
         items: [ClipboardItem],
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        resourceValuesProvider: @escaping AttachmentResourceValuesProvider = { url, keys in
+            try url.resourceValues(forKeys: keys)
+        }
     ) -> ClipboardAttachmentCleanup {
         let referencedImages = Set(items.compactMap(\.imageFileName))
         let referencedRichTexts = Set(items.compactMap(\.richTextFileName))
         let imageCandidates = fileNames(
             in: try? ClipEaseStoragePaths.imagesDirectory(fileManager: fileManager),
-            fileManager: fileManager
+            referencedFileNames: referencedImages,
+            fileManager: fileManager,
+            resourceValuesProvider: resourceValuesProvider
         ).union(
             fileNames(
                 in: try? ClipEaseStoragePaths.thumbnailsDirectory(fileManager: fileManager),
-                fileManager: fileManager
+                referencedFileNames: referencedImages,
+                fileManager: fileManager,
+                resourceValuesProvider: resourceValuesProvider
             )
         ).subtracting(referencedImages)
         let richTextCandidates = fileNames(
             in: try? ClipEaseStoragePaths.richTextsDirectory(fileManager: fileManager),
-            fileManager: fileManager
+            referencedFileNames: referencedRichTexts,
+            fileManager: fileManager,
+            resourceValuesProvider: resourceValuesProvider
         ).subtracting(referencedRichTexts)
 
         return ClipboardAttachmentCleanup(
@@ -39,7 +50,13 @@ enum OrphanedAttachmentCleaner {
         )
     }
 
-    static func clean(items: [ClipboardItem], fileManager: FileManager = .default) -> OrphanedAttachmentCleanupResult {
+    static func clean(
+        items: [ClipboardItem],
+        fileManager: FileManager = .default,
+        resourceValuesProvider: @escaping AttachmentResourceValuesProvider = { url, keys in
+            try url.resourceValues(forKeys: keys)
+        }
+    ) -> OrphanedAttachmentCleanupResult {
         let referencedImages = Set(items.compactMap(\.imageFileName))
         let referencedRichTexts = Set(items.compactMap(\.richTextFileName))
 
@@ -50,6 +67,7 @@ enum OrphanedAttachmentCleaner {
             try? ClipEaseStoragePaths.imagesDirectory(fileManager: fileManager),
             referencedFileNames: referencedImages,
             fileManager: fileManager,
+            resourceValuesProvider: resourceValuesProvider,
             removedFiles: &removedFiles,
             removedBytes: &removedBytes
         )
@@ -57,6 +75,7 @@ enum OrphanedAttachmentCleaner {
             try? ClipEaseStoragePaths.thumbnailsDirectory(fileManager: fileManager),
             referencedFileNames: referencedImages,
             fileManager: fileManager,
+            resourceValuesProvider: resourceValuesProvider,
             removedFiles: &removedFiles,
             removedBytes: &removedBytes
         )
@@ -64,6 +83,7 @@ enum OrphanedAttachmentCleaner {
             try? ClipEaseStoragePaths.richTextsDirectory(fileManager: fileManager),
             referencedFileNames: referencedRichTexts,
             fileManager: fileManager,
+            resourceValuesProvider: resourceValuesProvider,
             removedFiles: &removedFiles,
             removedBytes: &removedBytes
         )
@@ -76,7 +96,9 @@ enum OrphanedAttachmentCleaner {
 
     private static func fileNames(
         in directoryURL: URL?,
-        fileManager: FileManager
+        referencedFileNames: Set<String>,
+        fileManager: FileManager,
+        resourceValuesProvider: @escaping AttachmentResourceValuesProvider
     ) -> Set<String> {
         guard let directoryURL,
               let fileURLs = try? fileManager.contentsOfDirectory(
@@ -88,7 +110,8 @@ enum OrphanedAttachmentCleaner {
         }
 
         return Set(fileURLs.compactMap { fileURL in
-            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+            guard !referencedFileNames.contains(fileURL.lastPathComponent),
+                  let values = try? resourceValuesProvider(fileURL, [.isRegularFileKey]),
                   values.isRegularFile == true else {
                 return nil
             }
@@ -100,6 +123,7 @@ enum OrphanedAttachmentCleaner {
         _ directoryURL: URL?,
         referencedFileNames: Set<String>,
         fileManager: FileManager,
+        resourceValuesProvider: @escaping AttachmentResourceValuesProvider,
         removedFiles: inout Int,
         removedBytes: inout UInt64
     ) {
@@ -113,9 +137,9 @@ enum OrphanedAttachmentCleaner {
         }
 
         for fileURL in fileURLs {
-            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  values.isRegularFile == true,
-                  !referencedFileNames.contains(fileURL.lastPathComponent) else {
+            guard !referencedFileNames.contains(fileURL.lastPathComponent),
+                  let values = try? resourceValuesProvider(fileURL, [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true else {
                 continue
             }
 

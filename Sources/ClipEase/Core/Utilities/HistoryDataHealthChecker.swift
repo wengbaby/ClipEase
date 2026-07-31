@@ -84,7 +84,13 @@ struct HistoryDataRepairReport: Sendable {
 }
 
 enum HistoryDataHealthChecker {
-    static func check(items: [ClipboardItem], fileManager: FileManager = .default) -> HistoryDataHealthReport {
+    static func check(
+        items: [ClipboardItem],
+        fileManager: FileManager = .default,
+        resourceValuesProvider: @escaping AttachmentResourceValuesProvider = { url, keys in
+            try url.resourceValues(forKeys: keys)
+        }
+    ) -> HistoryDataHealthReport {
         let referencedImages = Set(items.compactMap(\.imageFileName))
         let referencedRichTexts = Set(items.compactMap(\.richTextFileName))
 
@@ -111,7 +117,8 @@ enum HistoryDataHealthChecker {
         let orphaned = orphanedAttachmentUsage(
             referencedImages: referencedImages,
             referencedRichTexts: referencedRichTexts,
-            fileManager: fileManager
+            fileManager: fileManager,
+            resourceValuesProvider: resourceValuesProvider
         )
 
         return HistoryDataHealthReport(
@@ -137,7 +144,8 @@ enum HistoryDataHealthChecker {
     private static func orphanedAttachmentUsage(
         referencedImages: Set<String>,
         referencedRichTexts: Set<String>,
-        fileManager: FileManager
+        fileManager: FileManager,
+        resourceValuesProvider: @escaping AttachmentResourceValuesProvider
     ) -> (files: Int, bytes: UInt64) {
         var files = 0
         var bytes: UInt64 = 0
@@ -146,6 +154,7 @@ enum HistoryDataHealthChecker {
             try? ClipEaseStoragePaths.imagesDirectory(fileManager: fileManager),
             referencedFileNames: referencedImages,
             fileManager: fileManager,
+            resourceValuesProvider: resourceValuesProvider,
             files: &files,
             bytes: &bytes
         )
@@ -153,6 +162,7 @@ enum HistoryDataHealthChecker {
             try? ClipEaseStoragePaths.thumbnailsDirectory(fileManager: fileManager),
             referencedFileNames: referencedImages,
             fileManager: fileManager,
+            resourceValuesProvider: resourceValuesProvider,
             files: &files,
             bytes: &bytes
         )
@@ -160,6 +170,7 @@ enum HistoryDataHealthChecker {
             try? ClipEaseStoragePaths.richTextsDirectory(fileManager: fileManager),
             referencedFileNames: referencedRichTexts,
             fileManager: fileManager,
+            resourceValuesProvider: resourceValuesProvider,
             files: &files,
             bytes: &bytes
         )
@@ -171,6 +182,7 @@ enum HistoryDataHealthChecker {
         _ directoryURL: URL?,
         referencedFileNames: Set<String>,
         fileManager: FileManager,
+        resourceValuesProvider: @escaping AttachmentResourceValuesProvider,
         files: inout Int,
         bytes: inout UInt64
     ) {
@@ -184,9 +196,9 @@ enum HistoryDataHealthChecker {
         }
 
         for fileURL in fileURLs {
-            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  values.isRegularFile == true,
-                  !referencedFileNames.contains(fileURL.lastPathComponent) else {
+            guard !referencedFileNames.contains(fileURL.lastPathComponent),
+                  let values = try? resourceValuesProvider(fileURL, [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true else {
                 continue
             }
 
