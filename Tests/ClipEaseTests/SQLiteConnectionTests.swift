@@ -185,6 +185,148 @@ import Testing
     #expect(coordinatorRegistered.wait(timeout: .now() + 2) == .success)
 }
 
+@Test func sqliteConnectionCoordinatorExclusiveMaintenanceWaitsForWriterOpeningLease() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "clipease-sqlite-coordinator-maintenance-opening-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let coordinator = SQLiteConnectionCoordinator(databaseURL: databaseURL)
+    defer { coordinator.invalidate() }
+
+    let openingStarted = DispatchSemaphore(value: 0)
+    let releaseOpening = DispatchSemaphore(value: 0)
+    let writerFinished = DispatchSemaphore(value: 0)
+    let maintenanceEntered = DispatchSemaphore(value: 0)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        defer { writerFinished.signal() }
+        try? coordinator.withWriter(opening: {
+            openingStarted.signal()
+            releaseOpening.wait()
+            return try SQLiteConnection(url: databaseURL)
+        }) { connection in
+            try connection.execute("CREATE TABLE sample (value INTEGER NOT NULL)")
+        }
+    }
+
+    #expect(openingStarted.wait(timeout: .now() + 2) == .success)
+    DispatchQueue.global(qos: .userInitiated).async {
+        SQLiteConnectionCoordinator.withExclusiveMaintenance(for: databaseURL) {
+            _ = maintenanceEntered.signal()
+        }
+    }
+
+    #expect(maintenanceEntered.wait(timeout: .now() + 0.05) == .timedOut)
+    releaseOpening.signal()
+    #expect(writerFinished.wait(timeout: .now() + 2) == .success)
+    #expect(maintenanceEntered.wait(timeout: .now() + 2) == .success)
+}
+
+@Test func sqliteConnectionCoordinatorMaintenanceUpgradeCannotLetConcurrentResetPass() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "clipease-sqlite-coordinator-maintenance-upgrade-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let coordinator = SQLiteConnectionCoordinator(databaseURL: databaseURL)
+    defer { coordinator.invalidate() }
+
+    let openingStarted = DispatchSemaphore(value: 0)
+    let beginNestedMaintenance = DispatchSemaphore(value: 0)
+    let releaseOpening = DispatchSemaphore(value: 0)
+    let writerFinished = DispatchSemaphore(value: 0)
+    let nestedMaintenanceEntered = DispatchSemaphore(value: 0)
+    let concurrentMaintenanceEntered = DispatchSemaphore(value: 0)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        defer { writerFinished.signal() }
+        try? coordinator.withWriter(opening: {
+            openingStarted.signal()
+            beginNestedMaintenance.wait()
+            _ = SQLiteConnectionCoordinator.withExclusiveMaintenance(for: databaseURL) {
+                nestedMaintenanceEntered.signal()
+            }
+            releaseOpening.wait()
+            return try SQLiteConnection(url: databaseURL)
+        }) { connection in
+            try connection.execute("CREATE TABLE sample (value INTEGER NOT NULL)")
+        }
+    }
+
+    #expect(openingStarted.wait(timeout: .now() + 2) == .success)
+    DispatchQueue.global(qos: .userInitiated).async {
+        _ = SQLiteConnectionCoordinator.withExclusiveMaintenance(for: databaseURL) {
+            concurrentMaintenanceEntered.signal()
+        }
+    }
+
+    #expect(concurrentMaintenanceEntered.wait(timeout: .now() + 0.05) == .timedOut)
+    beginNestedMaintenance.signal()
+    #expect(nestedMaintenanceEntered.wait(timeout: .now() + 2) == .success)
+    #expect(concurrentMaintenanceEntered.wait(timeout: .now() + 0.05) == .timedOut)
+    releaseOpening.signal()
+    #expect(writerFinished.wait(timeout: .now() + 2) == .success)
+    #expect(concurrentMaintenanceEntered.wait(timeout: .now() + 2) == .success)
+}
+
+@Test func sqliteConnectionCoordinatorExclusiveMaintenanceWaitsForAsyncReaderLease() async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "clipease-sqlite-coordinator-maintenance-async-reader-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let coordinator = SQLiteConnectionCoordinator(databaseURL: databaseURL)
+    defer { coordinator.invalidate() }
+    try coordinator.withWriter { connection in
+        try connection.execute("CREATE TABLE sample (value INTEGER NOT NULL)")
+    }
+
+    let readerEntered = DispatchSemaphore(value: 0)
+    let releaseReader = DispatchSemaphore(value: 0)
+    let maintenanceEntered = DispatchSemaphore(value: 0)
+    let readerTask = Task.detached {
+        try await coordinator.withReaderAsync { connection in
+            readerEntered.signal()
+            _ = await waitForSQLiteSemaphore(releaseReader, timeout: .distantFuture)
+            return try connection.queryInt("SELECT COUNT(*) FROM sample")
+        }
+    }
+
+    let readerDidEnter = await waitForSQLiteSemaphore(readerEntered, timeout: .now() + 2)
+    #expect(readerDidEnter == .success)
+    DispatchQueue.global(qos: .userInitiated).async {
+        SQLiteConnectionCoordinator.withExclusiveMaintenance(for: databaseURL) {
+            _ = maintenanceEntered.signal()
+        }
+    }
+
+    let maintenanceWasBlocked = await waitForSQLiteSemaphore(
+        maintenanceEntered,
+        timeout: .now() + 0.05
+    )
+    #expect(maintenanceWasBlocked == .timedOut)
+    releaseReader.signal()
+    #expect(try await readerTask.value == 0)
+    let maintenanceDidEnter = await waitForSQLiteSemaphore(
+        maintenanceEntered,
+        timeout: .now() + 2
+    )
+    #expect(maintenanceDidEnter == .success)
+}
+
 @Test func sqliteConnectionCoordinatorRetriesWriterOpeningInvalidatedMidFlight() throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent(
@@ -466,4 +608,15 @@ private func waitSynchronously(
     timeout: DispatchTime
 ) -> DispatchTimeoutResult {
     semaphore.wait(timeout: timeout)
+}
+
+private func waitForSQLiteSemaphore(
+    _ semaphore: DispatchSemaphore,
+    timeout: DispatchTime
+) async -> DispatchTimeoutResult {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+            continuation.resume(returning: semaphore.wait(timeout: timeout))
+        }
+    }
 }
