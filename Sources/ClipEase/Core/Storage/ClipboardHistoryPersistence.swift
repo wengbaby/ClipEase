@@ -326,7 +326,13 @@ struct ClipboardHistoryPersistence: @unchecked Sendable {
     func backfillContentDigestsOrThrow(
         limit: Int = SQLiteContentDigest.batchSize
     ) throws -> Int {
-        try repository.backfillContentDigests(limit: limit)
+        try backfillContentDigestsResultOrThrow(limit: limit).backfilledCount
+    }
+
+    func backfillContentDigestsResultOrThrow(
+        limit: Int = SQLiteContentDigest.batchSize
+    ) throws -> ClipboardDigestBackfillResult {
+        try repository.backfillContentDigestsResult(limit: limit)
     }
 
     func prepareSearchIndex() {

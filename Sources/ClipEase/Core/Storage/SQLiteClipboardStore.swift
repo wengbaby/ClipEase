@@ -262,6 +262,10 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func backfillContentDigests(limit: Int) throws -> Int {
+        try backfillContentDigestsResult(limit: limit).backfilledCount
+    }
+
+    func backfillContentDigestsResult(limit: Int) throws -> ClipboardDigestBackfillResult {
         return try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
             try SQLiteSchemaMigrationStateStore.bootstrapIfNeeded(
                 currentSchemaVersion: Self.currentSchemaVersion,
@@ -278,7 +282,11 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                 in: database,
                 validationPassed: validationPassed
             )
-            return backfilledCount
+            let phase = try SQLiteSchemaMigrationStateStore.phase(in: database)
+            return ClipboardDigestBackfillResult(
+                backfilledCount: backfilledCount,
+                hasPendingWork: phase == .backfillPending
+            )
         }
     }
 
@@ -651,12 +659,16 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func resetToEmptyStore() throws {
-        try removeExistingDatabaseFiles()
-        try initialize()
+        try SQLiteConnectionCoordinator.withExclusiveMaintenance(for: databaseURL) {
+            try removeExistingDatabaseFiles()
+            try initializeFreshDatabase()
+        }
     }
 
     func discardStoreFiles() throws {
-        try removeExistingDatabaseFiles()
+        try SQLiteConnectionCoordinator.withExclusiveMaintenance(for: databaseURL) {
+            try removeExistingDatabaseFiles()
+        }
     }
 
     private func createParentDirectory() throws {
@@ -664,6 +676,21 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             at: databaseURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+    }
+
+    /// Initializes a freshly recreated database without going through the
+    /// coordinator. The caller holds the URL-scoped maintenance barrier, so
+    /// registering a coordinator here would intentionally wait for itself.
+    private func initializeFreshDatabase() throws {
+        try createParentDirectory()
+        let database = try SQLiteDatabase(url: databaseURL)
+        do {
+            try configureReadyDatabase(database, createsSchema: true)
+            database.close()
+        } catch {
+            database.close()
+            throw error
+        }
     }
 
     private func prepareConnectionCoordinatorIfNeeded() throws {
@@ -892,7 +919,11 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     private func removeExistingDatabaseFiles() throws {
-        connectionCoordinator.invalidate()
+        // A database URL may be shared by multiple store instances. Drain
+        // every registered coordinator before unlinking the main file or its
+        // sidecars so another instance cannot keep using an old inode while
+        // reset recreates the store.
+        SQLiteConnectionCoordinator.drainAll(for: databaseURL)
         Self.measuredIndexReadiness.remove(databaseURL.standardizedFileURL.path)
         for url in databaseSidecarURLs() where fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
@@ -947,8 +978,10 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             }
         } catch {
             if let backup {
-                SQLiteConnectionCoordinator.invalidateAll(for: databaseURL)
-                try backupManager.restoreDatabaseFiles(from: backup, to: databaseURL)
+                try SQLiteConnectionCoordinator.withExclusiveMaintenance(for: databaseURL) {
+                    SQLiteConnectionCoordinator.invalidateAll(for: databaseURL)
+                    try backupManager.restoreDatabaseFiles(from: backup, to: databaseURL)
+                }
             }
             Task { @MainActor in
                 PerformanceDiagnosticsService.shared.recordError(

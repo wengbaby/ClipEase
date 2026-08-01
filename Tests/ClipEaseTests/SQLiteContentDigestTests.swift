@@ -254,6 +254,70 @@ import Testing
     #expect(repairedRow.optionalBlob("content_digest") == SQLiteContentDigest.digest(for: "repair me"))
 }
 
+@Test func sqliteContentDigestRepairSkipsRowChangedAfterScan() throws {
+    let fixture = try SQLiteContentDigestFixture.make()
+    defer { fixture.remove() }
+    try fixture.store.initialize()
+
+    let setupDatabase = try SQLiteDatabase(url: fixture.databaseURL)
+    let item = ClipboardItem.text("repair me", sourceApp: .clipease)
+    try SQLiteItemDAO.insert(item, in: setupDatabase)
+    try setupDatabase.execute(
+        "UPDATE clipboard_items SET content_digest = ?, digest_version = ? WHERE id = ?",
+        values: [
+            .blob(Data(repeating: 0, count: 32)),
+            .int(SQLiteContentDigest.currentVersion),
+            .text(item.id.uuidString)
+        ]
+    )
+    setupDatabase.close()
+
+    let writer = try SQLiteDatabase(url: fixture.databaseURL)
+    let repairDatabase = try SQLiteDatabase(url: fixture.databaseURL)
+    defer {
+        writer.close()
+        repairDatabase.close()
+    }
+
+    try writer.execute("BEGIN IMMEDIATE TRANSACTION")
+    try writer.execute(
+        """
+        UPDATE clipboard_items
+        SET content_hash = ?, content_digest = NULL, digest_version = NULL
+        WHERE id = ?
+        """,
+        values: [.text("new content"), .text(item.id.uuidString)]
+    )
+
+    let repairStarted = DispatchSemaphore(value: 0)
+    let repairFinished = DispatchSemaphore(value: 0)
+    let repairResult = SQLiteDigestRepairResultProbe()
+    DispatchQueue.global(qos: .userInitiated).async {
+        repairStarted.signal()
+        do {
+            repairResult.store(try SQLiteItemDAO.repairInvalidContentDigests(in: repairDatabase, limit: 1))
+        } catch {
+            repairResult.store(nil)
+        }
+        repairFinished.signal()
+    }
+    #expect(repairStarted.wait(timeout: .now() + 2) == .success)
+    Thread.sleep(forTimeInterval: 0.1)
+    try writer.execute("COMMIT")
+
+    #expect(repairFinished.wait(timeout: .now() + 5) == .success)
+    let result = try #require(repairResult.value)
+    let repairedRow = try #require(repairDatabase.query(
+        "SELECT content_hash, content_digest, digest_version FROM clipboard_items WHERE id = ?",
+        values: [.text(item.id.uuidString)]
+    ).first)
+    #expect(result.repaired == 0)
+    #expect(result.remainingInvalid)
+    #expect(repairedRow.requiredText("content_hash") == "new content")
+    #expect(repairedRow.optionalBlob("content_digest") == nil)
+    #expect(repairedRow.optionalInt("digest_version") == nil)
+}
+
 private struct SQLiteContentDigestFixture {
     let directory: URL
     let databaseURL: URL
@@ -273,5 +337,20 @@ private struct SQLiteContentDigestFixture {
 
     func remove() {
         try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+private final class SQLiteDigestRepairResultProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: (repaired: Int, remainingInvalid: Bool)?
+
+    var value: (repaired: Int, remainingInvalid: Bool)? {
+        lock.withLock { storedValue }
+    }
+
+    func store(_ value: (repaired: Int, remainingInvalid: Bool)?) {
+        lock.withLock {
+            storedValue = value
+        }
     }
 }

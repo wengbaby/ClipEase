@@ -11,6 +11,11 @@ struct ClipboardHistoryRetentionDeletionResult: Sendable {
     let protectedGroupIDs: Set<ClipboardGroup.ID>
 }
 
+struct ClipboardDigestBackfillResult: Sendable, Equatable {
+    let backfilledCount: Int
+    let hasPendingWork: Bool
+}
+
 struct ClipboardSearchQuery: Sendable, Equatable {
     var text: String
     var limit: Int
@@ -142,6 +147,7 @@ protocol ClipboardHistoryRepository {
     ) throws -> HistoryPagingService.ItemPage
     func loadItems(contentHash: String, sourceBundleID: String?) throws -> [ClipboardItem]
     func backfillContentDigests(limit: Int) throws -> Int
+    func backfillContentDigestsResult(limit: Int) throws -> ClipboardDigestBackfillResult
     func prepareSearchIndex() throws
     func searchItems(_ query: ClipboardSearchQuery) throws -> [ClipboardItem]
     func searchPage(
@@ -178,6 +184,17 @@ protocol ClipboardHistoryRepository {
 extension ClipboardHistoryRepository {
     func backfillContentDigests(limit: Int) throws -> Int {
         0
+    }
+
+    func backfillContentDigestsResult(
+        limit: Int
+    ) throws -> ClipboardDigestBackfillResult {
+        let backfilledCount = try backfillContentDigests(limit: limit)
+        let boundedLimit = min(max(0, limit), SQLiteContentDigest.batchSize)
+        return ClipboardDigestBackfillResult(
+            backfilledCount: backfilledCount,
+            hasPendingWork: boundedLimit > 0 && backfilledCount == boundedLimit
+        )
     }
 
     func deleteExpiredItemsWithResult(

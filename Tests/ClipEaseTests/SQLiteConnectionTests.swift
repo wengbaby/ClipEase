@@ -152,6 +152,39 @@ import Testing
     } == 0)
 }
 
+@Test func sqliteConnectionCoordinatorExclusiveMaintenanceBlocksNewRegistration() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "clipease-sqlite-coordinator-maintenance-(UUID().uuidString)",
+            isDirectory: true
+        )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let maintenanceEntered = DispatchSemaphore(value: 0)
+    let releaseMaintenance = DispatchSemaphore(value: 0)
+    let coordinatorRegistered = DispatchSemaphore(value: 0)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        SQLiteConnectionCoordinator.withExclusiveMaintenance(for: databaseURL) {
+            maintenanceEntered.signal()
+            releaseMaintenance.wait()
+        }
+    }
+
+    #expect(maintenanceEntered.wait(timeout: .now() + 2) == .success)
+    DispatchQueue.global(qos: .userInitiated).async {
+        let coordinator = SQLiteConnectionCoordinator(databaseURL: databaseURL)
+        coordinatorRegistered.signal()
+        coordinator.invalidate()
+    }
+
+    #expect(coordinatorRegistered.wait(timeout: .now() + 0.05) == .timedOut)
+    releaseMaintenance.signal()
+    #expect(coordinatorRegistered.wait(timeout: .now() + 2) == .success)
+}
+
 @Test func sqliteConnectionCoordinatorRetriesWriterOpeningInvalidatedMidFlight() throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent(

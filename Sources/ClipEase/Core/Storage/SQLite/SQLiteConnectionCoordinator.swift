@@ -47,6 +47,27 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         registry.invalidateAll(for: databaseURL)
     }
 
+    /// Strictly drains every coordinator for a database URL. Unlike migration
+    /// invalidation, reset cannot proceed while another coordinator is still
+    /// preparing a reader because it is about to unlink the database files.
+    static func drainAll(for databaseURL: URL) {
+        registry.drainAll(for: databaseURL)
+    }
+
+    /// Runs destructive database-file maintenance while preventing any
+    /// coordinator for the same URL from registering or reopening a handle.
+    /// Existing operations are drained by the caller before files are unlinked.
+    static func withExclusiveMaintenance<Result>(
+        for databaseURL: URL,
+        _ operation: () throws -> Result
+    ) rethrows -> Result {
+        try registry.withExclusiveMaintenance(for: databaseURL, operation)
+    }
+
+    private static func waitUntilMaintenanceEnds(for databaseURL: URL) {
+        registry.waitUntilMaintenanceEnds(for: databaseURL)
+    }
+
     var createdReaderCount: Int {
         readerCondition.withLock { totalReaderCount }
     }
@@ -71,6 +92,7 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
     func prepareIfNeeded(
         _ prepare: () throws -> SQLiteConnection
     ) throws {
+        Self.waitUntilMaintenanceEnds(for: databaseURL)
         while true {
             readerCondition.lock()
             while isPreparing || isInvalidating {
@@ -128,11 +150,13 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         opening: (() throws -> SQLiteConnection)? = nil,
         _ operation: (SQLiteConnection) throws -> Result
     ) throws -> Result {
+        Self.waitUntilMaintenanceEnds(for: databaseURL)
         // A caller may need to run migration before the coordinator's writer
         // lock is taken. Migration invalidation itself drains this coordinator
         // and therefore cannot be invoked while the lock is held.
         if let opening, !hasWriterConnection {
             while true {
+                Self.waitUntilMaintenanceEnds(for: databaseURL)
                 let openingGeneration = writerLock.withLock { writerGeneration }
                 let preparedConnection = try opening()
                 do {
@@ -195,6 +219,7 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         _ operation: (SQLiteConnection) throws -> Result
     ) throws -> Result {
         while true {
+            Self.waitUntilMaintenanceEnds(for: databaseURL)
             readerCondition.lock()
             while isPreparing || isInvalidating {
                 readerCondition.wait()
@@ -405,6 +430,7 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
     }
 
     private func acquireReader() throws -> SQLiteConnection {
+        Self.waitUntilMaintenanceEnds(for: databaseURL)
         readerCondition.lock()
         defer { readerCondition.unlock() }
 
@@ -471,21 +497,25 @@ private final class SQLiteConnectionCoordinatorRegistry: @unchecked Sendable {
         }
     }
 
-    private let lock = NSLock()
+    private let condition = NSCondition()
     private var coordinators: [String: [ObjectIdentifier: WeakCoordinator]] = [:]
+    private var maintenanceKeys: Set<String> = []
 
     func register(_ coordinator: SQLiteConnectionCoordinator) {
         let key = Self.key(for: coordinator.databaseURL)
-        lock.withLock {
-            var entries = coordinators[key] ?? [:]
-            entries[ObjectIdentifier(coordinator)] = WeakCoordinator(coordinator)
-            coordinators[key] = entries
+        condition.lock()
+        while maintenanceKeys.contains(key) {
+            condition.wait()
         }
+        defer { condition.unlock() }
+        var entries = coordinators[key] ?? [:]
+        entries[ObjectIdentifier(coordinator)] = WeakCoordinator(coordinator)
+        coordinators[key] = entries
     }
 
     func unregister(_ coordinator: SQLiteConnectionCoordinator) {
         let key = Self.key(for: coordinator.databaseURL)
-        lock.withLock {
+        condition.withLock {
             guard var entries = coordinators[key] else {
                 return
             }
@@ -500,7 +530,7 @@ private final class SQLiteConnectionCoordinatorRegistry: @unchecked Sendable {
 
     func invalidateAll(for databaseURL: URL) {
         let key = Self.key(for: databaseURL)
-        let targets: [SQLiteConnectionCoordinator] = lock.withLock {
+        let targets: [SQLiteConnectionCoordinator] = condition.withLock {
             guard let entries = coordinators[key] else {
                 return []
             }
@@ -522,6 +552,62 @@ private final class SQLiteConnectionCoordinatorRegistry: @unchecked Sendable {
         for coordinator in targets {
             coordinator.invalidateForMigration()
         }
+    }
+
+    func drainAll(for databaseURL: URL) {
+        let key = Self.key(for: databaseURL)
+        let targets: [SQLiteConnectionCoordinator] = condition.withLock {
+            guard let entries = coordinators[key] else {
+                return []
+            }
+
+            var live: [ObjectIdentifier: WeakCoordinator] = [:]
+            var targets: [SQLiteConnectionCoordinator] = []
+            for (identifier, entry) in entries {
+                guard let coordinator = entry.value else {
+                    continue
+                }
+                live[identifier] = entry
+                targets.append(coordinator)
+            }
+            coordinators[key] = live
+            return targets
+        }
+
+        // Never hold the registry lock while acquiring a coordinator lock.
+        for coordinator in targets {
+            coordinator.invalidate()
+        }
+    }
+
+    func waitUntilMaintenanceEnds(for databaseURL: URL) {
+        let key = Self.key(for: databaseURL)
+        condition.lock()
+        while maintenanceKeys.contains(key) {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+
+    func withExclusiveMaintenance<Result>(
+        for databaseURL: URL,
+        _ operation: () throws -> Result
+    ) rethrows -> Result {
+        let key = Self.key(for: databaseURL)
+        condition.lock()
+        while maintenanceKeys.contains(key) {
+            condition.wait()
+        }
+        maintenanceKeys.insert(key)
+        condition.unlock()
+
+        defer {
+            condition.withLock {
+                maintenanceKeys.remove(key)
+                condition.broadcast()
+            }
+        }
+        return try operation()
     }
 
     private static func key(for databaseURL: URL) -> String {

@@ -516,6 +516,125 @@ import Testing
     #expect(try Data(contentsOf: URL(fileURLWithPath: databaseURL.path + "-wal")) == Data("live-wal".utf8))
 }
 
+@Test func sqliteBackupRestoreRollsBackWhenReplacementFailsAfterFirstFile() throws {
+    let directory = try makeSQLiteMigrationTestDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let backupDirectory = directory.appendingPathComponent("restore-failure-backup", isDirectory: true)
+    try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+
+    let liveMainURL = databaseURL
+    let liveWALURL = URL(fileURLWithPath: databaseURL.path + "-wal")
+    try Data("live-main".utf8).write(to: liveMainURL)
+    try Data("live-wal".utf8).write(to: liveWALURL)
+    try Data("backup-main".utf8).write(to: backupDirectory.appendingPathComponent("ClipEase.sqlite"))
+    try Data("backup-wal".utf8).write(to: backupDirectory.appendingPathComponent("ClipEase.sqlite-wal"))
+
+    var replacementCount = 0
+    let backupManager = SQLiteBackupManager(
+        replaceLiveFile: { destinationURL, stagedURL in
+            replacementCount += 1
+            guard replacementCount != 2 else {
+                throw SQLiteMigrationTestError.injectedFailure
+            }
+            _ = try FileManager.default.replaceItemAt(
+                destinationURL,
+                withItemAt: stagedURL,
+                backupItemName: nil,
+                options: []
+            )
+        }
+    )
+
+    #expect(throws: SQLiteMigrationTestError.injectedFailure) {
+        try backupManager.restoreDatabaseFiles(
+            from: SQLiteBackupResult(
+                directoryURL: backupDirectory,
+                copiedFiles: ["ClipEase.sqlite", "ClipEase.sqlite-wal"]
+            ),
+            to: databaseURL
+        )
+    }
+
+    #expect(try Data(contentsOf: liveMainURL) == Data("live-main".utf8))
+    #expect(try Data(contentsOf: liveWALURL) == Data("live-wal".utf8))
+    #expect(try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        .filter { $0.lastPathComponent.hasPrefix(".ClipEase.sqlite.rollback-") }
+        .isEmpty)
+}
+
+@Test func sqliteBackupRestoreReportsRollbackFailureInsteadOfClaimingRecovery() throws {
+    let directory = try makeSQLiteMigrationTestDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let backupDirectory = directory.appendingPathComponent("rollback-failure-backup", isDirectory: true)
+    try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+
+    try Data("live-main".utf8).write(to: databaseURL)
+    try Data("live-wal".utf8).write(to: URL(fileURLWithPath: databaseURL.path + "-wal"))
+    try Data("backup-main".utf8).write(to: backupDirectory.appendingPathComponent("ClipEase.sqlite"))
+    try Data("backup-wal".utf8).write(to: backupDirectory.appendingPathComponent("ClipEase.sqlite-wal"))
+    var replacementCount = 0
+    let backupManager = SQLiteBackupManager(
+        replaceLiveFile: { destinationURL, stagedURL in
+            replacementCount += 1
+            guard replacementCount != 2, replacementCount != 3 else {
+                throw SQLiteMigrationTestError.injectedFailure
+            }
+            _ = try FileManager.default.replaceItemAt(
+                destinationURL,
+                withItemAt: stagedURL,
+                backupItemName: nil,
+                options: []
+            )
+        }
+    )
+
+    #expect(throws: SQLiteBackupRestoreError.rollbackFailed(["ClipEase.sqlite"])) {
+        try backupManager.restoreDatabaseFiles(
+            from: SQLiteBackupResult(
+                directoryURL: backupDirectory,
+                copiedFiles: ["ClipEase.sqlite", "ClipEase.sqlite-wal"]
+            ),
+            to: databaseURL
+        )
+    }
+}
+
+@Test func sqliteResetToEmptyStoreWaitsForReadersFromOtherCoordinators() throws {
+    let directory = try makeSQLiteMigrationTestDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    try SQLiteClipboardStore(databaseURL: databaseURL).initialize()
+
+    let readerCoordinator = SQLiteConnectionCoordinator(databaseURL: databaseURL)
+    let readerEntered = DispatchSemaphore(value: 0)
+    let releaseReader = DispatchSemaphore(value: 0)
+    let readerFinished = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+        try? readerCoordinator.withReader { _ in
+            readerEntered.signal()
+            _ = releaseReader.wait(timeout: .distantFuture)
+        }
+        readerFinished.signal()
+    }
+    #expect(readerEntered.wait(timeout: .now() + 1) == .success)
+
+    let resetFinished = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+        try? SQLiteClipboardStore(databaseURL: databaseURL).resetToEmptyStore()
+        resetFinished.signal()
+    }
+
+    #expect(resetFinished.wait(timeout: .now() + 0.1) == .timedOut)
+    releaseReader.signal()
+    #expect(readerFinished.wait(timeout: .now() + 1) == .success)
+    #expect(resetFinished.wait(timeout: .now() + 1) == .success)
+
+    let snapshot = try SQLiteClipboardStore(databaseURL: databaseURL).loadSnapshot()
+    #expect(snapshot.items.isEmpty)
+}
+
 private func makeSQLiteMigrationTestDirectory() throws -> URL {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("clipease-migration-\(UUID().uuidString)", isDirectory: true)

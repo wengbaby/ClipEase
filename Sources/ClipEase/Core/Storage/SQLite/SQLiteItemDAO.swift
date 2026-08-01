@@ -674,7 +674,7 @@ enum SQLiteItemDAO {
             return (0, false)
         }
 
-        var invalid: [(id: String, digest: Data)] = []
+        var invalid: [(id: String, contentHash: String, digest: Data)] = []
         var remainingInvalid = false
         var lastRowID = 0
         scan: while true {
@@ -694,7 +694,8 @@ enum SQLiteItemDAO {
 
             for row in rows {
                 lastRowID = row.requiredInt("rowid")
-                let expectedDigest = SQLiteContentDigest.digest(for: row.requiredText("content_hash"))
+                let contentHash = row.requiredText("content_hash")
+                let expectedDigest = SQLiteContentDigest.digest(for: contentHash)
                 let isValid = row.optionalInt("digest_version") == SQLiteContentDigest.currentVersion
                     && row.optionalBlob("content_digest") == expectedDigest
                 guard !isValid else {
@@ -704,7 +705,9 @@ enum SQLiteItemDAO {
                     remainingInvalid = true
                     break scan
                 }
-                invalid.append((id: row.requiredText("id"), digest: expectedDigest))
+                invalid.append(
+                    (id: row.requiredText("id"), contentHash: contentHash, digest: expectedDigest)
+                )
             }
 
             if rows.count < SQLiteContentDigest.batchSize {
@@ -718,22 +721,43 @@ enum SQLiteItemDAO {
 
         try database.execute("BEGIN IMMEDIATE TRANSACTION")
         do {
+            var repairedCount = 0
             for entry in invalid {
                 try database.execute(
                     """
                     UPDATE clipboard_items
                     SET content_digest = ?, digest_version = ?
-                    WHERE id = ?
+                    WHERE id = ? AND content_hash = ?
                     """,
                     values: [
                         .blob(entry.digest),
                         .int(SQLiteContentDigest.currentVersion),
-                        .text(entry.id)
+                        .text(entry.id),
+                        .text(entry.contentHash)
                     ]
                 )
+
+                if try database.queryInt("SELECT changes()") == 1 {
+                    repairedCount += 1
+                    continue
+                }
+
+                guard let row = try database.query(
+                    "SELECT content_hash, content_digest, digest_version FROM clipboard_items WHERE id = ?",
+                    values: [.text(entry.id)]
+                ).first,
+                    let currentHash = row.optionalText("content_hash") else {
+                    continue
+                }
+                let isValid = row.optionalInt("digest_version") == SQLiteContentDigest.currentVersion
+                    && row.optionalBlob("content_digest")
+                        == SQLiteContentDigest.digest(for: currentHash)
+                if !isValid {
+                    remainingInvalid = true
+                }
             }
             try database.execute("COMMIT")
-            return (invalid.count, remainingInvalid)
+            return (repairedCount, remainingInvalid)
         } catch {
             try? database.execute("ROLLBACK")
             throw error

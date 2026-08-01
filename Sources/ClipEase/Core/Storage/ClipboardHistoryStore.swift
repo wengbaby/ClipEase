@@ -868,8 +868,8 @@ final class ClipboardHistoryStore: ObservableObject {
             attempt += 1
             do {
                 while !Task.isCancelled {
-                    let backfilledCount = try persistence.backfillContentDigestsOrThrow()
-                    guard backfilledCount == SQLiteContentDigest.batchSize else {
+                    let backfillResult = try persistence.backfillContentDigestsResultOrThrow()
+                    guard backfillResult.hasPendingWork else {
                         didFinishDigestBackfill = true
                         break
                     }
