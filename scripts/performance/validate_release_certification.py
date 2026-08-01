@@ -1657,7 +1657,14 @@ def validate_build_and_tests(
         raise ValueError("xUnit test report subject does not match")
     if xunit_root.attrib.get("command") != STRICT_RELEASE_TEST_COMMAND:
         raise ValueError("xUnit test report command does not match")
-    suites = [xunit_root] if xunit_root.tag == "testsuite" else list(xunit_root)
+    if xunit_root.tag == "testsuite":
+        suites = [xunit_root]
+    elif xunit_root.tag == "testsuites":
+        suites = list(xunit_root)
+        if any(suite.tag != "testsuite" for suite in suites):
+            raise ValueError("xUnit suite child tag is invalid")
+    else:
+        raise ValueError("xUnit root tag is invalid")
     try:
         test_count = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
         failure_count = sum(int(suite.attrib.get("failures", 0)) for suite in suites)
