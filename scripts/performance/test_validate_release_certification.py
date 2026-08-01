@@ -724,8 +724,11 @@ class ReleaseCertificationTests(unittest.TestCase):
         )
         xunit.write_text(
             f'<testsuites subjectGitSHA="{candidate_subject}" '
-            f'command="{certification.STRICT_RELEASE_TEST_COMMAND}">'
-            '<testsuite tests="323" failures="0" errors="0" /></testsuites>'
+            f'command="{certification.STRICT_RELEASE_TEST_COMMAND}" '
+            'tests="1" failures="0" errors="0">'
+            '<testsuite name="fixture" tests="1" failures="0" errors="0">'
+            '<testcase name="fixtureTest" time="0.001000" />'
+            '</testsuite></testsuites>'
         )
         coverage_json.write_text(json.dumps({"data": []}))
         coverage.write_text(json.dumps({
@@ -1114,6 +1117,49 @@ class ReleaseCertificationTests(unittest.TestCase):
             with toc_patch, uuid_patch:
                 with self.assertRaisesRegex(ValueError, "xUnit suite"):
                     certification.validate_document(manifest_path, manifest)
+
+    def test_build_and_tests_reject_xunit_count_or_testcase_shape_mismatches(self):
+        cases = [
+            (
+                '<testsuites subjectGitSHA="{candidate}" '
+                'command="{command}" tests="1" failures="0" errors="0">'
+                '<testsuite name="fixture" tests="1" failures="0" errors="0" />'
+                '</testsuites>',
+                "test count",
+            ),
+            (
+                '<testsuites subjectGitSHA="{candidate}" '
+                'command="{command}" tests="1" failures="0" errors="0">'
+                '<testsuite name="fixture" tests="1" failures="0" errors="0">'
+                '<testcase name="" time="0.001" />'
+                '</testsuite></testsuites>',
+                "testcase name",
+            ),
+            (
+                '<testsuites subjectGitSHA="{candidate}" '
+                'command="{command}" tests="1" failures="0" errors="0">'
+                '<testsuite name="fixture" tests="1" failures="0" errors="0">'
+                '<testcase name="fixture" time="NaN" />'
+                '</testsuite></testsuites>',
+                "testcase time",
+            ),
+        ]
+        for xml_template, message in cases:
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest_path, manifest = self.make_manifest(root)
+                xunit_path = root / "tests.xml"
+                xunit_path.write_text(
+                    xml_template.format(
+                        candidate=manifest["candidateSubjectGitSHA"],
+                        command=certification.STRICT_RELEASE_TEST_COMMAND,
+                    )
+                )
+                manifest["buildAndTests"]["xunitReportSHA256"] = sha256(xunit_path)
+                toc_patch, uuid_patch = self.trace_probe_patches()
+                with toc_patch, uuid_patch:
+                    with self.assertRaisesRegex(ValueError, message):
+                        certification.validate_document(manifest_path, manifest)
 
     def test_persisted_failures_never_include_resolved_host_paths(self):
         with tempfile.TemporaryDirectory() as directory:

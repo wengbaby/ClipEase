@@ -1664,16 +1664,86 @@ def validate_build_and_tests(
         suites = [xunit_root]
     elif xunit_root.tag == "testsuites":
         suites = list(xunit_root)
+        if not suites:
+            raise ValueError("xUnit report contains no test suites")
         if any(suite.tag != "testsuite" for suite in suites):
             raise ValueError("xUnit suite child tag is invalid")
     else:
         raise ValueError("xUnit root tag is invalid")
-    try:
-        test_count = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
-        failure_count = sum(int(suite.attrib.get("failures", 0)) for suite in suites)
-        error_count = sum(int(suite.attrib.get("errors", 0)) for suite in suites)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"xUnit test report counts are invalid: {error}") from error
+
+    def non_negative_int(value: Any, label: str) -> int:
+        if isinstance(value, bool):
+            raise ValueError(f"{label} must be a non-negative integer")
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{label} must be a non-negative integer") from error
+        if parsed < 0 or str(parsed) != str(value).strip():
+            raise ValueError(f"{label} must be a non-negative integer")
+        return parsed
+
+    test_count = 0
+    failure_count = 0
+    error_count = 0
+    for suite in suites:
+        cases = list(suite)
+        if any(case.tag != "testcase" for case in cases):
+            raise ValueError("xUnit suite contains a non-testcase child")
+        declared_tests = non_negative_int(
+            suite.attrib.get("tests"), "xUnit suite tests"
+        )
+        declared_failures = non_negative_int(
+            suite.attrib.get("failures"), "xUnit suite failures"
+        )
+        declared_errors = non_negative_int(
+            suite.attrib.get("errors"), "xUnit suite errors"
+        )
+        suite_failure_count = 0
+        suite_error_count = 0
+        for case in cases:
+            if not case.attrib.get("name", "").strip():
+                raise ValueError("xUnit testcase name is missing")
+            try:
+                duration = float(case.attrib.get("time"))
+            except (TypeError, ValueError) as error:
+                raise ValueError("xUnit testcase time is invalid") from error
+            if not math.isfinite(duration) or duration < 0:
+                raise ValueError("xUnit testcase time is invalid")
+            for child in case:
+                if child.tag == "failure":
+                    suite_failure_count += 1
+                elif child.tag == "error":
+                    suite_error_count += 1
+                elif child.tag == "skipped":
+                    raise ValueError("xUnit skipped testcase is not allowed")
+                else:
+                    raise ValueError("xUnit testcase child tag is invalid")
+        if declared_tests != len(cases):
+            raise ValueError("xUnit suite test count does not match testcases")
+        if declared_failures != suite_failure_count:
+            raise ValueError("xUnit suite failure count does not match testcases")
+        if declared_errors != suite_error_count:
+            raise ValueError("xUnit suite error count does not match testcases")
+        test_count += declared_tests
+        failure_count += declared_failures
+        error_count += declared_errors
+
+    if xunit_root.tag == "testsuites":
+        root_tests = non_negative_int(
+            xunit_root.attrib.get("tests"), "xUnit root tests"
+        )
+        root_failures = non_negative_int(
+            xunit_root.attrib.get("failures"), "xUnit root failures"
+        )
+        root_errors = non_negative_int(
+            xunit_root.attrib.get("errors"), "xUnit root errors"
+        )
+        if (root_tests, root_failures, root_errors) != (
+            test_count,
+            failure_count,
+            error_count,
+        ):
+            raise ValueError("xUnit root counts do not match test suites")
     if (
         build.get("allTestsPassed") is not True
         or test_count <= 0
