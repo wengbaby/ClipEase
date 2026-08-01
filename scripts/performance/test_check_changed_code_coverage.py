@@ -16,6 +16,39 @@ SPEC.loader.exec_module(coverage_gate)
 
 
 class ChangedCodeCoverageTests(unittest.TestCase):
+    def test_subject_git_sha_reads_current_head(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["/usr/bin/git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["/usr/bin/git", "config", "user.email", "coverage@example.com"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["/usr/bin/git", "config", "user.name", "Coverage Test"],
+                cwd=root,
+                check=True,
+            )
+            source = root / "Sources/ClipEase/Tracked.swift"
+            source.parent.mkdir(parents=True)
+            source.write_text("let tracked = true\n")
+            subprocess.run(
+                ["/usr/bin/git", "add", source.relative_to(root).as_posix()],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(["/usr/bin/git", "commit", "-qm", "baseline"], cwd=root, check=True)
+
+            expected = subprocess.run(
+                ["/usr/bin/git", "rev-parse", "HEAD"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(coverage_gate.subject_git_sha(root), expected)
+
     def test_git_diff_includes_untracked_production_swift_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
