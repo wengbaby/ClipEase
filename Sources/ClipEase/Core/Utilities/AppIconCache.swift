@@ -35,6 +35,38 @@ final class AppIconCacheGeneration: @unchecked Sendable {
     }
 }
 
+private final class AppIconLoadStartGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeImmediately = lock.withLock {
+                if isReleased {
+                    return true
+                }
+
+                self.continuation = continuation
+                return false
+            }
+
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock {
+            isReleased = true
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        continuation?.resume()
+    }
+}
+
 actor AppIconCacheCoordinator {
     private struct ScopedKey: Hashable {
         let generation: UInt64
@@ -108,10 +140,17 @@ actor AppIconCacheCoordinator {
             return await task.value
         }
 
+        // Register the task before allowing its loader to start. Task bodies
+        // may begin on another executor immediately; without this handoff a
+        // loader can signal progress before `inFlight` is visible to the
+        // actor, allowing a concurrent request to start a duplicate load.
+        let startGate = AppIconLoadStartGate()
         let task = Task {
-            await loadValue()
+            await startGate.wait()
+            return await loadValue()
         }
         inFlight[scopedKey] = task
+        startGate.release()
         let value = await task.value
         inFlight[scopedKey] = nil
         if let value, generation.isCurrent(generationToken) {
