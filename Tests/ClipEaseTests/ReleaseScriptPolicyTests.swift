@@ -60,12 +60,27 @@ import Testing
     let script = try releaseScript()
 
     #expect(script.contains("run_release_tests()"))
-    #expect(script.contains("swift test -c release --no-parallel"))
-    #expect(script.contains("Strict release test command: swift test -c release --no-parallel"))
+    #expect(script.contains("swift test -c release --no-parallel --enable-code-coverage"))
+    #expect(script.contains("Strict release test command: swift test -c release --no-parallel --enable-code-coverage"))
     #expect(script.contains("write_xunit_from_swift_testing.py"))
     #expect(script.contains("strict-release-test.log"))
     #expect(script.contains("strict-release-tests.xml"))
-    #expect(script.contains("TEST_LINE=\"已通过 \\`swift test -c release --no-parallel\\`。\""))
+    #expect(script.contains("TEST_LINE=\"已通过 \\`swift test -c release --no-parallel --enable-code-coverage\\`。\""))
+}
+
+@Test func releaseScriptGeneratesCandidateBoundCoverageEvidence() throws {
+    let script = try releaseScript()
+
+    #expect(script.contains("swift test -c release --no-parallel --enable-code-coverage"))
+    #expect(script.contains("swift test -c release --show-codecov-path --skip-build"))
+    #expect(script.contains("swift-code-coverage.json"))
+    #expect(script.contains("changed-code-coverage.json"))
+    #expect(script.contains("check_changed_code_coverage.py"))
+    #expect(script.contains("--repository-root \"$ROOT_DIR\""))
+    #expect(script.contains("--coverage-json \"$COVERAGE_JSON_PATH\""))
+    #expect(script.contains("--base-ref \"$COVERAGE_BASE_REF\""))
+    #expect(script.contains("--minimum-percent 80"))
+    #expect(script.contains("--output \"$COVERAGE_REPORT_PATH\""))
 }
 
 @Test func buildAppUsesStrictConcurrencyWarningsAsErrors() throws {
@@ -154,7 +169,7 @@ import Testing
 @Test func releaseChecklistDocumentsPerformanceAndExternalCertificationGates() throws {
     let checklist = try releaseChecklist()
 
-    #expect(checklist.contains("swift test -c release --no-parallel"))
+    #expect(checklist.contains("swift test -c release --no-parallel --enable-code-coverage"))
     #expect(checklist.contains("M1 8GB 绝对认证"))
     #expect(checklist.contains("macOS 13 和 macOS 26"))
     #expect(checklist.contains("60Hz/120Hz"))

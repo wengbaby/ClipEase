@@ -28,14 +28,15 @@ class SwiftTestingXUnitTests(unittest.TestCase):
         report = converter.build_xunit_document(
             log,
             subject_git_sha="a" * 40,
-            command="swift test -c release --no-parallel",
+            command="swift test -c release --no-parallel --enable-code-coverage",
         )
         root = ElementTree.fromstring(report)
 
         self.assertEqual(root.tag, "testsuites")
         self.assertEqual(root.attrib["subjectGitSHA"], "a" * 40)
         self.assertEqual(
-            root.attrib["command"], "swift test -c release --no-parallel"
+            root.attrib["command"],
+            "swift test -c release --no-parallel --enable-code-coverage",
         )
         self.assertEqual(root.attrib["tests"], "2")
         self.assertEqual(root.attrib["failures"], "0")
@@ -53,7 +54,7 @@ class SwiftTestingXUnitTests(unittest.TestCase):
         report = converter.build_xunit_document(
             log,
             subject_git_sha="b" * 40,
-            command="swift test -c release --no-parallel",
+            command="swift test -c release --no-parallel --enable-code-coverage",
         )
         root = ElementTree.fromstring(report)
         suite = root[0]
@@ -76,7 +77,7 @@ class SwiftTestingXUnitTests(unittest.TestCase):
         report = converter.build_xunit_document(
             log,
             subject_git_sha="e" * 40,
-            command="swift test -c release --no-parallel",
+            command="swift test -c release --no-parallel --enable-code-coverage",
         )
         root = ElementTree.fromstring(report)
         self.assertEqual(root.attrib["tests"], "1")
@@ -87,7 +88,7 @@ class SwiftTestingXUnitTests(unittest.TestCase):
             converter.build_xunit_document(
                 "◇ Test unfinished() started.\n",
                 subject_git_sha="c" * 40,
-                command="swift test -c release --no-parallel",
+                command="swift test -c release --no-parallel --enable-code-coverage",
             )
 
         with self.assertRaisesRegex(ValueError, "summary count"):
@@ -98,7 +99,7 @@ class SwiftTestingXUnitTests(unittest.TestCase):
 ✔ Test run with 2 tests in 0 suites passed after 0.010 seconds.
 """,
                 subject_git_sha="c" * 40,
-                command="swift test -c release --no-parallel",
+                command="swift test -c release --no-parallel --enable-code-coverage",
             )
 
     def test_write_report_creates_parent_and_xml(self):
@@ -113,7 +114,7 @@ class SwiftTestingXUnitTests(unittest.TestCase):
                 log,
                 output,
                 subject_git_sha="d" * 40,
-                command="swift test -c release --no-parallel",
+                command="swift test -c release --no-parallel --enable-code-coverage",
             )
             self.assertTrue(output.is_file())
             self.assertEqual(ElementTree.parse(output).getroot().attrib["tests"], "1")

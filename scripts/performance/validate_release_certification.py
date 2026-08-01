@@ -124,7 +124,9 @@ STRICT_RELEASE_BUILD_COMMAND = (
     "swift build -c release -Xswiftc -strict-concurrency=complete "
     "-Xswiftc -warnings-as-errors --product ClipEase"
 )
-STRICT_RELEASE_TEST_COMMAND = "swift test -c release --no-parallel"
+STRICT_RELEASE_TEST_COMMAND = (
+    "swift test -c release --no-parallel --enable-code-coverage"
+)
 FAULT_REPORT_FIELDS = {
     "schemaVersion",
     "subjectGitSHA",
@@ -1604,6 +1606,7 @@ def validate_fault_injection(
 def validate_build_and_tests(
     manifest_path: Path,
     build: Any,
+    baseline_subject: str,
     candidate_subject: str,
 ) -> None:
     if not isinstance(build, dict) or set(build) != BUILD_FIELDS:
@@ -1693,6 +1696,24 @@ def validate_build_and_tests(
     coverage_report = load_json(coverage_path, "changed-code coverage report")
     if coverage_report.get("subjectGitSHA") != candidate_subject:
         raise ValueError("changed-code coverage report subject does not match")
+    if coverage_report.get("baseRef") != baseline_subject:
+        raise ValueError("changed-code coverage baseline does not match")
+    if coverage_report.get("worktreeClean") is not True:
+        raise ValueError("changed-code coverage requires a clean worktree")
+    coverage_json_path = resolve_path(
+        manifest_path,
+        coverage_report.get("coverageJSON"),
+        "Swift coverage JSON",
+    )
+    coverage_json_hash = _validate_sha256(
+        coverage_report.get("coverageJSONSHA256"),
+        "Swift coverage JSON hash",
+    )
+    if (
+        not coverage_json_path.is_file()
+        or file_sha256(coverage_json_path) != coverage_json_hash
+    ):
+        raise ValueError("Swift coverage JSON hash does not match")
     coverage = coverage_report.get("changedCodeCoveragePercent")
     if (
         coverage_report.get("decision") != "pass"
@@ -1782,6 +1803,7 @@ def validate_document(manifest_path: Path, document: dict[str, Any]) -> dict[str
     validate_build_and_tests(
         manifest_path,
         document.get("buildAndTests"),
+        baseline_subject,
         candidate_subject,
     )
 

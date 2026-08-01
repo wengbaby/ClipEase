@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -134,6 +135,36 @@ def subject_git_sha(repository_root: Path) -> str:
     return subject
 
 
+def receipt_metadata(
+    repository_root: Path,
+    coverage_json: Path,
+    base_ref: str,
+) -> dict[str, Any]:
+    status = subprocess.run(
+        [
+            "/usr/bin/git",
+            "-C",
+            str(repository_root),
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ],
+        capture_output=True,
+        timeout=60,
+    )
+    if status.returncode != 0:
+        raise SystemExit(
+            status.stderr.decode(errors="replace").strip()
+            or "git worktree status lookup failed"
+        )
+    return {
+        "baseRef": base_ref,
+        "coverageJSON": coverage_json.name,
+        "coverageJSONSHA256": hashlib.sha256(coverage_json.read_bytes()).hexdigest(),
+        "worktreeClean": not status.stdout,
+    }
+
+
 def git_diff(repository_root: Path, base_ref: str) -> str:
     result = subprocess.run(
         [
@@ -222,6 +253,9 @@ def main() -> None:
         args.minimum_percent,
     )
     report["subjectGitSHA"] = subject_git_sha(repository_root)
+    report.update(
+        receipt_metadata(repository_root, args.coverage_json, args.base_ref)
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if report["decision"] != "pass":

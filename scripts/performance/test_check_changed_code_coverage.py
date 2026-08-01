@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import json
 import subprocess
 import tempfile
 import unittest
@@ -16,6 +18,46 @@ SPEC.loader.exec_module(coverage_gate)
 
 
 class ChangedCodeCoverageTests(unittest.TestCase):
+    def test_receipt_metadata_binds_coverage_bytes_and_worktree_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["/usr/bin/git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["/usr/bin/git", "config", "user.email", "coverage@example.com"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["/usr/bin/git", "config", "user.name", "Coverage Test"],
+                cwd=root,
+                check=True,
+            )
+            coverage_path = root / "coverage.json"
+            coverage_path.write_text(json.dumps({"data": []}) + "\n")
+            subprocess.run(
+                ["/usr/bin/git", "add", coverage_path.name],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(["/usr/bin/git", "commit", "-qm", "baseline"], cwd=root, check=True)
+
+            metadata = coverage_gate.receipt_metadata(root, coverage_path, "HEAD")
+
+            self.assertEqual(metadata["baseRef"], "HEAD")
+            self.assertEqual(metadata["coverageJSON"], coverage_path.name)
+            self.assertEqual(
+                metadata["coverageJSONSHA256"],
+                hashlib.sha256(coverage_path.read_bytes()).hexdigest(),
+            )
+            self.assertTrue(metadata["worktreeClean"])
+
+            (root / "untracked.txt").write_text("dirty\n")
+            self.assertFalse(
+                coverage_gate.receipt_metadata(root, coverage_path, "HEAD")[
+                    "worktreeClean"
+                ]
+            )
+
     def test_subject_git_sha_reads_current_head(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

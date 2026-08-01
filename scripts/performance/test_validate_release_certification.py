@@ -681,6 +681,7 @@ class ReleaseCertificationTests(unittest.TestCase):
         build_log = root / "strict-release-build.log"
         xunit = root / "tests.xml"
         coverage = root / "changed-code-coverage.json"
+        coverage_json = root / "swift-code-coverage.json"
         screenshot.write_bytes(valid_png_bytes())
         recording.write_bytes(valid_movie_bytes())
         media_audits = {}
@@ -726,9 +727,14 @@ class ReleaseCertificationTests(unittest.TestCase):
             f'command="{certification.STRICT_RELEASE_TEST_COMMAND}">'
             '<testsuite tests="323" failures="0" errors="0" /></testsuites>'
         )
+        coverage_json.write_text(json.dumps({"data": []}))
         coverage.write_text(json.dumps({
             "schemaVersion": 1,
             "subjectGitSHA": candidate_subject,
+            "baseRef": baseline_subject,
+            "coverageJSON": coverage_json.name,
+            "coverageJSONSHA256": sha256(coverage_json),
+            "worktreeClean": True,
             "decision": "pass",
             "changedCodeCoveragePercent": 80,
         }))
@@ -1054,6 +1060,28 @@ class ReleaseCertificationTests(unittest.TestCase):
                     ValueError, "changed-code coverage report subject"
                 ):
                     certification.validate_document(manifest_path, manifest)
+
+    def test_build_and_tests_reject_invalid_coverage_receipt_metadata(self):
+        cases = [
+            ("baseRef", "c" * 40, "coverage baseline"),
+            ("coverageJSONSHA256", "0" * 64, "coverage JSON hash"),
+            ("worktreeClean", False, "clean worktree"),
+        ]
+        for field, invalid_value, message in cases:
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest_path, manifest = self.make_manifest(root)
+                coverage_path = root / "changed-code-coverage.json"
+                coverage = json.loads(coverage_path.read_text())
+                coverage[field] = invalid_value
+                coverage_path.write_text(json.dumps(coverage))
+                manifest["buildAndTests"]["coverageReportSHA256"] = sha256(
+                    coverage_path
+                )
+                toc_patch, uuid_patch = self.trace_probe_patches()
+                with toc_patch, uuid_patch:
+                    with self.assertRaisesRegex(ValueError, message):
+                        certification.validate_document(manifest_path, manifest)
 
     def test_build_and_tests_reject_non_xunit_xml_roots_and_children(self):
         with tempfile.TemporaryDirectory() as directory:

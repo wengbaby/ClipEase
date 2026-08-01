@@ -5,14 +5,16 @@
 发布候选必须使用干净 worktree 和完整提交 SHA。自动门禁固定执行：
 
 ```bash
-swift test -c release --no-parallel
+swift test -c release --no-parallel --enable-code-coverage
 swift build -c release \
   -Xswiftc -strict-concurrency=complete \
   -Xswiftc -warnings-as-errors
 scripts/run-performance-benchmarks.sh
 ```
 
-`scripts/release.sh` 会把严格 Swift Testing 输出保存到 `.build/release-evidence/strict-release-test.log`，并通过 `scripts/performance/write_xunit_from_swift_testing.py` 生成带候选 SHA/命令属性的 `strict-release-tests.xml`；SwiftPM 当前的 `--xunit-output` 对 Swift Testing 可能为空，不能直接作为认证证据。
+`scripts/release.sh` 会用 `--enable-code-coverage` 执行严格 Swift Testing，把输出保存到 `.build/release-evidence/strict-release-test.log`，并通过 `scripts/performance/write_xunit_from_swift_testing.py` 生成带候选 SHA/命令属性的 `strict-release-tests.xml`；SwiftPM 当前的 `--xunit-output` 对 Swift Testing 可能为空，不能直接作为认证证据。
+
+同一次测试结束后，脚本会把 SwiftPM 生成的原始 JSON 固化为 `.build/release-evidence/swift-code-coverage.json`，再自动执行 changed-code 80% 门禁并写入 `.build/release-evidence/changed-code-coverage.json`。后者也是机器可读 receipt：包含候选 `subjectGitSHA`、基线 `baseRef`、原始 coverage JSON 的 SHA-256、执行门槛与结果，以及生成证据时 `worktreeClean` 状态。正式 `--publish` 仍要求干净 worktree；非发布 dry run 若为脏 worktree，会明确记录 `worktreeClean: false`，不能冒充已提交候选的认证证据。
 
 性能矩阵必须保存基线 `ad4013cce2a4e0a1648de2277126c736c0700b39`、候选 SHA、5 次预热、30 次正式样本、原始样本和比较报告。任何 p99 超过停止阈值的单轮结果都必须交错复测，不能自动接受变慢后的新基线。
 

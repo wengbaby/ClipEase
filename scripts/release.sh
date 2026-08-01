@@ -7,6 +7,9 @@ EVIDENCE_DIR="$ROOT_DIR/.build/release-evidence"
 TEST_LOG_PATH="$EVIDENCE_DIR/strict-release-test.log"
 XUNIT_REPORT_PATH="$EVIDENCE_DIR/strict-release-tests.xml"
 BUILD_LOG_PATH="$EVIDENCE_DIR/strict-release-build.log"
+COVERAGE_JSON_PATH="$EVIDENCE_DIR/swift-code-coverage.json"
+COVERAGE_REPORT_PATH="$EVIDENCE_DIR/changed-code-coverage.json"
+COVERAGE_BASE_REF="ad4013cce2a4e0a1648de2277126c736c0700b39"
 APP_DIR="$ROOT_DIR/.build/ClipEase.app"
 TEMPLATE_FILE="$ROOT_DIR/docs/releases/release-notes-template.md"
 CUSTOM_NOTES_FILE=""
@@ -35,6 +38,8 @@ Output:
   .build/release-evidence/strict-release-build.log
   .build/release-evidence/strict-release-test.log
   .build/release-evidence/strict-release-tests.xml
+  .build/release-evidence/swift-code-coverage.json
+  .build/release-evidence/changed-code-coverage.json
 EOF
 }
 
@@ -163,14 +168,28 @@ run_release_tests() {
   mkdir -p "$EVIDENCE_DIR"
   {
     echo "Subject Git SHA: $CANDIDATE_SUBJECT_GIT_SHA"
-    echo "Strict release test command: swift test -c release --no-parallel"
-    swift test -c release --no-parallel
+    echo "Strict release test command: swift test -c release --no-parallel --enable-code-coverage"
+    swift test -c release --no-parallel --enable-code-coverage
   } 2>&1 | tee "$TEST_LOG_PATH"
   python3 "$ROOT_DIR/scripts/performance/write_xunit_from_swift_testing.py" \
     --input "$TEST_LOG_PATH" \
     --output "$XUNIT_REPORT_PATH" \
     --subject-git-sha "$CANDIDATE_SUBJECT_GIT_SHA" \
-    --command "swift test -c release --no-parallel"
+    --command "swift test -c release --no-parallel --enable-code-coverage"
+
+  local generated_coverage_path
+  generated_coverage_path="$(swift test -c release --show-codecov-path --skip-build)"
+  if [[ ! -f "$generated_coverage_path" ]]; then
+    echo "Swift coverage JSON was not generated: $generated_coverage_path" >&2
+    exit 1
+  fi
+  cp "$generated_coverage_path" "$COVERAGE_JSON_PATH"
+  python3 "$ROOT_DIR/scripts/performance/check_changed_code_coverage.py" \
+    --repository-root "$ROOT_DIR" \
+    --coverage-json "$COVERAGE_JSON_PATH" \
+    --base-ref "$COVERAGE_BASE_REF" \
+    --minimum-percent 80 \
+    --output "$COVERAGE_REPORT_PATH"
 }
 
 cleanup_created_tag() {
@@ -332,9 +351,9 @@ hdiutil detach "$MOUNT_POINT" >/dev/null
 MOUNT_POINT=""
 
 SHA256="$(shasum -a 256 "$DMG_PATH" | awk '{ print $1 }')"
-TEST_LINE="已通过 \`swift test -c release --no-parallel\`。"
+TEST_LINE="已通过 \`swift test -c release --no-parallel --enable-code-coverage\`。"
 if [[ "$SKIP_TESTS" == "true" ]]; then
-  TEST_LINE="本次脚本跳过 \`swift test -c release --no-parallel\`，请确认发布前已单独通过完整测试。"
+  TEST_LINE="本次脚本跳过 \`swift test -c release --no-parallel --enable-code-coverage\`，请确认发布前已单独通过完整测试。"
 fi
 
 python3 - "$TEMPLATE_FILE" "$CUSTOM_NOTES_FILE" "$BODY_PATH" "$VERSION" "$BUILD" "$DMG_NAME" "$SHA256" "$TEST_LINE" <<'PY'
