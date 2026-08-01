@@ -1055,6 +1055,38 @@ class ReleaseCertificationTests(unittest.TestCase):
                 ):
                     certification.validate_document(manifest_path, manifest)
 
+    def test_build_and_tests_reject_non_xunit_xml_roots_and_children(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path, manifest = self.make_manifest(root)
+            xunit_path = root / "tests.xml"
+            candidate = manifest["candidateSubjectGitSHA"]
+            xunit_path.write_text(
+                f'<notxunit subjectGitSHA="{candidate}" '
+                f'command="{certification.STRICT_RELEASE_TEST_COMMAND}">'
+                '<fake tests="323" failures="0" errors="0" /></notxunit>'
+            )
+            manifest["buildAndTests"]["xunitReportSHA256"] = sha256(xunit_path)
+            toc_patch, uuid_patch = self.trace_probe_patches()
+            with toc_patch, uuid_patch:
+                with self.assertRaisesRegex(ValueError, "xUnit root"):
+                    certification.validate_document(manifest_path, manifest)
+
+            root = Path(directory) / "child"
+            manifest_path, manifest = self.make_manifest(root)
+            xunit_path = root / "tests.xml"
+            candidate = manifest["candidateSubjectGitSHA"]
+            xunit_path.write_text(
+                f'<testsuites subjectGitSHA="{candidate}" '
+                f'command="{certification.STRICT_RELEASE_TEST_COMMAND}">'
+                '<fake tests="323" failures="0" errors="0" /></testsuites>'
+            )
+            manifest["buildAndTests"]["xunitReportSHA256"] = sha256(xunit_path)
+            toc_patch, uuid_patch = self.trace_probe_patches()
+            with toc_patch, uuid_patch:
+                with self.assertRaisesRegex(ValueError, "xUnit suite"):
+                    certification.validate_document(manifest_path, manifest)
+
     def test_persisted_failures_never_include_resolved_host_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
