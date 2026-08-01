@@ -106,6 +106,93 @@ import Testing
     #expect(group.wait(timeout: .now() + 2) == .success)
 }
 
+@Test func sqliteConnectionCoordinatorInvalidatesEveryCoordinatorForDatabaseURL() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "clipease-sqlite-coordinator-registry-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let firstCoordinator = SQLiteConnectionCoordinator(databaseURL: databaseURL)
+    let secondCoordinator = SQLiteConnectionCoordinator(databaseURL: databaseURL)
+    defer {
+        firstCoordinator.invalidate()
+        secondCoordinator.invalidate()
+    }
+
+    try firstCoordinator.withWriter { connection in
+        try connection.execute("CREATE TABLE sample (value INTEGER NOT NULL)")
+    }
+    _ = try firstCoordinator.withReader { connection in
+        try connection.queryInt("SELECT COUNT(*) FROM sample")
+    }
+    _ = try secondCoordinator.withReader { connection in
+        try connection.queryInt("SELECT COUNT(*) FROM sample")
+    }
+
+    #expect(firstCoordinator.createdWriterCount == 1)
+    #expect(firstCoordinator.createdReaderCount == 1)
+    #expect(secondCoordinator.createdReaderCount == 1)
+    #expect(firstCoordinator.hasLiveWriterConnectionForTesting)
+
+    SQLiteConnectionCoordinator.invalidateAll(for: databaseURL)
+
+    #expect(firstCoordinator.createdWriterCount == 1)
+    #expect(firstCoordinator.createdReaderCount == 0)
+    #expect(secondCoordinator.createdWriterCount == 0)
+    #expect(secondCoordinator.createdReaderCount == 0)
+    #expect(!firstCoordinator.hasLiveWriterConnectionForTesting)
+    #expect(!secondCoordinator.hasLiveWriterConnectionForTesting)
+
+    #expect(try secondCoordinator.withReader { connection in
+        try connection.queryInt("SELECT COUNT(*) FROM sample")
+    } == 0)
+}
+
+@Test func sqliteConnectionCoordinatorRetriesWriterOpeningInvalidatedMidFlight() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+            "clipease-sqlite-coordinator-writer-race-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("ClipEase.sqlite")
+    let coordinator = SQLiteConnectionCoordinator(databaseURL: databaseURL)
+    defer { coordinator.invalidate() }
+
+    let openingStarted = DispatchSemaphore(value: 0)
+    let releaseOpening = DispatchSemaphore(value: 0)
+    let openingProbe = SQLiteOpeningCountProbe()
+    let operationFinished = DispatchSemaphore(value: 0)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        defer { operationFinished.signal() }
+        try? coordinator.withWriter(opening: {
+            let attempt = openingProbe.increment()
+            let connection = try SQLiteConnection(url: databaseURL)
+            if attempt == 1 {
+                openingStarted.signal()
+                releaseOpening.wait()
+            }
+            return connection
+        }) { connection in
+            try connection.execute("CREATE TABLE sample (value INTEGER NOT NULL)")
+        }
+    }
+
+    #expect(openingStarted.wait(timeout: .now() + 2) == .success)
+    coordinator.invalidate()
+    releaseOpening.signal()
+    #expect(operationFinished.wait(timeout: .now() + 2) == .success)
+    #expect(openingProbe.count == 2)
+    #expect(coordinator.hasLiveWriterConnectionForTesting)
+}
+
 @Test func sqliteConnectionCoordinatorAdoptsPreparedConnectionAsFirstReader() throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent(
@@ -321,6 +408,22 @@ private final class SQLiteHandlerInvocationProbe: @unchecked Sendable {
     func increment() {
         lock.withLock {
             storedCount += 1
+        }
+    }
+}
+
+private final class SQLiteOpeningCountProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCount = 0
+
+    var count: Int {
+        lock.withLock { storedCount }
+    }
+
+    func increment() -> Int {
+        lock.withLock {
+            storedCount += 1
+            return storedCount
         }
     }
 }

@@ -79,8 +79,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func initialize() throws {
-        let database = try openReadyDatabase()
-        database.close()
+        try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { _ in }
     }
 
     func replaceAllItems(with items: [ClipboardItem]) throws {
@@ -88,37 +87,36 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func replaceAllItems(with items: [ClipboardItem], groups: [ClipboardGroup]) throws {
-        let database = try openReadyDatabase()
-        defer { database.close() }
+        try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try database.execute("BEGIN IMMEDIATE TRANSACTION")
 
-        try database.execute("BEGIN IMMEDIATE TRANSACTION")
+            do {
+                try database.execute("DELETE FROM group_items")
+                try database.execute("DELETE FROM groups")
+                try database.execute("DELETE FROM item_ocr_results")
+                try database.execute("DELETE FROM item_assets")
+                try database.execute("DELETE FROM clipboard_item_files")
+                try database.execute("DELETE FROM clipboard_items_fts")
+                try database.execute("DELETE FROM clipboard_search_index_state")
+                try database.execute("DELETE FROM clipboard_items")
 
-        do {
-            try database.execute("DELETE FROM group_items")
-            try database.execute("DELETE FROM groups")
-            try database.execute("DELETE FROM item_ocr_results")
-            try database.execute("DELETE FROM item_assets")
-            try database.execute("DELETE FROM clipboard_item_files")
-            try database.execute("DELETE FROM clipboard_items_fts")
-            try database.execute("DELETE FROM clipboard_search_index_state")
-            try database.execute("DELETE FROM clipboard_items")
+                for item in items {
+                    try insertItem(item, in: database)
+                }
 
-            for item in items {
-                try insertItem(item, in: database)
+                for group in groups {
+                    try SQLiteGroupDAO.insert(group, in: database)
+                }
+
+                for item in items where item.groupID != nil {
+                    try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
+                }
+
+                try database.execute("COMMIT")
+            } catch {
+                try? database.execute("ROLLBACK")
+                throw error
             }
-
-            for group in groups {
-                try SQLiteGroupDAO.insert(group, in: database)
-            }
-
-            for item in items where item.groupID != nil {
-                try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
-            }
-
-            try database.execute("COMMIT")
-        } catch {
-            try? database.execute("ROLLBACK")
-            throw error
         }
     }
 
@@ -127,18 +125,17 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func loadSnapshot() throws -> ClipboardHistorySnapshot {
-        let database = try openReadDatabase()
-        defer { database.close() }
+        return try connectionCoordinator.withReader(opening: { try openSearchReaderDatabase() }) { database in
+            let groups = try SQLiteGroupDAO.loadGroups(in: database)
+            let items = try SQLiteItemDAO.loadItems(
+                in: database,
+                whereSQL: "clipboard_items.is_deleted = 0",
+                values: [],
+                orderSQL: Self.defaultItemOrderSQL
+            )
 
-        let groups = try SQLiteGroupDAO.loadGroups(in: database)
-        let items = try SQLiteItemDAO.loadItems(
-            in: database,
-            whereSQL: "clipboard_items.is_deleted = 0",
-            values: [],
-            orderSQL: Self.defaultItemOrderSQL
-        )
-
-        return ClipboardHistorySnapshot(items: items, groups: groups)
+            return ClipboardHistorySnapshot(items: items, groups: groups)
+        }
     }
 
     func loadItems(limit: Int, offset: Int) throws -> [ClipboardItem] {
@@ -146,17 +143,16 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return []
         }
 
-        let database = try openReadDatabase()
-        defer { database.close() }
-
-        return try SQLiteItemDAO.loadItems(
-            in: database,
-            whereSQL: "clipboard_items.is_deleted = 0",
-            values: [],
-            orderSQL: Self.defaultItemOrderSQL,
-            limit: limit,
-            offset: max(0, offset)
-        )
+        return try connectionCoordinator.withReader(opening: { try openSearchReaderDatabase() }) { database in
+            try SQLiteItemDAO.loadItems(
+                in: database,
+                whereSQL: "clipboard_items.is_deleted = 0",
+                values: [],
+                orderSQL: Self.defaultItemOrderSQL,
+                limit: limit,
+                offset: max(0, offset)
+            )
+        }
     }
 
     func loadItemPage(
@@ -175,31 +171,28 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
 
     func loadSnapshot(itemLimit: Int, offset: Int) throws -> ClipboardHistorySnapshot {
         guard itemLimit > 0 else {
-            let database = try openReadDatabase()
-            defer { database.close() }
-            return ClipboardHistorySnapshot(items: [], groups: try SQLiteGroupDAO.loadGroups(in: database))
+            return try connectionCoordinator.withReader(opening: { try openSearchReaderDatabase() }) { database in
+                ClipboardHistorySnapshot(items: [], groups: try SQLiteGroupDAO.loadGroups(in: database))
+            }
         }
 
-        let database = try openReadDatabase()
-        defer { database.close() }
-
-        let groups = try SQLiteGroupDAO.loadGroups(in: database)
-        let items = try SQLiteItemDAO.loadItems(
-            in: database,
-            whereSQL: "clipboard_items.is_deleted = 0",
-            values: [],
-            orderSQL: Self.defaultItemOrderSQL,
-            limit: itemLimit,
-            offset: max(0, offset)
-        )
-        return ClipboardHistorySnapshot(items: items, groups: groups)
+        return try connectionCoordinator.withReader(opening: { try openSearchReaderDatabase() }) { database in
+            let groups = try SQLiteGroupDAO.loadGroups(in: database)
+            let items = try SQLiteItemDAO.loadItems(
+                in: database,
+                whereSQL: "clipboard_items.is_deleted = 0",
+                values: [],
+                orderSQL: Self.defaultItemOrderSQL,
+                limit: itemLimit,
+                offset: max(0, offset)
+            )
+            return ClipboardHistorySnapshot(items: items, groups: groups)
+        }
     }
 
     func loadItems(contentHash: String, sourceBundleID: String?) throws -> [ClipboardItem] {
-        let database = try openReadDatabase()
-        defer { database.close() }
-
-        let digest = SQLiteContentDigest.digest(for: contentHash)
+        return try connectionCoordinator.withReader(opening: { try openSearchReaderDatabase() }) { database in
+            let digest = SQLiteContentDigest.digest(for: contentHash)
         var digestWhereSQL = """
             clipboard_items.is_deleted = 0
             AND clipboard_items.digest_version = ?
@@ -262,30 +255,31 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         )
         // A digest narrows the lookup, but the stable legacy value remains the
         // collision-verification authority during the dual-read release.
-        return candidates
-            .filter { $0.contentHash == contentHash }
-            .sorted(by: Self.shouldSortItemBefore)
+            return candidates
+                .filter { $0.contentHash == contentHash }
+                .sorted(by: Self.shouldSortItemBefore)
+        }
     }
 
     func backfillContentDigests(limit: Int) throws -> Int {
-        let database = try openReadyDatabase()
-        defer { database.close() }
-        try SQLiteSchemaMigrationStateStore.bootstrapIfNeeded(
-            currentSchemaVersion: Self.currentSchemaVersion,
-            in: database
-        )
-        try SQLiteSchemaMigrationStateStore.markBackfillPendingIfStarted(in: database)
-        let backfilledCount = try SQLiteItemDAO.backfillContentDigests(in: database, limit: limit)
-        let boundedLimit = min(max(0, limit), SQLiteContentDigest.batchSize)
-        let shouldValidate = boundedLimit > 0 && backfilledCount < boundedLimit
-        let validationPassed = shouldValidate
-            ? try SQLiteItemDAO.validateContentDigests(in: database)
-            : false
-        try SQLiteSchemaMigrationStateStore.markCompletedIfBackfillReady(
-            in: database,
-            validationPassed: validationPassed
-        )
-        return backfilledCount
+        return try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try SQLiteSchemaMigrationStateStore.bootstrapIfNeeded(
+                currentSchemaVersion: Self.currentSchemaVersion,
+                in: database
+            )
+            try SQLiteSchemaMigrationStateStore.markBackfillPendingIfStarted(in: database)
+            let backfilledCount = try SQLiteItemDAO.backfillContentDigests(in: database, limit: limit)
+            let boundedLimit = min(max(0, limit), SQLiteContentDigest.batchSize)
+            let shouldValidate = boundedLimit > 0 && backfilledCount < boundedLimit
+            let validationPassed = shouldValidate
+                ? try SQLiteItemDAO.validateContentDigests(in: database)
+                : false
+            try SQLiteSchemaMigrationStateStore.markCompletedIfBackfillReady(
+                in: database,
+                validationPassed: validationPassed
+            )
+            return backfilledCount
+        }
     }
 
     private static func shouldSortItemBefore(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
@@ -394,10 +388,9 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     }
 
     func prepareSearchIndex() throws {
-        let database = try openReadyDatabase()
-        defer { database.close() }
-
-        try SQLiteSearchIndexDAO.ensureReady(in: database)
+        try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try SQLiteSearchIndexDAO.ensureReady(in: database)
+        }
     }
 
     func saveSnapshot(_ snapshot: ClipboardHistorySnapshot) throws {
@@ -409,24 +402,23 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return
         }
 
-        let database = try openReadyDatabase()
-        defer { database.close() }
+        try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try database.execute("BEGIN IMMEDIATE TRANSACTION")
 
-        try database.execute("BEGIN IMMEDIATE TRANSACTION")
-
-        do {
-            for item in items {
-                try insertItem(item, in: database)
-                if item.groupID != nil {
-                    try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
+            do {
+                for item in items {
+                    try insertItem(item, in: database)
+                    if item.groupID != nil {
+                        try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
+                    }
                 }
-            }
 
-            try database.execute("COMMIT")
-            try database.execute("PRAGMA wal_checkpoint(PASSIVE)")
-        } catch {
-            try? database.execute("ROLLBACK")
-            throw error
+                try database.execute("COMMIT")
+                try database.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            } catch {
+                try? database.execute("ROLLBACK")
+                throw error
+            }
         }
     }
 
@@ -508,32 +500,31 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
         insertedItemID: ClipboardItem.ID,
         restoring displacedItems: [ClipboardItem]
     ) throws -> ClipboardAttachmentCleanup {
-        let database = try openReadyDatabase()
-        defer { database.close() }
-
-        try database.execute("BEGIN IMMEDIATE TRANSACTION")
-        do {
-            let cleanup = try SQLiteItemDAO.attachmentCleanup(
-                forItemIDs: [insertedItemID],
-                database: database
-            )
-            try deleteItems(with: [insertedItemID], in: database)
-            for item in displacedItems {
-                let currentRowExists = try !database.query(
-                    "SELECT id FROM clipboard_items WHERE id = ? LIMIT 1",
-                    values: [.text(item.id.uuidString)]
-                ).isEmpty
-                guard !currentRowExists else { continue }
-                try insertItem(item, in: database)
-                if item.groupID != nil {
-                    try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
+        return try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try database.execute("BEGIN IMMEDIATE TRANSACTION")
+            do {
+                let cleanup = try SQLiteItemDAO.attachmentCleanup(
+                    forItemIDs: [insertedItemID],
+                    database: database
+                )
+                try deleteItems(with: [insertedItemID], in: database)
+                for item in displacedItems {
+                    let currentRowExists = try !database.query(
+                        "SELECT id FROM clipboard_items WHERE id = ? LIMIT 1",
+                        values: [.text(item.id.uuidString)]
+                    ).isEmpty
+                    guard !currentRowExists else { continue }
+                    try insertItem(item, in: database)
+                    if item.groupID != nil {
+                        try SQLiteGroupDAO.insertGroupItem(for: item, in: database)
+                    }
                 }
+                try database.execute("COMMIT")
+                return cleanup
+            } catch {
+                try? database.execute("ROLLBACK")
+                throw error
             }
-            try database.execute("COMMIT")
-            return cleanup
-        } catch {
-            try? database.execute("ROLLBACK")
-            throw error
         }
     }
 
@@ -546,23 +537,22 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return .empty
         }
 
-        let database = try openReadyDatabase()
-        defer { database.close() }
+        return try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try database.execute("BEGIN IMMEDIATE TRANSACTION")
 
-        try database.execute("BEGIN IMMEDIATE TRANSACTION")
-
-        do {
-            let cleanup = try SQLiteItemDAO
-                .attachmentCleanup(forItemIDs: ids, database: database)
-                .union(SQLiteItemDAO.attachmentCleanup(forItemsInGroups: groupIDs, database: database))
-            try deleteItems(with: ids, in: database)
-            try deleteItems(inGroups: groupIDs, in: database)
-            try deleteGroups(with: groupIDs, in: database)
-            try database.execute("COMMIT")
-            return cleanup
-        } catch {
-            try? database.execute("ROLLBACK")
-            throw error
+            do {
+                let cleanup = try SQLiteItemDAO
+                    .attachmentCleanup(forItemIDs: ids, database: database)
+                    .union(SQLiteItemDAO.attachmentCleanup(forItemsInGroups: groupIDs, database: database))
+                try deleteItems(with: ids, in: database)
+                try deleteItems(inGroups: groupIDs, in: database)
+                try deleteGroups(with: groupIDs, in: database)
+                try database.execute("COMMIT")
+                return cleanup
+            } catch {
+                try? database.execute("ROLLBACK")
+                throw error
+            }
         }
     }
 
@@ -570,27 +560,26 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     func deleteAllItems(
         preserving groups: [ClipboardGroup]
     ) throws -> ClipboardAttachmentCleanup {
-        let database = try openReadyDatabase()
-        defer { database.close() }
+        return try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try database.execute("BEGIN IMMEDIATE TRANSACTION")
 
-        try database.execute("BEGIN IMMEDIATE TRANSACTION")
-
-        do {
-            let cleanup = try SQLiteItemDAO.allAttachmentCleanup(database: database)
-            try database.execute("DELETE FROM group_items")
-            try database.execute("DELETE FROM item_ocr_results")
-            try database.execute("DELETE FROM item_assets")
-            try database.execute("DELETE FROM clipboard_item_files")
-            try database.execute("DELETE FROM clipboard_items_fts")
-            try database.execute("DELETE FROM clipboard_search_index_state")
-            try database.execute("DELETE FROM clipboard_items")
-            try database.execute("DELETE FROM groups")
-            try SQLiteGroupDAO.upsert(groups, in: database)
-            try database.execute("COMMIT")
-            return cleanup
-        } catch {
-            try? database.execute("ROLLBACK")
-            throw error
+            do {
+                let cleanup = try SQLiteItemDAO.allAttachmentCleanup(database: database)
+                try database.execute("DELETE FROM group_items")
+                try database.execute("DELETE FROM item_ocr_results")
+                try database.execute("DELETE FROM item_assets")
+                try database.execute("DELETE FROM clipboard_item_files")
+                try database.execute("DELETE FROM clipboard_items_fts")
+                try database.execute("DELETE FROM clipboard_search_index_state")
+                try database.execute("DELETE FROM clipboard_items")
+                try database.execute("DELETE FROM groups")
+                try SQLiteGroupDAO.upsert(groups, in: database)
+                try database.execute("COMMIT")
+                return cleanup
+            } catch {
+                try? database.execute("ROLLBACK")
+                throw error
+            }
         }
     }
 
@@ -602,53 +591,51 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
     func deleteExpiredItemsWithResult(
         before cutoff: Date
     ) throws -> ClipboardHistoryRetentionDeletionResult {
-        let database = try openReadyDatabase()
-        defer { database.close() }
-
-        try database.execute("BEGIN IMMEDIATE TRANSACTION")
-        do {
-            let values: [SQLiteValue] = [.double(cutoff.timeIntervalSince1970)]
-            let itemRows = try database.query(
-                """
-                SELECT clipboard_items.id
-                FROM clipboard_items
-                WHERE \(Self.retentionEligibilitySQL)
-                """,
-                values: values
-            )
-            let itemIDs = Set(itemRows.compactMap { UUID(uuidString: $0.requiredText("id")) })
-            let protectedGroupIDs = Set(try SQLiteGroupDAO.loadGroups(in: database).map(\.id))
-            let cleanup = try SQLiteItemDAO.attachmentCleanup(forItemIDs: itemIDs, database: database)
-            for batch in idBatches(itemIDs) {
-                try SQLiteSearchIndexDAO.delete(with: batch, in: database)
+        return try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try database.execute("BEGIN IMMEDIATE TRANSACTION")
+            do {
+                let values: [SQLiteValue] = [.double(cutoff.timeIntervalSince1970)]
+                let itemRows = try database.query(
+                    """
+                    SELECT clipboard_items.id
+                    FROM clipboard_items
+                    WHERE \(Self.retentionEligibilitySQL)
+                    """,
+                    values: values
+                )
+                let itemIDs = Set(itemRows.compactMap { UUID(uuidString: $0.requiredText("id")) })
+                let protectedGroupIDs = Set(try SQLiteGroupDAO.loadGroups(in: database).map(\.id))
+                let cleanup = try SQLiteItemDAO.attachmentCleanup(forItemIDs: itemIDs, database: database)
+                for batch in idBatches(itemIDs) {
+                    try SQLiteSearchIndexDAO.delete(with: batch, in: database)
+                }
+                try database.execute(
+                    "DELETE FROM clipboard_items WHERE \(Self.retentionEligibilitySQL)",
+                    values: values
+                )
+                try database.execute("COMMIT")
+                return ClipboardHistoryRetentionDeletionResult(
+                    cleanup: cleanup,
+                    removedItemIDs: itemIDs,
+                    protectedGroupIDs: protectedGroupIDs
+                )
+            } catch {
+                try? database.execute("ROLLBACK")
+                throw error
             }
-            try database.execute(
-                "DELETE FROM clipboard_items WHERE \(Self.retentionEligibilitySQL)",
-                values: values
-            )
-            try database.execute("COMMIT")
-            return ClipboardHistoryRetentionDeletionResult(
-                cleanup: cleanup,
-                removedItemIDs: itemIDs,
-                protectedGroupIDs: protectedGroupIDs
-            )
-        } catch {
-            try? database.execute("ROLLBACK")
-            throw error
         }
     }
 
     func compactIfNeeded(policy: ClipboardDatabaseCompactionPolicy) throws -> ClipboardDatabaseCompactionResult {
-        let database = try openReadyDatabase()
-        defer { database.close() }
-
-        return try SQLiteDatabaseCompactor.compactIfNeeded(database: database, policy: policy)
+        try connectionCoordinator.withWriter(opening: { try openReadyDatabase() }) { database in
+            try SQLiteDatabaseCompactor.compactIfNeeded(database: database, policy: policy)
+        }
     }
 
     func countItems() throws -> Int {
-        let database = try openReadDatabase()
-        defer { database.close() }
-        return try database.queryInt("SELECT COUNT(*) FROM clipboard_items")
+        return try connectionCoordinator.withReader(opening: { try openSearchReaderDatabase() }) { database in
+            try database.queryInt("SELECT COUNT(*) FROM clipboard_items")
+        }
     }
 
     func referencedAttachments(
@@ -658,9 +645,9 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             return .empty
         }
 
-        let database = try openReadDatabase()
-        defer { database.close() }
-        return try SQLiteItemDAO.referencedAttachments(in: candidates, database: database)
+        return try connectionCoordinator.withReader(opening: { try openSearchReaderDatabase() }) { database in
+            try SQLiteItemDAO.referencedAttachments(in: candidates, database: database)
+        }
     }
 
     func resetToEmptyStore() throws {
@@ -798,7 +785,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
                 // this first-open probe was running. Drain those handles and
                 // re-read the version while holding the process-wide gate so
                 // two stores cannot migrate/restore the same inode at once.
-                connectionCoordinator.invalidateForMigration()
+                SQLiteConnectionCoordinator.invalidateAll(for: databaseURL)
                 let migrationDatabase = try SQLiteDatabase(url: databaseURL)
                 let latestUserVersion = try migrationDatabase.queryInt("PRAGMA user_version")
                 migrationDatabase.close()
@@ -960,7 +947,7 @@ struct SQLiteClipboardStore: ClipboardHistoryRepository {
             }
         } catch {
             if let backup {
-                connectionCoordinator.invalidateForMigration()
+                SQLiteConnectionCoordinator.invalidateAll(for: databaseURL)
                 try backupManager.restoreDatabaseFiles(from: backup, to: databaseURL)
             }
             Task { @MainActor in

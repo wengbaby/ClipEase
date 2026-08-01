@@ -171,6 +171,23 @@ import Testing
     #expect(fixture.store.coordinatedReaderConnectionsAreReadOnlyForTesting)
 }
 
+@Test func sqliteSnapshotReadsUseTheReadOnlyReaderPool() throws {
+    let fixture = try SQLiteStablePaginationFixture.make()
+    defer { fixture.remove() }
+
+    let item = ClipboardItem.debugText(
+        "read only snapshot",
+        createdAt: Date(timeIntervalSince1970: 100),
+        sourceApp: .clipease
+    )
+    try fixture.store.insertItems([item])
+
+    let snapshot = try fixture.store.loadSnapshot(itemLimit: 1, offset: 0)
+
+    #expect(snapshot.items.map(\.id) == [item.id])
+    #expect(fixture.store.coordinatedReaderConnectionsAreReadOnlyForTesting)
+}
+
 private struct SQLiteStablePaginationFixture {
     let directory: URL
     let databaseURL: URL

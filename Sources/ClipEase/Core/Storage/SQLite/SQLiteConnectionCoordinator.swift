@@ -1,6 +1,10 @@
 import Foundation
 import Dispatch
 
+private enum SQLiteConnectionCoordinatorError: Error {
+    case retryWriterOpening
+}
+
 /// Owns one serialized writer connection and a bounded set of reusable readers.
 ///
 /// `SQLiteConnection` itself serializes statements per handle. This coordinator
@@ -8,28 +12,39 @@ import Dispatch
 /// at most two concurrently leased readers, and explicit invalidation before a
 /// database file is replaced.
 final class SQLiteConnectionCoordinator: @unchecked Sendable {
+    private static let registry = SQLiteConnectionCoordinatorRegistry()
+
     let maximumReaderCount: Int
 
-    private let databaseURL: URL
+    fileprivate let databaseURL: URL
     private let readerCondition = NSCondition()
     private let writerLock = NSLock()
 
     private var writerConnection: SQLiteConnection?
     private var totalWriterCount = 0
+    private var writerGeneration: UInt64 = 0
     private var idleReaders: [SQLiteConnection] = []
     private var leasedReaders: [ObjectIdentifier: SQLiteConnection] = [:]
     private var totalReaderCount = 0
     private var isInvalidating = false
     private var isPreparing = false
+    private var preparingThreadID: ObjectIdentifier?
+    private var invalidationRequested = false
     private var isPrepared = false
 
     init(databaseURL: URL, maximumReaderCount: Int = 2) {
         self.databaseURL = databaseURL
         self.maximumReaderCount = max(1, maximumReaderCount)
+        Self.registry.register(self)
     }
 
     deinit {
+        Self.registry.unregister(self)
         invalidate()
+    }
+
+    static func invalidateAll(for databaseURL: URL) {
+        registry.invalidateAll(for: databaseURL)
     }
 
     var createdReaderCount: Int {
@@ -38,6 +53,10 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
 
     var createdWriterCount: Int {
         writerLock.withLock { totalWriterCount }
+    }
+
+    var hasLiveWriterConnectionForTesting: Bool {
+        writerLock.withLock { writerConnection != nil }
     }
 
     var readerConnectionsOpenedReadOnlyForTesting: Bool {
@@ -52,38 +71,56 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
     func prepareIfNeeded(
         _ prepare: () throws -> SQLiteConnection
     ) throws {
-        readerCondition.lock()
-        while isPreparing || isInvalidating {
-            readerCondition.wait()
-        }
-        if isPrepared {
+        while true {
+            readerCondition.lock()
+            while isPreparing || isInvalidating {
+                readerCondition.wait()
+            }
+            if isPrepared {
+                readerCondition.unlock()
+                return
+            }
+            isPreparing = true
+            preparingThreadID = ObjectIdentifier(Thread.current)
             readerCondition.unlock()
-            return
-        }
-        isPreparing = true
-        readerCondition.unlock()
 
-        do {
-            let preparedConnection = try prepare()
             do {
-                try configureReader(preparedConnection)
+                let preparedConnection = try prepare()
+                do {
+                    try configureReader(preparedConnection)
+                } catch {
+                    preparedConnection.close()
+                    throw error
+                }
+                let shouldRetry = readerCondition.withLock {
+                    isPreparing = false
+                    preparingThreadID = nil
+                    guard !invalidationRequested else {
+                        invalidationRequested = false
+                        isPrepared = false
+                        readerCondition.broadcast()
+                        return true
+                    }
+                    idleReaders.append(preparedConnection)
+                    totalReaderCount += 1
+                    isPrepared = true
+                    readerCondition.broadcast()
+                    return false
+                }
+                if shouldRetry {
+                    preparedConnection.close()
+                    continue
+                }
+                return
             } catch {
-                preparedConnection.close()
+                readerCondition.withLock {
+                    isPreparing = false
+                    preparingThreadID = nil
+                    invalidationRequested = false
+                    readerCondition.broadcast()
+                }
                 throw error
             }
-            readerCondition.withLock {
-                idleReaders.append(preparedConnection)
-                totalReaderCount += 1
-                isPreparing = false
-                isPrepared = true
-                readerCondition.broadcast()
-            }
-        } catch {
-            readerCondition.withLock {
-                isPreparing = false
-                readerCondition.broadcast()
-            }
-            throw error
         }
     }
 
@@ -95,15 +132,26 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         // lock is taken. Migration invalidation itself drains this coordinator
         // and therefore cannot be invoked while the lock is held.
         if let opening, !hasWriterConnection {
-            let preparedConnection = try opening()
-            return try writerLock.withLock {
-                if let writerConnection {
-                    preparedConnection.close()
-                    return try operation(writerConnection)
+            while true {
+                let openingGeneration = writerLock.withLock { writerGeneration }
+                let preparedConnection = try opening()
+                do {
+                    return try writerLock.withLock {
+                        guard writerGeneration == openingGeneration else {
+                            preparedConnection.close()
+                            throw SQLiteConnectionCoordinatorError.retryWriterOpening
+                        }
+                        if let writerConnection {
+                            preparedConnection.close()
+                            return try operation(writerConnection)
+                        }
+                        writerConnection = preparedConnection
+                        totalWriterCount += 1
+                        return try operation(preparedConnection)
+                    }
+                } catch SQLiteConnectionCoordinatorError.retryWriterOpening {
+                    continue
                 }
-                writerConnection = preparedConnection
-                totalWriterCount += 1
-                return try operation(preparedConnection)
             }
         }
 
@@ -146,44 +194,61 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         opening: () throws -> SQLiteConnection,
         _ operation: (SQLiteConnection) throws -> Result
     ) throws -> Result {
-        readerCondition.lock()
-        while isPreparing || isInvalidating {
-            readerCondition.wait()
-        }
-        if isPrepared {
+        while true {
+            readerCondition.lock()
+            while isPreparing || isInvalidating {
+                readerCondition.wait()
+            }
+            if isPrepared {
+                readerCondition.unlock()
+                return try withReader(operation)
+            }
+            isPreparing = true
+            preparingThreadID = ObjectIdentifier(Thread.current)
             readerCondition.unlock()
-            return try withReader(operation)
-        }
-        isPreparing = true
-        readerCondition.unlock()
 
-        let connection: SQLiteConnection
-        do {
-            let opened = try opening()
+            let connection: SQLiteConnection
             do {
-                try configureReader(opened)
+                let opened = try opening()
+                do {
+                    try configureReader(opened)
+                } catch {
+                    opened.close()
+                    throw error
+                }
+                connection = opened
             } catch {
-                opened.close()
+                readerCondition.withLock {
+                    isPreparing = false
+                    preparingThreadID = nil
+                    invalidationRequested = false
+                    readerCondition.broadcast()
+                }
                 throw error
             }
-            connection = opened
-        } catch {
-            readerCondition.withLock {
-                isPreparing = false
-                readerCondition.broadcast()
-            }
-            throw error
-        }
 
-        readerCondition.withLock {
-            leasedReaders[ObjectIdentifier(connection)] = connection
-            totalReaderCount += 1
-            isPreparing = false
-            isPrepared = true
-            readerCondition.broadcast()
+            let shouldRetry = readerCondition.withLock {
+                isPreparing = false
+                preparingThreadID = nil
+                guard !invalidationRequested else {
+                    invalidationRequested = false
+                    isPrepared = false
+                    readerCondition.broadcast()
+                    return true
+                }
+                leasedReaders[ObjectIdentifier(connection)] = connection
+                totalReaderCount += 1
+                isPrepared = true
+                readerCondition.broadcast()
+                return false
+            }
+            if shouldRetry {
+                connection.close()
+                continue
+            }
+            defer { releaseReader(connection) }
+            return try operation(connection)
         }
-        defer { releaseReader(connection) }
-        return try operation(connection)
     }
 
     func withReaderAsync<Result: Sendable>(
@@ -294,6 +359,15 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         readerCondition.lock()
         while isPreparing {
             if skipIfPreparing {
+                if preparingThreadID == ObjectIdentifier(Thread.current) {
+                    readerCondition.unlock()
+                    return
+                }
+                // Do not wait while the migration gate is held: the other
+                // preparation may itself be waiting to enter that gate. The
+                // preparation completion will observe this request and
+                // discard its not-yet-published handle.
+                invalidationRequested = true
                 readerCondition.unlock()
                 return
             }
@@ -317,6 +391,7 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
         }
 
         writerLock.withLock {
+            writerGeneration &+= 1
             writerConnection?.interrupt()
             writerConnection?.close()
             writerConnection = nil
@@ -324,6 +399,7 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
 
         readerCondition.withLock {
             isInvalidating = false
+            invalidationRequested = false
             readerCondition.broadcast()
         }
     }
@@ -383,6 +459,73 @@ final class SQLiteConnectionCoordinator: @unchecked Sendable {
             }
             readerCondition.broadcast()
         }
+    }
+}
+
+private final class SQLiteConnectionCoordinatorRegistry: @unchecked Sendable {
+    private final class WeakCoordinator {
+        weak var value: SQLiteConnectionCoordinator?
+
+        init(_ value: SQLiteConnectionCoordinator) {
+            self.value = value
+        }
+    }
+
+    private let lock = NSLock()
+    private var coordinators: [String: [ObjectIdentifier: WeakCoordinator]] = [:]
+
+    func register(_ coordinator: SQLiteConnectionCoordinator) {
+        let key = Self.key(for: coordinator.databaseURL)
+        lock.withLock {
+            var entries = coordinators[key] ?? [:]
+            entries[ObjectIdentifier(coordinator)] = WeakCoordinator(coordinator)
+            coordinators[key] = entries
+        }
+    }
+
+    func unregister(_ coordinator: SQLiteConnectionCoordinator) {
+        let key = Self.key(for: coordinator.databaseURL)
+        lock.withLock {
+            guard var entries = coordinators[key] else {
+                return
+            }
+            entries.removeValue(forKey: ObjectIdentifier(coordinator))
+            if entries.isEmpty {
+                coordinators.removeValue(forKey: key)
+            } else {
+                coordinators[key] = entries
+            }
+        }
+    }
+
+    func invalidateAll(for databaseURL: URL) {
+        let key = Self.key(for: databaseURL)
+        let targets: [SQLiteConnectionCoordinator] = lock.withLock {
+            guard let entries = coordinators[key] else {
+                return []
+            }
+
+            var live: [ObjectIdentifier: WeakCoordinator] = [:]
+            var targets: [SQLiteConnectionCoordinator] = []
+            for (identifier, entry) in entries {
+                guard let coordinator = entry.value else {
+                    continue
+                }
+                live[identifier] = entry
+                targets.append(coordinator)
+            }
+            coordinators[key] = live
+            return targets
+        }
+
+        // Never hold the registry lock while acquiring a coordinator lock.
+        for coordinator in targets {
+            coordinator.invalidateForMigration()
+        }
+    }
+
+    private static func key(for databaseURL: URL) -> String {
+        databaseURL.standardizedFileURL.path
     }
 }
 
