@@ -3,6 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/.build/release-artifacts"
+EVIDENCE_DIR="$ROOT_DIR/.build/release-evidence"
+TEST_LOG_PATH="$EVIDENCE_DIR/strict-release-test.log"
+XUNIT_REPORT_PATH="$EVIDENCE_DIR/strict-release-tests.xml"
+BUILD_LOG_PATH="$EVIDENCE_DIR/strict-release-build.log"
 APP_DIR="$ROOT_DIR/.build/ClipEase.app"
 TEMPLATE_FILE="$ROOT_DIR/docs/releases/release-notes-template.md"
 CUSTOM_NOTES_FILE=""
@@ -11,6 +15,7 @@ PUBLISH="false"
 DRY_RUN="false"
 SKIP_TESTS="false"
 CREATED_TAG="false"
+CANDIDATE_SUBJECT_GIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 
 usage() {
   cat <<'EOF'
@@ -27,6 +32,9 @@ Options:
 Output:
   .build/release-artifacts/ClipEase-<version>-<build>.dmg
   .build/release-artifacts/release-v<version>-<build>.md
+  .build/release-evidence/strict-release-build.log
+  .build/release-evidence/strict-release-test.log
+  .build/release-evidence/strict-release-tests.xml
 EOF
 }
 
@@ -152,8 +160,17 @@ run_release_tests() {
   # Swift Testing can run cases concurrently even with one worker process;
   # OCR/resource boundary fixtures share process-local capacity, so the
   # release gate must disable test parallelization completely.
-  echo "Strict release test command: swift test -c release --no-parallel"
-  swift test -c release --no-parallel
+  mkdir -p "$EVIDENCE_DIR"
+  {
+    echo "Subject Git SHA: $CANDIDATE_SUBJECT_GIT_SHA"
+    echo "Strict release test command: swift test -c release --no-parallel"
+    swift test -c release --no-parallel
+  } 2>&1 | tee "$TEST_LOG_PATH"
+  python3 "$ROOT_DIR/scripts/performance/write_xunit_from_swift_testing.py" \
+    --input "$TEST_LOG_PATH" \
+    --output "$XUNIT_REPORT_PATH" \
+    --subject-git-sha "$CANDIDATE_SUBJECT_GIT_SHA" \
+    --command "swift test -c release --no-parallel"
 }
 
 cleanup_created_tag() {
@@ -249,7 +266,8 @@ if [[ "$BUMP_TYPE" == "none" ]]; then
   BUILD_ARGS+=(--preserve-build)
 fi
 
-"$ROOT_DIR/scripts/build-app.sh" "${BUILD_ARGS[@]}"
+mkdir -p "$EVIDENCE_DIR"
+"$ROOT_DIR/scripts/build-app.sh" "${BUILD_ARGS[@]}" 2>&1 | tee "$BUILD_LOG_PATH"
 
 VERSION="$(plist_value "$ROOT_DIR/Resources/Info.plist" CFBundleShortVersionString)"
 BUILD="$(plist_value "$ROOT_DIR/Resources/Info.plist" CFBundleVersion)"

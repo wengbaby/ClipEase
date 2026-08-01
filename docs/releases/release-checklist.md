@@ -12,6 +12,8 @@ swift build -c release \
 scripts/run-performance-benchmarks.sh
 ```
 
+`scripts/release.sh` 会把严格 Swift Testing 输出保存到 `.build/release-evidence/strict-release-test.log`，并通过 `scripts/performance/write_xunit_from_swift_testing.py` 生成带候选 SHA/命令属性的 `strict-release-tests.xml`；SwiftPM 当前的 `--xunit-output` 对 Swift Testing 可能为空，不能直接作为认证证据。
+
 性能矩阵必须保存基线 `ad4013cce2a4e0a1648de2277126c736c0700b39`、候选 SHA、5 次预热、30 次正式样本、原始样本和比较报告。任何 p99 超过停止阈值的单轮结果都必须交错复测，不能自动接受变慢后的新基线。
 
 ## M1 8GB 绝对认证

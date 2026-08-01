@@ -62,6 +62,9 @@ import Testing
     #expect(script.contains("run_release_tests()"))
     #expect(script.contains("swift test -c release --no-parallel"))
     #expect(script.contains("Strict release test command: swift test -c release --no-parallel"))
+    #expect(script.contains("write_xunit_from_swift_testing.py"))
+    #expect(script.contains("strict-release-test.log"))
+    #expect(script.contains("strict-release-tests.xml"))
     #expect(script.contains("TEST_LINE=\"已通过 \\`swift test -c release --no-parallel\\`。\""))
 }
 

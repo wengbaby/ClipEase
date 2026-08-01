@@ -64,6 +64,24 @@ class SwiftTestingXUnitTests(unittest.TestCase):
         self.assertEqual(suite[0].attrib["name"], "failingCase")
         self.assertEqual(suite[0][0].tag, "failure")
 
+    def test_counts_parameterized_group_as_one_swift_testing_declaration(self):
+        log = """\
+◇ Test parameterizedCase(value:) started.
+◇ Test case passing 1 argument value → 1 to parameterizedCase(value:) started.
+◇ Test case passing 1 argument value → 2 to parameterizedCase(value:) started.
+✔ Test parameterizedCase(value:) with 2 test cases passed after 0.020 seconds.
+✔ Test run with 1 test in 0 suites passed after 0.020 seconds.
+"""
+
+        report = converter.build_xunit_document(
+            log,
+            subject_git_sha="e" * 40,
+            command="swift test -c release --no-parallel",
+        )
+        root = ElementTree.fromstring(report)
+        self.assertEqual(root.attrib["tests"], "1")
+        self.assertEqual(root[0][0].attrib["name"], "parameterizedCase(value:)")
+
     def test_rejects_missing_summary_or_unfinished_test(self):
         with self.assertRaisesRegex(ValueError, "summary"):
             converter.build_xunit_document(
