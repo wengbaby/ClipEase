@@ -27,6 +27,14 @@ fault_runner = importlib.util.module_from_spec(FAULT_RUNNER_SPEC)
 assert FAULT_RUNNER_SPEC.loader is not None
 FAULT_RUNNER_SPEC.loader.exec_module(fault_runner)
 
+XUNIT_SPEC = importlib.util.spec_from_file_location(
+    "write_xunit_from_swift_testing",
+    ROOT / "scripts/performance/write_xunit_from_swift_testing.py",
+)
+xunit_converter = importlib.util.module_from_spec(XUNIT_SPEC)
+assert XUNIT_SPEC.loader is not None
+XUNIT_SPEC.loader.exec_module(xunit_converter)
+
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -1063,6 +1071,27 @@ class ReleaseCertificationTests(unittest.TestCase):
                     ValueError, "changed-code coverage report subject"
                 ):
                     certification.validate_document(manifest_path, manifest)
+
+    def test_validator_accepts_the_real_swift_testing_xunit_writer_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path, manifest = self.make_manifest(root)
+            xunit_path = root / "tests.xml"
+            xunit_converter.write_xunit_report(
+                """\
+◇ Test writerRoundTrip() started.
+✔ Test writerRoundTrip() passed after 0.010 seconds.
+✔ Test run with 1 test in 0 suites passed after 0.010 seconds.
+""",
+                xunit_path,
+                subject_git_sha=manifest["candidateSubjectGitSHA"],
+                command=certification.STRICT_RELEASE_TEST_COMMAND,
+            )
+            manifest["buildAndTests"]["xunitReportSHA256"] = sha256(xunit_path)
+            toc_patch, uuid_patch = self.trace_probe_patches()
+            with toc_patch, uuid_patch:
+                result = certification.validate_document(manifest_path, manifest)
+            self.assertEqual(result["decision"], "pass")
 
     def test_build_and_tests_reject_invalid_coverage_receipt_metadata(self):
         cases = [
