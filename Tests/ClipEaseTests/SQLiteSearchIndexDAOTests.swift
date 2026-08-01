@@ -99,6 +99,74 @@ import Testing
     #expect(try database.queryInt("SELECT COUNT(*) FROM clipboard_search_index_state WHERE key = 'last_rebuild_count'") == 1)
 }
 
+@Test func sqliteSearchIndexDAOKeysetTailPlanHasNoCandidateMaterialization() throws {
+    let fixture = try SQLiteSearchIndexDAOFixture.make()
+    defer { fixture.remove() }
+
+    let database = try SQLiteDatabase(url: fixture.databaseURL)
+    defer { database.close() }
+    try fixture.store.initialize()
+
+    let item = ClipboardItem.debugText(
+        "tail plan token",
+        createdAt: Date(timeIntervalSince1970: 100),
+        sourceApp: .clipease
+    )
+    try SQLiteItemDAO.insert(item, in: database)
+    try SQLiteSearchIndexDAO.insert(item, in: database)
+
+    let firstPage = try SQLiteSearchIndexDAO.searchPage(
+        ClipboardSearchQuery(text: "tail", limit: 1),
+        after: nil,
+        in: database
+    )
+    let plan = try SQLiteSearchIndexDAO.explainQueryPlan(
+        ClipboardSearchQuery(text: "tail", limit: 50),
+        after: firstPage.nextCursor,
+        in: database
+    )
+    #expect(!plan.contains { $0.localizedCaseInsensitiveContains("MATERIALIZE search_candidates") }, "\(plan)")
+    #expect(!plan.contains { $0.localizedCaseInsensitiveContains("CO-ROUTINE search_candidates") }, "\(plan)")
+}
+
+@Test func sqliteSearchIndexDAOCompatibilityPagesUseStableIDTieBreaker() throws {
+    let fixture = try SQLiteSearchIndexDAOFixture.make()
+    defer { fixture.remove() }
+
+    let database = try SQLiteDatabase(url: fixture.databaseURL)
+    defer { database.close() }
+    try fixture.store.initialize()
+
+    let timestamp = Date(timeIntervalSince1970: 500)
+    let first = ClipboardItem.debugText(
+        "same rank token",
+        createdAt: timestamp,
+        sourceApp: .clipease
+    )
+    let second = ClipboardItem.debugText(
+        "same rank token",
+        createdAt: timestamp,
+        sourceApp: .clipease
+    )
+    try SQLiteItemDAO.insert(second, in: database)
+    try SQLiteSearchIndexDAO.insert(second, in: database)
+    try SQLiteItemDAO.insert(first, in: database)
+    try SQLiteSearchIndexDAO.insert(first, in: database)
+
+    let expected = [first.id, second.id].sorted { $0.uuidString > $1.uuidString }
+    let firstPage = try SQLiteSearchIndexDAO.searchItemIDs(
+        ClipboardSearchQuery(text: "same rank", limit: 1, offset: 0),
+        in: database
+    )
+    let secondPage = try SQLiteSearchIndexDAO.searchItemIDs(
+        ClipboardSearchQuery(text: "same rank", limit: 1, offset: 1),
+        in: database
+    )
+
+    #expect(firstPage == [expected[0]])
+    #expect(secondPage == [expected[1]])
+}
+
 private struct SQLiteSearchIndexDAOFixture {
     let directory: URL
     let databaseURL: URL

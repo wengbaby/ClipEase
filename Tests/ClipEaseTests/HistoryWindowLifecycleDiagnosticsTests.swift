@@ -23,12 +23,14 @@ import Testing
         shouldAnimate: true,
         hasPendingFocus: true,
         visibleItemCount: 12,
-        previewItemCount: 30
+        previewItemCount: 30,
+        openID: "42"
     )
 
     #expect(metadata == [
         "hasPendingFocus": "true",
         "itemCount": "42",
+        "openID": "42",
         "previewItemCount": "30",
         "shouldAnimate": "true",
         "visibleItemCount": "12",
@@ -60,4 +62,14 @@ import Testing
         "visibleItemCount",
         "previewItemCount"
     ])
+}
+
+@Test @MainActor func historyWindowLifecycleDiagnosticsAllocatesMonotonicOpenIDs() {
+    let first = HistoryWindowLifecycleDiagnostics.beginOpen()
+    let second = HistoryWindowLifecycleDiagnostics.beginOpen()
+    HistoryWindowLifecycleDiagnostics.finishOpen()
+
+    #expect(Int(first) != nil)
+    #expect(Int(second) == Int(first)! + 1)
+    #expect(HistoryWindowLifecycleDiagnostics.activeOpenID == nil)
 }

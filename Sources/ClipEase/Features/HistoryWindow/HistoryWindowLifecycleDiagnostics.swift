@@ -1,6 +1,9 @@
 import Foundation
 
 enum HistoryWindowLifecycleDiagnostics {
+    @MainActor private static var nextOpenID: UInt64 = 0
+    @MainActor private(set) static var activeOpenID: String?
+
     enum Event: CaseIterable {
         case openRequest
         case openOrdered
@@ -38,15 +41,32 @@ enum HistoryWindowLifecycleDiagnostics {
 
     static let category = "history"
 
+    @MainActor
+    static func beginOpen() -> String {
+        nextOpenID &+= 1
+        if nextOpenID == 0 {
+            nextOpenID = 1
+        }
+        let openID = String(nextOpenID)
+        activeOpenID = openID
+        return openID
+    }
+
+    @MainActor
+    static func finishOpen() {
+        activeOpenID = nil
+    }
+
     static func metadata(
         itemCount: Int?,
         wasVisible: Bool,
         shouldAnimate: Bool,
         hasPendingFocus: Bool,
         visibleItemCount: Int?,
-        previewItemCount: Int?
+        previewItemCount: Int?,
+        openID: String? = nil
     ) -> [String: String] {
-        [
+        var metadata = [
             "itemCount": value(itemCount),
             "wasVisible": "\(wasVisible)",
             "shouldAnimate": "\(shouldAnimate)",
@@ -54,6 +74,10 @@ enum HistoryWindowLifecycleDiagnostics {
             "visibleItemCount": value(visibleItemCount),
             "previewItemCount": value(previewItemCount)
         ]
+        if let openID {
+            metadata["openID"] = openID
+        }
+        return metadata
     }
 
     @MainActor
@@ -66,6 +90,10 @@ enum HistoryWindowLifecycleDiagnostics {
         visibleItemCount: Int? = nil,
         previewItemCount: Int? = nil
     ) {
+        if event == .openRequest {
+            _ = beginOpen()
+        }
+        let openID = activeOpenID
         PerformanceDiagnosticsService.shared.recordInstant(
             event.name,
             category: category,
@@ -77,9 +105,13 @@ enum HistoryWindowLifecycleDiagnostics {
                 shouldAnimate: shouldAnimate,
                 hasPendingFocus: hasPendingFocus,
                 visibleItemCount: visibleItemCount,
-                previewItemCount: previewItemCount
+                previewItemCount: previewItemCount,
+                openID: openID
             )
         )
+        if event == .closeCleanupComplete {
+            finishOpen()
+        }
     }
 
     private static func value(_ value: Int?) -> String {
