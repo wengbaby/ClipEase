@@ -119,6 +119,21 @@ def build_report(
     }
 
 
+def subject_git_sha(repository_root: Path) -> str:
+    result = subprocess.run(
+        ["/usr/bin/git", "-C", str(repository_root), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        raise SystemExit(result.stderr.strip() or "git subject SHA lookup failed")
+    subject = result.stdout.strip()
+    if re.fullmatch(r"[0-9a-fA-F]{40,64}", subject) is None:
+        raise SystemExit("git subject SHA lookup returned an invalid object ID")
+    return subject
+
+
 def git_diff(repository_root: Path, base_ref: str) -> str:
     result = subprocess.run(
         [
@@ -206,6 +221,7 @@ def main() -> None:
         executable_line_counts(coverage, repository_root),
         args.minimum_percent,
     )
+    report["subjectGitSHA"] = subject_git_sha(repository_root)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if report["decision"] != "pass":

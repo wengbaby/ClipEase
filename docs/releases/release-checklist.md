@@ -30,6 +30,8 @@ scripts/run-performance-benchmarks.sh
 
 使用 `scripts/capture-performance-traces.sh` 采集 SwiftUI、Time Profiler、Animation Hitches、System Trace、Power Profiler、Allocations 和 Leaks；File Activity 仅允许在用户主动开启的本地详细诊断中采集。通过 `scripts/performance/validate_release_certification.py` 校验 manifest、trace、报告 SHA、隐私字段和环境后，才可写入发布证据。
 
+`buildAndTests` 必须绑定候选 `candidateSubjectGitSHA`、固定的严格构建/测试命令，以及 `strictReleaseBuildLogSHA256`、`xunitReportSHA256`、`coverageReportSHA256`。构建日志必须包含候选 SHA 和构建命令标记；xUnit 根节点必须包含候选 SHA/测试命令属性；coverage JSON 必须包含候选 SHA。仅重新计算 manifest 中的路径哈希、但无法证明产物属于当前候选的证据不得通过。
+
 ## 本地诊断与隐私
 
 正式版默认只启用 signpost。详细诊断必须是用户主动开启的本地模式，30 秒采样、10MiB/7 天上限、有界队列和丢弃计数；不得出现剪贴板内容、搜索文本、路径或用户文件内容。发布证据中必须包含隐私扫描结果，且不得上传诊断数据。

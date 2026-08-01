@@ -61,6 +61,7 @@ import Testing
 
     #expect(script.contains("run_release_tests()"))
     #expect(script.contains("swift test -c release --no-parallel"))
+    #expect(script.contains("Strict release test command: swift test -c release --no-parallel"))
     #expect(script.contains("TEST_LINE=\"已通过 \\`swift test -c release --no-parallel\\`。\""))
 }
 
@@ -69,6 +70,10 @@ import Testing
 
     #expect(script.contains("-strict-concurrency=complete"))
     #expect(script.contains("-warnings-as-errors"))
+    #expect(script.contains("git -C \"$ROOT_DIR\" rev-parse HEAD"))
+    #expect(script.contains("Subject Git SHA: %s"))
+    #expect(script.contains("Strict release build command: %s"))
+    #expect(script.contains("--product ClipEase"))
 }
 
 @Test func releaseScriptVerifiesDmgBeforeMounting() throws {
@@ -154,6 +159,8 @@ import Testing
     #expect(checklist.contains("validate_release_certification.py"))
     #expect(checklist.contains("schema v2"))
     #expect(checklist.contains("mediaAudit"))
+    #expect(checklist.contains("candidateSubjectGitSHA"))
+    #expect(checklist.contains("strictReleaseBuildLogSHA256"))
     #expect(checklist.contains("PNG/QuickTime"))
     #expect(checklist.contains("不得出现剪贴板内容、搜索文本、路径"))
 }

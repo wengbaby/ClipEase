@@ -1025,6 +1025,36 @@ class ReleaseCertificationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "build log subject"):
                     certification.validate_document(manifest_path, manifest)
 
+    def test_build_and_tests_reject_stale_xunit_and_coverage_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path, manifest = self.make_manifest(root)
+            xunit_path = root / "tests.xml"
+            xunit_path.write_text(
+                xunit_path.read_text().replace(
+                    manifest["candidateSubjectGitSHA"], "c" * 40
+                )
+            )
+            manifest["buildAndTests"]["xunitReportSHA256"] = sha256(xunit_path)
+            toc_patch, uuid_patch = self.trace_probe_patches()
+            with toc_patch, uuid_patch:
+                with self.assertRaisesRegex(ValueError, "xUnit test report subject"):
+                    certification.validate_document(manifest_path, manifest)
+
+            root = Path(directory) / "coverage"
+            manifest_path, manifest = self.make_manifest(root)
+            coverage_path = root / "changed-code-coverage.json"
+            coverage = json.loads(coverage_path.read_text())
+            coverage["subjectGitSHA"] = "c" * 40
+            coverage_path.write_text(json.dumps(coverage))
+            manifest["buildAndTests"]["coverageReportSHA256"] = sha256(coverage_path)
+            toc_patch, uuid_patch = self.trace_probe_patches()
+            with toc_patch, uuid_patch:
+                with self.assertRaisesRegex(
+                    ValueError, "changed-code coverage report subject"
+                ):
+                    certification.validate_document(manifest_path, manifest)
+
     def test_persisted_failures_never_include_resolved_host_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -120,6 +120,11 @@ BENCHMARK_HARDWARE_FIELDS = {
     "physicalCPUCount",
 }
 BENCHMARK_OS_FIELDS = {"productVersion", "buildVersion"}
+STRICT_RELEASE_BUILD_COMMAND = (
+    "swift build -c release -Xswiftc -strict-concurrency=complete "
+    "-Xswiftc -warnings-as-errors --product ClipEase"
+)
+STRICT_RELEASE_TEST_COMMAND = "swift test -c release --no-parallel"
 FAULT_REPORT_FIELDS = {
     "schemaVersion",
     "subjectGitSHA",
@@ -132,9 +137,15 @@ BUILD_FIELDS = {
     "strictReleaseWarnings",
     "allTestsPassed",
     "changedCodeCoveragePercent",
+    "candidateSubjectGitSHA",
+    "strictReleaseBuildCommand",
+    "strictReleaseTestCommand",
     "strictReleaseBuildLog",
+    "strictReleaseBuildLogSHA256",
     "xunitReport",
+    "xunitReportSHA256",
     "coverageReport",
+    "coverageReportSHA256",
 }
 VISUAL_TARGET_FIELDS = {
     "macOS13": {
@@ -1590,6 +1601,101 @@ def validate_fault_injection(
             )
 
 
+def validate_build_and_tests(
+    manifest_path: Path,
+    build: Any,
+    candidate_subject: str,
+) -> None:
+    if not isinstance(build, dict) or set(build) != BUILD_FIELDS:
+        raise ValueError("buildAndTests fields do not match schema")
+    if build.get("candidateSubjectGitSHA") != candidate_subject:
+        raise ValueError("buildAndTests candidateSubjectGitSHA does not match")
+    if build.get("strictReleaseBuildCommand") != STRICT_RELEASE_BUILD_COMMAND:
+        raise ValueError("strict release build command is not the required command")
+    if build.get("strictReleaseTestCommand") != STRICT_RELEASE_TEST_COMMAND:
+        raise ValueError("strict release test command is not the required command")
+
+    build_log = resolve_path(
+        manifest_path,
+        build.get("strictReleaseBuildLog"),
+        "strict Release build log",
+    )
+    build_log_hash = _validate_sha256(
+        build.get("strictReleaseBuildLogSHA256"),
+        "strict Release build log hash",
+    )
+    if not build_log.is_file() or file_sha256(build_log) != build_log_hash:
+        raise ValueError("strict Release build log hash does not match")
+    build_log_text = build_log.read_text(errors="replace")
+    if f"Subject Git SHA: {candidate_subject}" not in build_log_text:
+        raise ValueError("strict Release build log subject does not match")
+    if (
+        f"Strict release build command: {STRICT_RELEASE_BUILD_COMMAND}"
+        not in build_log_text
+    ):
+        raise ValueError("strict Release build log command does not match")
+    warning_count = len(re.findall(r"\bwarning:", build_log_text, re.IGNORECASE))
+    if build.get("strictReleaseWarnings") != warning_count or warning_count != 0:
+        raise ValueError("strict Release build must contain zero warnings")
+
+    xunit_path = resolve_path(
+        manifest_path,
+        build.get("xunitReport"),
+        "xUnit test report",
+    )
+    xunit_hash = _validate_sha256(
+        build.get("xunitReportSHA256"),
+        "xUnit test report hash",
+    )
+    if not xunit_path.is_file() or file_sha256(xunit_path) != xunit_hash:
+        raise ValueError("xUnit test report hash does not match")
+    try:
+        xunit_root = ElementTree.parse(xunit_path).getroot()
+    except (ElementTree.ParseError, OSError) as error:
+        raise ValueError(f"xUnit test report is invalid: {error}") from error
+    if xunit_root.attrib.get("subjectGitSHA") != candidate_subject:
+        raise ValueError("xUnit test report subject does not match")
+    if xunit_root.attrib.get("command") != STRICT_RELEASE_TEST_COMMAND:
+        raise ValueError("xUnit test report command does not match")
+    suites = [xunit_root] if xunit_root.tag == "testsuite" else list(xunit_root)
+    try:
+        test_count = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
+        failure_count = sum(int(suite.attrib.get("failures", 0)) for suite in suites)
+        error_count = sum(int(suite.attrib.get("errors", 0)) for suite in suites)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"xUnit test report counts are invalid: {error}") from error
+    if (
+        build.get("allTestsPassed") is not True
+        or test_count <= 0
+        or failure_count != 0
+        or error_count != 0
+    ):
+        raise ValueError("the complete test suite did not pass")
+
+    coverage_path = resolve_path(
+        manifest_path,
+        build.get("coverageReport"),
+        "changed-code coverage report",
+    )
+    coverage_hash = _validate_sha256(
+        build.get("coverageReportSHA256"),
+        "changed-code coverage report hash",
+    )
+    if not coverage_path.is_file() or file_sha256(coverage_path) != coverage_hash:
+        raise ValueError("changed-code coverage report hash does not match")
+    coverage_report = load_json(coverage_path, "changed-code coverage report")
+    if coverage_report.get("subjectGitSHA") != candidate_subject:
+        raise ValueError("changed-code coverage report subject does not match")
+    coverage = coverage_report.get("changedCodeCoveragePercent")
+    if (
+        coverage_report.get("decision") != "pass"
+        or not isinstance(coverage, (int, float))
+        or coverage < 80
+        or build.get("changedCodeCoveragePercent") != coverage
+    ):
+        raise ValueError("changed-code coverage must be at least 80%")
+
+
 def validate_document(manifest_path: Path, document: dict[str, Any]) -> dict[str, Any]:
     if (
         not isinstance(document, dict)
@@ -1614,9 +1720,6 @@ def validate_document(manifest_path: Path, document: dict[str, Any]) -> dict[str
     rounds = document.get("rounds")
     if not isinstance(rounds, list):
         raise ValueError("rounds must be an array")
-    build_schema = document.get("buildAndTests")
-    if not isinstance(build_schema, dict) or set(build_schema) != BUILD_FIELDS:
-        raise ValueError("buildAndTests fields do not match schema")
     visual_schema = document.get("visualEvidence")
     if not isinstance(visual_schema, dict):
         raise ValueError("visualEvidence is missing")
@@ -1669,52 +1772,11 @@ def validate_document(manifest_path: Path, document: dict[str, Any]) -> dict[str
         candidate_subject,
     )
 
-    build = document.get("buildAndTests")
-    if not isinstance(build, dict):
-        raise ValueError("buildAndTests evidence is missing")
-    build_log = resolve_path(
+    validate_build_and_tests(
         manifest_path,
-        build.get("strictReleaseBuildLog"),
-        "strict Release build log",
+        document.get("buildAndTests"),
+        candidate_subject,
     )
-    build_log_text = build_log.read_text(errors="replace")
-    warning_count = len(re.findall(r"\bwarning:", build_log_text, re.IGNORECASE))
-    if build.get("strictReleaseWarnings") != warning_count or warning_count != 0:
-        raise ValueError("strict Release build must contain zero warnings")
-    xunit_path = resolve_path(
-        manifest_path,
-        build.get("xunitReport"),
-        "xUnit test report",
-    )
-    try:
-        xunit_root = ElementTree.parse(xunit_path).getroot()
-    except (ElementTree.ParseError, OSError) as error:
-        raise ValueError(f"xUnit test report is invalid: {error}") from error
-    suites = [xunit_root] if xunit_root.tag == "testsuite" else list(xunit_root)
-    test_count = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
-    failure_count = sum(int(suite.attrib.get("failures", 0)) for suite in suites)
-    error_count = sum(int(suite.attrib.get("errors", 0)) for suite in suites)
-    if (
-        build.get("allTestsPassed") is not True
-        or test_count <= 0
-        or failure_count != 0
-        or error_count != 0
-    ):
-        raise ValueError("the complete test suite did not pass")
-    coverage_path = resolve_path(
-        manifest_path,
-        build.get("coverageReport"),
-        "changed-code coverage report",
-    )
-    coverage_report = load_json(coverage_path, "changed-code coverage report")
-    coverage = coverage_report.get("changedCodeCoveragePercent")
-    if (
-        coverage_report.get("decision") != "pass"
-        or not isinstance(coverage, (int, float))
-        or coverage < 80
-        or build.get("changedCodeCoveragePercent") != coverage
-    ):
-        raise ValueError("changed-code coverage must be at least 80%")
 
     visual = document.get("visualEvidence")
     if not isinstance(visual, dict):

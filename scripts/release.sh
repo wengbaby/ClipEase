@@ -152,6 +152,7 @@ run_release_tests() {
   # Swift Testing can run cases concurrently even with one worker process;
   # OCR/resource boundary fixtures share process-local capacity, so the
   # release gate must disable test parallelization completely.
+  echo "Strict release test command: swift test -c release --no-parallel"
   swift test -c release --no-parallel
 }
 

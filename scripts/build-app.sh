@@ -11,6 +11,13 @@ BUMP_TYPE="patch"
 RUN_APP="false"
 SIGN_IDENTITY="${CLIPEASE_CODESIGN_IDENTITY:-}"
 PRESERVE_BUILD="false"
+STRICT_RELEASE_BUILD_COMMAND=(
+  swift build
+  -c release
+  -Xswiftc -strict-concurrency=complete
+  -Xswiftc -warnings-as-errors
+  --product ClipEase
+)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,11 +51,11 @@ fi
 
 python3 "$ROOT_DIR/scripts/bump_version.py" "${BUMP_ARGS[@]}"
 
-swift build \
-  -c release \
-  -Xswiftc -strict-concurrency=complete \
-  -Xswiftc -warnings-as-errors \
-  --product ClipEase
+CANDIDATE_SUBJECT_GIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+STRICT_RELEASE_BUILD_COMMAND_TEXT="${STRICT_RELEASE_BUILD_COMMAND[*]}"
+printf 'Subject Git SHA: %s\n' "$CANDIDATE_SUBJECT_GIT_SHA"
+printf 'Strict release build command: %s\n' "$STRICT_RELEASE_BUILD_COMMAND_TEXT"
+"${STRICT_RELEASE_BUILD_COMMAND[@]}"
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
