@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 import sys
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,6 +30,34 @@ FAULT_RUNNER_SPEC.loader.exec_module(fault_runner)
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def valid_png_bytes() -> bytes:
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        return (
+            len(payload).to_bytes(4, "big")
+            + kind
+            + payload
+            + (zlib.crc32(kind + payload) & 0xFFFFFFFF).to_bytes(4, "big")
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00")
+        + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00\x00"))
+        + chunk(b"IEND", b"")
+    )
+
+
+def valid_movie_bytes() -> bytes:
+    def atom(kind: bytes, payload: bytes) -> bytes:
+        return (8 + len(payload)).to_bytes(4, "big") + kind + payload
+
+    return (
+        atom(b"ftyp", b"qt  \x00\x00\x00\x00")
+        + atom(b"moov", b"\x00\x00\x00\x00")
+        + atom(b"mdat", b"\x00\x00\x00\x00")
+    )
 
 
 def report_artifact_path(report_path: Path, value: str) -> Path:
@@ -652,8 +681,40 @@ class ReleaseCertificationTests(unittest.TestCase):
         build_log = root / "strict-release-build.log"
         xunit = root / "tests.xml"
         coverage = root / "changed-code-coverage.json"
-        screenshot.write_bytes(b"png")
-        recording.write_bytes(b"mov")
+        screenshot.write_bytes(valid_png_bytes())
+        recording.write_bytes(valid_movie_bytes())
+        media_audits = {}
+        for target, frame_rate in (
+            ("macOS13", 60),
+            ("macOS26", 60),
+            ("macOS26_120Hz", 120),
+        ):
+            audit_path = root / f"{target}-media-audit.json"
+            baseline_reference = root / f"{target}-baseline-reference.png"
+            candidate_reference = root / f"{target}-candidate-reference.mov"
+            baseline_reference.write_bytes(valid_png_bytes())
+            candidate_reference.write_bytes(valid_movie_bytes())
+            audit_path.write_text(json.dumps({
+                "schemaVersion": 1,
+                "target": target,
+                "reviewer": "Release Reviewer",
+                "recordingFrameRateHz": frame_rate,
+                "recordingFrameCount": frame_rate * 2,
+                "durationSeconds": 2.0,
+                "screenshotCount": 1,
+                "artifactSHA256": {
+                    "screenshots": [sha256(screenshot)],
+                    "recording": sha256(recording),
+                },
+                "baselineReferencePath": baseline_reference.relative_to(root).as_posix(),
+                "baselineReferenceSHA256": sha256(baseline_reference),
+                "candidateReferencePath": candidate_reference.relative_to(root).as_posix(),
+                "candidateReferenceSHA256": sha256(candidate_reference),
+                "changedFrameCount": 0,
+                "maxPixelDelta": 0.0,
+                "perceptualDiffDecision": "pass",
+            }))
+            media_audits[target] = audit_path
         build_log.write_text("Build complete! (0 warnings)\n")
         xunit.write_text(
             '<testsuites><testsuite tests="323" failures="0" errors="0" /></testsuites>'
@@ -700,7 +761,7 @@ class ReleaseCertificationTests(unittest.TestCase):
             "scenarios": fault_scenarios,
         }))
         manifest = {
-            "schemaVersion": 1,
+            "schemaVersion": certification.SCHEMA_VERSION,
             "baselineSubjectGitSHA": baseline_subject,
             "candidateSubjectGitSHA": candidate_subject,
             "rounds": rounds,
@@ -722,17 +783,21 @@ class ReleaseCertificationTests(unittest.TestCase):
                     "reviewer": "Release Reviewer",
                     "screenshots": [screenshot.relative_to(root).as_posix()],
                     "recording60Hz": recording.relative_to(root).as_posix(),
+                    "mediaAudit": media_audits["macOS13"].relative_to(root).as_posix(),
                 },
                 "macOS26": {
                     "decision": "pass",
                     "reviewer": "Release Reviewer",
                     "screenshots": [screenshot.relative_to(root).as_posix()],
                     "recording60Hz": recording.relative_to(root).as_posix(),
+                    "mediaAudit": media_audits["macOS26"].relative_to(root).as_posix(),
                 },
                 "macOS26_120Hz": {
                     "decision": "pass",
                     "reviewer": "Release Reviewer",
+                    "screenshots": [screenshot.relative_to(root).as_posix()],
                     "recording120Hz": recording.relative_to(root).as_posix(),
+                    "mediaAudit": media_audits["macOS26_120Hz"].relative_to(root).as_posix(),
                 },
             },
         }
@@ -755,6 +820,78 @@ class ReleaseCertificationTests(unittest.TestCase):
                 {"macOS13": 3, "macOS26": 3},
             )
             self.assertFalse(result["baselineAccepted"])
+
+    def test_visual_gate_rejects_fake_media_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path, manifest = self.make_manifest(root)
+            screenshot = root / "visual.png"
+            recording = root / "visual.mov"
+            screenshot.write_bytes(b"png")
+            with self.assertRaisesRegex(ValueError, "valid PNG"):
+                certification.validate_visual_evidence(
+                    manifest_path,
+                    manifest["visualEvidence"],
+                )
+
+            screenshot.write_bytes(valid_png_bytes())
+            (root / "visual.mov").write_bytes(b"mov")
+            with self.assertRaisesRegex(ValueError, "QuickTime/ISO|truncated movie atom"):
+                certification.validate_visual_evidence(
+                    manifest_path,
+                    manifest["visualEvidence"],
+                )
+
+            screenshot.write_bytes(valid_png_bytes()[:-1] + b"\x00")
+            recording.write_bytes(valid_movie_bytes())
+            with self.assertRaisesRegex(ValueError, "CRC mismatch"):
+                certification.validate_visual_evidence(
+                    manifest_path,
+                    manifest["visualEvidence"],
+                )
+
+            screenshot.write_bytes(valid_png_bytes())
+            recording.write_bytes(
+                b"\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  "
+                b"garbagemoovmdat"
+            )
+            with self.assertRaisesRegex(ValueError, "atom boundary"):
+                certification.validate_visual_evidence(
+                    manifest_path,
+                    manifest["visualEvidence"],
+                )
+
+    def test_visual_gate_binds_media_audit_to_artifact_hashes_and_rate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path, manifest = self.make_manifest(root)
+            audit_path = root / "macOS26-media-audit.json"
+            audit = json.loads(audit_path.read_text())
+            audit["artifactSHA256"]["recording"] = "0" * 64
+            audit_path.write_text(json.dumps(audit))
+            with self.assertRaisesRegex(ValueError, "recording hash"):
+                certification.validate_visual_evidence(
+                    manifest_path,
+                    manifest["visualEvidence"],
+                )
+
+            audit["artifactSHA256"]["recording"] = sha256(root / "visual.mov")
+            audit["recordingFrameRateHz"] = 30
+            audit_path.write_text(json.dumps(audit))
+            with self.assertRaisesRegex(ValueError, "frame rate"):
+                certification.validate_visual_evidence(
+                    manifest_path,
+                    manifest["visualEvidence"],
+                )
+
+            audit["recordingFrameRateHz"] = 60
+            audit["recordingFrameCount"] = 2
+            audit_path.write_text(json.dumps(audit))
+            with self.assertRaisesRegex(ValueError, "frame count"):
+                certification.validate_visual_evidence(
+                    manifest_path,
+                    manifest["visualEvidence"],
+                )
 
     def test_certification_envelope_and_rounds_use_exact_key_allowlists(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -867,17 +1004,21 @@ class ReleaseCertificationTests(unittest.TestCase):
                         "reviewer": "Reviewer",
                         "screenshots": ["missing.png"],
                         "recording60Hz": "missing.mov",
+                        "mediaAudit": "missing-macOS13-audit.json",
                     },
                     "macOS26": {
                         "decision": "pass",
                         "reviewer": "Reviewer",
                         "screenshots": ["missing.png"],
                         "recording60Hz": "missing.mov",
+                        "mediaAudit": "missing-macOS26-audit.json",
                     },
                     "macOS26_120Hz": {
                         "decision": "pass",
                         "reviewer": "Reviewer",
+                        "screenshots": ["missing.png"],
                         "recording120Hz": "missing.mov",
+                        "mediaAudit": "missing-macOS26-120Hz-audit.json",
                     },
                 },
             }

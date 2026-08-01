@@ -152,6 +152,9 @@ import Testing
     #expect(checklist.contains("60Hz/120Hz"))
     #expect(checklist.contains("scripts/capture-performance-traces.sh"))
     #expect(checklist.contains("validate_release_certification.py"))
+    #expect(checklist.contains("schema v2"))
+    #expect(checklist.contains("mediaAudit"))
+    #expect(checklist.contains("PNG/QuickTime"))
     #expect(checklist.contains("不得出现剪贴板内容、搜索文本、路径"))
 }
 

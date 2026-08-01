@@ -11,11 +11,12 @@ import math
 import re
 import subprocess
 import xml.etree.ElementTree as ElementTree
+import zlib
 from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 LOCKED_BASELINE_SUBJECT_GIT_SHA = "ad4013cce2a4e0a1648de2277126c736c0700b39"
 REQUIRED_OS_ROUNDS = {"macOS13": 3, "macOS26": 3}
 REQUIRED_TRACE_IDS = {
@@ -136,9 +137,32 @@ BUILD_FIELDS = {
     "coverageReport",
 }
 VISUAL_TARGET_FIELDS = {
-    "macOS13": {"decision", "reviewer", "screenshots", "recording60Hz"},
-    "macOS26": {"decision", "reviewer", "screenshots", "recording60Hz"},
-    "macOS26_120Hz": {"decision", "reviewer", "recording120Hz"},
+    "macOS13": {
+        "decision", "reviewer", "screenshots", "recording60Hz", "mediaAudit"
+    },
+    "macOS26": {
+        "decision", "reviewer", "screenshots", "recording60Hz", "mediaAudit"
+    },
+    "macOS26_120Hz": {
+        "decision", "reviewer", "screenshots", "recording120Hz", "mediaAudit"
+    },
+}
+VISUAL_AUDIT_FIELDS = {
+    "schemaVersion",
+    "target",
+    "reviewer",
+    "recordingFrameRateHz",
+    "recordingFrameCount",
+    "durationSeconds",
+    "screenshotCount",
+    "artifactSHA256",
+    "baselineReferencePath",
+    "baselineReferenceSHA256",
+    "candidateReferencePath",
+    "candidateReferenceSHA256",
+    "changedFrameCount",
+    "maxPixelDelta",
+    "perceptualDiffDecision",
 }
 RUNTIME_REPORT_FIELDS = {
     "schemaVersion",
@@ -1192,11 +1216,240 @@ def validate_round(
     )
 
 
+def validate_visual_artifact(path: Path, expected_suffix: str, label: str) -> None:
+    if expected_suffix == ".png":
+        _validate_png_container(path, label)
+        return
+
+    if expected_suffix == ".mov":
+        _validate_movie_atoms(path, label)
+        return
+
+    raise ValueError(f"{label} uses an unsupported media suffix")
+
+
+def _validate_png_container(path: Path, label: str) -> None:
+    signature = b"\x89PNG\r\n\x1a\n"
+    seen_ihdr = False
+    seen_idat = False
+    seen_iend = False
+    with path.open("rb") as stream:
+        if stream.read(len(signature)) != signature:
+            raise ValueError(f"{label} is not a valid PNG container")
+        while True:
+            length_bytes = stream.read(4)
+            if not length_bytes:
+                break
+            if len(length_bytes) != 4:
+                raise ValueError(f"{label} has a truncated PNG chunk length")
+            length = int.from_bytes(length_bytes, "big")
+            chunk_type = stream.read(4)
+            if len(chunk_type) != 4 or not all(
+                65 <= byte <= 90 or 97 <= byte <= 122 for byte in chunk_type
+            ):
+                raise ValueError(f"{label} has an invalid PNG chunk type")
+            if length > 128 * 1024 * 1024:
+                raise ValueError(f"{label} contains an oversized PNG chunk")
+            data = stream.read(length)
+            crc_bytes = stream.read(4)
+            if len(data) != length or len(crc_bytes) != 4:
+                raise ValueError(f"{label} has a truncated PNG chunk")
+            expected_crc = int.from_bytes(crc_bytes, "big")
+            actual_crc = zlib.crc32(chunk_type + data) & 0xFFFFFFFF
+            if actual_crc != expected_crc:
+                raise ValueError(f"{label} has a PNG CRC mismatch")
+            if not seen_ihdr:
+                if chunk_type != b"IHDR" or length != 13:
+                    raise ValueError(f"{label} is missing its first IHDR chunk")
+                width = int.from_bytes(data[0:4], "big")
+                height = int.from_bytes(data[4:8], "big")
+                if width <= 0 or height <= 0:
+                    raise ValueError(f"{label} has invalid PNG dimensions")
+                seen_ihdr = True
+            elif chunk_type == b"IHDR":
+                raise ValueError(f"{label} contains more than one PNG IHDR")
+            if chunk_type == b"IDAT":
+                seen_idat = True
+            if chunk_type == b"IEND":
+                if length != 0:
+                    raise ValueError(f"{label} has a non-empty PNG IEND chunk")
+                seen_iend = True
+                if stream.read(1):
+                    raise ValueError(f"{label} contains data after PNG IEND")
+                break
+    if not seen_ihdr or not seen_idat or not seen_iend:
+        raise ValueError(f"{label} has no complete PNG image payload")
+
+
+def _validate_movie_atoms(path: Path, label: str) -> None:
+    file_size = path.stat().st_size
+    offset = 0
+    found_types: set[bytes] = set()
+    with path.open("rb") as stream:
+        while offset < file_size:
+            stream.seek(offset)
+            header = stream.read(8)
+            if len(header) != 8:
+                raise ValueError(f"{label} has a truncated movie atom header")
+            size32 = int.from_bytes(header[:4], "big")
+            atom_type = header[4:8]
+            header_size = 8
+            if size32 == 1:
+                extended_size = stream.read(8)
+                if len(extended_size) != 8:
+                    raise ValueError(f"{label} has a truncated extended atom size")
+                atom_size = int.from_bytes(extended_size, "big")
+                header_size = 16
+            elif size32 == 0:
+                atom_size = file_size - offset
+            else:
+                atom_size = size32
+            if atom_size < header_size or offset + atom_size > file_size:
+                raise ValueError(f"{label} has an invalid movie atom boundary")
+            if atom_type == b"ftyp":
+                if atom_size < header_size + 8:
+                    raise ValueError(f"{label} has an invalid ftyp atom")
+                major_brand = stream.read(4)
+                if len(major_brand) != 4 or major_brand == b"\x00\x00\x00\x00":
+                    raise ValueError(f"{label} has an empty movie major brand")
+                found_types.add(atom_type)
+            elif atom_type in {b"moov", b"mdat"}:
+                found_types.add(atom_type)
+            offset += atom_size
+    if not {b"ftyp", b"moov", b"mdat"}.issubset(found_types):
+        raise ValueError(f"{label} has no complete movie metadata and media atoms")
+
+
+def _validate_sha256(value: Any, label: str) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-fA-F]{64}", value) is None:
+        raise ValueError(f"{label} must be a SHA-256 digest")
+    return value.lower()
+
+
+def validate_visual_media_audit(
+    manifest_path: Path,
+    value: Any,
+    *,
+    target: str,
+    reviewer: str,
+    screenshot_paths: list[Path],
+    recording_path: Path,
+    expected_frame_rate: float,
+) -> None:
+    audit_path = resolve_path(manifest_path, value, f"{target} media audit")
+    audit = load_json(audit_path, f"{target} media audit")
+    if not isinstance(audit, dict) or set(audit) != VISUAL_AUDIT_FIELDS:
+        raise ValueError(f"{target} media audit fields do not match schema")
+    if audit.get("schemaVersion") != 1 or audit.get("target") != target:
+        raise ValueError(f"{target} media audit identity is invalid")
+    if audit.get("reviewer") != reviewer:
+        raise ValueError(f"{target} media audit reviewer does not match manifest")
+    frame_rate = audit.get("recordingFrameRateHz")
+    if (
+        not isinstance(frame_rate, (int, float))
+        or not math.isfinite(float(frame_rate))
+        or abs(float(frame_rate) - expected_frame_rate) > 1.0
+    ):
+        raise ValueError(
+            f"{target} recording frame rate is not {expected_frame_rate:g}Hz"
+        )
+    for field, minimum in (
+        ("recordingFrameCount", 2),
+        ("screenshotCount", 1),
+    ):
+        count = audit.get(field)
+        if not isinstance(count, int) or isinstance(count, bool) or count < minimum:
+            raise ValueError(f"{target} media audit {field} is invalid")
+    duration = audit.get("durationSeconds")
+    if (
+        not isinstance(duration, (int, float))
+        or isinstance(duration, bool)
+        or not math.isfinite(float(duration))
+        or duration <= 0
+    ):
+        raise ValueError(f"{target} media audit duration is invalid")
+    changed_frames = audit.get("changedFrameCount")
+    if (
+        not isinstance(changed_frames, int)
+        or isinstance(changed_frames, bool)
+        or changed_frames < 0
+    ):
+        raise ValueError(f"{target} changedFrameCount is invalid")
+    if audit["screenshotCount"] != len(screenshot_paths):
+        raise ValueError(f"{target} screenshotCount does not match artifacts")
+    expected_frame_count = float(frame_rate) * float(duration)
+    if abs(float(audit["recordingFrameCount"]) - expected_frame_count) > max(
+        2.0, expected_frame_count * 0.05
+    ):
+        raise ValueError(f"{target} recording frame count does not match duration")
+    pixel_delta = audit.get("maxPixelDelta")
+    if (
+        not isinstance(pixel_delta, (int, float))
+        or isinstance(pixel_delta, bool)
+        or not math.isfinite(float(pixel_delta))
+        or pixel_delta < 0
+    ):
+        raise ValueError(f"{target} maxPixelDelta is invalid")
+    if audit.get("perceptualDiffDecision") != "pass":
+        raise ValueError(f"{target} perceptual diff was not approved")
+    _validate_sha256(
+        audit.get("baselineReferenceSHA256"), f"{target} baseline reference"
+    )
+    _validate_sha256(
+        audit.get("candidateReferenceSHA256"), f"{target} candidate reference"
+    )
+    if (
+        audit["baselineReferenceSHA256"].lower()
+        == audit["candidateReferenceSHA256"].lower()
+    ):
+        raise ValueError(f"{target} visual comparison references are identical")
+    baseline_reference = resolve_path(
+        manifest_path,
+        audit.get("baselineReferencePath"),
+        f"{target} baseline reference artifact",
+    )
+    candidate_reference = resolve_path(
+        manifest_path,
+        audit.get("candidateReferencePath"),
+        f"{target} candidate reference artifact",
+    )
+    if not baseline_reference.is_file() or not candidate_reference.is_file():
+        raise ValueError(f"{target} visual comparison reference is missing")
+    if file_sha256(baseline_reference) != audit["baselineReferenceSHA256"].lower():
+        raise ValueError(f"{target} baseline reference hash does not match artifact")
+    if file_sha256(candidate_reference) != audit["candidateReferenceSHA256"].lower():
+        raise ValueError(f"{target} candidate reference hash does not match artifact")
+
+    artifacts = audit.get("artifactSHA256")
+    if (
+        not isinstance(artifacts, dict)
+        or set(artifacts) != {"screenshots", "recording"}
+    ):
+        raise ValueError(f"{target} media audit artifact hashes are invalid")
+    screenshot_hashes = artifacts["screenshots"]
+    if (
+        not isinstance(screenshot_hashes, list)
+        or len(screenshot_hashes) != len(screenshot_paths)
+    ):
+        raise ValueError(f"{target} screenshot hash count does not match artifacts")
+    for index, (path, expected_hash) in enumerate(
+        zip(screenshot_paths, screenshot_hashes)
+    ):
+        if _validate_sha256(
+            expected_hash, f"{target} screenshot hash[{index}]"
+        ) != file_sha256(path):
+            raise ValueError(f"{target} screenshot hash does not match artifact")
+    if _validate_sha256(
+        artifacts["recording"], f"{target} recording hash"
+    ) != file_sha256(recording_path):
+        raise ValueError(f"{target} recording hash does not match artifact")
+
+
 def validate_visual_evidence(manifest_path: Path, visual: dict[str, Any]) -> None:
     required = {
         "macOS13": ("screenshots", "recording60Hz"),
         "macOS26": ("screenshots", "recording60Hz"),
-        "macOS26_120Hz": ("recording120Hz",),
+        "macOS26_120Hz": ("screenshots", "recording120Hz"),
     }
     if not isinstance(visual, dict) or set(visual) != set(required):
         raise ValueError("visual evidence fields do not match schema")
@@ -1212,7 +1465,11 @@ def validate_visual_evidence(manifest_path: Path, visual: dict[str, Any]) -> Non
         reviewer = evidence.get("reviewer")
         if not isinstance(reviewer, str) or not reviewer.strip():
             raise ValueError(f"{target} visual evidence needs a named human reviewer")
+        artifact_paths: dict[str, list[Path]] = {}
+        recording_path: Path | None = None
         for field in fields:
+            if field == "mediaAudit":
+                continue
             value = evidence.get(field)
             values = value if isinstance(value, list) else [value]
             if not values or values == [None]:
@@ -1230,6 +1487,28 @@ def validate_visual_evidence(manifest_path: Path, visual: dict[str, Any]) -> Non
                     raise ValueError(
                         f"{target} {field} must use {expected_suffix} artifacts"
                     )
+                validate_visual_artifact(
+                    artifact, expected_suffix, f"{target} {field}[{index}]"
+                )
+                if field == "screenshots":
+                    artifact_paths.setdefault(field, []).append(artifact)
+                else:
+                    recording_path = artifact
+        if recording_path is None:
+            raise ValueError(f"{target} recording artifact is missing")
+        screenshot_paths = artifact_paths.get("screenshots", [])
+        if not screenshot_paths:
+            raise ValueError(f"{target} screenshots are missing")
+        expected_frame_rate = 120.0 if "recording120Hz" in fields else 60.0
+        validate_visual_media_audit(
+            manifest_path,
+            evidence.get("mediaAudit"),
+            target=target,
+            reviewer=reviewer,
+            screenshot_paths=screenshot_paths,
+            recording_path=recording_path,
+            expected_frame_rate=expected_frame_rate,
+        )
 
 
 def validate_fault_injection(
@@ -1442,7 +1721,7 @@ def validate_document(manifest_path: Path, document: dict[str, Any]) -> dict[str
         raise ValueError("visualEvidence is missing")
     validate_visual_evidence(manifest_path, visual)
     return {
-        "schemaVersion": 1,
+        "schemaVersion": SCHEMA_VERSION,
         "decision": "pass",
         "baselineAccepted": False,
         "baselineSubjectGitSHA": baseline_subject,
@@ -1469,7 +1748,7 @@ def main() -> None:
         result = validate_document(args.manifest.resolve(), document)
     except ValueError as error:
         result = {
-            "schemaVersion": 1,
+            "schemaVersion": SCHEMA_VERSION,
             "decision": "fail",
             "baselineAccepted": False,
             "errors": [persisted_error_message(error)],

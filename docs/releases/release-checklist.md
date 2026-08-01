@@ -26,6 +26,8 @@ scripts/run-performance-benchmarks.sh
 
 每个 macOS 26 候选必须保存静态截图及 60Hz/120Hz 录屏逐帧对照，覆盖普通卡片、搜索高亮、预览、窗口开合、液态玻璃和动画恢复。出现玻璃、阴影、动画或可见布局差异时，性能通过也不能自动放行。
 
+认证 manifest 当前使用 schema v2。每个视觉目标还必须带 `mediaAudit` JSON：记录实际媒体 SHA-256、baseline/candidate 比较输入及其哈希、截图数量、录屏帧率/帧数、时长、逐帧差异结论、最大像素差和人工审核人。Validator 会拒绝伪造的非 PNG/QuickTime 文件、媒体哈希不匹配、60/120Hz 帧率不符或未通过的逐帧比较；仅有文件名和非空字节不能过门。
+
 使用 `scripts/capture-performance-traces.sh` 采集 SwiftUI、Time Profiler、Animation Hitches、System Trace、Power Profiler、Allocations 和 Leaks；File Activity 仅允许在用户主动开启的本地详细诊断中采集。通过 `scripts/performance/validate_release_certification.py` 校验 manifest、trace、报告 SHA、隐私字段和环境后，才可写入发布证据。
 
 ## 本地诊断与隐私
