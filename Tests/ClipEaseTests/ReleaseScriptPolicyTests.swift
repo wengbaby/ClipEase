@@ -56,6 +56,21 @@ import Testing
     #expect(script.contains("if [[ \"$PUBLISH\" == \"true\" && \"$DRY_RUN\" != \"true\" && \"$SKIP_TESTS\" == \"true\" ]]; then"))
 }
 
+@Test func releaseScriptUsesDeterministicStrictReleaseTestGate() throws {
+    let script = try releaseScript()
+
+    #expect(script.contains("run_release_tests()"))
+    #expect(script.contains("swift test -c release --no-parallel"))
+    #expect(script.contains("TEST_LINE=\"已通过 \\`swift test -c release --no-parallel\\`。\""))
+}
+
+@Test func buildAppUsesStrictConcurrencyWarningsAsErrors() throws {
+    let script = try buildAppScript()
+
+    #expect(script.contains("-strict-concurrency=complete"))
+    #expect(script.contains("-warnings-as-errors"))
+}
+
 @Test func releaseScriptVerifiesDmgBeforeMounting() throws {
     let script = try releaseScript()
     let verifyRange = try #require(script.range(of: "hdiutil verify \"$DMG_PATH\""))
@@ -128,6 +143,18 @@ import Testing
     #expect(!checklist.contains("Developer ID"))
 }
 
+@Test func releaseChecklistDocumentsPerformanceAndExternalCertificationGates() throws {
+    let checklist = try releaseChecklist()
+
+    #expect(checklist.contains("swift test -c release --no-parallel"))
+    #expect(checklist.contains("M1 8GB 绝对认证"))
+    #expect(checklist.contains("macOS 13 和 macOS 26"))
+    #expect(checklist.contains("60Hz/120Hz"))
+    #expect(checklist.contains("scripts/capture-performance-traces.sh"))
+    #expect(checklist.contains("validate_release_certification.py"))
+    #expect(checklist.contains("不得出现剪贴板内容、搜索文本、路径"))
+}
+
 private func releaseScript() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("scripts/release.sh")
@@ -143,5 +170,11 @@ private func releaseChecklist() throws -> String {
 private func publishCurrentScript() throws -> String {
     let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .appendingPathComponent("scripts/publish-current.sh")
+    return try String(contentsOf: path, encoding: .utf8)
+}
+
+private func buildAppScript() throws -> String {
+    let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("scripts/build-app.sh")
     return try String(contentsOf: path, encoding: .utf8)
 }

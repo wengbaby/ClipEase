@@ -44,7 +44,11 @@ fi
 
 python3 "$ROOT_DIR/scripts/bump_version.py" "${BUMP_ARGS[@]}"
 
-swift build -c release --product ClipEase
+swift build \
+  -c release \
+  -Xswiftc -strict-concurrency=complete \
+  -Xswiftc -warnings-as-errors \
+  --product ClipEase
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"

@@ -148,6 +148,13 @@ ensure_tests_run_before_publish() {
   fi
 }
 
+run_release_tests() {
+  # Swift Testing can run cases concurrently even with one worker process;
+  # OCR/resource boundary fixtures share process-local capacity, so the
+  # release gate must disable test parallelization completely.
+  swift test -c release --no-parallel
+}
+
 cleanup_created_tag() {
   if [[ "${CREATED_TAG:-false}" == "true" ]]; then
     git tag -d "$TAG" >/dev/null 2>&1 || true
@@ -233,7 +240,7 @@ if [[ "$PUBLISH" == "true" && "$DRY_RUN" != "true" ]]; then
 fi
 
 if [[ "$SKIP_TESTS" != "true" ]]; then
-  swift test
+  run_release_tests
 fi
 
 BUILD_ARGS=(--bump "$BUMP_TYPE")
@@ -306,9 +313,9 @@ hdiutil detach "$MOUNT_POINT" >/dev/null
 MOUNT_POINT=""
 
 SHA256="$(shasum -a 256 "$DMG_PATH" | awk '{ print $1 }')"
-TEST_LINE="已通过 \`swift test\`。"
+TEST_LINE="已通过 \`swift test -c release --no-parallel\`。"
 if [[ "$SKIP_TESTS" == "true" ]]; then
-  TEST_LINE="本次脚本跳过 \`swift test\`，请确认发布前已单独通过完整测试。"
+  TEST_LINE="本次脚本跳过 \`swift test -c release --no-parallel\`，请确认发布前已单独通过完整测试。"
 fi
 
 python3 - "$TEMPLATE_FILE" "$CUSTOM_NOTES_FILE" "$BODY_PATH" "$VERSION" "$BUILD" "$DMG_NAME" "$SHA256" "$TEST_LINE" <<'PY'
