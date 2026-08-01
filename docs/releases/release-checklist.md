@@ -36,6 +36,8 @@ scripts/run-performance-benchmarks.sh
 
 `buildAndTests` 必须绑定候选 `candidateSubjectGitSHA`、固定的严格构建/测试命令，以及 `strictReleaseBuildLogSHA256`、`xunitReportSHA256`、`coverageReportSHA256`。构建日志必须包含候选 SHA 和构建命令标记；xUnit 根节点必须包含候选 SHA/测试命令属性；coverage JSON 必须包含候选 SHA。仅重新计算 manifest 中的路径哈希、但无法证明产物属于当前候选的证据不得通过。
 
+xUnit 结构也必须自洽：每个 `testsuite` 至少包含真实 `testcase`，套件与根节点的 `tests`/`failures`/`errors` 必须分别等于 testcase 及其结果节点的实际计数；testcase 必须有非空名称和有限非负耗时，跳过项及未知子节点一律拒绝。
+
 ## 本地诊断与隐私
 
 正式版默认只启用 signpost。详细诊断必须是用户主动开启的本地模式，30 秒采样、10MiB/7 天上限、有界队列和丢弃计数；不得出现剪贴板内容、搜索文本、路径或用户文件内容。发布证据中必须包含隐私扫描结果，且不得上传诊断数据。
