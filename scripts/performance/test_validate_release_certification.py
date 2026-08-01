@@ -715,12 +715,20 @@ class ReleaseCertificationTests(unittest.TestCase):
                 "perceptualDiffDecision": "pass",
             }))
             media_audits[target] = audit_path
-        build_log.write_text("Build complete! (0 warnings)\n")
+        build_log.write_text(
+            f"Subject Git SHA: {candidate_subject}\n"
+            f"Strict release build command: {certification.STRICT_RELEASE_BUILD_COMMAND}\n"
+            f"Strict release test command: {certification.STRICT_RELEASE_TEST_COMMAND}\n"
+            "Build complete! (0 warnings)\n"
+        )
         xunit.write_text(
-            '<testsuites><testsuite tests="323" failures="0" errors="0" /></testsuites>'
+            f'<testsuites subjectGitSHA="{candidate_subject}" '
+            f'command="{certification.STRICT_RELEASE_TEST_COMMAND}">'
+            '<testsuite tests="323" failures="0" errors="0" /></testsuites>'
         )
         coverage.write_text(json.dumps({
             "schemaVersion": 1,
+            "subjectGitSHA": candidate_subject,
             "decision": "pass",
             "changedCodeCoveragePercent": 80,
         }))
@@ -773,9 +781,15 @@ class ReleaseCertificationTests(unittest.TestCase):
                 "strictReleaseWarnings": 0,
                 "allTestsPassed": True,
                 "changedCodeCoveragePercent": 80,
+                "candidateSubjectGitSHA": candidate_subject,
+                "strictReleaseBuildCommand": certification.STRICT_RELEASE_BUILD_COMMAND,
+                "strictReleaseTestCommand": certification.STRICT_RELEASE_TEST_COMMAND,
                 "strictReleaseBuildLog": build_log.relative_to(root).as_posix(),
+                "strictReleaseBuildLogSHA256": sha256(build_log),
                 "xunitReport": xunit.relative_to(root).as_posix(),
+                "xunitReportSHA256": sha256(xunit),
                 "coverageReport": coverage.relative_to(root).as_posix(),
+                "coverageReportSHA256": sha256(coverage),
             },
             "visualEvidence": {
                 "macOS13": {
@@ -966,6 +980,50 @@ class ReleaseCertificationTests(unittest.TestCase):
                     manifest["faultInjection"],
                     manifest["candidateSubjectGitSHA"],
                 )
+
+    def test_build_and_tests_bind_subject_commands_and_artifact_hashes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path, manifest = self.make_manifest(root)
+            toc_patch, uuid_patch = self.trace_probe_patches()
+            with toc_patch, uuid_patch:
+                result = certification.validate_document(manifest_path, manifest)
+            self.assertEqual(result["decision"], "pass")
+
+            build = manifest["buildAndTests"]
+            self.assertEqual(
+                build["candidateSubjectGitSHA"],
+                manifest["candidateSubjectGitSHA"],
+            )
+
+            build["candidateSubjectGitSHA"] = "c" * 40
+            with toc_patch, uuid_patch:
+                with self.assertRaisesRegex(ValueError, "candidateSubjectGitSHA"):
+                    certification.validate_document(manifest_path, manifest)
+            build["candidateSubjectGitSHA"] = manifest["candidateSubjectGitSHA"]
+
+            build["strictReleaseBuildCommand"] = "swift build"
+            with toc_patch, uuid_patch:
+                with self.assertRaisesRegex(ValueError, "build command"):
+                    certification.validate_document(manifest_path, manifest)
+            build["strictReleaseBuildCommand"] = certification.STRICT_RELEASE_BUILD_COMMAND
+
+            build["strictReleaseBuildLogSHA256"] = "0" * 64
+            with toc_patch, uuid_patch:
+                with self.assertRaisesRegex(ValueError, "build log hash"):
+                    certification.validate_document(manifest_path, manifest)
+            build["strictReleaseBuildLogSHA256"] = sha256(root / "strict-release-build.log")
+
+            build_log_path = root / "strict-release-build.log"
+            build_log_path.write_text(
+                build_log_path.read_text().replace(
+                    manifest["candidateSubjectGitSHA"], "c" * 40
+                )
+            )
+            build["strictReleaseBuildLogSHA256"] = sha256(build_log_path)
+            with toc_patch, uuid_patch:
+                with self.assertRaisesRegex(ValueError, "build log subject"):
+                    certification.validate_document(manifest_path, manifest)
 
     def test_persisted_failures_never_include_resolved_host_paths(self):
         with tempfile.TemporaryDirectory() as directory:
