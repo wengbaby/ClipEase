@@ -123,6 +123,10 @@ swift test
   </tr>
 </table>
 
+**🌟 特别鸣谢**
+
+[**Linux DO**](https://linux.do/) — Linux DO：学AI，上L站！
+
 ## 许可证
 
 本项目仅供学习和个人使用。
