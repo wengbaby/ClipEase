@@ -123,7 +123,7 @@ swift test
   </tr>
 </table>
 
-**🌟 特别鸣谢**
+## 🌟 特别鸣谢
 
 [**Linux DO**](https://linux.do/) — Linux DO：学AI，上L站！
 
