@@ -2051,43 +2051,43 @@ struct HistoryWindowView: View {
     private func cardMenu(for item: HistoryPreviewItem) -> NSMenu {
         let menu = NSMenu()
 
-        addMenuItem(HistoryCommand.paste.title, to: menu) { pasteItem(item.id) }
+        HistoryMenuBuilder.addMenuItem(HistoryCommand.paste.title, to: menu) { pasteItem(item.id) }
 
         if item.type == .text || item.type == .link || item.type == .color {
-            addMenuItem(HistoryCommand.pastePlainText.title, to: menu) { pastePlainTextItem(item.id) }
+            HistoryMenuBuilder.addMenuItem(HistoryCommand.pastePlainText.title, to: menu) { pastePlainTextItem(item.id) }
         }
 
-        addMenuItem(HistoryCommand.preview.title, to: menu) { showPreview(item.id) }
+        HistoryMenuBuilder.addMenuItem(HistoryCommand.preview.title, to: menu) { showPreview(item.id) }
 
         if isEditable(item) {
-            addMenuItem(HistoryCommand.edit.title, to: menu) { beginEditItem(item.id) }
+            HistoryMenuBuilder.addMenuItem(HistoryCommand.edit.title, to: menu) { beginEditItem(item.id) }
         }
 
-        addMenuItem(item.isPinned ? L("取消置顶") : L("置顶"), to: menu) { togglePinned(item.id) }
+        HistoryMenuBuilder.addMenuItem(item.isPinned ? L("取消置顶") : L("置顶"), to: menu) { togglePinned(item.id) }
         menu.addItem(.separator())
 
         addTypeSpecificMenuItems(for: item, to: menu)
 
         if !groupUIState.moveToGroupMenuSnapshot.isEmpty {
-            addMenuItem(item.groupID == nil ? L("加入分组...") : L("移动到分组..."), to: menu) {
+            HistoryMenuBuilder.addMenuItem(item.groupID == nil ? L("加入分组...") : L("移动到分组..."), to: menu) {
                 presentMoveToGroupPicker(for: item)
             }
         }
 
         if item.groupID != nil {
-            addMenuItem(L("移出分组"), to: menu) { removeItemFromGroup(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("移出分组"), to: menu) { removeItemFromGroup(item.id) }
         }
 
-        addMenuItem(L("删除"), to: menu) { deleteItem(item.id) }
+        HistoryMenuBuilder.addMenuItem(L("删除"), to: menu) { deleteItem(item.id) }
 
         if let sourceItem = store.item(with: item.id),
            sourceItem.sourceBundleID != nil {
             menu.addItem(.separator())
             if !sourceItem.isFromClipEase {
-                addMenuItem(sourceAppIgnoreMenuTitle(for: sourceItem), to: menu) { toggleSourceAppIgnored(item.id) }
+                HistoryMenuBuilder.addMenuItem(sourceAppIgnoreMenuTitle(for: sourceItem), to: menu) { toggleSourceAppIgnored(item.id) }
             }
-            addMenuItem(L("复制来源 App 名称"), to: menu) { copySourceAppName(item.id) }
-            addMenuItem(L("复制来源 Bundle ID"), to: menu) { copySourceBundleID(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制来源 App 名称"), to: menu) { copySourceAppName(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制来源 Bundle ID"), to: menu) { copySourceBundleID(item.id) }
         }
 
         return menu
@@ -2096,38 +2096,29 @@ struct HistoryWindowView: View {
     private func addTypeSpecificMenuItems(for item: HistoryPreviewItem, to menu: NSMenu) {
         switch item.type {
         case .link:
-            addMenuItem(L("打开链接"), to: menu) { openLink(item.id) }
-            addMenuItem(L("复制链接地址"), to: menu) { copyLinkURL(item.id) }
-            addMenuItem(L("复制为 Markdown 链接"), to: menu) { copyMarkdownLink(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("打开链接"), to: menu) { openLink(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制链接地址"), to: menu) { copyLinkURL(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制为 Markdown 链接"), to: menu) { copyMarkdownLink(item.id) }
             menu.addItem(.separator())
         case .color:
-            addMenuItem(L("复制 HEX"), to: menu) { copyColorHex(item.id) }
-            addMenuItem(L("复制 RGB"), to: menu) { copyColorRGB(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制 HEX"), to: menu) { copyColorHex(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制 RGB"), to: menu) { copyColorRGB(item.id) }
             menu.addItem(.separator())
         case .image:
-            addMenuItem(L("打开图片"), to: menu) { openImage(item.id) }
-            addMenuItem(L("复制图像"), to: menu) { copyImage(item.id) }
-            addMenuItem(L("复制图片路径"), to: menu) { copyImagePath(item.id) }
-            addMenuItem(L("在 Finder 中显示"), to: menu) { revealImageInFinder(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("打开图片"), to: menu) { openImage(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制图像"), to: menu) { copyImage(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制图片路径"), to: menu) { copyImagePath(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("在 Finder 中显示"), to: menu) { revealImageInFinder(item.id) }
             menu.addItem(.separator())
         case .file:
-            addMenuItem(L("打开文件"), to: menu) { openFile(item.id) }
-            addMenuItem(L("复制文件"), to: menu) { copyFile(item.id) }
-            addMenuItem(L("复制路径"), to: menu) { copyFilePaths(item.id) }
-            addMenuItem(L("在 Finder 中显示"), to: menu) { revealFilesInFinder(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("打开文件"), to: menu) { openFile(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制文件"), to: menu) { copyFile(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("复制路径"), to: menu) { copyFilePaths(item.id) }
+            HistoryMenuBuilder.addMenuItem(L("在 Finder 中显示"), to: menu) { revealFilesInFinder(item.id) }
             menu.addItem(.separator())
         case .text:
             break
         }
-    }
-
-    private func addMenuItem(_ title: String, to menu: NSMenu, action: @escaping () -> Void) {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        let target = ClosureMenuItemTarget(action)
-        item.target = target
-        item.representedObject = target
-        item.action = #selector(ClosureMenuItemTarget.performAction)
-        menu.addItem(item)
     }
 
     @ViewBuilder
@@ -2372,17 +2363,17 @@ struct HistoryWindowView: View {
     private func makeMoreMenu() -> NSMenu {
         let menu = NSMenu()
 
-        addMenuItem(HistoryCommand.newText.title, to: menu) {
+        HistoryMenuBuilder.addMenuItem(HistoryCommand.newText.title, to: menu) {
             createTextFromMenu()
         }
 
         menu.addItem(.separator())
 
-        addMenuItem(HistoryCommand.help.title, to: menu) {
+        HistoryMenuBuilder.addMenuItem(HistoryCommand.help.title, to: menu) {
             appMenuController.showHelp()
         }
 
-        addMenuItem(HistoryCommand.settings.title, to: menu) {
+        HistoryMenuBuilder.addMenuItem(HistoryCommand.settings.title, to: menu) {
             appMenuController.showSettings()
         }
 
@@ -2404,11 +2395,11 @@ struct HistoryWindowView: View {
 
         menu.addItem(.separator())
 
-        addMenuItem(HistoryCommand.quit.title, to: menu) {
+        HistoryMenuBuilder.addMenuItem(HistoryCommand.quit.title, to: menu) {
             appMenuController.quit()
         }
 
-        addMenuItem(HistoryCommand.about.title, to: menu) {
+        HistoryMenuBuilder.addMenuItem(HistoryCommand.about.title, to: menu) {
             appMenuController.showAbout()
         }
 
@@ -2418,25 +2409,25 @@ struct HistoryWindowView: View {
     private func makePauseNSMenu() -> NSMenu {
         let menu = NSMenu()
 
-        addMenuItem(recordingController.pauseMenuPrimaryTitle(), to: menu) {
+        HistoryMenuBuilder.addMenuItem(recordingController.pauseMenuPrimaryTitle(), to: menu) {
             togglePauseFromMenu()
         }
-        addMenuItem(L("暂停 15 分钟"), to: menu) {
+        HistoryMenuBuilder.addMenuItem(L("暂停 15 分钟"), to: menu) {
             pauseRecording(for: 15 * 60, message: L("已暂停 15 分钟"))
         }
-        addMenuItem(L("暂停 30 分钟"), to: menu) {
+        HistoryMenuBuilder.addMenuItem(L("暂停 30 分钟"), to: menu) {
             pauseRecording(for: 30 * 60, message: L("已暂停 30 分钟"))
         }
-        addMenuItem(L("暂停 1 小时"), to: menu) {
+        HistoryMenuBuilder.addMenuItem(L("暂停 1 小时"), to: menu) {
             pauseRecording(for: 60 * 60, message: L("已暂停 1 小时"))
         }
-        addMenuItem(L("暂停 3 小时"), to: menu) {
+        HistoryMenuBuilder.addMenuItem(L("暂停 3 小时"), to: menu) {
             pauseRecording(for: 3 * 60 * 60, message: L("已暂停 3 小时"))
         }
-        addMenuItem(L("暂停 6 小时"), to: menu) {
+        HistoryMenuBuilder.addMenuItem(L("暂停 6 小时"), to: menu) {
             pauseRecording(for: 6 * 60 * 60, message: L("已暂停 6 小时"))
         }
-        addMenuItem(L("截止到今日"), to: menu) {
+        HistoryMenuBuilder.addMenuItem(L("截止到今日"), to: menu) {
             appMenuController.pauseUntilEndOfToday()
         }
 
