@@ -13,7 +13,7 @@ struct HistoryWindowView: View {
     @ObservedObject private var languageSettings = AppLanguageSettings.shared
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var searchCoordinator = HistorySearchCoordinator()
-    @StateObject private var previewCoordinator = HistoryPreviewCoordinator()
+    @StateObject var previewCoordinator = HistoryPreviewCoordinator()
     @StateObject private var viewportStore = HistoryViewportStore()
     @StateObject private var groupAppearanceCoordinator = GroupAppearanceCoordinator()
     @StateObject private var groupMouseMonitorRegistry = HistoryGroupMouseMonitorRegistry()
@@ -29,7 +29,7 @@ struct HistoryWindowView: View {
 
     @State private var cardInteractionState = HistoryWindowCardInteractionState()
     @State private var statusState = HistoryWindowStatusState()
-    @State private var hostWindow: NSWindow?
+    @State var hostWindow: NSWindow?
     @State var searchUIState = HistoryWindowSearchUIState()
     @State var groupUIState = HistoryWindowGroupUIState()
     @State private var isCommandKeyPressed = false
@@ -51,7 +51,7 @@ struct HistoryWindowView: View {
     @State private var hiddenResourceCheckpointTask: Task<Void, Never>?
     @State private var lastHiddenResourceCheckpointAt: CFAbsoluteTime = 0
     @State var viewportState = HistoryWindowViewportState()
-    @State private var focusState = HistoryWindowFocusState()
+    @State var focusState = HistoryWindowFocusState()
     @State private var pendingKeyboardFocusClearTask: Task<Void, Never>?
     @State private var glassEnvironmentRevision = 0
     @AppStorage("history.systemGroup.pinned.iconName") private var pinnedGroupIconName = "pin.fill"
@@ -205,7 +205,7 @@ struct HistoryWindowView: View {
         previewItemsState.visibleItems
     }
 
-    private var renderedItems: [HistoryPreviewItem] {
+    var renderedItems: [HistoryPreviewItem] {
         filteredItems
     }
 
@@ -217,7 +217,7 @@ struct HistoryWindowView: View {
         previewItemsState.applyUnfilteredResult()
     }
 
-    private func containsFilteredItem(_ id: HistoryPreviewItem.ID?) -> Bool {
+    func containsFilteredItem(_ id: HistoryPreviewItem.ID?) -> Bool {
         previewItemsState.containsFilteredItem(id) { store.cachedItemIndex(with: $0) != nil }
     }
 
@@ -388,7 +388,7 @@ struct HistoryWindowView: View {
         )
     }
 
-    private var canPerformDeleteCommand: Bool {
+    var canPerformDeleteCommand: Bool {
         HistoryKeyboardActionRouter().allowsHistoryCommand(
             .delete,
             isTextInputActive: isTextInputActiveForEditShortcut || inputState.isTextInputFocusedSnapshot,
@@ -1651,7 +1651,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func keepKeyboardFocusedItemRendered(_ id: ClipboardItem.ID) {
+    func keepKeyboardFocusedItemRendered(_ id: ClipboardItem.ID) {
         pendingKeyboardFocusClearTask?.cancel()
         focusState.pendingKeyboardFocusItemID = id
         pendingKeyboardFocusClearTask = Task { @MainActor in
@@ -1683,183 +1683,7 @@ struct HistoryWindowView: View {
         return filteredItems.distance(from: filteredItems.startIndex, to: index) + 1
     }
 
-    func copyItem(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
-            return
-        }
-
-        switch pasteExecutor.copyToPasteboard(item) {
-        case .copied:
-            store.markUsed(item.id)
-            ClipEaseSoundPlayer.shared.playCopyFeedback()
-            showStatus(copyStatus(for: item))
-        case .copiedFallbackText:
-            store.markUsed(item.id)
-            ClipEaseSoundPlayer.shared.playCopyFeedback()
-            showStatus(copyFallbackTextStatus(for: item))
-        case .failed(let reason):
-            showStatus(reason)
-        }
-    }
-
-    func copyPlainTextItem(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
-            return
-        }
-
-        switch pasteExecutor.copyPlainTextToPasteboard(item) {
-        case .copied, .copiedFallbackText:
-            store.markUsed(item.id)
-            ClipEaseSoundPlayer.shared.playCopyFeedback()
-            showStatus(L("已复制纯文本"))
-        case .failed(let reason):
-            showStatus(reason)
-        }
-    }
-
-    func pastePlainTextItem(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
-            return
-        }
-        accessibilityPermissionState.refresh()
-        preparePastedItemFocus(item.id)
-        switch pasteExecutor.pastePlainTextToFrontmostApp(item) {
-        case .copiedOnly, .copiedFallbackTextOnly:
-            store.markUsed(item.id)
-            showStatus(L("已复制纯文本，需授权后自动粘贴"))
-            closeAfterPasteIfNeeded()
-        case .pasted, .pastedFallbackText:
-            store.markUsed(item.id)
-            scheduleProgrammaticJump(to: item.id)
-            showStatus(L("已粘贴纯文本到当前 App"))
-        case .failed(let reason):
-            focusState.pendingPastedItemFocusOnNextShow = nil
-            showStatus(reason)
-        }
-    }
-
-    func copyMarkdownLink(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.type == .link else {
-            return
-        }
-
-        let title = (item.linkTitle?.isEmpty == false ? item.linkTitle : nil)
-            ?? item.url?.host(percentEncoded: false)
-            ?? item.text
-        let markdown = "[\(title)](\(item.text))"
-        guard case .copied = pasteExecutor.copyTextToPasteboard(markdown) else {
-            showStatus(L("无法写入剪贴板"))
-            return
-        }
-        ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(L("已复制 Markdown 链接"))
-        closeAfterContextMenuCommand()
-    }
-
-    func copyLinkURL(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.type == .link else {
-            return
-        }
-
-        guard case .copied = pasteExecutor.copyTextToPasteboard(item.text) else {
-            showStatus(L("无法写入剪贴板"))
-            return
-        }
-        ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(L("已复制链接地址"))
-        closeAfterContextMenuCommand()
-    }
-
-    func openLink(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.type == .link,
-              let url = item.url else {
-            showStatus(L("无法打开链接"))
-            return
-        }
-
-        NSWorkspace.shared.open(url)
-        showStatus(L("已打开链接"))
-        closeAfterContextMenuCommand()
-    }
-
-    func copyColorHex(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.type == .color else {
-            return
-        }
-
-        guard case .copied = pasteExecutor.copyTextToPasteboard(item.text) else {
-            showStatus(L("无法写入剪贴板"))
-            return
-        }
-        ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(L("已复制 HEX"))
-        closeAfterContextMenuCommand()
-    }
-
-    func copyColorRGB(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.type == .color,
-              let rgb = rgbString(from: item.text) else {
-            showStatus(L("无法转换 RGB"))
-            return
-        }
-
-        guard case .copied = pasteExecutor.copyTextToPasteboard(rgb) else {
-            showStatus(L("无法写入剪贴板"))
-            return
-        }
-        ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(L("已复制 RGB"))
-        closeAfterContextMenuCommand()
-    }
-
-    func pasteItem(_ id: ClipboardItem.ID?) {
-        let startedAt = CFAbsoluteTimeGetCurrent()
-        guard containsFilteredItem(id),
-              let item = store.item(with: id) else {
-            if searchUIState.isVisible {
-                showStatus(L("没有可粘贴的搜索结果"))
-            }
-            return
-        }
-
-        accessibilityPermissionState.refresh()
-        preparePastedItemFocus(item.id)
-        switch pasteExecutor.pasteToFrontmostApp(item) {
-        case .copiedOnly:
-            store.markUsed(item.id)
-            showStatus(copiedOnlyStatus(for: item))
-            closeAfterPasteIfNeeded()
-        case .copiedFallbackTextOnly:
-            store.markUsed(item.id)
-            showStatus(copiedOnlyFallbackTextStatus(for: item))
-            closeAfterPasteIfNeeded()
-        case .pasted:
-            store.markUsed(item.id)
-            scheduleProgrammaticJump(to: item.id)
-            showStatus(pastedStatus(for: item))
-        case .pastedFallbackText:
-            store.markUsed(item.id)
-            scheduleProgrammaticJump(to: item.id)
-            showStatus(pastedFallbackTextStatus(for: item))
-        case .failed(let reason):
-            focusState.pendingPastedItemFocusOnNextShow = nil
-            showStatus(reason)
-        }
-        PerformanceDiagnosticsService.shared.record(
-            "paste.item",
-            category: "interaction",
-            durationMS: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000,
-            itemCount: filteredItems.count,
-            metadata: ["itemType": "\(item.type)"]
-        )
-    }
-
-    private func closeAfterPasteIfNeeded() {
+    func closeAfterPasteIfNeeded() {
         if inputState.isWindowPinnedOpen {
             return
         }
@@ -1867,11 +1691,11 @@ struct HistoryWindowView: View {
         onClose()
     }
 
-    private func closeAfterContextMenuCommand() {
+    func closeAfterContextMenuCommand() {
         onClose()
     }
 
-    private func preparePastedItemFocus(_ id: ClipboardItem.ID) {
+    func preparePastedItemFocus(_ id: ClipboardItem.ID) {
         focusState.pendingPastedItemFocusOnNextShow = id
         selectedItemID = id
         persistSelectedItem()
@@ -1879,7 +1703,7 @@ struct HistoryWindowView: View {
         HistoryScrollCoordinator.shared.discardSavedOffset(for: groupUIState.selectedGroup.storageValue)
     }
 
-    private func scheduleProgrammaticJump(to id: ClipboardItem.ID) {
+    func scheduleProgrammaticJump(to id: ClipboardItem.ID) {
         preparePastedItemFocus(id)
         guard inputState.isWindowPresentedSnapshot else {
             clearPendingHistoryRailJumpState()
@@ -1914,31 +1738,7 @@ struct HistoryWindowView: View {
         viewportStore.mode = .automatic
     }
 
-    func showPreview(_ id: ClipboardItem.ID?) {
-        let startedAt = CFAbsoluteTimeGetCurrent()
-        guard let item = store.item(with: id) else {
-            return
-        }
-
-        guard let cardFrame = cardViewportFrame(for: item.id) else {
-            previewCoordinator.markNeedsFollow(item.id)
-            keepKeyboardFocusedItemRendered(item.id)
-            scrollToItemWhenRendered(item.id, animated: false)
-            followPreviewForCurrentScroll()
-            return
-        }
-
-        onPreview(item, cardFrame)
-        PerformanceDiagnosticsService.shared.record(
-            "preview.show",
-            category: "preview",
-            durationMS: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000,
-            itemCount: renderedItems.count,
-            metadata: ["itemType": "\(item.type)"]
-        )
-    }
-
-    private func followPreviewForCurrentScroll() {
+    func followPreviewForCurrentScroll() {
         guard previewState.isVisible,
               let previewedID = previewState.itemID else {
             return
@@ -1955,56 +1755,6 @@ struct HistoryWindowView: View {
         )
     }
 
-    func isEditable(_ item: HistoryPreviewItem) -> Bool {
-        guard let sourceItem = store.item(with: item.id) else {
-            return false
-        }
-
-        return isEditable(sourceItem)
-    }
-
-    func isEditable(_ item: ClipboardItem) -> Bool {
-        switch item.type {
-        case .text:
-            true
-        case .link, .color:
-            true
-        case .image:
-            false
-        case .file:
-            false
-        }
-    }
-
-    func handleEditShortcut() {
-        guard canEditSelectedItemFromShortcut else {
-            return
-        }
-
-        beginEditItem(selectedItemID)
-    }
-
-    func beginEditItem(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              isEditable(item) else {
-            showStatus(L("此内容暂不支持编辑"))
-            return
-        }
-
-        closePreview()
-        onClose()
-        appMenuController.editItem(item) { updatedItem in
-            selectedItemID = updatedItem.id
-            if updatedItem.type == .link {
-                _ = pasteExecutor.copyTextToPasteboard(updatedItem.text)
-                ClipEaseSoundPlayer.shared.playCopyFeedback()
-                showStatus(L("已保存并复制新链接"))
-            } else {
-                showStatus(L("已保存"))
-            }
-        }
-    }
-
     private func togglePreviewForSelectedItem() {
         guard let selectedItemID else {
             return
@@ -2016,21 +1766,6 @@ struct HistoryWindowView: View {
         }
 
         showPreview(selectedItemID)
-    }
-
-    func deleteItem(_ id: ClipboardItem.ID?) {
-        guard !inputState.isAnyTextInputActiveSnapshot,
-              canPerformDeleteCommand else {
-            return
-        }
-
-        let nextID = nextSelectionID(afterDeleting: id)
-        store.deleteItem(with: id)
-        selectedItemID = nextID
-        if previewState.itemID == id {
-            closePreview()
-        }
-        showStatus(L("已删除"))
     }
 
     private func clearAllItems() {
@@ -2384,10 +2119,6 @@ struct HistoryWindowView: View {
         showStatus(removedCount > 0 ? L("已删除分组和 \(removedCount) 条内容") : L("已删除分组"))
     }
 
-    func presentMoveToGroupPicker(for item: HistoryPreviewItem) {
-        groupUIState.presentMoveToGroupPicker(for: item)
-    }
-
     private func addItem(_ id: ClipboardItem.ID?, toGroup groupID: ClipboardGroup.ID, named groupName: String? = nil) {
         store.addItem(id, toGroup: groupID)
         if let groupName {
@@ -2397,221 +2128,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    func removeItemFromGroup(_ id: ClipboardItem.ID?) {
-        store.removeItemFromGroup(id)
-        showStatus(L("已移出分组"))
-    }
-
-    func togglePinned(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
-            return
-        }
-
-        store.togglePinned(for: id)
-        showStatus(item.isPinned ? L("已取消置顶") : L("已置顶"))
-    }
-
-    func sourceAppIgnoreMenuTitle(for item: ClipboardItem) -> String {
-        let prefix = appMenuController.isSourceAppIgnored(for: item) ? L("取消忽略") : L("忽略")
-        return "\(prefix) \(item.sourceAppName)"
-    }
-
-    func toggleSourceAppIgnored(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.sourceBundleID != nil else {
-            showStatus(L("无法识别来源 App"))
-            return
-        }
-
-        guard !item.isFromClipEase else {
-            showStatus(L("轻贴自身内容不能忽略"))
-            return
-        }
-
-        if appMenuController.isSourceAppIgnored(for: item) {
-            appMenuController.unignoreSourceApp(for: item)
-            showStatus(L("已取消忽略 \(item.sourceAppName)"))
-            return
-        }
-
-        appMenuController.ignoreSourceApp(for: item)
-        showStatus(L("已忽略 \(item.sourceAppName)"))
-    }
-
-    func copySourceAppName(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
-            return
-        }
-
-        guard case .copied = pasteExecutor.copyTextToPasteboard(item.sourceAppName) else {
-            showStatus(L("无法写入剪贴板"))
-            return
-        }
-        showStatus(L("已复制来源名称"))
-        closeAfterContextMenuCommand()
-    }
-
-    func copySourceBundleID(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              let bundleID = item.sourceBundleID else {
-            showStatus(L("无来源 Bundle ID"))
-            return
-        }
-
-        guard case .copied = pasteExecutor.copyTextToPasteboard(bundleID) else {
-            showStatus(L("无法写入剪贴板"))
-            return
-        }
-        showStatus(L("已复制 Bundle ID"))
-        closeAfterContextMenuCommand()
-    }
-
-    func revealImageInFinder(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              let imageURL = store.imageFileURL(for: item) else {
-            showStatus(L("未找到图片文件"))
-            return
-        }
-
-        NSWorkspace.shared.activateFileViewerSelecting([imageURL])
-        showStatus(L("已在 Finder 中显示"))
-        closeAfterContextMenuCommand()
-    }
-
-    func openImage(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              let imageURL = store.imageFileURL(for: item) else {
-            showStatus(L("未找到图片文件"))
-            return
-        }
-
-        NSWorkspace.shared.open(imageURL)
-        showStatus(L("已打开图片"))
-        closeAfterContextMenuCommand()
-    }
-
-    func copyImage(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              let imageURL = store.imageFileURL(for: item),
-              let image = NSImage(contentsOf: imageURL) else {
-            showStatus(L("未找到图片文件"))
-            return
-        }
-
-        guard case .copied = pasteExecutor.copyImageToPasteboard(
-            image,
-            skipText: item.preview.isEmpty ? imageURL.lastPathComponent : item.preview
-        ) else {
-            showStatus(L("无法写入图片到剪贴板"))
-            return
-        }
-        ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(L("已复制图像"))
-        closeAfterContextMenuCommand()
-    }
-
-    func copyImagePath(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              let imageURL = store.imageFileURL(for: item) else {
-            showStatus(L("未找到图片文件"))
-            return
-        }
-
-        let path = imageURL.path
-        guard case .copied = pasteExecutor.copyTextToPasteboard(path) else {
-            showStatus(L("无法写入剪贴板"))
-            return
-        }
-        ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(L("已复制图片路径"))
-        closeAfterContextMenuCommand()
-    }
-
-    func copyFilePaths(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.type == .file else {
-            showStatus(L("未找到文件"))
-            return
-        }
-
-        let paths = item.fileReferences
-            .map(\.path)
-            .filter { !$0.isEmpty }
-
-        guard !paths.isEmpty else {
-            showStatus(L("未找到文件"))
-            return
-        }
-
-        let pathsText = paths.joined(separator: "\n")
-        guard case .copied = pasteExecutor.copyTextToPasteboard(pathsText) else {
-            showStatus(L("无法写入剪贴板"))
-            return
-        }
-        ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(paths.count > 1 ? L("已复制 \(paths.count) 个文件路径") : L("已复制文件路径"))
-        closeAfterContextMenuCommand()
-    }
-
-    func copyFile(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.type == .file else {
-            showStatus(L("未找到文件"))
-            return
-        }
-
-        let urls = existingFileURLs(for: item)
-        guard let firstURL = urls.first else {
-            showStatus(L("未找到文件"))
-            return
-        }
-
-        guard case .copied = pasteExecutor.copyFileURLToPasteboard(firstURL) else {
-            showStatus(L("无法写入文件引用到剪贴板"))
-            return
-        }
-        ClipEaseSoundPlayer.shared.playCopyFeedback()
-        showStatus(L("已复制文件"))
-        closeAfterContextMenuCommand()
-    }
-
-    func openFile(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.type == .file else {
-            showStatus(L("未找到文件"))
-            return
-        }
-
-        let urls = existingFileURLs(for: item)
-        guard let firstURL = urls.first else {
-            showStatus(L("未找到文件"))
-            return
-        }
-
-        NSWorkspace.shared.open(firstURL)
-        showStatus(L("已打开文件"))
-        closeAfterContextMenuCommand()
-    }
-
-    func revealFilesInFinder(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
-              item.type == .file else {
-            showStatus(L("未找到文件"))
-            return
-        }
-
-        let urls = existingFileURLs(for: item)
-        guard !urls.isEmpty else {
-            showStatus(L("未找到文件"))
-            return
-        }
-
-        NSWorkspace.shared.activateFileViewerSelecting(urls)
-        showStatus(L("已在 Finder 中显示"))
-        closeAfterContextMenuCommand()
-    }
-
-    private func existingFileURLs(for item: ClipboardItem) -> [URL] {
+    func existingFileURLs(for item: ClipboardItem) -> [URL] {
         guard item.type == .file else {
             return []
         }
@@ -2630,7 +2147,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func rgbString(from hex: String) -> String? {
+    func rgbString(from hex: String) -> String? {
         let normalized = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         guard normalized.count == 6,
               let value = Int(normalized, radix: 16) else {
@@ -2643,71 +2160,13 @@ struct HistoryWindowView: View {
         return "rgb(\(red), \(green), \(blue))"
     }
 
-    func selectCardForPrimaryClick(_ item: HistoryPreviewItem) {
-        let startedAt = CFAbsoluteTimeGetCurrent()
-        blurSearchFieldForCardInteraction()
-
-        if previewState.isVisible {
-            closePreview()
-        }
-
-        if selectedItemID != item.id {
-            selectedItemID = item.id
-        }
-
-        if !revealPartiallyVisibleCardIfNeeded(item.id) {
-            scrollToItemWhenRendered(item.id, animated: true)
-        }
-        PerformanceDiagnosticsService.shared.record(
-            "card.click",
-            category: "interaction",
-            durationMS: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000,
-            itemCount: renderedItems.count,
-            metadata: ["itemType": "\(item.type)"]
-        )
-    }
-
-    func selectCardForContextMenu(_ item: HistoryPreviewItem) {
-        let startedAt = CFAbsoluteTimeGetCurrent()
-        blurSearchFieldForCardInteraction()
-
-        if previewState.isVisible {
-            closePreview()
-        }
-
-        if selectedItemID != item.id {
-            selectedItemID = item.id
-        }
-
-        if !revealPartiallyVisibleCardIfNeeded(item.id) {
-            scrollToItemWhenRendered(item.id, animated: true)
-        }
-        PerformanceDiagnosticsService.shared.record(
-            "card.contextMenuSelect",
-            category: "interaction",
-            durationMS: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000,
-            itemCount: renderedItems.count,
-            metadata: ["itemType": "\(item.type)"]
-        )
-    }
-
-    func blurSearchFieldForCardInteraction() {
-        guard isSearchFocused || inputState.isTextInputFocusedSnapshot else {
-            return
-        }
-
-        isSearchFocused = false
-        inputState.setTextInputFocused(false)
-        hostWindow?.makeFirstResponder(nil)
-    }
-
     @discardableResult
-    private func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID) -> Bool {
+    func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID) -> Bool {
         revealPartiallyVisibleCardIfNeeded(id, animated: true)
     }
 
     @discardableResult
-    private func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID, animated: Bool) -> Bool {
+    func revealPartiallyVisibleCardIfNeeded(_ id: ClipboardItem.ID, animated: Bool) -> Bool {
         if let frame = cardDocumentFrame(for: id),
            isFrameFullyVisible(frame) {
             return true
@@ -3059,7 +2518,7 @@ struct HistoryWindowView: View {
         return cardDocumentFrame(forRenderedIndex: itemIndex).minX
     }
 
-    private func cardViewportFrame(for id: HistoryPreviewItem.ID) -> CGRect? {
+    func cardViewportFrame(for id: HistoryPreviewItem.ID) -> CGRect? {
         HistoryPreviewFramePolicy.viewportFrame(
             measuredFrame: viewportState.cardViewportFrames[id],
             documentFrame: cardDocumentFrame(for: id),
@@ -3161,7 +2620,7 @@ struct HistoryWindowView: View {
         return filteredItems[nextIndex].id
     }
 
-    private func closePreview() {
+    func closePreview() {
         previewState.close()
         inputState.setPreviewActive(false)
         onClosePreview()
@@ -3250,7 +2709,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func copyStatus(for item: ClipboardItem) -> String {
+    func copyStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .text:
             item.richTextFileName == nil ? L("已复制文本") : L("已复制富文本")
@@ -3265,7 +2724,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func copyFallbackTextStatus(for item: ClipboardItem) -> String {
+    func copyFallbackTextStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .file:
             L("文件不可用，已复制文件路径")
@@ -3274,7 +2733,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func copiedOnlyStatus(for item: ClipboardItem) -> String {
+    func copiedOnlyStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .text:
             item.richTextFileName == nil ? L("已复制文本，需授权后自动粘贴") : L("已复制富文本，需授权后自动粘贴")
@@ -3289,7 +2748,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func copiedOnlyFallbackTextStatus(for item: ClipboardItem) -> String {
+    func copiedOnlyFallbackTextStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .file:
             L("文件不可用，已复制文件路径，需授权后自动粘贴")
@@ -3298,7 +2757,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func pastedStatus(for item: ClipboardItem) -> String {
+    func pastedStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .text:
             item.richTextFileName == nil ? L("已粘贴文本到当前 App") : L("已粘贴富文本到当前 App")
@@ -3313,7 +2772,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func pastedFallbackTextStatus(for item: ClipboardItem) -> String {
+    func pastedFallbackTextStatus(for item: ClipboardItem) -> String {
         switch item.type {
         case .file:
             L("文件不可用，已粘贴文件路径到当前 App")
@@ -4449,7 +3908,7 @@ struct HistoryWindowView: View {
         return sourceItems.first { !$0.isPinned } ?? sourceItems.first
     }
 
-    private func scrollToItemWhenRendered(_ id: HistoryPreviewItem.ID, animated: Bool = false) {
+    func scrollToItemWhenRendered(_ id: HistoryPreviewItem.ID, animated: Bool = false) {
         viewportState.pendingItemScrollID = id
         viewportState.pendingItemScrollRetryCount = 0
         viewportState.shouldAnimatePendingItemScroll = focusState.pendingProgrammaticJumpItemID == id ? animated : (animated || id == focusState.pendingLatestFocusItemID)
@@ -4594,7 +4053,7 @@ struct HistoryWindowView: View {
         )
     }
 
-    private func nextSelectionID(afterDeleting id: ClipboardItem.ID?) -> ClipboardItem.ID? {
+    func nextSelectionID(afterDeleting id: ClipboardItem.ID?) -> ClipboardItem.ID? {
         guard let id,
               let index = filteredItemIndex(for: id) else {
             return filteredItems.first?.id
