@@ -2,12 +2,14 @@ import AppKit
 import Combine
 
 @MainActor
-final class StatusBarController: NSObject {
+final class StatusBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let historyWindowController: HistoryWindowController
     private let appMenuController: AppMenuController
     private let recordingController: RecordingController
     private var recordingCancellable: AnyCancellable?
+    private var liveMenu: NSMenu?
+    private var countdownTimer: Timer?
 
     init(
         historyWindowController: HistoryWindowController,
@@ -57,8 +59,43 @@ final class StatusBarController: NSObject {
             return
         }
 
-        statusItem.menu = appMenuController.makeStatusBarMenu()
+        let menu = appMenuController.makeStatusBarMenu()
+        menu.delegate = self
+        liveMenu = menu
+        startCountdownTimerIfNeeded()
+        statusItem.menu = menu
         button.performClick(nil)
         statusItem.menu = nil
+    }
+
+    private func startCountdownTimerIfNeeded() {
+        countdownTimer?.invalidate()
+        guard recordingController.isPaused else {
+            countdownTimer = nil
+            return
+        }
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshLiveMenuCountdown()
+            }
+        }
+    }
+
+    private func refreshLiveMenuCountdown() {
+        guard let liveMenu,
+              let firstItem = liveMenu.items.first else {
+            return
+        }
+        let title = recordingController.pauseMenuPrimaryTitle()
+        guard firstItem.title != title else {
+            return
+        }
+        firstItem.title = title
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        liveMenu = nil
     }
 }
