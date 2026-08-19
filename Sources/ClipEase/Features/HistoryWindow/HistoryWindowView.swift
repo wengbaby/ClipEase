@@ -2051,128 +2051,33 @@ struct HistoryWindowView: View {
     }
 
     private var searchFilterPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(L("搜索筛选"))
-                    .font(.system(size: 14, weight: .semibold))
-
-                Spacer()
-
-                Button(L("清空")) {
-                    searchUIState.criteria = HistorySearchCriteria()
-                }
-                .disabled(!searchUIState.criteria.hasActiveFilters)
-
-                Button(L("关闭")) {
-                    searchUIState.isFilterPanelPresented = false
-                    focusSearchField()
-                }
-            }
-
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 14) {
-                    searchFilterSection("Type") {
-                        filterChipGrid {
-                            ForEach(HistorySearchItemType.allCases) { type in
-                                searchFilterChip(
-                                    title: type.title,
-                                    systemImage: type.iconName,
-                                    isSelected: searchUIState.criteria.types.contains(type),
-                                    action: { toggleSearchType(type) }
-                                )
-                            }
-                        }
-                    }
-
-                    searchFilterSection("App") {
-                        if previewItemsState.sourceAppFilterOptions.isEmpty {
-                            Text(L("暂无来源"))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            filterChipGrid {
-                                ForEach(previewItemsState.sourceAppFilterOptions) { option in
-                                    let appName = option.name
-                                    searchFilterChip(
-                                        title: appName,
-                                        iconFileName: option.iconFileName,
-                                        fallbackSystemImage: "app.fill",
-                                        isSelected: searchUIState.criteria.sourceAppNames.contains(appName),
-                                        action: { toggleSearchSourceApp(appName) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    searchFilterSection("Date") {
-                        filterChipGrid {
-                            ForEach(HistorySearchDateRange.allCases) { range in
-                                searchFilterChip(
-                                    title: range.title,
-                                    systemImage: "calendar",
-                                    isSelected: searchUIState.criteria.dateRanges.contains(range),
-                                    action: { toggleSearchDateRange(range) }
-                                )
-                            }
-                        }
-                    }
-
-                    searchFilterSection("Group") {
-                        filterChipGrid {
-                            ForEach(SystemHistoryGroup.allCases) { group in
-                                searchFilterChip(
-                                    title: group.title,
-                                    systemImage: systemGroupIconName(group),
-                                    isSelected: searchUIState.criteria.groups.contains(group.searchGroup),
-                                    action: { toggleSearchGroup(group.searchGroup) }
-                                )
-                            }
-
-                            ForEach(store.groups) { group in
-                                searchFilterChip(
-                                    title: group.name,
-                                    systemImage: group.iconName,
-                                    isSelected: searchUIState.criteria.groups.contains(.group(group.id)),
-                                    action: { toggleSearchGroup(.group(group.id)) }
-                                )
-                            }
-                        }
-                    }
-                }
-                .padding(.trailing, 6)
-            }
-            .frame(width: 420, height: 260)
-        }
-        .padding(16)
-        .frame(width: 440, height: 320)
+        SearchFilterPanelView(
+            criteria: $searchUIState.criteria,
+            isFilterPanelPresented: $searchUIState.isFilterPanelPresented,
+            sourceAppFilterOptions: previewItemsState.sourceAppFilterOptions,
+            systemGroups: SystemHistoryGroup.allCases,
+            customGroups: store.groups,
+            onClear: { searchUIState.criteria = HistorySearchCriteria() },
+            onClose: { focusSearchField() },
+            onToggleType: { toggleSearchType($0) },
+            onToggleSourceApp: { toggleSearchSourceApp($0) },
+            onToggleDateRange: { toggleSearchDateRange($0) },
+            onToggleGroup: { toggleSearchGroup($0) },
+            systemGroupIconName: { systemGroupIconName($0) }
+        )
     }
 
     private func searchFilterSection<Content: View>(
         _ title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 8) {
-                content()
-            }
-        }
+        SearchFilterSection(title: title, content: content)
     }
 
     private func filterChipGrid<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(minimum: 118), spacing: 8), count: 3),
-            alignment: .leading,
-            spacing: 8
-        ) {
-            content()
-        }
+        SearchFilterChipGrid(content: content)
     }
 
     private func searchFilterChip(
@@ -2183,27 +2088,14 @@ struct HistoryWindowView: View {
         isSelected: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                searchFilterChipIcon(
-                    systemImage: systemImage,
-                    iconFileName: iconFileName,
-                    fallbackSystemImage: fallbackSystemImage
-                )
-
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .foregroundStyle(isSelected ? .white : .secondary)
-            .background(isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0) : Color.black.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        SearchFilterChip(
+            title: title,
+            systemImage: systemImage,
+            iconFileName: iconFileName,
+            fallbackSystemImage: fallbackSystemImage,
+            isSelected: isSelected,
+            action: action
+        )
     }
 
     @ViewBuilder
@@ -2684,16 +2576,11 @@ struct HistoryWindowView: View {
         iconFileName: String?,
         fallbackSystemImage: String
     ) -> some View {
-        if let iconFileName,
-           let iconURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: iconFileName),
-           let nsImage = NSImage(contentsOf: iconURL) {
-            Image(nsImage: ClipEaseAppIcon.roundedImage(nsImage, size: NSSize(width: 13, height: 13)))
-                .resizable()
-                .frame(width: 13, height: 13)
-        } else {
-            Image(systemName: systemImage ?? fallbackSystemImage)
-                .font(.system(size: 12, weight: .medium))
-        }
+        SearchFilterChipIcon(
+            systemImage: systemImage,
+            iconFileName: iconFileName,
+            fallbackSystemImage: fallbackSystemImage
+        )
     }
 
     private var moreMenu: some View {
