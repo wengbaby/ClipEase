@@ -2444,52 +2444,21 @@ struct HistoryWindowView: View {
     }
 
     private var retentionSettingsMenu: some View {
-        Menu(L("保存期限")) {
-            ForEach(HistoryRetentionPolicy.allCases) { policy in
-                Button {
-                    store.retentionPolicy = policy
-                    showStatus(L("保存期限：\(policy.shortTitle)"))
-                } label: {
-                    HStack {
-                        Text(policy.title)
-                        if store.retentionPolicy == policy {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        }
+        HistoryRetentionSettingsMenu(store: store, onShowStatus: showStatus)
     }
 
     @ViewBuilder
     private var pauseMenu: some View {
-            Button(recordingController.pauseMenuPrimaryTitle()) {
-                togglePauseFromMenu()
-            }
-
-            Button(L("暂停 15 分钟")) {
-                pauseRecording(for: 15 * 60, message: L("已暂停 15 分钟"))
-            }
-
-            Button(L("暂停 30 分钟")) {
-                pauseRecording(for: 30 * 60, message: L("已暂停 30 分钟"))
-            }
-
-            Button(L("暂停 1 小时")) {
-                pauseRecording(for: 60 * 60, message: L("已暂停 1 小时"))
-            }
-
-            Button(L("暂停 3 小时")) {
-                pauseRecording(for: 3 * 60 * 60, message: L("已暂停 3 小时"))
-            }
-
-            Button(L("暂停 6 小时")) {
-                pauseRecording(for: 6 * 60 * 60, message: L("已暂停 6 小时"))
-            }
-
-            Button(L("截止到今日")) {
+        HistoryPauseMenu(
+            primaryTitle: recordingController.pauseMenuPrimaryTitle(),
+            onTogglePause: { togglePauseFromMenu() },
+            onPauseFor: { duration, message in
+                pauseRecording(for: duration, message: message)
+            },
+            onPauseUntilEndOfToday: {
                 appMenuController.pauseUntilEndOfToday()
             }
+        )
     }
 
     private func moveSelection(_ direction: MoveCommandDirection) {
