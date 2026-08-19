@@ -1527,46 +1527,11 @@ struct HistoryWindowView: View {
         iconName: String,
         onChange: @escaping (NSColor) -> Void
     ) -> some View {
-        GroupColorWell(color: NSColor(color), onChange: onChange)
-            .frame(width: 42, height: 42)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay {
-                Image(systemName: iconName)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .allowsHitTesting(false)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.white.opacity(0.35), lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
-        .buttonStyle(.plain)
-        .help(L("选择颜色"))
+        GroupColorPanelSquare(color: color, iconName: iconName, onChange: onChange)
     }
 
     private func groupColorSwatches(onSelect: @escaping (Color) -> Void) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 18, maximum: 18), spacing: 8)], alignment: .leading, spacing: 8) {
-            ForEach(ClipboardGroup.defaultColors, id: \.self) { hex in
-                let color = Color.clipeaseHex(hex)
-                Button {
-                    onSelect(color)
-                } label: {
-                    Circle()
-                        .fill(color)
-                        .frame(width: 18, height: 18)
-                        .overlay {
-                            Circle()
-                                .stroke(
-                                    Color.white.opacity(groupAppearanceColor.clipeaseHexString == hex ? 0.95 : 0.45),
-                                    lineWidth: groupAppearanceColor.clipeaseHexString == hex ? 2 : 1
-                                )
-                        }
-                }
-                .buttonStyle(.plain)
-                .help(hex)
-            }
-        }
+        GroupColorSwatches(selectedColor: groupAppearanceColor, onSelect: onSelect)
     }
 
     private func groupButton(_ group: ClipboardGroup, compact: Bool = false) -> some View {
@@ -2403,90 +2368,19 @@ struct HistoryWindowView: View {
     }
 
     private func moveToGroupPicker(for target: MoveToGroupPickerTarget) -> some View {
-        let groupEntries = groupUIState.moveToGroupMenuSnapshot
-
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(target.currentGroupID == nil ? L("加入分组") : L("移动到分组"))
-                        .font(.system(size: 15, weight: .semibold))
-
-                    Text(L("选择一个目标分组"))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Button(L("取消")) {
-                    groupUIState.moveToGroupPickerTarget = nil
-                }
-                .keyboardShortcut(.cancelAction)
+        MoveToGroupPickerView(
+            target: target,
+            groupEntries: groupUIState.moveToGroupMenuSnapshot,
+            onMoveToGroup: { itemID, groupID, groupName in
+                addItem(itemID, toGroup: groupID, named: groupName)
+            },
+            onRemoveFromGroup: { itemID in
+                removeItemFromGroup(itemID)
+            },
+            onDismiss: {
+                groupUIState.moveToGroupPickerTarget = nil
             }
-
-            ScrollView(.vertical, showsIndicators: true) {
-                LazyVStack(alignment: .leading, spacing: 6) {
-                    ForEach(groupEntries, id: \.id) { group in
-                        moveToGroupPickerRow(group, target: target)
-                    }
-                }
-                .padding(.trailing, 4)
-            }
-            .frame(width: 340)
-            .frame(maxHeight: 260)
-
-            if target.currentGroupID != nil {
-                Divider()
-
-                Button(role: .destructive) {
-                    removeItemFromGroup(target.itemID)
-                    groupUIState.moveToGroupPickerTarget = nil
-                } label: {
-                    Label(L("移出分组"), systemImage: "tray.and.arrow.up")
-                }
-            }
-        }
-        .padding(18)
-        .frame(width: 380)
-    }
-
-    private func moveToGroupPickerRow(
-        _ group: MoveToGroupMenuEntry,
-        target: MoveToGroupPickerTarget
-    ) -> some View {
-        let isCurrentGroup = group.id == target.currentGroupID
-
-        return Button {
-            addItem(target.itemID, toGroup: group.id, named: group.name)
-            groupUIState.moveToGroupPickerTarget = nil
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: group.iconName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 18)
-
-                Text(group.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-
-                Spacer()
-
-                if isCurrentGroup {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .foregroundStyle(isCurrentGroup ? .secondary : .primary)
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isCurrentGroup ? Color.black.opacity(0.05) : Color.white.opacity(0.68))
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isCurrentGroup)
+        )
     }
 
     @ViewBuilder
