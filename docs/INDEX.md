@@ -12,6 +12,7 @@
 | 2026-08-19 | [docs/ai/2026-08-19-205500-grill拷问结论.md](ai/2026-08-19-205500-grill拷问结论.md) | /grill-me 拷问 12 个决策（顺序/拆分策略/StateStore/Bug1修法/Bug2修法/验证/文档），达成共识，定执行计划 | 已完成 |
 | 2026-08-19 | [docs/ai/2026-08-19-211500-模块化阶段0进展与策略调整.md](ai/2026-08-19-211500-模块化阶段0进展与策略调整.md) | 模块化阶段 0 完成 3 步（StateStore骨架/空状态/搜索面板/Toolbar小控件），发现主 View 高度内聚硬抽违背不改逻辑，Bug1 已有视口裁剪，策略调整为优先修bug | 已完成 |
 | 2026-08-19 | [docs/ai/2026-08-19-212500-Bug1搜索卡顿与Bug2动画修复.md](ai/2026-08-19-212500-Bug1搜索卡顿与Bug2动画修复.md) | Bug1（搜索时禁用 transition 动画+debounce 160→100ms）+ Bug2（linear→easeInEaseOut/duration 0.14→0.22/Task.sleep→CATransaction completion），编译+测试通过，待手动 GUI 验证 | 已完成 |
+| 2026-08-19 | [docs/ai/2026-08-19-213500-Bug1余卡修复卡片高亮.md](ai/2026-08-19-213500-Bug1余卡修复卡片高亮.md) | Bug1 余卡根因：卡片 searchQuery 用实时文本导致输入瞬间全量重算；改为 appliedSearchQuery 随结果应用更新 | 已完成 |
 
 ## 分类说明
 

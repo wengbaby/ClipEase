@@ -36,6 +36,7 @@ struct HistoryWindowView: View {
     @State private var isSearchFocused = false
     @State private var isSearchTextComposing = false
     @State private var isSearchTextDrivenUpdate = false
+    @State private var appliedSearchQuery = ""
     @State private var searchLeadingContentWidth: CGFloat = 0
     @State private var searchTextInsertionIndex = Int.max
     @State private var searchFocusRequestID = 0
@@ -880,7 +881,7 @@ struct HistoryWindowView: View {
 
         HistoryCardView(
             item: item,
-            searchQuery: searchUIState.text,
+            searchQuery: appliedSearchQuery,
             shortcutNumber: shortcutNumber(for: item.id),
             isShortcutOverlayVisible: isShortcutOverlayVisible,
             isHovered: isHovered,
@@ -4994,6 +4995,7 @@ struct HistoryWindowView: View {
         if request.usesUnfilteredSource {
             let applyStartedAt = CFAbsoluteTimeGetCurrent()
             searchCoordinator.markUnfilteredApplied()
+            appliedSearchQuery = request.searchText
             applyUnfilteredPreviewResult()
             if HistoryOrdinarySelectionRestorePolicy.canRestore(
                 hasPendingLatestFocus: focusState.pendingLatestFocusItemID != nil,
@@ -5065,6 +5067,7 @@ struct HistoryWindowView: View {
                     isSearchTextDrivenUpdate = false
                 }
                 withTransaction(transaction) {
+                    appliedSearchQuery = request.searchText
                     applyFilteredPreviewResult(result)
                     if HistoryOrdinarySelectionRestorePolicy.canRestore(
                         hasPendingLatestFocus: focusState.pendingLatestFocusItemID != nil,
