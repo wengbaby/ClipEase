@@ -319,8 +319,8 @@ struct ClipboardMonitorPasteboardReadSnapshot {
 }
 
 struct ClipboardPollingPolicy: Sendable {
-    static let maximumScheduledInterval: TimeInterval = 0.25
-    static let timerTolerance: TimeInterval = 0.025
+    static let maximumScheduledInterval: TimeInterval = 1.0
+    static let timerTolerance: TimeInterval = 0.05
 
     let activeInterval: TimeInterval
     let idleInterval: TimeInterval
@@ -328,7 +328,7 @@ struct ClipboardPollingPolicy: Sendable {
 
     static let `default` = ClipboardPollingPolicy(
         activeInterval: 0.25,
-        idleInterval: 0.25,
+        idleInterval: 1.0,
         idleThreshold: 12
     )
 

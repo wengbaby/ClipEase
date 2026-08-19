@@ -20,14 +20,14 @@ import Testing
         idleThreshold: 12
     )
 
-    #expect(policy.interval(afterUnchangedPollCount: 12) == 0.25)
-    #expect(policy.interval(afterUnchangedPollCount: 30) == 0.25)
+    #expect(policy.interval(afterUnchangedPollCount: 12) == 0.75)
+    #expect(policy.interval(afterUnchangedPollCount: 30) == 0.75)
 }
 
 @Test func defaultClipboardPollingPolicyBalancesResponsivenessAndIdleCost() {
     #expect(ClipboardPollingPolicy.default.activeInterval == 0.25)
-    #expect(ClipboardPollingPolicy.default.idleInterval == 0.25)
+    #expect(ClipboardPollingPolicy.default.idleInterval == 1.0)
     #expect(ClipboardPollingPolicy.default.idleThreshold == 12)
-    #expect(ClipboardPollingPolicy.maximumScheduledInterval == 0.25)
-    #expect(ClipboardPollingPolicy.timerTolerance == 0.025)
+    #expect(ClipboardPollingPolicy.maximumScheduledInterval == 1.0)
+    #expect(ClipboardPollingPolicy.timerTolerance == 0.05)
 }

@@ -164,10 +164,13 @@ final class HistorySearchCoordinator: ObservableObject {
     ) throws -> HistorySearchFilterResult {
         let targetResultCount = request.targetResultCount ?? request.maxResultCount ?? request.pageSize
         var repositoryItems: [ClipboardItem] = []
+        var mergedPreviewItems: [HistoryPreviewItem] = []
         var filteredItems: [HistoryPreviewItem] = []
         var repositoryResultCount = 0
         var canLoadMore = false
         var offset = 0
+
+        let sourceByID = Dictionary(uniqueKeysWithValues: request.sourceItems.map { ($0.id, $0) })
 
         repeat {
             try Task.checkCancellation()
@@ -185,11 +188,12 @@ final class HistorySearchCoordinator: ObservableObject {
             repositoryResultCount += page.count
             offset += page.count
 
-            let mergedSourceItems = mergedRepositoryPreviewItems(
-                repositoryItems: repositoryItems,
-                sourceItems: request.sourceItems
-            )
-            let itemsToFilter = mergedSourceItems.isEmpty ? request.sourceItems : mergedSourceItems
+            let mergedPage = page.map { item -> HistoryPreviewItem in
+                sourceByID[item.id] ?? HistoryPreviewItem(item: item)
+            }
+            mergedPreviewItems.append(contentsOf: mergedPage)
+
+            let itemsToFilter = mergedPreviewItems.isEmpty ? request.sourceItems : mergedPreviewItems
             filteredItems = try HistorySearchController.filterItems(
                 itemsToFilter,
                 selectedGroup: request.selectedGroup,

@@ -187,7 +187,7 @@ import Testing
 
     #expect(payload.payloadReadCount == 1)
     #expect(timerProbe.current?.timeInterval == 0.25)
-    #expect(timerProbe.current?.tolerance == 0.025)
+    #expect(timerProbe.current?.tolerance == 0.05)
     monitor.stop()
 }
 
