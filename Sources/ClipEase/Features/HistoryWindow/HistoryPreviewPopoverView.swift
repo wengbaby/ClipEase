@@ -37,10 +37,16 @@ struct HistoryPreviewPopoverView: View {
 
             if showsArrow {
                 Triangle()
-                    .fill(appearanceSettings.cardStyle.materialTheme.gradient)
-                    .opacity(previewArrowOpacity)
                     .frame(width: 26, height: 14)
                     .padding(.leading, arrowX - 13)
+                    .background {
+                        ZStack {
+                            Color(nsColor: .windowBackgroundColor)
+                            appearanceSettings.materialTheme.gradient
+                                .opacity(appearanceSettings.windowEffectOpacity * 0.62)
+                        }
+                        .clipShape(Triangle())
+                    }
             }
         }
         .frame(width: size.width, height: size.height + (showsArrow ? 14 : 0), alignment: .topLeading)
@@ -826,9 +832,16 @@ struct HistoryPreviewPopoverView: View {
 private struct Triangle: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        let tipRadius: CGFloat = min(4, rect.height / 3.5)
+        let baseY = rect.minY
+        let tipY = rect.maxY
+        let tipX = rect.midX
+
+        path.move(to: CGPoint(x: rect.minX, y: baseY))
+        path.addLine(to: CGPoint(x: tipX - tipRadius, y: tipY - tipRadius))
+        path.addQuadCurve(to: CGPoint(x: tipX + tipRadius, y: tipY - tipRadius),
+                          control: CGPoint(x: tipX, y: tipY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: baseY))
         path.closeSubpath()
         return path
     }

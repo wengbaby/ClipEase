@@ -166,12 +166,33 @@ final class HistoryPreviewWindowController {
     }
 
     private func animatePanelOpen(_ panel: NSPanel, animationGeneration: UInt64) {
+        guard let layer = panel.contentView?.layer else {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = bloomOpenDuration
+                panel.contentView?.animator().alphaValue = 1
+            }
+            return
+        }
+
+        let scaleAnimation = CAKeyframeAnimation(keyPath: "transform")
+        scaleAnimation.duration = bloomOpenDuration
+        scaleAnimation.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+        scaleAnimation.values = [
+            NSValue(caTransform3D: CATransform3DMakeScale(0.12, 0.04, 1)),
+            NSValue(caTransform3D: CATransform3DMakeScale(0.5, 0.5, 1)),
+            NSValue(caTransform3D: CATransform3DIdentity)
+        ]
+        scaleAnimation.keyTimes = [0, 0.55, 1]
+        scaleAnimation.fillMode = .forwards
+        scaleAnimation.isRemovedOnCompletion = false
+
         NSAnimationContext.runAnimationGroup { context in
             context.duration = bloomOpenDuration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
             panel.contentView?.animator().alphaValue = 1
-            panel.contentView?.layer?.opacity = 1
-            panel.contentView?.layer?.transform = CATransform3DIdentity
+            layer.opacity = 1
+            layer.add(scaleAnimation, forKey: "bloomOpen")
+            layer.transform = CATransform3DIdentity
         } completionHandler: { [weak self, weak panel] in
             MainActor.assumeIsolated {
                 guard let self,
@@ -270,7 +291,24 @@ final class HistoryPreviewWindowController {
         attachedAnimationGeneration &+= 1
         let animationGeneration = attachedAnimationGeneration
         isAttachedClosing = true
-        resetContentBloomLayer(panel)
+
+        let scaleAnimation = CAKeyframeAnimation(keyPath: "transform")
+        scaleAnimation.duration = bloomCloseDuration
+        scaleAnimation.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
+        scaleAnimation.values = [
+            NSValue(caTransform3D: CATransform3DIdentity),
+            NSValue(caTransform3D: CATransform3DMakeScale(0.85, 0.85, 1)),
+            NSValue(caTransform3D: CATransform3DMakeScale(0.12, 0.04, 1))
+        ]
+        scaleAnimation.keyTimes = [0, 0.5, 1]
+        scaleAnimation.fillMode = .forwards
+        scaleAnimation.isRemovedOnCompletion = false
+
+        if let layer = panel.contentView?.layer {
+            layer.add(scaleAnimation, forKey: "bloomClose")
+            layer.transform = CATransform3DMakeScale(0.12, 0.04, 1)
+        }
+
         NSAnimationContext.runAnimationGroup { context in
             context.duration = bloomCloseDuration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.7, 0.0, 0.84, 0.0)
