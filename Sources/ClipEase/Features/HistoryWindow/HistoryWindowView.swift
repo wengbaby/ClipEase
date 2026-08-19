@@ -9,7 +9,7 @@ struct HistoryWindowView: View {
     @ObservedObject var inputState: HistoryWindowInputState
     @ObservedObject var recordingController: RecordingController
     @ObservedObject var accessibilityPermissionState: AccessibilityPermissionState
-    @ObservedObject private var appearanceSettings = AppearanceSettings.shared
+    @ObservedObject var appearanceSettings = AppearanceSettings.shared
     @ObservedObject private var languageSettings = AppLanguageSettings.shared
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var searchCoordinator = HistorySearchCoordinator()
@@ -36,7 +36,7 @@ struct HistoryWindowView: View {
     @State var isSearchFocused = false
     @State var isSearchTextComposing = false
     @State private var isSearchTextDrivenUpdate = false
-    @State private var appliedSearchQuery = ""
+    @State var appliedSearchQuery = ""
     @State var searchLeadingContentWidth: CGFloat = 0
     @State var searchTextInsertionIndex = Int.max
     @State var searchFocusRequestID = 0
@@ -64,7 +64,7 @@ struct HistoryWindowView: View {
     private let allHistoryGroupColor = Color(red: 0.18, green: 0.55, blue: 1.0)
     private let groupAppearancePopoverWidth: CGFloat = 304
     private let groupAppearanceIconGridHeight: CGFloat = 178
-    private let selectedCardTopContentInset: CGFloat = HistoryWindowPanelMetrics.selectedCardTopContentInset
+    let selectedCardTopContentInset: CGFloat = HistoryWindowPanelMetrics.selectedCardTopContentInset
 
     var toolbarPrimaryForeground: Color {
         let opacity = 0.68 + glassEnvironment.toolbarTextContrast * 0.32
@@ -91,9 +91,9 @@ struct HistoryWindowView: View {
     private var toolbarButtonTypography: AppearanceTypography { appearanceSettings.typography(for: .toolbarButton) }
     private let horizontalContentPadding: CGFloat = 28
     private let horizontalCardSpacing: CGFloat = 20
-    private let historyCardWidth: CGFloat = 250
+    let historyCardWidth: CGFloat = 250
     private let latestItemEntranceDuration: TimeInterval = 1.15
-    private let latestItemEntranceSheenDuration: TimeInterval = 1.8
+    let latestItemEntranceSheenDuration: TimeInterval = 1.8
     private let pendingItemScrollMaxRetryCount = 6
     private let largeHistoryAnimationThreshold = 2_000
     private let historyRailWindowBufferItemCount = 6
@@ -104,7 +104,7 @@ struct HistoryWindowView: View {
     private let hiddenHistoryPanelHeight: CGFloat = HistoryWindowPanelMetrics.height
     private let latestInsertedCardLeadingInset: CGFloat = 28
 
-    private var glassEnvironment: HistoryGlassEnvironment {
+    var glassEnvironment: HistoryGlassEnvironment {
         _ = glassEnvironmentRevision
         return HistoryGlassEnvironment(
             supportsNativeGlass: HistoryGlassRuntime.supportsNativeGlass,
@@ -153,7 +153,7 @@ struct HistoryWindowView: View {
         nonmutating set { cardInteractionState.select(newValue) }
     }
 
-    private var trackedCardGeometryIDs: Set<HistoryPreviewItem.ID> {
+    var trackedCardGeometryIDs: Set<HistoryPreviewItem.ID> {
         HistoryCardGeometryCollectionPolicy.trackedIDs(
             previewedID: previewState.isVisible ? previewState.itemID : nil,
             selectedID: selectedItemID,
@@ -162,7 +162,7 @@ struct HistoryWindowView: View {
         )
     }
 
-    private var enteringItemIDs: Set<ClipboardItem.ID> {
+    var enteringItemIDs: Set<ClipboardItem.ID> {
         get { cardInteractionState.enteringItemIDs }
         nonmutating set { cardInteractionState.enteringItemIDs = newValue }
     }
@@ -172,12 +172,12 @@ struct HistoryWindowView: View {
         nonmutating set { cardInteractionState.enteringItemClearTask = newValue }
     }
 
-    private var entranceSheenItemIDs: Set<ClipboardItem.ID> {
+    var entranceSheenItemIDs: Set<ClipboardItem.ID> {
         get { cardInteractionState.entranceSheenItemIDs }
         nonmutating set { cardInteractionState.entranceSheenItemIDs = newValue }
     }
 
-    private var entranceSheenStartTime: CFTimeInterval? {
+    var entranceSheenStartTime: CFTimeInterval? {
         get { cardInteractionState.entranceSheenStartTime }
         nonmutating set { cardInteractionState.entranceSheenStartTime = newValue }
     }
@@ -187,12 +187,12 @@ struct HistoryWindowView: View {
         nonmutating set { cardInteractionState.entranceSheenClearTask = newValue }
     }
 
-    private var hoveredCardID: HistoryPreviewItem.ID? {
+    var hoveredCardID: HistoryPreviewItem.ID? {
         get { cardInteractionState.hoveredCardID }
         nonmutating set { cardInteractionState.hoveredCardID = newValue }
     }
 
-    private var pressedCardID: HistoryPreviewItem.ID? {
+    var pressedCardID: HistoryPreviewItem.ID? {
         get { cardInteractionState.pressedCardID }
         nonmutating set { cardInteractionState.pressedCardID = newValue }
     }
@@ -233,7 +233,7 @@ struct HistoryWindowView: View {
         historyCardWidth + horizontalCardSpacing
     }
 
-    private var historyRailContentWidth: CGFloat {
+    var historyRailContentWidth: CGFloat {
         RenderWindowCoordinator.contentWidth(
             itemCount: renderedItems.count,
             cardWidth: historyCardWidth,
@@ -275,14 +275,14 @@ struct HistoryWindowView: View {
         )
     }
 
-    private var renderedWindowItems: ArraySlice<HistoryPreviewItem> {
+    var renderedWindowItems: ArraySlice<HistoryPreviewItem> {
         RenderWindowCoordinator.renderedWindowItems(
             items: renderedItems,
             visibleWindow: historyRailVisibleWindow
         )
     }
 
-    private func requestNextHistoryPageIfNeeded() {
+    func requestNextHistoryPageIfNeeded() {
         if previewItemsState.isUsingUnfilteredResult {
             store.loadMoreItemsIfNeeded(visibleUpperBound: historyRailVisibleWindow.upperBound, preloadMargin: 20)
         } else {
@@ -379,7 +379,7 @@ struct HistoryWindowView: View {
         isTextInputActiveForEditShortcut || inputState.isPreviewContentActive
     }
 
-    private var isShortcutOverlayVisible: Bool {
+    var isShortcutOverlayVisible: Bool {
         HistoryShortcutOverlayPolicy.isVisible(
             isCommandKeyPressed: isCommandKeyPressed,
             isInputCommandKeyPressed: inputState.isCommandKeyPressed,
@@ -821,161 +821,11 @@ struct HistoryWindowView: View {
         }
     }
 
-    @ViewBuilder
-    private var historyRail: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            ZStack(alignment: .topLeading) {
-                CardRailScrollViewBinder {
-                    updateCardRailVisibleRect()
-                    requestNextHistoryPageIfNeeded()
-                }
-                    .frame(width: 0, height: 0)
-
-                ForEach(renderedWindowItems) { item in
-                    historyCard(item)
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.96)
-                                .combined(with: .opacity),
-                            removal: .scale(scale: 0.985)
-                                .combined(with: .opacity)
-                        ))
-                        .frame(width: historyCardWidth)
-                        .offset(x: cardDocumentX(for: item.id))
-                }
-            }
-            .frame(width: historyRailContentWidth, height: HistoryWindowPanelMetrics.railFrameHeight, alignment: .topLeading)
-            .padding(.top, selectedCardTopContentInset)
-            .padding(.bottom, 8)
-            .padding(.bottom, HistoryWindowPanelMetrics.railBottomPadding - 8)
-        }
-    }
-
-    @ViewBuilder
-    private func historyCard(_ item: HistoryPreviewItem) -> some View {
-        let isSelected = selectedItemID == item.id
-        let isCardFocused = isSelected && HistoryCardFocusPolicy.isCardFocusActive(
-            selectedItemID: selectedItemID,
-            isSearchFieldFocused: isSearchFocused || inputState.isTextInputFocusedSnapshot,
-            searchHasHandedOffFocusToCard: searchUIState.hasHandedOffFocusToCard
-        )
-        let isHovered = hoveredCardID == item.id
-        let isPressed = pressedCardID == item.id
-        let isEnteringLatestItem = enteringItemIDs.contains(item.id)
-        let visualState = HistoryCardVisualState(
-            isSelected: isSelected,
-            isKeyboardFocused: isCardFocused,
-            isHovered: isHovered,
-            isPressed: isPressed,
-            isEnteringLatestItem: isEnteringLatestItem,
-            isShortcutOverlayVisible: isShortcutOverlayVisible,
-            environment: glassEnvironment,
-            renderPlan: HistoryGlassPolicy.resolve(
-                role: isSelected ? .selectedCard : .card,
-                environment: glassEnvironment
-            ),
-            cardStyle: appearanceSettings.cardStyle
-        )
-        let presentation = HistoryCardPresentationPolicy.resolve(visualState)
-        let isShowingEntranceSheen = entranceSheenItemIDs.contains(item.id) && presentation.showsEntranceSheen
-        let cardScale = CGFloat(presentation.scale)
-
-        HistoryCardView(
-            item: item,
-            searchQuery: appliedSearchQuery,
-            shortcutNumber: shortcutNumber(for: item.id),
-            isShortcutOverlayVisible: isShortcutOverlayVisible,
-            isHovered: isHovered,
-            isPressed: isPressed,
-            isEnteringLatestItem: isEnteringLatestItem,
-            isSelected: isSelected,
-            visualState: visualState,
-            onClick: {
-                selectCardForPrimaryClick(item)
-            },
-            onDoubleClick: {
-                blurSearchFieldForCardInteraction()
-                pasteItem(item.id)
-            },
-            onPreview: {
-                showPreview(item.id)
-            },
-            onRightMouseDown: {
-                selectCardForContextMenu(item)
-            },
-            onMenu: {
-                cardMenu(for: item)
-            },
-            onFileDragStatus: showStatus,
-            onHoverChanged: { isHovered in
-                setCardHover(item.id, isHovered: isHovered)
-            },
-            onPressChanged: { isPressed in
-                setCardPress(item.id, isPressed: isPressed)
-            },
-            onMouseExitedWindow: closeWindowForCardDrag
-        )
-        .equatable()
-        .background {
-            if trackedCardGeometryIDs.contains(item.id) {
-                CardViewportFrameReader(itemID: item.id)
-            }
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(
-                    visualState.isKeyboardFocused ? Color(red: 0.08, green: 0.38, blue: 0.90) : (isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.92) : Color.black.opacity(0.08)),
-                    lineWidth: presentation.borderWidth
-                )
-                .allowsHitTesting(false)
-        }
-        .overlay {
-            if presentation.focusRingWidth > 0 {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color(red: 0.08, green: 0.38, blue: 0.90), lineWidth: presentation.focusRingWidth)
-                    .padding(-4)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(Color.white.opacity(0.92), lineWidth: 1)
-                            .padding(2)
-                    }
-                    .allowsHitTesting(false)
-            }
-        }
-        .overlay {
-            if isShowingEntranceSheen {
-                latestCardEntranceSheen
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .allowsHitTesting(false)
-            }
-        }
-        .shadow(
-            color: .black.opacity(0),
-            radius: 0,
-            x: 0,
-            y: 0
-        )
-        .scaleEffect(cardScale, anchor: .center)
-        .animation(.easeOut(duration: visualState.environment.reduceMotion ? 0.12 : 0.18), value: isCardFocused)
-        .animation(.easeOut(duration: visualState.environment.reduceMotion ? 0.12 : 0.22), value: isEnteringLatestItem)
-        .animation(.easeOut(duration: 0.12), value: isHovered)
-        .animation(.easeOut(duration: 0.06), value: isPressed)
-        .id(item.id)
-        .contentShape(Rectangle())
-        .zIndex(isPressed ? 4 : (isHovered ? 3 : (isCardFocused ? 2 : 0)))
-    }
-
-    private var latestCardEntranceSheen: some View {
-        HistoryCardEntranceSheen(
-            startTime: entranceSheenStartTime,
-            duration: latestItemEntranceSheenDuration
-        )
-    }
-
-    private func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
+    func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
         cardInteractionState.setHover(id, isHovered: isHovered)
     }
 
-    private func setCardPress(_ id: HistoryPreviewItem.ID, isPressed: Bool) {
+    func setCardPress(_ id: HistoryPreviewItem.ID, isPressed: Bool) {
         cardInteractionState.setPress(id, isPressed: isPressed)
     }
 
@@ -1509,7 +1359,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func cardMenu(for item: HistoryPreviewItem) -> NSMenu {
+    func cardMenu(for item: HistoryPreviewItem) -> NSMenu {
         let menu = NSMenu()
 
         HistoryMenuBuilder.addMenuItem(HistoryCommand.paste.title, to: menu) { pasteItem(item.id) }
@@ -1972,7 +1822,7 @@ struct HistoryWindowView: View {
         pasteItem(id)
     }
 
-    private func shortcutNumber(for id: HistoryPreviewItem.ID) -> Int? {
+    func shortcutNumber(for id: HistoryPreviewItem.ID) -> Int? {
         guard let index = filteredItems.prefix(9).firstIndex(where: { $0.id == id }) else {
             return nil
         }
@@ -2211,7 +2061,7 @@ struct HistoryWindowView: View {
         viewportStore.mode = .automatic
     }
 
-    private func showPreview(_ id: ClipboardItem.ID?) {
+    func showPreview(_ id: ClipboardItem.ID?) {
         let startedAt = CFAbsoluteTimeGetCurrent()
         guard let item = store.item(with: id) else {
             return
@@ -2940,7 +2790,7 @@ struct HistoryWindowView: View {
         return "rgb(\(red), \(green), \(blue))"
     }
 
-    private func selectCardForPrimaryClick(_ item: HistoryPreviewItem) {
+    func selectCardForPrimaryClick(_ item: HistoryPreviewItem) {
         let startedAt = CFAbsoluteTimeGetCurrent()
         blurSearchFieldForCardInteraction()
 
@@ -2964,7 +2814,7 @@ struct HistoryWindowView: View {
         )
     }
 
-    private func selectCardForContextMenu(_ item: HistoryPreviewItem) {
+    func selectCardForContextMenu(_ item: HistoryPreviewItem) {
         let startedAt = CFAbsoluteTimeGetCurrent()
         blurSearchFieldForCardInteraction()
 
@@ -2988,7 +2838,7 @@ struct HistoryWindowView: View {
         )
     }
 
-    private func blurSearchFieldForCardInteraction() {
+    func blurSearchFieldForCardInteraction() {
         guard isSearchFocused || inputState.isTextInputFocusedSnapshot else {
             return
         }
@@ -3348,7 +3198,7 @@ struct HistoryWindowView: View {
         return cardDocumentFrame(forRenderedIndex: itemIndex)
     }
 
-    private func cardDocumentX(for id: HistoryPreviewItem.ID) -> CGFloat {
+    func cardDocumentX(for id: HistoryPreviewItem.ID) -> CGFloat {
         guard let itemIndex = renderedItemIndex(for: id) else {
             return horizontalContentPadding
         }
@@ -3464,7 +3314,7 @@ struct HistoryWindowView: View {
         onClosePreview()
     }
 
-    private func updateCardRailVisibleRect() {
+    func updateCardRailVisibleRect() {
         guard let visibleRect = HistoryScrollCoordinator.shared.visibleDocumentRect else {
             return
         }
@@ -3538,7 +3388,7 @@ struct HistoryWindowView: View {
         return retainedIDs
     }
 
-    private func showStatus(_ text: String) {
+    func showStatus(_ text: String) {
         let generation = statusState.show(text)
         GlobalStatusToastController.shared.show(text, relativeTo: hostWindow)
         Task { @MainActor in
@@ -5170,7 +5020,7 @@ struct HistoryWindowView: View {
         onClose()
     }
 
-    private func closeWindowForCardDrag() {
+    func closeWindowForCardDrag() {
         closePreview()
         cancelPendingGroupRename()
         onClose()
