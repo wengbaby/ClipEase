@@ -4,6 +4,12 @@ import AppKit
 extension HistoryWindowView {
     var searchField: some View {
         HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(toolbarSecondaryForeground)
+                .frame(width: 14, height: 20)
+                .opacity(searchUIState.isFieldVisualVisible ? 1 : 0)
+
             GeometryReader { availableSpace in
                 let insertionIndex = min(
                     max(0, searchTextInsertionIndex),
@@ -17,11 +23,6 @@ extension HistoryWindowView {
                 ScrollViewReader { scrollProxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 0) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(toolbarSecondaryForeground)
-                                .frame(width: 14, height: 20)
-
                             ForEach(Array(searchTokens.enumerated()), id: \.element.id) { index, token in
                                 if index > 0 {
                                     searchTokenInsertionGap(at: index)
@@ -58,6 +59,7 @@ extension HistoryWindowView {
                     ))
                     .contentShape(Rectangle())
                     .onTapGesture {
+                        searchUIState.selectedTokenKind = nil
                         focusSearchField()
                     }
                     .onChange(of: searchTokens) { _ in
@@ -110,13 +112,15 @@ extension HistoryWindowView {
                 .overlay {
                     RoundedRectangle(cornerRadius: searchGlassSurfaceStyle.cornerRadius, style: .continuous)
                         .strokeBorder(
-                            Color.white.opacity(searchGlassSurfaceStyle.boundaryOpacity),
+                            Color(red: 0.18, green: 0.55, blue: 1.0)
+                                .opacity(searchUIState.isFieldVisualVisible ? 0.5 : 0),
                             lineWidth: 1
                         )
                 }
         }
         .contentShape(Rectangle())
         .onTapGesture {
+            searchUIState.selectedTokenKind = nil
             focusSearchField()
         }
         .background(
@@ -149,15 +153,11 @@ extension HistoryWindowView {
         .foregroundStyle(toolbarPrimaryForeground)
         .scaleEffect(searchUIState.isFieldVisualVisible ? 1 : 1, anchor: .center)
         .allowsHitTesting(searchUIState.isVisible)
-        .animation(.easeOut(duration: 0.12), value: searchUIState.isFieldVisualVisible)
+        .animation(.easeInOut(duration: 0.22), value: searchUIState.isFieldVisualVisible)
     }
 
     var searchTokenWidthMeasurer: some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 14, height: 20)
-
             ForEach(searchTokens) { token in
                 searchTokenView(token)
             }
@@ -227,6 +227,9 @@ extension HistoryWindowView {
         let addedStroke = Color(red: 0.45, green: 0.68, blue: 0.92)
 
         return HStack(spacing: 4) {
+            Image(systemName: token.kind.iconName)
+                .font(.system(size: 10, weight: .semibold))
+
             Text(token.title)
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
@@ -241,14 +244,14 @@ extension HistoryWindowView {
             .foregroundStyle(.secondary)
             .help(L("移除\(token.title)"))
         }
-        .padding(.leading, 7)
-        .padding(.trailing, 5)
-        .frame(height: 20)
+        .padding(.leading, 8)
+        .padding(.trailing, 6)
+        .frame(height: 22)
         .foregroundStyle(isSelected ? .white : Color(red: 0.08, green: 0.22, blue: 0.38))
         .background(isSelected ? selectedBackground : addedBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(isSelected ? selectedBackground : addedStroke.opacity(0.7), lineWidth: 1)
         }
         .fixedSize()
@@ -256,8 +259,11 @@ extension HistoryWindowView {
         .onTapGesture {
             if searchUIState.selectedTokenKind == token.kind {
                 searchUIState.selectedTokenKind = nil
+                focusSearchField()
             } else {
                 searchUIState.selectedTokenKind = token.kind
+                isSearchFocused = false
+                inputState.setTextInputFocused(false)
             }
         }
     }

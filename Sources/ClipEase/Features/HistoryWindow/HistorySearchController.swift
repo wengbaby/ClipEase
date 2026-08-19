@@ -158,6 +158,21 @@ enum HistorySearchTokenKind: Hashable, Sendable {
     case sourceApp(String)
     case date(HistorySearchDateRange)
     case group(HistorySearchGroup)
+
+    var iconName: String {
+        switch self {
+        case .type(let type):
+            type.iconName
+        case .sourceApp:
+            "app"
+        case .date:
+            "calendar"
+        case .group(.pinned):
+            "pin.fill"
+        case .group:
+            "folder.fill"
+        }
+    }
 }
 
 struct HistorySearchToken: Identifiable, Equatable, Sendable {

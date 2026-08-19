@@ -2840,23 +2840,13 @@ struct HistoryWindowView: View {
     private func updateSearchFieldPresentation(isVisible: Bool) {
         searchVisibilityTask?.cancel()
 
-        if isVisible {
-            searchUIState.setFieldPresentationVisible(true)
-            searchVisibilityTask = Task { @MainActor in
-                await Task.yield()
-                guard !Task.isCancelled, searchUIState.isVisible else {
-                    return
-                }
-                searchUIState.finishFieldPresentationShow()
-            }
-        } else {
-            searchUIState.setFieldPresentationVisible(false)
-            searchVisibilityTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                guard !Task.isCancelled, !searchUIState.isVisible else {
-                    return
-                }
-                searchUIState.finishFieldPresentationHide()
+        withAnimation(.easeInOut(duration: 0.22)) {
+            if isVisible {
+                searchUIState.isFieldLayoutVisible = true
+                searchUIState.isFieldVisualVisible = true
+            } else {
+                searchUIState.isFieldVisualVisible = false
+                searchUIState.isFieldLayoutVisible = false
             }
         }
     }
