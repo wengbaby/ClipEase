@@ -469,11 +469,16 @@ struct HistoryWindowView: View {
                 toolbar
 
                 if items.isEmpty && store.items.isEmpty {
-                    allEmptyState
+                    HistoryAllEmptyStateView()
                 } else if items.isEmpty {
-                    loadingContentState
+                    HistoryLoadingContentStateView()
                 } else if filteredItems.isEmpty {
-                    emptyContentState
+                    HistoryEmptyContentStateView(
+                        isSearchActive: isSearchActive,
+                        isSelectedGroupPinned: groupUIState.selectedGroup == .pinned,
+                        selectedGroupIDIsNotNil: selectedGroupID != nil,
+                        pinnedSystemGroupColor: systemGroupColor(.pinned)
+                    )
                 } else {
                     ScrollViewReader { proxy in
                         historyRail
@@ -2833,84 +2838,6 @@ struct HistoryWindowView: View {
             Button(L("截止到今日")) {
                 appMenuController.pauseUntilEndOfToday()
             }
-    }
-
-    private var allEmptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "doc.on.clipboard")
-                .font(.system(size: 42, weight: .regular))
-                .foregroundStyle(Color(red: 0.18, green: 0.55, blue: 1.0))
-
-            Text(L("复制一段文字后会显示在这里"))
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.primary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.bottom, 32)
-    }
-
-    private var emptyContentState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: emptyContentIconName)
-                .font(.system(size: 38, weight: .regular))
-                .foregroundStyle(emptyContentTint)
-
-            Text(emptyContentMessage)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.primary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.bottom, 32)
-    }
-
-    private var loadingContentState: some View {
-        VStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-
-            Text(L("正在加载历史"))
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.primary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.bottom, 32)
-    }
-
-    private var emptyContentMessage: String {
-        if !isSearchActive {
-            if groupUIState.selectedGroup == .pinned {
-                return L("暂无置顶内容")
-            }
-
-            if selectedGroupID != nil {
-                return L("暂无内容")
-            }
-        }
-
-        return L("没有找到匹配的历史")
-    }
-
-    private var emptyContentIconName: String {
-        if !isSearchActive,
-           groupUIState.selectedGroup == .pinned {
-            return "pin"
-        }
-
-        if !isSearchActive,
-           selectedGroupID != nil {
-            return "tray"
-        }
-
-        return "magnifyingglass"
-    }
-
-    private var emptyContentTint: Color {
-        if !isSearchActive,
-           groupUIState.selectedGroup == .pinned {
-            return systemGroupColor(.pinned)
-        }
-
-        return Color(red: 0.18, green: 0.55, blue: 1.0)
     }
 
     private func moveSelection(_ direction: MoveCommandDirection) {
