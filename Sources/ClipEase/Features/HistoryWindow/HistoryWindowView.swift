@@ -30,17 +30,17 @@ struct HistoryWindowView: View {
     @State private var cardInteractionState = HistoryWindowCardInteractionState()
     @State private var statusState = HistoryWindowStatusState()
     @State private var hostWindow: NSWindow?
-    @State private var searchUIState = HistoryWindowSearchUIState()
+    @State var searchUIState = HistoryWindowSearchUIState()
     @State private var groupUIState = HistoryWindowGroupUIState()
     @State private var isCommandKeyPressed = false
-    @State private var isSearchFocused = false
-    @State private var isSearchTextComposing = false
+    @State var isSearchFocused = false
+    @State var isSearchTextComposing = false
     @State private var isSearchTextDrivenUpdate = false
     @State private var appliedSearchQuery = ""
-    @State private var searchLeadingContentWidth: CGFloat = 0
-    @State private var searchTextInsertionIndex = Int.max
-    @State private var searchFocusRequestID = 0
-    @State private var pendingComposedSearchInputEvent: HistoryKeyboardPendingTextInputEvent?
+    @State var searchLeadingContentWidth: CGFloat = 0
+    @State var searchTextInsertionIndex = Int.max
+    @State var searchFocusRequestID = 0
+    @State var pendingComposedSearchInputEvent: HistoryKeyboardPendingTextInputEvent?
     @State private var previewItemsState = HistoryWindowPreviewItemsState()
     @State private var previewBuildTask: Task<Void, Never>?
     @State private var previewBuildGeneration: UInt64 = 0
@@ -50,7 +50,7 @@ struct HistoryWindowView: View {
     @State private var latestFocusRetryTask: Task<Void, Never>?
     @State private var hiddenResourceCheckpointTask: Task<Void, Never>?
     @State private var lastHiddenResourceCheckpointAt: CFAbsoluteTime = 0
-    @State private var viewportState = HistoryWindowViewportState()
+    @State var viewportState = HistoryWindowViewportState()
     @State private var focusState = HistoryWindowFocusState()
     @State private var pendingKeyboardFocusClearTask: Task<Void, Never>?
     @State private var glassEnvironmentRevision = 0
@@ -66,17 +66,17 @@ struct HistoryWindowView: View {
     private let groupAppearanceIconGridHeight: CGFloat = 178
     private let selectedCardTopContentInset: CGFloat = HistoryWindowPanelMetrics.selectedCardTopContentInset
 
-    private var toolbarPrimaryForeground: Color {
+    var toolbarPrimaryForeground: Color {
         let opacity = 0.68 + glassEnvironment.toolbarTextContrast * 0.32
         return colorScheme == .dark ? .white.opacity(opacity) : .black.opacity(opacity)
     }
 
-    private var toolbarSecondaryForeground: Color {
+    var toolbarSecondaryForeground: Color {
         let opacity = 0.42 + glassEnvironment.toolbarTextContrast * 0.48
         return colorScheme == .dark ? .white.opacity(opacity) : .black.opacity(opacity)
     }
 
-    private var toolbarPrimaryNSColor: NSColor {
+    var toolbarPrimaryNSColor: NSColor {
         let alpha = 0.68 + glassEnvironment.toolbarTextContrast * 0.32
         return (colorScheme == .dark ? NSColor.white : NSColor.black).withAlphaComponent(alpha)
     }
@@ -86,7 +86,7 @@ struct HistoryWindowView: View {
     }
 
     private var titleTypography: AppearanceTypography { appearanceSettings.typography(for: .windowTitle) }
-    private var searchTypography: AppearanceTypography { appearanceSettings.typography(for: .search) }
+    var searchTypography: AppearanceTypography { appearanceSettings.typography(for: .search) }
     private var groupTypography: AppearanceTypography { appearanceSettings.typography(for: .group) }
     private var toolbarButtonTypography: AppearanceTypography { appearanceSettings.typography(for: .toolbarButton) }
     private let horizontalContentPadding: CGFloat = 28
@@ -133,7 +133,7 @@ struct HistoryWindowView: View {
         HistoryGlassPolicy.resolve(role: .controls, environment: glassEnvironment)
     }
 
-    private var searchGlassSurfaceStyle: HistoryGlassSearchSurfaceStyle {
+    var searchGlassSurfaceStyle: HistoryGlassSearchSurfaceStyle {
         HistoryGlassSearchSurfacePolicy.resolve(
             plan: controlsGlassPlan,
             environment: glassEnvironment
@@ -201,7 +201,7 @@ struct HistoryWindowView: View {
         previewItemsState.allItems
     }
 
-    private var filteredItems: [HistoryPreviewItem] {
+    var filteredItems: [HistoryPreviewItem] {
         previewItemsState.visibleItems
     }
 
@@ -345,14 +345,14 @@ struct HistoryWindowView: View {
         groupUIState.selectedGroupID
     }
 
-    private var searchTokens: [HistorySearchToken] {
+    var searchTokens: [HistorySearchToken] {
         HistorySearchToken.tokens(
             criteria: searchUIState.criteria,
             groups: store.groups
         )
     }
 
-    private var isSearchActive: Bool {
+    var isSearchActive: Bool {
         searchUIState.isActive
     }
 
@@ -1674,267 +1674,7 @@ struct HistoryWindowView: View {
         HistoryAuthorizationButton(action: openAccessibilitySettingsIfNeeded)
     }
 
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            GeometryReader { availableSpace in
-                let insertionIndex = min(
-                    max(0, searchTextInsertionIndex),
-                    searchTokens.count
-                )
-                let inputWidth = max(
-                    24,
-                    availableSpace.size.width - searchLeadingContentWidth - 3
-                )
-
-                ScrollViewReader { scrollProxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 0) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(toolbarSecondaryForeground)
-                                .frame(width: 14, height: 20)
-
-                            ForEach(Array(searchTokens.enumerated()), id: \.element.id) { index, token in
-                                if index > 0 {
-                                    searchTokenInsertionGap(at: index)
-                                }
-
-                                if insertionIndex == index {
-                                    searchTextInput(
-                                        scrollProxy: scrollProxy,
-                                        width: inputWidth
-                                    )
-                                }
-
-                                searchTokenView(token)
-                                    .id(token.id)
-                            }
-
-                            if !searchTokens.isEmpty {
-                                searchTokenInsertionGap(at: searchTokens.count)
-                            }
-
-                            if insertionIndex == searchTokens.count {
-                                searchTextInput(
-                                    scrollProxy: scrollProxy,
-                                    width: inputWidth
-                                )
-                            }
-                        }
-                        .id("search-leading-content")
-                        .frame(minWidth: availableSpace.size.width, alignment: .leading)
-                    }
-                    .background(HorizontalScrollWheelRedirector(
-                        scope: .auxiliaryRail,
-                        isEnabled: inputState.isWindowVisible
-                    ))
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        focusSearchField()
-                    }
-                    .onChange(of: searchTokens) { _ in
-                        searchTextInsertionIndex = searchTokens.count
-                        scrollProxy.scrollTo("search-text-field", anchor: .trailing)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .background(searchTokenWidthMeasurer)
-
-            if isSearchActive {
-                Button(action: clearSearchTextAndFilters) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(toolbarSecondaryForeground)
-                .help(L("清空搜索"))
-            }
-
-            Button(action: toggleSearchFilterPanel) {
-                Image(systemName: searchUIState.criteria.hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(searchUIState.criteria.hasActiveFilters ? Color(red: 0.18, green: 0.55, blue: 1.0) : toolbarSecondaryForeground)
-            .help(L("搜索筛选"))
-            .popover(isPresented: $searchUIState.isFilterPanelPresented, arrowEdge: .bottom) {
-                searchFilterPanel
-                    .fixedSize()
-                    .background(SearchPanelWindowReader(onWindowChange: { _ in
-                        refreshSearchInteractionScreenFrames()
-                    }))
-            }
-        }
-        .onPreferenceChange(SearchLeadingContentWidthPreferenceKey.self) { width in
-            guard abs(searchLeadingContentWidth - width) > 0.5 else {
-                return
-            }
-            searchLeadingContentWidth = width
-        }
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30)
-        .background {
-            RoundedRectangle(cornerRadius: searchGlassSurfaceStyle.cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(
-                    searchUIState.isFieldVisualVisible ? searchGlassSurfaceStyle.fillOpacity : 0
-                ))
-                .overlay {
-                    RoundedRectangle(cornerRadius: searchGlassSurfaceStyle.cornerRadius, style: .continuous)
-                        .strokeBorder(
-                            Color.white.opacity(searchGlassSurfaceStyle.boundaryOpacity),
-                            lineWidth: 1
-                        )
-                }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            focusSearchField()
-        }
-        .background(
-            SearchInteractionLiveRegion(
-                isActive: searchUIState.isVisible,
-                onRegister: { view in
-                    SearchInteractionRegionRegistry.shared.register(view)
-                },
-                onUnregister: { view in
-                    SearchInteractionRegionRegistry.shared.unregister(view)
-                }
-            )
-        )
-        .background(
-            SearchInteractionScreenFrameReader(isActive: searchUIState.isVisible) { frame in
-                if viewportState.searchControlScreenFrame != frame {
-                    viewportState.searchControlScreenFrame = frame
-                }
-            }
-        )
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: SearchInteractionFramePreferenceKey.self,
-                    value: searchUIState.isVisible ? [proxy.frame(in: .named("historyWindow")).insetBy(dx: -8, dy: -8)] : []
-                )
-            }
-        )
-        .opacity(searchUIState.isFieldVisualVisible ? 1 : 0)
-        .foregroundStyle(toolbarPrimaryForeground)
-        .scaleEffect(searchUIState.isFieldVisualVisible ? 1 : 1, anchor: .center)
-        .allowsHitTesting(searchUIState.isVisible)
-        .animation(.easeOut(duration: 0.12), value: searchUIState.isFieldVisualVisible)
-    }
-
-    private var searchTokenWidthMeasurer: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 14, height: 20)
-
-            ForEach(searchTokens) { token in
-                searchTokenView(token)
-            }
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .hidden()
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: SearchLeadingContentWidthPreferenceKey.self,
-                    value: proxy.size.width
-                )
-            }
-        )
-    }
-
-    @ViewBuilder
-    private func searchTextInput(
-        scrollProxy: ScrollViewProxy,
-        width: CGFloat
-    ) -> some View {
-        SearchTextField(
-            text: $searchUIState.text,
-            isFocused: $isSearchFocused,
-            isComposing: $isSearchTextComposing,
-            pendingComposedInputEvent: $pendingComposedSearchInputEvent,
-            focusRequestID: searchFocusRequestID,
-            searchHasHandedOffFocusToCard: searchUIState.hasHandedOffFocusToCard,
-            hasSearchResult: !filteredItems.isEmpty,
-            hasSearchTokens: !searchTokens.isEmpty,
-            textColor: toolbarPrimaryNSColor,
-            font: searchTypography.nsFont,
-            onFocusChanged: synchronizeSearchTextFieldFocus,
-            onEnterFirstResult: enterFirstSearchResultFromSearchField,
-            onDeleteLastToken: handleSearchTokenBackspace,
-            onCancel: handleSearchCancel,
-            onReachLeadingContent: {
-                withAnimation(.easeOut(duration: 0.12)) {
-                    scrollProxy.scrollTo("search-leading-content", anchor: .leading)
-                }
-            },
-            onReachTrailingContent: {
-                withAnimation(.easeOut(duration: 0.12)) {
-                    scrollProxy.scrollTo("search-text-field", anchor: .trailing)
-                }
-            }
-        )
-        .font(searchTypography.swiftUIFont)
-        .frame(width: width)
-        .id("search-text-field")
-    }
-
-    private func searchTokenInsertionGap(at index: Int) -> some View {
-        Color.clear
-            .frame(width: 6, height: 20)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                searchTextInsertionIndex = index
-                focusSearchField()
-            }
-    }
-
-    private func searchTokenView(_ token: HistorySearchToken) -> some View {
-        let isSelected = searchUIState.selectedTokenKind == token.kind
-        let selectedBackground = Color(red: 0.18, green: 0.55, blue: 1.0)
-        let addedBackground = Color(red: 0.82, green: 0.91, blue: 1.0)
-        let addedStroke = Color(red: 0.45, green: 0.68, blue: 0.92)
-
-        return HStack(spacing: 4) {
-            Text(token.title)
-                .font(.system(size: 11, weight: .semibold))
-                .lineLimit(1)
-
-            Button {
-                removeSearchToken(token)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help(L("移除\(token.title)"))
-        }
-        .padding(.leading, 7)
-        .padding(.trailing, 5)
-        .frame(height: 20)
-        .foregroundStyle(isSelected ? .white : Color(red: 0.08, green: 0.22, blue: 0.38))
-        .background(isSelected ? selectedBackground : addedBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(isSelected ? selectedBackground : addedStroke.opacity(0.7), lineWidth: 1)
-        }
-        .fixedSize()
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if searchUIState.selectedTokenKind == token.kind {
-                searchUIState.selectedTokenKind = nil
-            } else {
-                searchUIState.selectedTokenKind = token.kind
-            }
-        }
-    }
-
-    private var searchFilterPanel: some View {
+    var searchFilterPanel: some View {
         SearchFilterPanelView(
             criteria: $searchUIState.criteria,
             isFilterPanelPresented: $searchUIState.isFilterPanelPresented,
@@ -4140,7 +3880,7 @@ struct HistoryWindowView: View {
         restoreSelectionAfterClearingSearch(preferredID: fallbackID)
     }
 
-    private func clearSearchTextAndFilters() {
+    func clearSearchTextAndFilters() {
         let startedAt = CFAbsoluteTimeGetCurrent()
         let fallbackID = selectedItemID
         let shouldFocusTextInput = searchUIState.clearTextAndFilters(trigger: "search.clearButton")
@@ -4200,7 +3940,7 @@ struct HistoryWindowView: View {
         closeSearch()
     }
 
-    private func refreshSearchInteractionScreenFrames() {
+    func refreshSearchInteractionScreenFrames() {
         guard searchUIState.isVisible,
               let hostWindow else {
             viewportState.searchInteractionScreenFrames = []
@@ -4277,7 +4017,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func toggleSearchFilterPanel() {
+    func toggleSearchFilterPanel() {
         let startedAt = CFAbsoluteTimeGetCurrent()
         let willOpen = searchUIState.toggleFilterPanel(
             openTrigger: "filter.button.open",
@@ -4349,7 +4089,7 @@ struct HistoryWindowView: View {
         recordHistoryInteraction("filter.group.toggle", startedAt: startedAt, metadata: ["group": "\(group)"])
     }
 
-    private func removeSearchToken(_ token: HistorySearchToken) {
+    func removeSearchToken(_ token: HistorySearchToken) {
         let startedAt = CFAbsoluteTimeGetCurrent()
         searchUIState.removeToken(token.kind)
         focusSearchField()
@@ -4369,7 +4109,7 @@ struct HistoryWindowView: View {
         searchUIState.pruneTokenOrder(activeKinds: activeKinds)
     }
 
-    private func handleSearchTokenBackspace() {
+    func handleSearchTokenBackspace() {
         if let selectedSearchTokenKind = searchUIState.selectedTokenKind,
            let selectedToken = searchTokens.first(where: { $0.kind == selectedSearchTokenKind }) {
             removeSearchToken(selectedToken)
@@ -5565,7 +5305,7 @@ struct HistoryWindowView: View {
         focusSearchField()
     }
 
-    private func handleSearchCancel() {
+    func handleSearchCancel() {
         switch HistorySearchCancelPolicy.action(hasSearchContent: hasSearchContent) {
         case .clearSearch:
             clearSearchTextAndFilters()
@@ -5576,11 +5316,11 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func enterFirstSearchResultFromSearchField() {
+    func enterFirstSearchResultFromSearchField() {
         focusFirstSearchResultCard()
     }
 
-    private func synchronizeSearchTextFieldFocus(_ isFocused: Bool) {
+    func synchronizeSearchTextFieldFocus(_ isFocused: Bool) {
         if isFocused {
             applySearchFocusTransition(
                 .searchFieldFocused,
@@ -5622,7 +5362,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func focusSearchField() {
+    func focusSearchField() {
         searchUIState.hasHandedOffFocusToCard = false
         isSearchFocused = true
         searchFocusRequestID += 1
