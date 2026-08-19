@@ -22,6 +22,7 @@
 | 2026-08-20 | [docs/ai/2026-08-20-054000-阶段2搜索框与token修复.md](ai/2026-08-20-054000-阶段2搜索框与token修复.md) | Issue2 动画统一 easeInOut0.22+去Task.sleep / Issue5 浅蓝外边框 / Issue6 放大镜移出ScrollView固定最左 / Issue7 token加图标+圆角10+选中失焦+点空白取消选中 | 已完成 |
 | 2026-08-20 | [docs/ai/2026-08-20-062300-阶段3卡片视觉修复.md](ai/2026-08-20-062300-阶段3卡片视觉修复.md) | Issue3 启用dominantColorHex像素提取+中心近白左右偏移 / Issue4 圆角8→12 / Issue12 分组卡片顶部图标换分组图标+分组色 | 已完成 |
 | 2026-08-20 | [docs/ai/2026-08-20-062500-阶段4预览窗口修复.md](ai/2026-08-20-062500-阶段4预览窗口修复.md) | Issue14 预览开/关用CAKeyframeAnimation多段scale / Issue15 倒三角同体色+尖端quadCurve圆角 / Issue16 关主窗时预览并行同步关闭 | 已完成 |
+| 2026-08-20 | [docs/ai/2026-08-20-062800-阶段5功能行为修复.md](ai/2026-08-20-062800-阶段5功能行为修复.md) | Issue8 删顶部x按钮 / Issue9 新建文本复制到剪贴板 / Issue10 粘贴失效(activate目标app+150ms) / Issue13 分组弹窗横排+分组色背景+Divider | 已完成 |
 
 ## 分类说明
 

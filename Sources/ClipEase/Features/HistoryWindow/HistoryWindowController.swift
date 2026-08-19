@@ -535,6 +535,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         closePreview()
         panel?.orderOut(nil)
         panel?.hasShadow = false
+        previousFrontmostApplication?.activate()
         if let panel {
             resetHistoryContentLayerAnimationState(for: panel)
         }

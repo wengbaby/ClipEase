@@ -109,13 +109,6 @@ extension HistoryWindowView {
     var toolbar: some View {
         ZStack {
             HStack(spacing: 12) {
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(toolbarSecondaryForeground)
-
                 HStack(spacing: 7) {
                     Image(nsImage: ClipEaseAppIcon.roundedImage(ClipEaseAppIcon.image(size: NSSize(width: 18, height: 18)), size: NSSize(width: 18, height: 18)))
                         .resizable()

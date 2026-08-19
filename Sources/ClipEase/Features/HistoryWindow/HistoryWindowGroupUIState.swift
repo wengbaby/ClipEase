@@ -81,11 +81,13 @@ struct MoveToGroupMenuEntry: Identifiable, Equatable {
     let id: ClipboardGroup.ID
     let name: String
     let iconName: String
+    let colorHex: String
 
     init(group: ClipboardGroup) {
         self.id = group.id
         self.name = group.name
         self.iconName = group.iconName
+        self.colorHex = group.colorHex
     }
 }
 

@@ -52,10 +52,14 @@ final class AppMenuController: NSObject {
         onCreated: ((ClipboardItem) -> Void)? = nil
     ) {
         closeHistoryWindowIfNeeded()
+        let wrappedOnCreated: ((ClipboardItem) -> Void)? = { [weak self] item in
+            _ = self?.pasteExecutor.copyTextToPasteboard(item.text)
+            onCreated?(item)
+        }
         let editorController = Self.makeCreateTextEditorForTesting(
             historyStore: historyStore,
             defaultGroupID: defaultGroupID,
-            onCreated: onCreated
+            onCreated: wrappedOnCreated
         )
         editorController.onClose = { [weak self, weak editorController] in
             guard let editorController else {

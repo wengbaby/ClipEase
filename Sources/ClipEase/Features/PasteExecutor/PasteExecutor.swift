@@ -202,7 +202,7 @@ final class PasteExecutor {
 
         beforeAutoPaste?()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 120_000_000)
+            try? await Task.sleep(nanoseconds: 150_000_000)
             sendCommandV()
             soundPlayer.playPasteFeedback()
         }
@@ -227,7 +227,7 @@ final class PasteExecutor {
 
         beforeAutoPaste?()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 120_000_000)
+            try? await Task.sleep(nanoseconds: 150_000_000)
             sendCommandV()
             soundPlayer.playPasteFeedback()
         }
