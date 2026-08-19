@@ -1984,67 +1984,25 @@ struct HistoryWindowView: View {
 
     @ViewBuilder
     private func cardContextMenu(for item: HistoryPreviewItem) -> some View {
-        commandButton(.paste) {
-            pasteItem(item.id)
-        }
-
-        if item.type == .text || item.type == .link || item.type == .color {
-            commandButton(.pastePlainText) {
-                pastePlainTextItem(item.id)
-            }
-        }
-
-        commandButton(.preview) {
-            showPreview(item.id)
-        }
-
-        if isEditable(item) {
-            commandButton(.edit) {
-                beginEditItem(item.id)
-            }
-        }
-
-        Button(item.isPinned ? L("取消置顶") : L("置顶")) {
-            togglePinned(item.id)
-        }
-
-        Divider()
-
-        typeSpecificContextMenu(for: item)
-
-        if !groupUIState.moveToGroupMenuSnapshot.isEmpty {
-            Button(item.groupID == nil ? L("加入分组...") : L("移动到分组...")) {
-                presentMoveToGroupPicker(for: item)
-            }
-        }
-
-        if item.groupID != nil {
-            Button(L("移出分组")) {
-                removeItemFromGroup(item.id)
-            }
-        }
-
-        Button(L("删除"), role: .destructive) {
-            deleteItem(item.id)
-        }
-
-        if let sourceItem = store.item(with: item.id),
-           sourceItem.sourceBundleID != nil {
-            Divider()
-
-            if !sourceItem.isFromClipEase {
-                Button(sourceAppIgnoreMenuTitle(for: sourceItem)) {
-                    toggleSourceAppIgnored(item.id)
-                }
-            }
-
-            Button(L("复制来源 App 名称")) {
-                copySourceAppName(item.id)
-            }
-
-            Button(L("复制来源 Bundle ID")) {
-                copySourceBundleID(item.id)
-            }
+        HistoryCardContextMenu(
+            item: item,
+            isEditable: isEditable(item),
+            hasMoveToGroupSnapshot: !groupUIState.moveToGroupMenuSnapshot.isEmpty,
+            sourceItem: store.item(with: item.id),
+            sourceAppIgnoreTitle: store.item(with: item.id).map { sourceAppIgnoreMenuTitle(for: $0) } ?? "",
+            onPaste: { pasteItem(item.id) },
+            onPastePlainText: { pastePlainTextItem(item.id) },
+            onPreview: { showPreview(item.id) },
+            onEdit: { beginEditItem(item.id) },
+            onTogglePinned: { togglePinned(item.id) },
+            onPresentMoveToGroupPicker: { presentMoveToGroupPicker(for: item) },
+            onRemoveFromGroup: { removeItemFromGroup(item.id) },
+            onDelete: { deleteItem(item.id) },
+            onToggleSourceAppIgnored: { toggleSourceAppIgnored(item.id) },
+            onCopySourceAppName: { copySourceAppName(item.id) },
+            onCopySourceBundleID: { copySourceBundleID(item.id) }
+        ) {
+            typeSpecificContextMenu(for: item)
         }
     }
 
