@@ -2132,70 +2132,22 @@ struct HistoryWindowView: View {
 
     @ViewBuilder
     private func typeSpecificContextMenu(for item: HistoryPreviewItem) -> some View {
-        switch item.type {
-        case .link:
-            Button(L("打开链接")) {
-                openLink(item.id)
-            }
-
-            Button(L("复制链接地址")) {
-                copyLinkURL(item.id)
-            }
-
-            Button(L("复制为 Markdown 链接")) {
-                copyMarkdownLink(item.id)
-            }
-
-            Divider()
-        case .color:
-            Button(L("复制 HEX")) {
-                copyColorHex(item.id)
-            }
-
-            Button(L("复制 RGB")) {
-                copyColorRGB(item.id)
-            }
-
-            Divider()
-        case .image:
-            Button(L("打开图片")) {
-                openImage(item.id)
-            }
-
-            Button(L("复制图像")) {
-                copyImage(item.id)
-            }
-
-            Button(L("复制图片路径")) {
-                copyImagePath(item.id)
-            }
-
-            Button(L("在 Finder 中显示")) {
-                revealImageInFinder(item.id)
-            }
-
-            Divider()
-        case .file:
-            Button(L("打开文件")) {
-                openFile(item.id)
-            }
-
-            Button(L("复制文件")) {
-                copyFile(item.id)
-            }
-
-            Button(L("复制路径")) {
-                copyFilePaths(item.id)
-            }
-
-            Button(L("在 Finder 中显示")) {
-                revealFilesInFinder(item.id)
-            }
-
-            Divider()
-        case .text:
-            EmptyView()
-        }
+        HistoryTypeSpecificContextMenu(
+            item: item,
+            onOpenLink: openLink,
+            onCopyLinkURL: copyLinkURL,
+            onCopyMarkdownLink: copyMarkdownLink,
+            onCopyColorHex: copyColorHex,
+            onCopyColorRGB: copyColorRGB,
+            onOpenImage: openImage,
+            onCopyImage: copyImage,
+            onCopyImagePath: copyImagePath,
+            onRevealImageInFinder: revealImageInFinder,
+            onOpenFile: openFile,
+            onCopyFile: copyFile,
+            onCopyFilePaths: copyFilePaths,
+            onRevealFilesInFinder: revealFilesInFinder
+        )
     }
 
     private func commandButton(_ command: HistoryCommand, action: @escaping () -> Void) -> some View {
