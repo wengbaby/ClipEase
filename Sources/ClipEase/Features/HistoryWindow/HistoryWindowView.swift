@@ -965,68 +965,10 @@ struct HistoryWindowView: View {
     }
 
     private var latestCardEntranceSheen: some View {
-        TimelineView(.animation) { timeline in
-            GeometryReader { proxy in
-                let width = max(proxy.size.width, 1)
-                let height = max(proxy.size.height, 1)
-                let progress = latestCardEntranceSheenProgress(at: timeline.date)
-                let sheenOpacity = latestCardEntranceSheenOpacity(for: progress)
-                let sheenTravelProgress = latestCardEntranceSheenTravelProgress(for: progress)
-                LinearGradient(
-                    colors: [
-                        .clear,
-                        .white.opacity(0),
-                        .white.opacity(0.52),
-                        .white.opacity(0),
-                        .clear
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .frame(width: width * 1.55, height: height * 1.28)
-                .rotationEffect(.degrees(-10))
-                .offset(x: -width * 0.78 + sheenTravelProgress * width * 1.7, y: -height * 0.14)
-                .opacity(sheenOpacity)
-            }
-        }
-        .clipped()
-    }
-
-    private func latestCardEntranceSheenProgress(at date: Date) -> CGFloat {
-        guard let entranceSheenStartTime else {
-            return 0
-        }
-
-        let elapsed = date.timeIntervalSinceReferenceDate - entranceSheenStartTime
-        return min(1, max(0, CGFloat(elapsed / latestItemEntranceSheenDuration)))
-    }
-
-    private func latestCardEntranceSheenOpacity(for progress: CGFloat) -> CGFloat {
-        if progress <= 0 {
-            return 0
-        }
-
-        if progress < 0.18 {
-            return progress / 0.18
-        }
-
-        if progress <= 0.82 {
-            return 1
-        }
-
-        return max(0, 1 - ((progress - 0.82) / 0.18))
-    }
-
-    private func latestCardEntranceSheenTravelProgress(for progress: CGFloat) -> CGFloat {
-        guard progress > 0 else {
-            return 0
-        }
-
-        guard progress < 0.82 else {
-            return 1
-        }
-
-        return min(1, progress / 0.82)
+        HistoryCardEntranceSheen(
+            startTime: entranceSheenStartTime,
+            duration: latestItemEntranceSheenDuration
+        )
     }
 
     private func setCardHover(_ id: HistoryPreviewItem.ID, isHovered: Bool) {
