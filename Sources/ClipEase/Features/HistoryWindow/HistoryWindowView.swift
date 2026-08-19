@@ -217,6 +217,14 @@ struct HistoryWindowView: View {
         previewItemsState.applyUnfilteredResult()
     }
 
+    func applyItemGroupMutationFromStore(_ id: ClipboardItem.ID?) {
+        guard let id,
+              let updatedItem = store.item(with: id) else {
+            return
+        }
+        previewItemsState.syncItemGroupMutation(updatedItem)
+    }
+
     func containsFilteredItem(_ id: HistoryPreviewItem.ID?) -> Bool {
         previewItemsState.containsFilteredItem(id) { store.cachedItemIndex(with: $0) != nil }
     }
@@ -3317,7 +3325,7 @@ struct HistoryWindowView: View {
         renderState.mark("hidden-frame-normalized")
     }
 
-    private func scheduleSearchUpdate(
+    func scheduleSearchUpdate(
         immediate: Bool = false,
         debounceNanoseconds: UInt64 = 90_000_000
     ) {
@@ -3328,7 +3336,7 @@ struct HistoryWindowView: View {
         )
     }
 
-    private func scheduleSearchUpdate(
+    func scheduleSearchUpdate(
         sourceItems: [HistoryPreviewItem],
         immediate: Bool = false,
         debounceNanoseconds: UInt64 = 90_000_000
@@ -3905,7 +3913,7 @@ struct HistoryWindowView: View {
             return requestedItem
         }
 
-        return sourceItems.first { !$0.isPinned } ?? sourceItems.first
+        return sourceItems.first
     }
 
     func scrollToItemWhenRendered(_ id: HistoryPreviewItem.ID, animated: Bool = false) {

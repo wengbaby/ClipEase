@@ -40,6 +40,20 @@ struct HistoryWindowPreviewItemsState {
         isUsingUnfilteredResult ? allItems : filteredItems
     }
 
+    mutating func syncItemGroupMutation(_ item: ClipboardItem) {
+        let targetID = item.id
+        let rebuiltPreviewItem = HistoryPreviewItem(item: item)
+        if let index = allItems.firstIndex(where: { $0.id == targetID }) {
+            allItems[index] = rebuiltPreviewItem
+        }
+        previewItemCache.removeValue(forKey: targetID)
+        if !isUsingUnfilteredResult {
+            filteredItems.removeAll { $0.id == targetID }
+            filteredItemIDs.remove(targetID)
+            filteredItemIndexByID.removeAll(keepingCapacity: true)
+        }
+    }
+
     mutating func applyFilteredResult(_ result: HistorySearchFilterResult) {
         guard isUsingUnfilteredResult || filteredItems != result.items else {
             return

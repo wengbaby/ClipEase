@@ -273,6 +273,8 @@ extension HistoryWindowView {
 
     func removeItemFromGroup(_ id: ClipboardItem.ID?) {
         store.removeItemFromGroup(id)
+        applyItemGroupMutationFromStore(id)
+        scheduleSearchUpdate(immediate: true, debounceNanoseconds: 0)
         showStatus(L("已移出分组"))
     }
 

@@ -92,6 +92,32 @@ import Testing
     #expect(state.canSkipPreviewRebuild(sourceItems: sourceItems, sourceGeneration: 8))
 }
 
+@Test func previewItemsStateSyncItemGroupMutationUpdatesAllItemsAndClearsFilteredEntry() {
+    let groupID = UUID()
+    var groupedItem = previewStateItem(id: UUID(), text: "grouped", createdAt: 1)
+    groupedItem.groupID = groupID
+    groupedItem.groupedAt = Date(timeIntervalSince1970: 5)
+    let regularItem = previewStateItem(id: UUID(), text: "regular", createdAt: 2)
+    var state = HistoryWindowPreviewItemsState()
+    state.allItems = [groupedItem, regularItem].map(HistoryPreviewItem.init)
+
+    let filtered = HistorySearchFilterResult(items: [HistoryPreviewItem(item: groupedItem)])
+    state.applyFilteredResult(filtered)
+    #expect(state.visibleItems.map(\.id) == [groupedItem.id])
+    #expect(state.filteredItems.first?.groupID == groupID)
+
+    var removedFromGroup = groupedItem
+    removedFromGroup.groupID = nil
+    removedFromGroup.groupedAt = nil
+    state.syncItemGroupMutation(removedFromGroup)
+
+    #expect(state.allItems.first(where: { $0.id == groupedItem.id })?.groupID == nil)
+    #expect(state.allItems.first(where: { $0.id == groupedItem.id })?.groupedAt == nil)
+    #expect(state.previewItemCache[groupedItem.id] == nil)
+    #expect(state.filteredItems.first(where: { $0.id == groupedItem.id }) == nil)
+    #expect(!state.filteredItemIDs.contains(groupedItem.id))
+}
+
 private func previewStateItem(id: UUID, text: String, createdAt: TimeInterval) -> ClipboardItem {
     ClipboardItem(
         id: id,

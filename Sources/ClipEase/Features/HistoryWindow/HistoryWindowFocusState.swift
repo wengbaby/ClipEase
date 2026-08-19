@@ -16,7 +16,7 @@ struct HistoryWindowFocusState {
     var pendingDefaultFocusOnShow = false
 
     mutating func primeLatestPresentationGuard(sourceItems: [ClipboardItem]) {
-        let observation = LatestItemObservation(item: sourceItems.first { !$0.isPinned } ?? sourceItems.first)
+        let observation = LatestItemObservation(item: sourceItems.first)
         latestObservation = observation
         latestPresentedItemID = observation?.id
         latestPresentedItemTimestamp = sourceItems.first?.createdAt ?? .distantPast

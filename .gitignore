@@ -15,10 +15,13 @@ DerivedData/
 .netrc
 /dev-logs/
 /design/
+# docs: 保留原作者 releases 单独追踪逻辑，同时放行 AI 工作文档目录
 /docs/*
 !/docs/releases/
 /docs/releases/*
 !/docs/releases/release-checklist.md
+!/docs/INDEX.md
+!/docs/ai/
 /prototypes/
 /scripts/*
 !/scripts/

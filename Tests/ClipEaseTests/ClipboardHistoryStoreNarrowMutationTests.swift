@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import Testing
 @testable import ClipEase
 
@@ -285,4 +286,52 @@ private func makeStoreNarrowMutationDefaults() -> UserDefaults {
 
 private func defaultsSuiteName(_ defaults: UserDefaults) -> String {
     defaults.string(forKey: "tests.suiteName")!
+}
+
+@Test @MainActor
+func storeRemoveItemFromGroupUpdatesInMemoryItemsAndNotifies() async {
+    let group = ClipboardGroup.makeDefault(name: "Work", sortOrder: 0)
+    var grouped = ClipboardItem.text("group me", sourceApp: .clipease)
+    grouped.createdAt = Date(timeIntervalSince1970: 100)
+    grouped.groupID = group.id
+    grouped.groupedAt = Date()
+    let regular = ClipboardItem.text("regular", sourceApp: .clipease)
+
+    let repository = StoreNarrowMutationRecordingRepository(
+        snapshot: ClipboardHistorySnapshot(items: [grouped, regular], groups: [group])
+    )
+    let persistence = ClipboardHistoryPersistence(repository: repository)
+    let writer = ClipboardHistorySaveWriter(
+        persistence: persistence,
+        batchPolicy: ClipboardHistoryWriteBatchPolicy(
+            maximumDelayMilliseconds: 60_000,
+            maximumMutationCount: 50
+        )
+    )
+    let defaults = makeStoreNarrowMutationDefaults()
+    defer { defaults.removePersistentDomain(forName: defaultsSuiteName(defaults)) }
+    let store = ClipboardHistoryStore(
+        persistence: persistence,
+        userDefaults: defaults,
+        saveWriter: writer,
+        externalCopyFeedback: { _ in }
+    )
+
+    var receivedItems: [[ClipboardItem]] = []
+    let cancellable = store.$items.sink { items in
+        receivedItems.append(items)
+    }
+
+    #expect(store.item(with: grouped.id)?.groupID == group.id)
+
+    store.removeItemFromGroup(grouped.id)
+
+    #expect(store.item(with: grouped.id)?.groupID == nil)
+    #expect(store.item(with: grouped.id)?.groupedAt == nil)
+
+    let lastReceived = receivedItems.last
+    #expect(lastReceived?.first(where: { $0.id == grouped.id })?.groupID == nil)
+
+    cancellable.cancel()
+    _ = await store.makeTerminationDrainHandle().drain()
 }
