@@ -393,12 +393,36 @@ enum AppIconCache {
             return "#2E8CFF"
         }
 
-        let center = CGPoint(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)
+        let centerX = bitmap.pixelsWide / 2
+        let centerY = bitmap.pixelsHigh / 2
+
+        if let color = bestColor(in: bitmap, centerX: centerX, centerY: centerY) {
+            return hexString(from: color)
+        }
+
+        let halfWidth = bitmap.pixelsWide / 2
+        for offset in [halfWidth / 2, halfWidth - 4] {
+            if let leftColor = bestColor(in: bitmap, centerX: max(4, centerX - offset), centerY: centerY) {
+                return hexString(from: leftColor)
+            }
+            if let rightColor = bestColor(in: bitmap, centerX: min(bitmap.pixelsWide - 5, centerX + offset), centerY: centerY) {
+                return hexString(from: rightColor)
+            }
+        }
+
+        return "#2E8CFF"
+    }
+
+    private static func bestColor(
+        in bitmap: NSBitmapImageRep,
+        centerX: Int,
+        centerY: Int
+    ) -> NSColor? {
         var selectedColor: NSColor?
         var selectedScore = CGFloat.greatestFiniteMagnitude
 
-        for y in max(0, Int(center.y) - 8)..<min(bitmap.pixelsHigh, Int(center.y) + 9) {
-            for x in max(0, Int(center.x) - 8)..<min(bitmap.pixelsWide, Int(center.x) + 9) {
+        for y in max(0, centerY - 8)..<min(bitmap.pixelsHigh, centerY + 9) {
+            for x in max(0, centerX - 8)..<min(bitmap.pixelsWide, centerX + 9) {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
                       color.alphaComponent > 0.2,
                       !isIgnoredNeutral(color) else {
@@ -413,15 +437,15 @@ enum AppIconCache {
             }
         }
 
-        guard let selectedColor else {
-            return "#2E8CFF"
-        }
+        return selectedColor
+    }
 
-        return String(
+    private static func hexString(from color: NSColor) -> String {
+        String(
             format: "#%02X%02X%02X",
-            component(selectedColor.redComponent),
-            component(selectedColor.greenComponent),
-            component(selectedColor.blueComponent)
+            component(color.redComponent),
+            component(color.greenComponent),
+            component(color.blueComponent)
         )
     }
 

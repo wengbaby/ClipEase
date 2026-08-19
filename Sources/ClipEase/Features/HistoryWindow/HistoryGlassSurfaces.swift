@@ -145,7 +145,7 @@ struct AdaptiveGlassCardSurface: View {
                 Color.clear
                     .glassEffect(
                         visualState.isSelected ? .regular.interactive() : .regular,
-                        in: .rect(cornerRadius: 8)
+                        in: .rect(cornerRadius: 12)
                     )
             } else {
                 Color.clear
@@ -159,11 +159,11 @@ struct AdaptiveGlassCardSurface: View {
     }
 
     private var compatibilitySurface: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(surfaceGradient)
             .opacity(surfaceOpacity)
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(
                         boundaryColor,
                         lineWidth: boundaryWidth

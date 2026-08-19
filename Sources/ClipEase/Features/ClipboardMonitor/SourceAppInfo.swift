@@ -104,6 +104,11 @@ struct SourceAppInfo: Sendable {
             return "#2E8CFF"
         }
 
+        if let cached = AppIconCache.cachedIconMetadata(forBundleID: bundleID),
+           cached.dominantColorHex != "#2E8CFF" {
+            return cached.dominantColorHex
+        }
+
         if bundleID.contains("Safari") {
             return "#00B8A8"
         }

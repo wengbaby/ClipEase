@@ -60,6 +60,8 @@ extension HistoryWindowView {
         let isShowingEntranceSheen = entranceSheenItemIDs.contains(item.id) && presentation.showsEntranceSheen
         let cardScale = CGFloat(presentation.scale)
 
+        let group = item.groupID.flatMap { store.group(with: $0) }
+
         HistoryCardView(
             item: item,
             searchQuery: appliedSearchQuery,
@@ -70,6 +72,8 @@ extension HistoryWindowView {
             isEnteringLatestItem: isEnteringLatestItem,
             isSelected: isSelected,
             visualState: visualState,
+            groupIconName: group?.iconName,
+            groupColorHex: group?.colorHex,
             onClick: {
                 selectCardForPrimaryClick(item)
             },
@@ -102,7 +106,7 @@ extension HistoryWindowView {
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(
                     visualState.isKeyboardFocused ? Color(red: 0.08, green: 0.38, blue: 0.90) : (isSelected ? Color(red: 0.18, green: 0.55, blue: 1.0).opacity(0.92) : Color.black.opacity(0.08)),
                     lineWidth: presentation.borderWidth
@@ -111,11 +115,11 @@ extension HistoryWindowView {
         }
         .overlay {
             if presentation.focusRingWidth > 0 {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color(red: 0.08, green: 0.38, blue: 0.90), lineWidth: presentation.focusRingWidth)
                     .padding(-4)
                     .overlay {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
                             .stroke(Color.white.opacity(0.92), lineWidth: 1)
                             .padding(2)
                     }
@@ -125,7 +129,7 @@ extension HistoryWindowView {
         .overlay {
             if isShowingEntranceSheen {
                 latestCardEntranceSheen
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .allowsHitTesting(false)
             }
         }

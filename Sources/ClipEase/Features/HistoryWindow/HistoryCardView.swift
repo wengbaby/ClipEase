@@ -12,6 +12,8 @@ struct HistoryCardView: View, Equatable {
     let isEnteringLatestItem: Bool
     let isSelected: Bool
     let visualState: HistoryCardVisualState
+    let groupIconName: String?
+    let groupColorHex: String?
     let onClick: () -> Void
     let onDoubleClick: () -> Void
     let onPreview: () -> Void
@@ -31,7 +33,9 @@ struct HistoryCardView: View, Equatable {
             lhs.isPressed == rhs.isPressed &&
             lhs.isEnteringLatestItem == rhs.isEnteringLatestItem &&
             lhs.isSelected == rhs.isSelected &&
-            lhs.visualState == rhs.visualState
+            lhs.visualState == rhs.visualState &&
+            lhs.groupIconName == rhs.groupIconName &&
+            lhs.groupColorHex == rhs.groupColorHex
     }
 
     var body: some View {
@@ -57,11 +61,21 @@ struct HistoryCardView: View, Equatable {
 
                 Spacer()
 
-                AsyncSourceIconView(
-                    iconFileName: item.iconFileName,
-                    fallbackSystemName: item.iconName,
-                    sourceAppName: item.sourceAppName
-                )
+                if let groupIconName,
+                   let groupColorHex,
+                   Color.clipeaseHex(groupColorHex) != .clear {
+                    Image(systemName: groupIconName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                        .foregroundStyle(Color.clipeaseHex(groupColorHex))
+                } else {
+                    AsyncSourceIconView(
+                        iconFileName: item.iconFileName,
+                        fallbackSystemName: item.iconName,
+                        sourceAppName: item.sourceAppName
+                    )
+                }
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
@@ -79,7 +93,7 @@ struct HistoryCardView: View, Equatable {
             footerView
         }
         .frame(width: 250, height: HistoryWindowPanelMetrics.cardHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .background(AdaptiveGlassCardSurface(visualState: visualState))
         .shadow(color: cardShadowColor, radius: cardShadowRadius, y: cardShadowRadius > 0 ? 4 : 0)
         .overlay(alignment: .bottomTrailing) {
