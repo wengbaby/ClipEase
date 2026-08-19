@@ -1753,41 +1753,15 @@ struct HistoryWindowView: View {
     }
 
     private var resultCountBadge: some View {
-        Text("\(filteredItems.count) / \(items.count)")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(toolbarSecondaryForeground)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(Color.white.opacity(0.45))
-            .clipShape(Capsule())
-            .help(L("当前筛选结果数量 / 全部数量"))
+        HistoryResultCountBadge(
+            filteredCount: filteredItems.count,
+            totalCount: items.count,
+            foregroundStyle: toolbarSecondaryForeground
+        )
     }
 
     private var authorizationButton: some View {
-        Button(action: openAccessibilitySettingsIfNeeded) {
-            HStack(spacing: 5) {
-                Image(systemName: "exclamationmark.lock")
-                    .font(.system(size: 12, weight: .semibold))
-
-                Text(L("请授权"))
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .foregroundStyle(Color(red: 0.78, green: 0.36, blue: 0.08))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(Color.white.opacity(0.76))
-            .clipShape(Capsule())
-            .overlay {
-                Capsule()
-                    .stroke(
-                        Color(red: 0.78, green: 0.36, blue: 0.08).opacity(0.55),
-                        lineWidth: 1
-                    )
-            }
-        }
-        .buttonStyle(.plain)
-        .historyRailControlStyle()
-        .help(L("点击打开辅助功能权限设置"))
+        HistoryAuthorizationButton(action: openAccessibilitySettingsIfNeeded)
     }
 
     private var searchField: some View {
@@ -7358,41 +7332,6 @@ private struct SearchPanelWindowReader: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? {
             nil
         }
-    }
-}
-
-private struct HistoryRailControlButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HistoryRailControlButtonBody(configuration: configuration)
-    }
-}
-
-private struct HistoryRailControlButtonBody: View {
-    let configuration: HistoryRailControlButtonStyle.Configuration
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovered = false
-
-    var body: some View {
-        let style = HistoryGlassToolbarControlPolicy.style
-        let showsInteractiveMotion = !reduceMotion
-
-        configuration.label
-            .scaleEffect(
-                showsInteractiveMotion
-                    ? (configuration.isPressed ? style.pressedScale : (isHovered ? 1.01 : 1))
-                    : 1
-            )
-            .onHover { hovering in
-                isHovered = hovering
-            }
-            .animation(.easeOut(duration: 0.10), value: isHovered)
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-    }
-}
-
-private extension View {
-    func historyRailControlStyle() -> some View {
-        buttonStyle(HistoryRailControlButtonStyle())
     }
 }
 
