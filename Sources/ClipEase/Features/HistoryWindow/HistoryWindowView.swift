@@ -1359,79 +1359,6 @@ struct HistoryWindowView: View {
         }
     }
 
-    func cardMenu(for item: HistoryPreviewItem) -> NSMenu {
-        let menu = NSMenu()
-
-        HistoryMenuBuilder.addMenuItem(HistoryCommand.paste.title, to: menu) { pasteItem(item.id) }
-
-        if item.type == .text || item.type == .link || item.type == .color {
-            HistoryMenuBuilder.addMenuItem(HistoryCommand.pastePlainText.title, to: menu) { pastePlainTextItem(item.id) }
-        }
-
-        HistoryMenuBuilder.addMenuItem(HistoryCommand.preview.title, to: menu) { showPreview(item.id) }
-
-        if isEditable(item) {
-            HistoryMenuBuilder.addMenuItem(HistoryCommand.edit.title, to: menu) { beginEditItem(item.id) }
-        }
-
-        HistoryMenuBuilder.addMenuItem(item.isPinned ? L("取消置顶") : L("置顶"), to: menu) { togglePinned(item.id) }
-        menu.addItem(.separator())
-
-        addTypeSpecificMenuItems(for: item, to: menu)
-
-        if !groupUIState.moveToGroupMenuSnapshot.isEmpty {
-            HistoryMenuBuilder.addMenuItem(item.groupID == nil ? L("加入分组...") : L("移动到分组..."), to: menu) {
-                presentMoveToGroupPicker(for: item)
-            }
-        }
-
-        if item.groupID != nil {
-            HistoryMenuBuilder.addMenuItem(L("移出分组"), to: menu) { removeItemFromGroup(item.id) }
-        }
-
-        HistoryMenuBuilder.addMenuItem(L("删除"), to: menu) { deleteItem(item.id) }
-
-        if let sourceItem = store.item(with: item.id),
-           sourceItem.sourceBundleID != nil {
-            menu.addItem(.separator())
-            if !sourceItem.isFromClipEase {
-                HistoryMenuBuilder.addMenuItem(sourceAppIgnoreMenuTitle(for: sourceItem), to: menu) { toggleSourceAppIgnored(item.id) }
-            }
-            HistoryMenuBuilder.addMenuItem(L("复制来源 App 名称"), to: menu) { copySourceAppName(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("复制来源 Bundle ID"), to: menu) { copySourceBundleID(item.id) }
-        }
-
-        return menu
-    }
-
-    private func addTypeSpecificMenuItems(for item: HistoryPreviewItem, to menu: NSMenu) {
-        switch item.type {
-        case .link:
-            HistoryMenuBuilder.addMenuItem(L("打开链接"), to: menu) { openLink(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("复制链接地址"), to: menu) { copyLinkURL(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("复制为 Markdown 链接"), to: menu) { copyMarkdownLink(item.id) }
-            menu.addItem(.separator())
-        case .color:
-            HistoryMenuBuilder.addMenuItem(L("复制 HEX"), to: menu) { copyColorHex(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("复制 RGB"), to: menu) { copyColorRGB(item.id) }
-            menu.addItem(.separator())
-        case .image:
-            HistoryMenuBuilder.addMenuItem(L("打开图片"), to: menu) { openImage(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("复制图像"), to: menu) { copyImage(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("复制图片路径"), to: menu) { copyImagePath(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("在 Finder 中显示"), to: menu) { revealImageInFinder(item.id) }
-            menu.addItem(.separator())
-        case .file:
-            HistoryMenuBuilder.addMenuItem(L("打开文件"), to: menu) { openFile(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("复制文件"), to: menu) { copyFile(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("复制路径"), to: menu) { copyFilePaths(item.id) }
-            HistoryMenuBuilder.addMenuItem(L("在 Finder 中显示"), to: menu) { revealFilesInFinder(item.id) }
-            menu.addItem(.separator())
-        case .text:
-            break
-        }
-    }
-
     @ViewBuilder
     private func typeSpecificContextMenu(for item: HistoryPreviewItem) -> some View {
         HistoryTypeSpecificContextMenu(
@@ -1671,80 +1598,6 @@ struct HistoryWindowView: View {
         .help(L("更多操作"))
     }
 
-    private func makeMoreMenu() -> NSMenu {
-        let menu = NSMenu()
-
-        HistoryMenuBuilder.addMenuItem(HistoryCommand.newText.title, to: menu) {
-            createTextFromMenu()
-        }
-
-        menu.addItem(.separator())
-
-        HistoryMenuBuilder.addMenuItem(HistoryCommand.help.title, to: menu) {
-            appMenuController.showHelp()
-        }
-
-        HistoryMenuBuilder.addMenuItem(HistoryCommand.settings.title, to: menu) {
-            appMenuController.showSettings()
-        }
-
-        let pauseItem = NSMenuItem(title: L("暂停 轻贴"), action: nil, keyEquivalent: "")
-        pauseItem.submenu = makePauseNSMenu()
-        menu.addItem(pauseItem)
-
-        menu.addItem(.separator())
-
-        let clearItem = NSMenuItem(title: L("清空历史"), action: nil, keyEquivalent: "")
-        let clearTarget = ClosureMenuItemTarget {
-            groupUIState.isClearConfirmationPresented = true
-        }
-        clearItem.target = clearTarget
-        clearItem.representedObject = clearTarget
-        clearItem.action = #selector(ClosureMenuItemTarget.performAction)
-        clearItem.isEnabled = !store.items.isEmpty
-        menu.addItem(clearItem)
-
-        menu.addItem(.separator())
-
-        HistoryMenuBuilder.addMenuItem(HistoryCommand.quit.title, to: menu) {
-            appMenuController.quit()
-        }
-
-        HistoryMenuBuilder.addMenuItem(HistoryCommand.about.title, to: menu) {
-            appMenuController.showAbout()
-        }
-
-        return menu
-    }
-
-    private func makePauseNSMenu() -> NSMenu {
-        let menu = NSMenu()
-
-        HistoryMenuBuilder.addMenuItem(recordingController.pauseMenuPrimaryTitle(), to: menu) {
-            togglePauseFromMenu()
-        }
-        HistoryMenuBuilder.addMenuItem(L("暂停 15 分钟"), to: menu) {
-            pauseRecording(for: 15 * 60, message: L("已暂停 15 分钟"))
-        }
-        HistoryMenuBuilder.addMenuItem(L("暂停 30 分钟"), to: menu) {
-            pauseRecording(for: 30 * 60, message: L("已暂停 30 分钟"))
-        }
-        HistoryMenuBuilder.addMenuItem(L("暂停 1 小时"), to: menu) {
-            pauseRecording(for: 60 * 60, message: L("已暂停 1 小时"))
-        }
-        HistoryMenuBuilder.addMenuItem(L("暂停 3 小时"), to: menu) {
-            pauseRecording(for: 3 * 60 * 60, message: L("已暂停 3 小时"))
-        }
-        HistoryMenuBuilder.addMenuItem(L("暂停 6 小时"), to: menu) {
-            pauseRecording(for: 6 * 60 * 60, message: L("已暂停 6 小时"))
-        }
-        HistoryMenuBuilder.addMenuItem(L("截止到今日"), to: menu) {
-            appMenuController.pauseUntilEndOfToday()
-        }
-
-        return menu
-    }
-
     private var retentionSettingsMenu: some View {
         HistoryRetentionSettingsMenu(store: store, onShowStatus: showStatus)
     }
@@ -1885,7 +1738,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func copyMarkdownLink(_ id: ClipboardItem.ID?) {
+    func copyMarkdownLink(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .link else {
             return
@@ -1904,7 +1757,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func copyLinkURL(_ id: ClipboardItem.ID?) {
+    func copyLinkURL(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .link else {
             return
@@ -1919,7 +1772,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func openLink(_ id: ClipboardItem.ID?) {
+    func openLink(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .link,
               let url = item.url else {
@@ -1932,7 +1785,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func copyColorHex(_ id: ClipboardItem.ID?) {
+    func copyColorHex(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .color else {
             return
@@ -1947,7 +1800,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func copyColorRGB(_ id: ClipboardItem.ID?) {
+    func copyColorRGB(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .color,
               let rgb = rgbString(from: item.text) else {
@@ -2102,7 +1955,7 @@ struct HistoryWindowView: View {
         )
     }
 
-    private func isEditable(_ item: HistoryPreviewItem) -> Bool {
+    func isEditable(_ item: HistoryPreviewItem) -> Bool {
         guard let sourceItem = store.item(with: item.id) else {
             return false
         }
@@ -2110,7 +1963,7 @@ struct HistoryWindowView: View {
         return isEditable(sourceItem)
     }
 
-    private func isEditable(_ item: ClipboardItem) -> Bool {
+    func isEditable(_ item: ClipboardItem) -> Bool {
         switch item.type {
         case .text:
             true
@@ -2131,7 +1984,7 @@ struct HistoryWindowView: View {
         beginEditItem(selectedItemID)
     }
 
-    private func beginEditItem(_ id: ClipboardItem.ID?) {
+    func beginEditItem(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               isEditable(item) else {
             showStatus(L("此内容暂不支持编辑"))
@@ -2165,7 +2018,7 @@ struct HistoryWindowView: View {
         showPreview(selectedItemID)
     }
 
-    private func deleteItem(_ id: ClipboardItem.ID?) {
+    func deleteItem(_ id: ClipboardItem.ID?) {
         guard !inputState.isAnyTextInputActiveSnapshot,
               canPerformDeleteCommand else {
             return
@@ -2531,7 +2384,7 @@ struct HistoryWindowView: View {
         showStatus(removedCount > 0 ? L("已删除分组和 \(removedCount) 条内容") : L("已删除分组"))
     }
 
-    private func presentMoveToGroupPicker(for item: HistoryPreviewItem) {
+    func presentMoveToGroupPicker(for item: HistoryPreviewItem) {
         groupUIState.presentMoveToGroupPicker(for: item)
     }
 
@@ -2544,7 +2397,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func removeItemFromGroup(_ id: ClipboardItem.ID?) {
+    func removeItemFromGroup(_ id: ClipboardItem.ID?) {
         store.removeItemFromGroup(id)
         showStatus(L("已移出分组"))
     }
@@ -2558,12 +2411,12 @@ struct HistoryWindowView: View {
         showStatus(item.isPinned ? L("已取消置顶") : L("已置顶"))
     }
 
-    private func sourceAppIgnoreMenuTitle(for item: ClipboardItem) -> String {
+    func sourceAppIgnoreMenuTitle(for item: ClipboardItem) -> String {
         let prefix = appMenuController.isSourceAppIgnored(for: item) ? L("取消忽略") : L("忽略")
         return "\(prefix) \(item.sourceAppName)"
     }
 
-    private func toggleSourceAppIgnored(_ id: ClipboardItem.ID?) {
+    func toggleSourceAppIgnored(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.sourceBundleID != nil else {
             showStatus(L("无法识别来源 App"))
@@ -2585,7 +2438,7 @@ struct HistoryWindowView: View {
         showStatus(L("已忽略 \(item.sourceAppName)"))
     }
 
-    private func copySourceAppName(_ id: ClipboardItem.ID?) {
+    func copySourceAppName(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id) else {
             return
         }
@@ -2598,7 +2451,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func copySourceBundleID(_ id: ClipboardItem.ID?) {
+    func copySourceBundleID(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let bundleID = item.sourceBundleID else {
             showStatus(L("无来源 Bundle ID"))
@@ -2613,7 +2466,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func revealImageInFinder(_ id: ClipboardItem.ID?) {
+    func revealImageInFinder(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let imageURL = store.imageFileURL(for: item) else {
             showStatus(L("未找到图片文件"))
@@ -2625,7 +2478,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func openImage(_ id: ClipboardItem.ID?) {
+    func openImage(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let imageURL = store.imageFileURL(for: item) else {
             showStatus(L("未找到图片文件"))
@@ -2637,7 +2490,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func copyImage(_ id: ClipboardItem.ID?) {
+    func copyImage(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let imageURL = store.imageFileURL(for: item),
               let image = NSImage(contentsOf: imageURL) else {
@@ -2657,7 +2510,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func copyImagePath(_ id: ClipboardItem.ID?) {
+    func copyImagePath(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               let imageURL = store.imageFileURL(for: item) else {
             showStatus(L("未找到图片文件"))
@@ -2674,7 +2527,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func copyFilePaths(_ id: ClipboardItem.ID?) {
+    func copyFilePaths(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .file else {
             showStatus(L("未找到文件"))
@@ -2700,7 +2553,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func copyFile(_ id: ClipboardItem.ID?) {
+    func copyFile(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .file else {
             showStatus(L("未找到文件"))
@@ -2722,7 +2575,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func openFile(_ id: ClipboardItem.ID?) {
+    func openFile(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .file else {
             showStatus(L("未找到文件"))
@@ -2740,7 +2593,7 @@ struct HistoryWindowView: View {
         closeAfterContextMenuCommand()
     }
 
-    private func revealFilesInFinder(_ id: ClipboardItem.ID?) {
+    func revealFilesInFinder(_ id: ClipboardItem.ID?) {
         guard let item = store.item(with: id),
               item.type == .file else {
             showStatus(L("未找到文件"))
@@ -4791,7 +4644,7 @@ struct HistoryWindowView: View {
         appMenuController.pauseRecording()
     }
 
-    private func togglePauseFromMenu() {
+    func togglePauseFromMenu() {
         if recordingController.isPaused {
             onClose()
             appMenuController.resumeRecording()
@@ -4800,7 +4653,7 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func pauseRecording(for interval: TimeInterval, message: String) {
+    func pauseRecording(for interval: TimeInterval, message: String) {
         onClose()
         appMenuController.pauseRecording(for: interval)
     }
@@ -5102,7 +4955,7 @@ struct HistoryWindowView: View {
         onCreateText(selectedGroupID)
     }
 
-    private func createTextFromMenu() {
+    func createTextFromMenu() {
         onClose()
         onCreateText(selectedGroupID)
     }
