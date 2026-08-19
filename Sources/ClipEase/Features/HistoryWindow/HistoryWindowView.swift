@@ -35,6 +35,7 @@ struct HistoryWindowView: View {
     @State private var isCommandKeyPressed = false
     @State private var isSearchFocused = false
     @State private var isSearchTextComposing = false
+    @State private var isSearchTextDrivenUpdate = false
     @State private var searchLeadingContentWidth: CGFloat = 0
     @State private var searchTextInsertionIndex = Int.max
     @State private var searchFocusRequestID = 0
@@ -686,7 +687,8 @@ struct HistoryWindowView: View {
         }
         .onChange(of: searchUIState.text) { _ in
             searchUIState.selectedTokenKind = nil
-            scheduleSearchUpdate(debounceNanoseconds: isSearchTextComposing ? 300_000_000 : 160_000_000)
+            isSearchTextDrivenUpdate = true
+            scheduleSearchUpdate(debounceNanoseconds: isSearchTextComposing ? 300_000_000 : 100_000_000)
         }
         .onChange(of: isSearchTextComposing) { isComposing in
             if !isComposing {
@@ -5049,7 +5051,8 @@ struct HistoryWindowView: View {
                 let result = coordinatorResult.filterResult
                 let applyStartedAt = CFAbsoluteTimeGetCurrent()
                 var transaction = Transaction()
-                let shouldAnimateResults = inputState.isWindowPresentedSnapshot && shouldAnimateHistoryRailChange(
+                let isTextDriven = isSearchTextDrivenUpdate
+                let shouldAnimateResults = !isTextDriven && inputState.isWindowPresentedSnapshot && shouldAnimateHistoryRailChange(
                     sourceItemCount: request.sourceItems.count,
                     renderedItemCount: result.items.count
                 )
@@ -5057,6 +5060,9 @@ struct HistoryWindowView: View {
                     transaction.animation = .easeOut(duration: focusState.pendingLatestFocusItemID != nil ? 0.30 : 0.16)
                 } else {
                     transaction.disablesAnimations = true
+                }
+                if isTextDriven {
+                    isSearchTextDrivenUpdate = false
                 }
                 withTransaction(transaction) {
                     applyFilteredPreviewResult(result)

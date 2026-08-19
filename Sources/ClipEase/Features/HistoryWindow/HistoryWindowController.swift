@@ -49,7 +49,7 @@ private final class SystemHistoryWindowEventMonitorBackend: HistoryWindowEventMo
 final class HistoryWindowController: NSObject, NSWindowDelegate {
     private let panelHeight: CGFloat = HistoryWindowPanelMetrics.height
     private let panelAnimationDistance: CGFloat = HistoryWindowPanelMetrics.animationDistance
-    private let panelAnimationDuration: TimeInterval = 0.14
+    private let panelAnimationDuration: TimeInterval = 0.22
     private var accessibilityDisplayOptionsObserver: NSObjectProtocol?
     private let store: ClipboardHistoryStore
     private let pasteExecutor: PasteExecutor
@@ -377,7 +377,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         )
         NSAnimationContext.runAnimationGroup { context in
             context.duration = panelAnimationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .linear)
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(targetFrame, display: false)
         } completionHandler: {
             Task { @MainActor [weak panel] in
@@ -489,7 +489,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         )
         NSAnimationContext.runAnimationGroup { context in
             context.duration = panelAnimationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .linear)
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(targetFrame, display: false)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
@@ -898,24 +898,23 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         animation.fromValue = startTranslationY
         animation.toValue = endTranslationY
         animation.duration = panelAnimationDuration
-        animation.timingFunction = CAMediaTimingFunction(name: .linear)
-        layer.add(animation, forKey: key)
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
-        Task { @MainActor [weak self, weak panel] in
-            let durationSeconds = self?.panelAnimationDuration ?? 0
-            let durationNanoseconds = UInt64(durationSeconds * 1_000_000_000)
-            if durationNanoseconds > 0 {
-                try? await Task.sleep(nanoseconds: durationNanoseconds)
-            }
-            guard let self,
-                  let panel,
-                  self.contentLayerAnimationGeneration == generation else {
-                return
-            }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            Task { @MainActor [weak self, weak panel] in
+                guard let self,
+                      let panel,
+                      self.contentLayerAnimationGeneration == generation else {
+                    return
+                }
 
-            panel.contentView?.layer?.removeAnimation(forKey: key)
-            completion()
+                panel.contentView?.layer?.removeAnimation(forKey: key)
+                completion()
+            }
         }
+        layer.add(animation, forKey: key)
+        CATransaction.commit()
     }
 
     private func resetHistoryContentLayerAnimationState(for panel: NSPanel) {
