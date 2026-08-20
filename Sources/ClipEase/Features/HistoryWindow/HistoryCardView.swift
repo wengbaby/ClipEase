@@ -61,25 +61,15 @@ struct HistoryCardView: View, Equatable {
 
                 Spacer()
 
-                if let groupIconName,
-                   let groupColorHex,
-                   Color.clipeaseHex(groupColorHex) != .clear {
-                    Image(systemName: groupIconName)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 28, height: 28)
-                        .foregroundStyle(Color.clipeaseHex(groupColorHex))
-                } else {
-                    AsyncSourceIconView(
-                        iconFileName: item.iconFileName,
-                        fallbackSystemName: item.iconName,
-                        sourceAppName: item.sourceAppName
-                    )
-                }
+                AsyncSourceIconView(
+                    iconFileName: item.iconFileName,
+                    fallbackSystemName: item.iconName,
+                    sourceAppName: item.sourceAppName
+                )
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
-            .padding(.vertical, 7)
+            .frame(height: 72, alignment: .center)
             .background {
                 cardHeaderBackground
             }
@@ -138,7 +128,13 @@ struct HistoryCardView: View, Equatable {
     private var cardHeaderBackground: some View {
         ZStack {
             visualState.cardStyle.materialTheme.gradient
-            item.headerColor.opacity(visualState.environment.cardHeaderColorIntensity)
+            if let groupColorHex,
+               Color.clipeaseHex(groupColorHex) != .clear {
+                Color.clipeaseHex(groupColorHex)
+                    .opacity(visualState.environment.cardHeaderColorIntensity)
+            } else {
+                item.headerColor.opacity(visualState.environment.cardHeaderColorIntensity)
+            }
         }
     }
 
@@ -174,8 +170,8 @@ struct HistoryCardView: View, Equatable {
 
     @ViewBuilder
     private var groupBadge: some View {
-        if item.groupID != nil {
-            Image(systemName: "folder.fill")
+        if let groupIconName {
+            Image(systemName: groupIconName)
                 .font(.system(size: 11, weight: .bold))
         }
     }

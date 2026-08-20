@@ -35,7 +35,7 @@ struct SourceAppInfo: Sendable {
             bundleID: app.bundleIdentifier,
             iconName: iconName(for: app.bundleIdentifier),
             iconFileName: app.bundleIdentifier.map(AppIconCache.expectedFileName(forBundleID:)),
-            headerColorHex: headerColorHex(for: app.bundleIdentifier)
+            headerColorHex: headerColorHex(for: app)
         )
     }
 
@@ -99,12 +99,13 @@ struct SourceAppInfo: Sendable {
         return "app.fill"
     }
 
-    private static func headerColorHex(for bundleID: String?) -> String {
-        guard let bundleID else {
+    private static func headerColorHex(for app: NSRunningApplication) -> String {
+        guard let bundleID = app.bundleIdentifier else {
             return "#2E8CFF"
         }
 
-        if let cached = AppIconCache.cachedIconMetadata(forBundleID: bundleID),
+        let cacheKey = AppIconCache.cacheKey(for: app, bundleID: bundleID)
+        if let cached = AppIconCache.cachedIconMetadata(forBundleID: bundleID, cacheKey: cacheKey),
            cached.dominantColorHex != "#2E8CFF" {
             return cached.dominantColorHex
         }

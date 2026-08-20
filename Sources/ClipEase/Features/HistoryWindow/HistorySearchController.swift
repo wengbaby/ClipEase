@@ -164,7 +164,7 @@ enum HistorySearchTokenKind: Hashable, Sendable {
         case .type(let type):
             type.iconName
         case .sourceApp:
-            "app"
+            "app.fill"
         case .date:
             "calendar"
         case .group(.pinned):
@@ -178,6 +178,7 @@ enum HistorySearchTokenKind: Hashable, Sendable {
 struct HistorySearchToken: Identifiable, Equatable, Sendable {
     let kind: HistorySearchTokenKind
     let title: String
+    let iconFileName: String?
 
     var id: HistorySearchTokenKind {
         kind
@@ -185,34 +186,39 @@ struct HistorySearchToken: Identifiable, Equatable, Sendable {
 
     static func tokens(
         criteria: HistorySearchCriteria,
-        groups: [ClipboardGroup]
+        groups: [ClipboardGroup],
+        sourceAppIconFileNameByName: [String: String] = [:]
     ) -> [HistorySearchToken] {
         var tokenByKind: [HistorySearchTokenKind: HistorySearchToken] = [:]
         var tokens: [HistorySearchToken] = []
 
         for type in HistorySearchItemType.allCases where criteria.types.contains(type) {
-            let token = HistorySearchToken(kind: .type(type), title: type.title)
+            let token = HistorySearchToken(kind: .type(type), title: type.title, iconFileName: nil)
             tokenByKind[token.kind] = token
         }
 
         for sourceAppName in criteria.sourceAppNames.sorted() {
-            let token = HistorySearchToken(kind: .sourceApp(sourceAppName), title: sourceAppName)
+            let token = HistorySearchToken(
+                kind: .sourceApp(sourceAppName),
+                title: sourceAppName,
+                iconFileName: sourceAppIconFileNameByName[sourceAppName]
+            )
             tokenByKind[token.kind] = token
         }
 
         for dateRange in HistorySearchDateRange.allCases where criteria.dateRanges.contains(dateRange) {
-            let token = HistorySearchToken(kind: .date(dateRange), title: dateRange.title)
+            let token = HistorySearchToken(kind: .date(dateRange), title: dateRange.title, iconFileName: nil)
             tokenByKind[token.kind] = token
         }
 
         let systemGroups: [HistorySearchGroup] = [.pinned]
         for group in systemGroups where criteria.groups.contains(group) {
-            let token = HistorySearchToken(kind: .group(group), title: group.title(groups: groups))
+            let token = HistorySearchToken(kind: .group(group), title: group.title(groups: groups), iconFileName: nil)
             tokenByKind[token.kind] = token
         }
         for group in groups where criteria.groups.contains(.group(group.id)) {
             let searchGroup = HistorySearchGroup.group(group.id)
-            let token = HistorySearchToken(kind: .group(searchGroup), title: searchGroup.title(groups: groups))
+            let token = HistorySearchToken(kind: .group(searchGroup), title: searchGroup.title(groups: groups), iconFileName: nil)
             tokenByKind[token.kind] = token
         }
 

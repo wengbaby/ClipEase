@@ -359,6 +359,15 @@ enum HistoryPreviewFollowPolicy {
     ]
 }
 
+enum HistoryDefaultSelectionPolicy {
+    static func selectedID(
+        pinnedIDs: [ClipboardItem.ID],
+        orderedIDs: [ClipboardItem.ID]
+    ) -> ClipboardItem.ID? {
+        pinnedIDs.first(where: orderedIDs.contains) ?? orderedIDs.first
+    }
+}
+
 enum HistorySearchResultSelectionPolicy {
     static func selectedID(
         currentSelectedID: ClipboardItem.ID?,

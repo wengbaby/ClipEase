@@ -208,8 +208,13 @@ private struct TestClipboardHistoryRepository: ClipboardHistoryRepository {
         .type(.image)
     ]
 
-    let tokens = HistorySearchToken.tokens(criteria: criteria, groups: [])
+    let tokens = HistorySearchToken.tokens(
+        criteria: criteria,
+        groups: [],
+        sourceAppIconFileNameByName: ["Safari": "safari.png"]
+    )
 
+    #expect(tokens.first?.iconFileName == "safari.png")
     #expect(tokens.map(\.kind) == [
         .sourceApp("Safari"),
         .date(.last7Days),

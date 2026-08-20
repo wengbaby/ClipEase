@@ -19,6 +19,7 @@ struct CardRailScrollViewBinder: NSViewRepresentable {
     final class BindingView: NSView {
         var onBind: (() -> Void)?
         private var isBindScheduled = false
+        private var bindingRetryCount = 0
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -48,6 +49,7 @@ struct CardRailScrollViewBinder: NSViewRepresentable {
 
                 self.isBindScheduled = false
                 self.bindScrollViewIfNeeded()
+                self.scheduleBindingRetryIfNeeded()
             }
         }
 
@@ -58,6 +60,26 @@ struct CardRailScrollViewBinder: NSViewRepresentable {
 
             HistoryScrollCoordinator.shared.update(scrollView: scrollView)
             onBind?()
+            if let visibleRect = HistoryScrollCoordinator.shared.visibleDocumentRect,
+               visibleRect.width > 0,
+               visibleRect.height > 0 {
+                bindingRetryCount = 0
+            }
+        }
+
+        func scheduleBindingRetryIfNeeded() {
+            let hasUsableVisibleRect = HistoryScrollCoordinator.shared.visibleDocumentRect.map {
+                $0.width > 0 && $0.height > 0
+            } == true
+            guard bindingRetryCount < 60,
+                  enclosingScrollView == nil || !hasUsableVisibleRect else {
+                return
+            }
+
+            bindingRetryCount += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in
+                self?.bindScrollViewSoon()
+            }
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {

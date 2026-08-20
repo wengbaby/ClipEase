@@ -13,6 +13,7 @@ final class HistoryPreviewWindowController {
     private var contentLoadTask: Task<Void, Never>?
     private var contentConfiguration: PreviewContentConfiguration?
     private var isContentReady = false
+    private var attachedAnimationAnchorX: CGFloat = 0.5
     private var attachedAnimationGeneration: UInt64 = 0
     private var isAttachedClosing = false
     private var detachedPanels: [ObjectIdentifier: NSPanel] = [:]
@@ -87,6 +88,7 @@ final class HistoryPreviewWindowController {
         let panel = panel ?? makePanel()
         let isAlreadyVisible = panel.isVisible
         let frame = attachedFrame
+        attachedAnimationAnchorX = min(max(arrowX / max(size.width, 1), 0.08), 0.92)
         let ocrResult = ClipboardOCRMatch(
             text: item.ocrText,
             emails: item.ocrEmails,
@@ -116,6 +118,7 @@ final class HistoryPreviewWindowController {
         )
         configureAttachedPanel(panel)
         detachPanelFromParent(panel)
+        panel.setFrame(frame, display: true, animate: false)
         renderPreviewContent(panel: panel)
         (panel as? HistoryPreviewPanel)?.onEscape = { [weak self] in
             guard self?.panel === panel else {
@@ -305,6 +308,7 @@ final class HistoryPreviewWindowController {
         scaleAnimation.isRemovedOnCompletion = false
 
         if let layer = panel.contentView?.layer {
+            updateLayerAnchorPoint(layer, anchorPoint: CGPoint(x: attachedAnimationAnchorX, y: 0))
             layer.add(scaleAnimation, forKey: "bloomClose")
             layer.transform = CATransform3DMakeScale(0.12, 0.04, 1)
         }
@@ -460,6 +464,7 @@ final class HistoryPreviewWindowController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hasShadow = true
         panel.isMovable = true
+        panel.isMovableByWindowBackground = true
         panel.minSize = detachedPreviewMinimumSize
         panel.animationBehavior = .default
         (panel as? HistoryPreviewPanel)?.isDetachedPreview = true
@@ -661,6 +666,10 @@ final class HistoryPreviewWindowController {
     ) {
         let initialMouseScreenPoint = panel.convertPoint(toScreen: initialMouseDownEvent.locationInWindow)
         let initialFrameOrigin = panel.frame.origin
+
+        panel.isMovable = true
+        panel.isMovableByWindowBackground = true
+        panel.makeKeyAndOrderFront(nil)
 
         func movePanelToCurrentMouse() {
             let currentMousePoint = NSEvent.mouseLocation

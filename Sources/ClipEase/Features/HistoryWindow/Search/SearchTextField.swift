@@ -1,6 +1,16 @@
 import SwiftUI
 import AppKit
 
+final class SearchTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        var drawingRect = super.drawingRect(forBounds: rect)
+        let textHeight = cellSize(forBounds: rect).height
+        drawingRect.origin.y = rect.midY - textHeight / 2
+        drawingRect.size.height = textHeight
+        return drawingRect
+    }
+}
+
 struct SearchTextField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
@@ -10,6 +20,7 @@ struct SearchTextField: NSViewRepresentable {
     let searchHasHandedOffFocusToCard: Bool
     let hasSearchResult: Bool
     let hasSearchTokens: Bool
+    let hidesInsertionPoint: Bool
     let textColor: NSColor
     let font: NSFont
     let onFocusChanged: (Bool) -> Void
@@ -31,6 +42,7 @@ struct SearchTextField: NSViewRepresentable {
         textField.textColor = textColor
         textField.placeholderString = L("搜索")
         textField.lineBreakMode = .byTruncatingTail
+        textField.cell = SearchTextFieldCell(textCell: "")
         textField.cell?.sendsActionOnEndEditing = false
         return textField
     }
@@ -60,6 +72,10 @@ struct SearchTextField: NSViewRepresentable {
                 nsView.window?.makeFirstResponder(nsView)
             }
             context.coordinator.configureEditor(in: nsView)
+            context.coordinator.setInsertionPointVisibility(
+                hidden: hidesInsertionPoint,
+                in: nsView
+            )
             if !hasMarkedText, context.coordinator.handledFocusRequestID != focusRequestID {
                 context.coordinator.handledFocusRequestID = focusRequestID
                 context.coordinator.moveInsertionPointToEndSoon(in: nsView)
@@ -67,6 +83,8 @@ struct SearchTextField: NSViewRepresentable {
             context.coordinator.consumePendingComposedInputEventSoon(in: nsView)
         } else if nsView.window?.firstResponder === nsView.currentEditor() {
             nsView.window?.makeFirstResponder(nil)
+        } else if !isFocused {
+            context.coordinator.setInsertionPointVisibility(hidden: false, in: nsView)
         }
     }
 
@@ -202,7 +220,8 @@ struct SearchTextField: NSViewRepresentable {
                     }
                 }
                 return false
-            case #selector(NSResponder.deleteBackward(_:)):
+            case #selector(NSResponder.deleteBackward(_:)),
+                 #selector(NSResponder.deleteForward(_:)):
                 guard parent.text.isEmpty, parent.hasSearchTokens else {
                     return false
                 }
@@ -238,6 +257,15 @@ struct SearchTextField: NSViewRepresentable {
                 .backgroundColor: NSColor.selectedTextBackgroundColor,
                 .foregroundColor: NSColor.selectedTextColor
             ]
+        }
+
+        func setInsertionPointVisibility(hidden: Bool, in textField: NSTextField) {
+            guard let editor = textField.currentEditor() as? NSTextView else {
+                return
+            }
+
+            editor.insertionPointColor = hidden ? .clear : .labelColor
+            editor.needsDisplay = true
         }
 
         func moveInsertionPointToEndSoon(in textField: NSTextField) {

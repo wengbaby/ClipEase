@@ -4,6 +4,38 @@ import Testing
 @testable import ClipEase
 
 @Test @MainActor
+func historyStoreGroupMutationKeepsItemOrder() {
+    let group = ClipboardGroup.makeDefault(name: "Work", sortOrder: 0)
+    var first = ClipboardItem.text("first", sourceApp: .clipease)
+    first.createdAt = Date(timeIntervalSince1970: 300)
+    var second = ClipboardItem.text("second", sourceApp: .clipease)
+    second.createdAt = Date(timeIntervalSince1970: 200)
+    let repository = StoreNarrowMutationRecordingRepository(
+        snapshot: ClipboardHistorySnapshot(items: [first, second], groups: [group])
+    )
+    let persistence = ClipboardHistoryPersistence(repository: repository)
+    let writer = ClipboardHistorySaveWriter(
+        persistence: persistence,
+        batchPolicy: ClipboardHistoryWriteBatchPolicy(
+            maximumDelayMilliseconds: 60_000,
+            maximumMutationCount: 50
+        )
+    )
+    let defaults = makeStoreNarrowMutationDefaults()
+    defer { defaults.removePersistentDomain(forName: defaultsSuiteName(defaults)) }
+    let store = ClipboardHistoryStore(
+        persistence: persistence,
+        userDefaults: defaults,
+        saveWriter: writer,
+        externalCopyFeedback: { _ in }
+    )
+
+    store.addItem(second.id, toGroup: group.id)
+
+    #expect(store.items.map(\.id) == [first.id, second.id])
+}
+
+@Test @MainActor
 func historyStoreRoutesPinMetadataLinkAndGroupChangesThroughNarrowMutations() async {
     let group = ClipboardGroup.makeDefault(name: "Work", sortOrder: 0)
     var regular = ClipboardItem.text("regular", sourceApp: .clipease)

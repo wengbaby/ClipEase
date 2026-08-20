@@ -216,17 +216,23 @@ enum AppIconCache {
     private static let coordinator = AppIconCacheCoordinator(generation: generation)
 
     static func cachedIconMetadata(forBundleID bundleID: String) -> CachedAppIcon? {
+        cachedIconMetadata(forBundleID: bundleID, cacheKey: nil)
+    }
+
+    static func cachedIconMetadata(
+        forBundleID bundleID: String,
+        cacheKey: String?
+    ) -> CachedAppIcon? {
         let fileName = fileName(forBundleID: bundleID)
         guard let fileURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: fileName),
-              FileManager.default.fileExists(atPath: fileURL.path) else {
+              FileManager.default.fileExists(atPath: fileURL.path),
+              let metadata = diskMetadata(at: metadataURL(for: fileURL)),
+              metadata.generation == generation.begin().value,
+              (cacheKey == nil || metadata.cacheKey == cacheKey) else {
             return nil
         }
 
-        if let metadata = diskMetadata(at: metadataURL(for: fileURL)),
-           metadata.generation == generation.begin().value {
-            return metadata.icon
-        }
-        return CachedAppIcon(fileName: fileName, dominantColorHex: "#2E8CFF")
+        return metadata.icon
     }
 
     static func expectedFileName(forBundleID bundleID: String) -> String {
@@ -351,17 +357,17 @@ enum AppIconCache {
         try? FileManager.default.removeItem(at: metadataURL(for: fileURL))
     }
 
-    @MainActor
-    private static func cacheKey(for app: NSRunningApplication, bundleID: String) -> String {
+    static func cacheKey(for app: NSRunningApplication, bundleID: String) -> String {
+        let colorSamplingVersion = "color-v2"
         guard let bundleURL = app.bundleURL else {
-            return "\(bundleID)|unknown"
+            return "\(bundleID)|\(colorSamplingVersion)|unknown"
         }
         let version = Bundle(url: bundleURL)?
             .object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         let modificationDate = (try? bundleURL.resourceValues(
             forKeys: [.contentModificationDateKey]
         ).contentModificationDate)?.timeIntervalSince1970 ?? 0
-        return "\(bundleID)|\(version)|\(modificationDate)"
+        return "\(bundleID)|\(colorSamplingVersion)|\(version)|\(modificationDate)"
     }
 
     private static func diskMetadata(at url: URL) -> DiskMetadata? {
@@ -396,18 +402,24 @@ enum AppIconCache {
         let centerX = bitmap.pixelsWide / 2
         let centerY = bitmap.pixelsHigh / 2
 
-        if let color = bestColor(in: bitmap, centerX: centerX, centerY: centerY) {
-            return hexString(from: color)
-        }
+        if let centerColor = bestColor(in: bitmap, centerX: centerX, centerY: centerY, ignoresNeutral: false) {
+            if !isNearWhite(centerColor) {
+                return hexString(from: centerColor)
+            }
 
-        let halfWidth = bitmap.pixelsWide / 2
-        for offset in [halfWidth / 2, halfWidth - 4] {
-            if let leftColor = bestColor(in: bitmap, centerX: max(4, centerX - offset), centerY: centerY) {
-                return hexString(from: leftColor)
+            let halfWidth = bitmap.pixelsWide / 2
+            for offset in [halfWidth / 2, halfWidth - 4] {
+                if let leftColor = bestColor(in: bitmap, centerX: max(4, centerX - offset), centerY: centerY),
+                   !isNearWhite(leftColor) {
+                    return hexString(from: leftColor)
+                }
+                if let rightColor = bestColor(in: bitmap, centerX: min(bitmap.pixelsWide - 5, centerX + offset), centerY: centerY),
+                   !isNearWhite(rightColor) {
+                    return hexString(from: rightColor)
+                }
             }
-            if let rightColor = bestColor(in: bitmap, centerX: min(bitmap.pixelsWide - 5, centerX + offset), centerY: centerY) {
-                return hexString(from: rightColor)
-            }
+
+            return hexString(from: centerColor)
         }
 
         return "#2E8CFF"
@@ -416,7 +428,8 @@ enum AppIconCache {
     private static func bestColor(
         in bitmap: NSBitmapImageRep,
         centerX: Int,
-        centerY: Int
+        centerY: Int,
+        ignoresNeutral: Bool = true
     ) -> NSColor? {
         var selectedColor: NSColor?
         var selectedScore = CGFloat.greatestFiniteMagnitude
@@ -425,7 +438,7 @@ enum AppIconCache {
             for x in max(0, centerX - 8)..<min(bitmap.pixelsWide, centerX + 9) {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
                       color.alphaComponent > 0.2,
-                      !isIgnoredNeutral(color) else {
+                      (!ignoresNeutral || !isIgnoredNeutral(color)) else {
                     continue
                 }
 
@@ -451,6 +464,10 @@ enum AppIconCache {
 
     private static func isIgnoredNeutral(_ color: NSColor) -> Bool {
         (brightness(color) > 0.86 && saturation(color) < 0.24) || saturation(color) < 0.1
+    }
+
+    private static func isNearWhite(_ color: NSColor) -> Bool {
+        brightness(color) > 0.88 && saturation(color) < 0.2
     }
 
     private static func brightness(_ color: NSColor) -> CGFloat {

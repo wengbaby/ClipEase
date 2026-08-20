@@ -356,7 +356,8 @@ struct HistoryWindowView: View {
     var searchTokens: [HistorySearchToken] {
         HistorySearchToken.tokens(
             criteria: searchUIState.criteria,
-            groups: store.groups
+            groups: store.groups,
+            sourceAppIconFileNameByName: previewItemsState.sourceAppIconFileNameByName
         )
     }
 
@@ -615,14 +616,16 @@ struct HistoryWindowView: View {
         .onChange(of: viewportState.searchControlScreenFrame) { _ in
             refreshSearchInteractionScreenFrames()
         }
-        .onChange(of: searchUIState.isFilterPanelPresented) { _ in
+        .onChange(of: searchUIState.isFilterPanelPresented) { isPresented in
             refreshSearchInteractionScreenFrames()
+            if !isPresented,
+               searchUIState.isVisible,
+               !searchUIState.hasHandedOffFocusToCard {
+                focusSearchField()
+            }
         }
         .onChange(of: hostWindow) { _ in
             refreshSearchInteractionScreenFrames()
-        }
-        .transaction { transaction in
-            transaction.animation = nil
         }
         .onAppear {
             scheduleInitialAppearanceWork()
@@ -2840,13 +2843,30 @@ struct HistoryWindowView: View {
     private func updateSearchFieldPresentation(isVisible: Bool) {
         searchVisibilityTask?.cancel()
 
-        withAnimation(.easeInOut(duration: 0.22)) {
-            if isVisible {
-                searchUIState.isFieldLayoutVisible = true
-                searchUIState.isFieldVisualVisible = true
-            } else {
+        if isVisible {
+            searchUIState.isFieldLayoutVisible = true
+            searchUIState.isFieldVisualVisible = false
+            searchVisibilityTask = Task { @MainActor in
+                await Task.yield()
+                guard !Task.isCancelled else {
+                    return
+                }
+                withAnimation(.easeInOut(duration: 0.34)) {
+                    searchUIState.isFieldVisualVisible = true
+                }
+                searchVisibilityTask = nil
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.28)) {
                 searchUIState.isFieldVisualVisible = false
+            }
+            searchVisibilityTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 280_000_000)
+                guard !Task.isCancelled else {
+                    return
+                }
                 searchUIState.isFieldLayoutVisible = false
+                searchVisibilityTask = nil
             }
         }
     }
@@ -3855,7 +3875,11 @@ struct HistoryWindowView: View {
             return
         }
 
-        guard let targetID = filteredItems.first?.id else {
+        let targetID = HistoryDefaultSelectionPolicy.selectedID(
+            pinnedIDs: filteredItems.filter(\.isPinned).map(\.id),
+            orderedIDs: filteredItems.map(\.id)
+        )
+        guard let targetID else {
             selectedItemID = nil
             return
         }

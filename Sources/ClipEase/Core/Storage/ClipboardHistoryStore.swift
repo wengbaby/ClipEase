@@ -1141,7 +1141,7 @@ final class ClipboardHistoryStore: ObservableObject {
         items[index].groupedAt = now
         let updatedItem = items[index]
         updateGroupCountOnMove(from: oldGroupID, to: groupID)
-        sortItems()
+        rebuildItemIndexes()
         persistItemMutation(updatedItem, fields: [.group])
     }
 
@@ -1178,7 +1178,7 @@ final class ClipboardHistoryStore: ObservableObject {
             return 0
         }
 
-        sortItems()
+        rebuildItemIndexes()
         for item in changedItems {
             persistItemMutation(item, fields: [.group])
         }

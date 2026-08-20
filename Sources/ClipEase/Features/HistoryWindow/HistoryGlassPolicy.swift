@@ -209,9 +209,9 @@ enum HistoryGlassToolbarLayoutPolicy {
 }
 
 enum HistoryGlassToolbarWidthPolicy {
-    private static let expandedSearchFraction = 0.40
-    private static let minimumExpandedSearchWidth = 320.0
-    private static let maximumExpandedSearchWidth = 480.0
+    private static let expandedSearchFraction = 0.72
+    private static let minimumExpandedSearchWidth = 640.0
+    private static let maximumExpandedSearchWidth = 960.0
     private static let groupRailMinimumWidth = 176.0
 
     static func resolve(

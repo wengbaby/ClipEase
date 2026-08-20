@@ -36,17 +36,16 @@ struct HistoryPreviewPopoverView: View {
             popoverBody
 
             if showsArrow {
-                Triangle()
-                    .frame(width: 26, height: 14)
-                    .padding(.leading, arrowX - 13)
-                    .background {
-                        ZStack {
-                            Color(nsColor: .windowBackgroundColor)
-                            appearanceSettings.materialTheme.gradient
-                                .opacity(appearanceSettings.windowEffectOpacity * 0.62)
-                        }
-                        .clipShape(Triangle())
-                    }
+                HStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: max(0, min(size.width - 26, arrowX - 13)))
+                    Triangle()
+                        .fill(Color.black.opacity(0.82))
+                        .frame(width: 26, height: 14)
+                        .offset(y: -1)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: size.width, height: 14, alignment: .leading)
             }
         }
         .frame(width: size.width, height: size.height + (showsArrow ? 14 : 0), alignment: .topLeading)

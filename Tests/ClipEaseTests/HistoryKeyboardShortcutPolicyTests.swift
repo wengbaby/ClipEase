@@ -684,6 +684,21 @@ private final class LockedNotificationCounter: @unchecked Sendable {
     #expect(HistoryPreviewFollowPolicy.retryDelaysNanoseconds.allSatisfy { $0 > 0 })
 }
 
+@Test func defaultSelectionPrefersFirstPinnedItemWithoutReordering() {
+    let first = UUID()
+    let pinned = UUID()
+    let last = UUID()
+
+    #expect(HistoryDefaultSelectionPolicy.selectedID(
+        pinnedIDs: [pinned],
+        orderedIDs: [first, pinned, last]
+    ) == pinned)
+    #expect(HistoryDefaultSelectionPolicy.selectedID(
+        pinnedIDs: [],
+        orderedIDs: [first, pinned, last]
+    ) == first)
+}
+
 @Test func previewPlacementUpdatesArrowWhenWindowIsPinnedByScreenEdge() {
     let screenFrame = CGRect(x: 0, y: 0, width: 900, height: 700)
     let size = CGSize(width: 390, height: 260)

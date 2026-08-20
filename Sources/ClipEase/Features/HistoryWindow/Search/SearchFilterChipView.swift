@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SearchFilterChipIcon: View {
@@ -5,17 +6,52 @@ struct SearchFilterChipIcon: View {
     let iconFileName: String?
     let fallbackSystemImage: String
 
+    @State private var icon: NSImage?
+    @State private var representedFileName: String?
+
     var body: some View {
-        if let iconFileName,
-           let iconURL = try? ClipEaseStoragePaths.appIconFileURL(fileName: iconFileName),
-           let nsImage = NSImage(contentsOf: iconURL) {
-            Image(nsImage: ClipEaseAppIcon.roundedImage(nsImage, size: NSSize(width: 13, height: 13)))
-                .resizable()
-                .frame(width: 13, height: 13)
-        } else {
-            Image(systemName: systemImage ?? fallbackSystemImage)
-                .font(.system(size: 12, weight: .medium))
+        Group {
+            if let icon {
+                Image(nsImage: ClipEaseAppIcon.roundedImage(icon, size: NSSize(width: 13, height: 13)))
+                    .resizable()
+                    .frame(width: 13, height: 13)
+            } else {
+                Image(systemName: systemImage ?? fallbackSystemImage)
+                    .font(.system(size: 12, weight: .medium))
+            }
         }
+        .task(id: iconFileName) {
+            await loadIconIfNeeded()
+        }
+    }
+
+    @MainActor
+    private func loadIconIfNeeded() async {
+        representedFileName = iconFileName
+        guard let iconFileName else {
+            icon = nil
+            return
+        }
+
+        let cacheKey = "app-icon:\(iconFileName)"
+        if let cachedIcon = ImageMemoryCache.shared.cachedImage(for: cacheKey) {
+            icon = cachedIcon
+            return
+        }
+
+        guard let request = HistoryImageAssetRequest.sourceIcon(
+            fileName: iconFileName,
+            priority: .visible
+        ) else {
+            return
+        }
+
+        let asset = try? await HistoryImageAssetLoader.shared.loadVisible(request)
+        guard !Task.isCancelled,
+              representedFileName == iconFileName else {
+            return
+        }
+        icon = asset?.image
     }
 }
 
