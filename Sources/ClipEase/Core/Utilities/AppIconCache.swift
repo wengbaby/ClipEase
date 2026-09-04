@@ -152,7 +152,6 @@ actor AppIconCacheCoordinator {
         inFlight[scopedKey] = task
         startGate.release()
         let value = await task.value
-        inFlight[scopedKey] = nil
         if let value, generation.isCurrent(generationToken) {
             memory[scopedKey] = value
         }
@@ -183,6 +182,7 @@ actor AppIconCacheCoordinator {
         if count <= 1 {
             activeProbeCounts[key] = nil
             latestProbeSequence[key] = nil
+            inFlight[key] = nil
         } else {
             activeProbeCounts[key] = count - 1
         }

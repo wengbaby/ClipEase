@@ -112,10 +112,27 @@ struct EnterpriseDiagnosticsIconCoverageTests {
     @Test
     func iconCoordinatorSingleFlightsFailureButDoesNotCacheIt() async {
         let coordinator = AppIconCacheCoordinator()
+        let suspendedDiskLookup = DiagnosticsIconGate()
         let loaderGate = DiagnosticsIconGate()
         let loaderProbe = DiagnosticsIconCounter()
 
         async let first: CachedAppIcon? = coordinator.value(
+            for: "com.example.nil|1",
+            cachedValue: {
+                await suspendedDiskLookup.wait()
+                return nil
+            },
+            loadValue: {
+                await loaderProbe.increment()
+                return CachedAppIcon(
+                    fileName: "unexpected-first-loader.png",
+                    dominantColorHex: "#111111"
+                )
+            }
+        )
+        #expect(await suspendedDiskLookup.waitUntilStarted())
+
+        async let second: CachedAppIcon? = coordinator.value(
             for: "com.example.nil|1",
             cachedValue: { nil },
             loadValue: {
@@ -125,18 +142,7 @@ struct EnterpriseDiagnosticsIconCoverageTests {
             }
         )
         #expect(await loaderGate.waitUntilStarted())
-
-        async let second: CachedAppIcon? = coordinator.value(
-            for: "com.example.nil|1",
-            cachedValue: { nil },
-            loadValue: {
-                await loaderProbe.increment()
-                return CachedAppIcon(
-                    fileName: "duplicate.png",
-                    dominantColorHex: "#222222"
-                )
-            }
-        )
+        await suspendedDiskLookup.release()
         await loaderGate.release()
 
         let failedValues = await [first, second]
