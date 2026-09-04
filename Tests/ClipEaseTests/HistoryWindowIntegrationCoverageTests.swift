@@ -106,6 +106,65 @@ import Testing
     #expect(hostingView.fittingSize.height > 0)
 }
 
+@MainActor
+@Test func historyWindowCommandsRemoveGroupMembershipAndDeleteSelectedItem() {
+    let suiteName = "HistoryWindowCommandCoverageTests-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let store = ClipboardHistoryStore(
+        persistence: ClipboardHistoryPersistence(repository: ClipboardPayloadStagingEmptyRepository()),
+        userDefaults: defaults
+    )
+    store.addText("grouped", sourceApp: .clipease)
+    store.addText("delete me", sourceApp: .clipease)
+    let grouped = store.items.first { $0.text == "grouped" }!
+    let deletable = store.items.first { $0.text == "delete me" }!
+    let group = store.createGroup()
+    store.addItem(grouped.id, toGroup: group.id)
+
+    let permission = AccessibilityPermissionState { _ in true }
+    let recording = RecordingController(userDefaults: defaults)
+    let pasteExecutor = PasteExecutor(
+        store: store,
+        permissionState: permission,
+        pasteboard: NSPasteboard(name: .init("HistoryCommands-\(UUID().uuidString)"))
+    )
+    let menu = AppMenuController(
+        historyStore: store,
+        recordingController: recording,
+        loginItemController: LoginItemController(),
+        ignoredAppSettings: IgnoredAppSettings(userDefaults: defaults),
+        globalShortcutSettings: GlobalShortcutSettings(userDefaults: defaults),
+        accessibilityPermissionState: permission,
+        pasteExecutor: pasteExecutor
+    )
+    let inputState = HistoryWindowInputState()
+    let view = HistoryWindowView(
+        store: store,
+        previewState: HistoryPreviewState(),
+        renderState: HistoryWindowRenderState(),
+        inputState: inputState,
+        recordingController: recording,
+        accessibilityPermissionState: permission,
+        appMenuController: menu,
+        pasteExecutor: pasteExecutor,
+        onClose: {},
+        onPreview: { _, _ in },
+        onMovePreview: { _ in },
+        onClosePreview: {},
+        onCreateText: { _ in }
+    )
+
+    view.selectedItemID = grouped.id
+    view.removeItemFromGroup(grouped.id)
+    #expect(store.item(with: grouped.id)?.groupID == nil)
+
+    view.selectedItemID = deletable.id
+    view.deleteItem(deletable.id)
+    #expect(store.item(with: deletable.id) == nil)
+}
+
 private final class HistoryWindowIntegrationKeyboardBackend: HistoryKeyboardEventTapBackend {
     func createTap(
         eventMask: CGEventMask,
