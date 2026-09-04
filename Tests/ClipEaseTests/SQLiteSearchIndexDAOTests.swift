@@ -73,6 +73,39 @@ import Testing
     }
 }
 
+@Test func sqliteSearchIndexDAOPaginatesChineseSubstringResultsWithCursor() throws {
+    let fixture = try SQLiteSearchIndexDAOFixture.make()
+    defer { fixture.remove() }
+
+    let database = try SQLiteDatabase(url: fixture.databaseURL)
+    defer { database.close() }
+    try fixture.store.initialize()
+
+    var newer = ClipboardItem.debugText(
+        "主窗口设置",
+        createdAt: Date(timeIntervalSince1970: 200),
+        sourceApp: .clipease
+    )
+    let older = ClipboardItem.debugText(
+        "迷你窗口设置",
+        createdAt: Date(timeIntervalSince1970: 100),
+        sourceApp: .clipease
+    )
+    newer.isPinned = true
+    newer.pinnedAt = Date(timeIntervalSince1970: 300)
+    try SQLiteItemDAO.insert(newer, in: database)
+    try SQLiteSearchIndexDAO.insert(newer, in: database)
+    try SQLiteItemDAO.insert(older, in: database)
+    try SQLiteSearchIndexDAO.insert(older, in: database)
+
+    let query = ClipboardSearchQuery(text: "窗口", limit: 1)
+    let firstPage = try SQLiteSearchIndexDAO.searchPage(query, after: nil, in: database)
+    let secondPage = try SQLiteSearchIndexDAO.searchPage(query, after: firstPage.nextCursor, in: database)
+
+    #expect(firstPage.itemIDs == [newer.id])
+    #expect(secondPage.itemIDs == [older.id])
+}
+
 @Test func sqliteSearchIndexDAODeletesExistingIndexRows() throws {
     let fixture = try SQLiteSearchIndexDAOFixture.make()
     defer { fixture.remove() }
