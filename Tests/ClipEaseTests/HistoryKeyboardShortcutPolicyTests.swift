@@ -762,6 +762,16 @@ private final class LockedNotificationCounter: @unchecked Sendable {
         direction: .right,
         orderedKinds: orderedKinds
     ) == nil)
+    #expect(HistorySearchTokenNavigationPolicy.selection(
+        current: nil,
+        direction: .left,
+        orderedKinds: []
+    ) == nil)
+    #expect(HistorySearchTokenNavigationPolicy.selection(
+        current: first,
+        direction: .left,
+        orderedKinds: orderedKinds
+    ) == first)
 }
 
 @Test func removingSelectedGroupItemChoosesItsAdjacentRemainingItem() {

@@ -97,10 +97,13 @@ import Testing
 
     inputState.requestPresentation(plan)
     let firstRequest = inputState.presentationRequest
+    inputState.requestPresentation(plan)
+    let secondRequest = inputState.presentationRequest
 
     #expect(firstRequest?.plan == plan)
     #expect(firstRequest?.plan.viewport == .item(itemID, animated: false))
     #expect(firstRequest?.id != nil)
+    #expect(secondRequest?.id != firstRequest?.id)
 }
 
 @Test func previewFallbackAnchorTracksFocusedCardAcrossHorizontalMovement() {
