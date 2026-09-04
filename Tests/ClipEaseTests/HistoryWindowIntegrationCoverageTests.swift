@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import ClipEase
 
@@ -54,6 +55,12 @@ import Testing
     inputState.dispatch(.appendSearchText("窗口"))
     try await Task.sleep(nanoseconds: 350_000_000)
     inputState.dispatch(.close)
+    try await Task.sleep(nanoseconds: 80_000_000)
+    store.addText("visible insert", sourceApp: .clipease)
+    try await Task.sleep(nanoseconds: 350_000_000)
+    inputState.dispatch(.delete)
+    try await Task.sleep(nanoseconds: 200_000_000)
+    inputState.dispatch(.close)
     try await Task.sleep(nanoseconds: 300_000_000)
     controller.show(accessibilityAlreadyVerified: true)
     try await Task.sleep(nanoseconds: 300_000_000)
@@ -61,6 +68,38 @@ import Testing
     controller.shutdown()
 
     #expect(inputState.presentationRequest?.plan.selectedID != nil)
+}
+
+@MainActor
+@Test func previewPopoverLaysOutBodyAndMatchingArrowSurface() {
+    let item = ClipboardItem.text("preview surface", sourceApp: .clipease)
+    let writer = ClipboardWriteCoordinator(
+        pasteboard: NSPasteboard(name: .init("PreviewSurface-\(UUID().uuidString)"))
+    )
+    let view = HistoryPreviewPopoverView(
+        item: item,
+        ocrResult: nil,
+        arrowX: 120,
+        size: CGSize(width: 390, height: 260),
+        showsArrow: true,
+        isContentReady: true,
+        onClose: {},
+        onCopy: {},
+        onOpen: {},
+        onReveal: {},
+        onCopyURL: {},
+        onCopyMarkdown: {},
+        onCopyPath: {},
+        onCopyRGB: {},
+        onDetachDrag: { nil },
+        clipboardWriter: writer
+    )
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = CGRect(x: 0, y: 0, width: 390, height: 274)
+    hostingView.layoutSubtreeIfNeeded()
+
+    #expect(hostingView.fittingSize.width > 0)
+    #expect(hostingView.fittingSize.height > 0)
 }
 
 private final class HistoryWindowIntegrationKeyboardBackend: HistoryKeyboardEventTapBackend {
