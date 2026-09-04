@@ -79,6 +79,7 @@ import Testing
     #expect(script.contains("--repository-root \"$ROOT_DIR\""))
     #expect(script.contains("--coverage-json \"$COVERAGE_JSON_PATH\""))
     #expect(script.contains("--base-ref \"$COVERAGE_BASE_REF\""))
+    #expect(script.contains("CLIPEASE_COVERAGE_BASE_REF"))
     #expect(script.contains("--minimum-percent 80"))
     #expect(script.contains("--output \"$COVERAGE_REPORT_PATH\""))
 }
