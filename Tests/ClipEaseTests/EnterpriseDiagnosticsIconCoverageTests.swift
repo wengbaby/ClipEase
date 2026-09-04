@@ -112,7 +112,7 @@ struct EnterpriseDiagnosticsIconCoverageTests {
     @Test
     func iconCoordinatorSingleFlightsFailureButDoesNotCacheIt() async {
         let coordinator = AppIconCacheCoordinator()
-        let failedLoaderGate = DiagnosticsIconGate()
+        let loaderGate = DiagnosticsIconGate()
         let loaderProbe = DiagnosticsIconCounter()
 
         async let first: CachedAppIcon? = coordinator.value(
@@ -120,11 +120,11 @@ struct EnterpriseDiagnosticsIconCoverageTests {
             cachedValue: { nil },
             loadValue: {
                 await loaderProbe.increment()
-                await failedLoaderGate.wait()
+                await loaderGate.wait()
                 return nil
             }
         )
-        #expect(await failedLoaderGate.waitUntilStarted())
+        #expect(await loaderGate.waitUntilStarted())
 
         async let second: CachedAppIcon? = coordinator.value(
             for: "com.example.nil|1",
@@ -137,7 +137,7 @@ struct EnterpriseDiagnosticsIconCoverageTests {
                 )
             }
         )
-        await failedLoaderGate.release()
+        await loaderGate.release()
 
         let failedValues = await [first, second]
         #expect(failedValues.allSatisfy { $0 == nil })
