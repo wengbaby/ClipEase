@@ -167,8 +167,12 @@ enum SQLiteSearchIndexDAO {
         }
 
         let rawQuery = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let usesFTS = !rawQuery.isEmpty
-        guard usesFTS || hasDatabaseFilters(query.filters) else {
+        let substringTokens = SQLiteRowMapper.requiresSubstringSearch(rawQuery)
+            ? SQLiteRowMapper.substringSearchTokens(rawQuery)
+            : []
+        let usesSubstringSearch = !substringTokens.isEmpty
+        let usesFTS = !rawQuery.isEmpty && !usesSubstringSearch
+        guard usesFTS || usesSubstringSearch || hasDatabaseFilters(query.filters) else {
             return nil
         }
 
@@ -187,6 +191,22 @@ enum SQLiteSearchIndexDAO {
                 """
             orderSQL = """
                 clipboard_items_fts.rank ASC,
+                clipboard_items.is_pinned DESC,
+                clipboard_items.created_at DESC,
+                COALESCE(clipboard_items.pinned_at, clipboard_items.created_at) DESC,
+                clipboard_items.id DESC
+                """
+        } else if usesSubstringSearch {
+            predicates.append(contentsOf: substringTokens.map { _ in
+                "instr(clipboard_items_fts.search_text, ?) > 0"
+            })
+            values.append(contentsOf: substringTokens.map(SQLiteValue.text))
+            fromSQL = """
+                clipboard_items_fts
+                INNER JOIN clipboard_items
+                    ON clipboard_items.id = clipboard_items_fts.item_id
+                """
+            orderSQL = """
                 clipboard_items.is_pinned DESC,
                 clipboard_items.created_at DESC,
                 COALESCE(clipboard_items.pinned_at, clipboard_items.created_at) DESC,
@@ -229,8 +249,12 @@ enum SQLiteSearchIndexDAO {
         }
 
         let rawQuery = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let usesFTS = !rawQuery.isEmpty
-        guard usesFTS || hasDatabaseFilters(query.filters) else {
+        let substringTokens = SQLiteRowMapper.requiresSubstringSearch(rawQuery)
+            ? SQLiteRowMapper.substringSearchTokens(rawQuery)
+            : []
+        let usesSubstringSearch = !substringTokens.isEmpty
+        let usesFTS = !rawQuery.isEmpty && !usesSubstringSearch
+        guard usesFTS || usesSubstringSearch || hasDatabaseFilters(query.filters) else {
             return nil
         }
 
@@ -248,6 +272,17 @@ enum SQLiteSearchIndexDAO {
                     ON clipboard_items.id = clipboard_items_fts.item_id
                 """
             rankSQL = "clipboard_items_fts.rank"
+        } else if usesSubstringSearch {
+            basePredicates.append(contentsOf: substringTokens.map { _ in
+                "instr(clipboard_items_fts.search_text, ?) > 0"
+            })
+            values.append(contentsOf: substringTokens.map(SQLiteValue.text))
+            fromSQL = """
+                clipboard_items_fts
+                INNER JOIN clipboard_items
+                    ON clipboard_items.id = clipboard_items_fts.item_id
+                """
+            rankSQL = "CAST(NULL AS REAL)"
         } else {
             fromSQL = "clipboard_items"
             rankSQL = "CAST(NULL AS REAL)"

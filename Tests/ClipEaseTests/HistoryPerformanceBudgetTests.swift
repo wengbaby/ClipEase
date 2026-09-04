@@ -157,6 +157,31 @@ import Testing
     #expect(result.durationMS < 1_500)
 }
 
+@Test func sqliteChineseSubstringSearchHandlesTenThousandItemsWithinBudget() throws {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("ClipEasePerformanceTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let items = (0..<10_000).map { index in
+        ClipboardItem.text(
+            index == 9_999
+                ? "侧悬浮窗口、迷你窗口、主窗口"
+                : "普通性能数据 \(index)",
+            sourceApp: .clipease
+        )
+    }
+    let store = SQLiteClipboardStore(databaseURL: directory.appendingPathComponent("ClipEase.sqlite"))
+    try store.insertItems(items)
+
+    let result = try PerformanceBudget.measure {
+        try store.searchItems(ClipboardSearchQuery(text: "窗", limit: 50))
+    }
+
+    #expect(result.value.count == 1)
+    #expect(result.durationMS < 1_500)
+}
+
 @Test func sqliteFilteredSearchHandlesTenThousandSparseSourceItemsWithinBudget() throws {
     let directory = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("ClipEasePerformanceTests-\(UUID().uuidString)", isDirectory: true)

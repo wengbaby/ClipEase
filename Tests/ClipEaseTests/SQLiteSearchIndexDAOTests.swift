@@ -42,6 +42,37 @@ import Testing
     #expect(secondPage == [older.id])
 }
 
+@Test func sqliteSearchIndexDAOFindsChineseSubstringsInsideContinuousText() throws {
+    let fixture = try SQLiteSearchIndexDAOFixture.make()
+    defer { fixture.remove() }
+
+    let database = try SQLiteDatabase(url: fixture.databaseURL)
+    defer { database.close() }
+    try fixture.store.initialize()
+
+    let matching = ClipboardItem.debugText(
+        "侧悬浮窗口、迷你窗口、主窗口\" 目标语言默认是自动选择！",
+        createdAt: Date(timeIntervalSince1970: 200),
+        sourceApp: .clipease
+    )
+    let unrelated = ClipboardItem.debugText(
+        "这是一张无关卡片",
+        createdAt: Date(timeIntervalSince1970: 100),
+        sourceApp: .clipease
+    )
+    try SQLiteItemDAO.insert(matching, in: database)
+    try SQLiteSearchIndexDAO.insert(matching, in: database)
+    try SQLiteItemDAO.insert(unrelated, in: database)
+    try SQLiteSearchIndexDAO.insert(unrelated, in: database)
+
+    for query in ["窗口", "窗", "口"] {
+        #expect(try SQLiteSearchIndexDAO.searchItemIDs(
+            ClipboardSearchQuery(text: query, limit: 10),
+            in: database
+        ) == [matching.id])
+    }
+}
+
 @Test func sqliteSearchIndexDAODeletesExistingIndexRows() throws {
     let fixture = try SQLiteSearchIndexDAOFixture.make()
     defer { fixture.remove() }

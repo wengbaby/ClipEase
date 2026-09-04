@@ -11,48 +11,28 @@ extension HistoryWindowView {
                 .opacity(searchUIState.isFieldVisualVisible ? 1 : 0)
 
             GeometryReader { availableSpace in
-                let insertionIndex = min(
-                    max(0, searchTextInsertionIndex),
-                    searchTokens.count
-                )
                 let inputWidth = max(
                     24,
-                    availableSpace.size.width - searchLeadingContentWidth - 3
+                    availableSpace.size.width - 3
                 )
 
                 ScrollViewReader { scrollProxy in
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 0) {
-                            ForEach(Array(searchTokens.enumerated()), id: \.element.id) { index, token in
-                                if index > 0 {
-                                    searchTokenInsertionGap(at: index)
-                                }
-
-                                if insertionIndex == index {
-                                    searchTextInput(
-                                        scrollProxy: scrollProxy,
-                                        width: inputWidth
-                                    )
-                                }
-
+                        HStack(alignment: .center, spacing: 6) {
+                            ForEach(searchTokens) { token in
                                 searchTokenView(token)
                                     .id(token.id)
                             }
 
-                            if !searchTokens.isEmpty {
-                                searchTokenInsertionGap(at: searchTokens.count)
-                            }
-
-                            if insertionIndex == searchTokens.count {
-                                searchTextInput(
-                                    scrollProxy: scrollProxy,
-                                    width: inputWidth
-                                )
-                            }
+                            searchTextInput(
+                                scrollProxy: scrollProxy,
+                                width: inputWidth
+                            )
                         }
                         .id("search-leading-content")
-                        .frame(minWidth: availableSpace.size.width, alignment: .leading)
+                        .frame(minWidth: availableSpace.size.width, minHeight: 34, maxHeight: 34, alignment: .leading)
                     }
+                    .frame(height: 34)
                     .background(HorizontalScrollWheelRedirector(
                         scope: .auxiliaryRail,
                         isEnabled: inputState.isWindowVisible
@@ -63,13 +43,11 @@ extension HistoryWindowView {
                         focusSearchField()
                     }
                     .onChange(of: searchTokens) { _ in
-                        searchTextInsertionIndex = searchTokens.count
                         scrollProxy.scrollTo("search-text-field", anchor: .trailing)
                     }
                 }
             }
             .frame(maxWidth: .infinity)
-            .background(searchTokenWidthMeasurer)
 
             if isSearchActive {
                 Button(action: clearSearchTextAndFilters) {
@@ -96,12 +74,6 @@ extension HistoryWindowView {
                     }))
             }
         }
-        .onPreferenceChange(SearchLeadingContentWidthPreferenceKey.self) { width in
-            guard abs(searchLeadingContentWidth - width) > 0.5 else {
-                return
-            }
-            searchLeadingContentWidth = width
-        }
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
         .background {
@@ -114,12 +86,17 @@ extension HistoryWindowView {
                         .strokeBorder(
                             Color(red: 0.18, green: 0.55, blue: 1.0)
                                 .opacity(searchUIState.isFieldVisualVisible ? 0.86 : 0),
-                            lineWidth: searchUIState.isFieldVisualVisible ? 2.5 : 0
+                            lineWidth: searchUIState.isFieldVisualVisible ? 4 : 0
                         )
                         .shadow(
                             color: Color(red: 0.18, green: 0.55, blue: 1.0)
-                                .opacity(searchUIState.isFieldVisualVisible ? 0.62 : 0),
-                            radius: searchUIState.isFieldVisualVisible ? 9 : 0
+                                .opacity(searchUIState.isFieldVisualVisible ? 0.88 : 0),
+                            radius: searchUIState.isFieldVisualVisible ? 14 : 0
+                        )
+                        .shadow(
+                            color: Color(red: 0.38, green: 0.72, blue: 1.0)
+                                .opacity(searchUIState.isFieldVisualVisible ? 0.72 : 0),
+                            radius: searchUIState.isFieldVisualVisible ? 6 : 0
                         )
                 }
         }
@@ -146,37 +123,11 @@ extension HistoryWindowView {
                 }
             }
         )
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: SearchInteractionFramePreferenceKey.self,
-                    value: searchUIState.isVisible ? [proxy.frame(in: .named("historyWindow")).insetBy(dx: -8, dy: -8)] : []
-                )
-            }
-        )
         .opacity(searchUIState.isFieldVisualVisible ? 1 : 0)
         .foregroundStyle(toolbarPrimaryForeground)
         .scaleEffect(x: searchUIState.isFieldVisualVisible ? 1 : 0.01, y: searchUIState.isFieldVisualVisible ? 1 : 0.94, anchor: .center)
         .allowsHitTesting(searchUIState.isVisible)
         .animation(.easeInOut(duration: 0.22), value: searchUIState.isFieldVisualVisible)
-    }
-
-    var searchTokenWidthMeasurer: some View {
-        HStack(spacing: 6) {
-            ForEach(searchTokens) { token in
-                searchTokenView(token)
-            }
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .hidden()
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: SearchLeadingContentWidthPreferenceKey.self,
-                    value: proxy.size.width
-                )
-            }
-        )
     }
 
     @ViewBuilder
@@ -193,12 +144,14 @@ extension HistoryWindowView {
             searchHasHandedOffFocusToCard: searchUIState.hasHandedOffFocusToCard,
             hasSearchResult: !filteredItems.isEmpty,
             hasSearchTokens: !searchTokens.isEmpty,
-            hidesInsertionPoint: searchUIState.selectedTokenKind != nil,
+            selectedTokenKind: searchUIState.selectedTokenKind,
             textColor: toolbarPrimaryNSColor,
             font: searchTypography.nsFont,
             onFocusChanged: synchronizeSearchTextFieldFocus,
             onEnterFirstResult: enterFirstSearchResultFromSearchField,
             onDeleteLastToken: handleSearchTokenBackspace,
+            onMoveToPreviousToken: { moveSearchTokenSelection(.left) },
+            onMoveToNextToken: { moveSearchTokenSelection(.right) },
             onCancel: handleSearchCancel,
             onReachLeadingContent: {
                 withAnimation(.easeOut(duration: 0.12)) {
@@ -212,18 +165,8 @@ extension HistoryWindowView {
             }
         )
         .font(searchTypography.swiftUIFont)
-        .frame(width: width)
+        .frame(width: width, height: 24, alignment: .center)
         .id("search-text-field")
-    }
-
-    func searchTokenInsertionGap(at index: Int) -> some View {
-        Color.clear
-            .frame(width: 6, height: 20)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                searchTextInsertionIndex = index
-                focusSearchField()
-            }
     }
 
     func searchTokenView(_ token: HistorySearchToken) -> some View {

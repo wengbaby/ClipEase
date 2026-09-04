@@ -684,19 +684,103 @@ private final class LockedNotificationCounter: @unchecked Sendable {
     #expect(HistoryPreviewFollowPolicy.retryDelaysNanoseconds.allSatisfy { $0 > 0 })
 }
 
-@Test func defaultSelectionPrefersFirstPinnedItemWithoutReordering() {
+@Test func defaultSelectionUsesTheCurrentListFirstItemWithoutReordering() {
     let first = UUID()
     let pinned = UUID()
     let last = UUID()
 
     #expect(HistoryDefaultSelectionPolicy.selectedID(
-        pinnedIDs: [pinned],
-        orderedIDs: [first, pinned, last]
-    ) == pinned)
-    #expect(HistoryDefaultSelectionPolicy.selectedID(
-        pinnedIDs: [],
         orderedIDs: [first, pinned, last]
     ) == first)
+    #expect(HistoryDefaultSelectionPolicy.selectedID(
+        orderedIDs: []
+    ) == nil)
+}
+
+@Test func historyOpenRestoresOnlyExplicitUserNavigation() {
+    #expect(HistoryOpenNavigationPolicy.action(hasUserNavigation: true) == .restore)
+    #expect(HistoryOpenNavigationPolicy.action(hasUserNavigation: false) == .resetToFirst)
+}
+
+@Test func historyNavigationResetsOnlyWhenListMembershipChanges() {
+    let first = UUID()
+    let second = UUID()
+
+    #expect(!HistoryOpenNavigationPolicy.hasMembershipChange(
+        previousIDs: [first, second],
+        currentIDs: [second, first]
+    ))
+    #expect(HistoryOpenNavigationPolicy.hasMembershipChange(
+        previousIDs: [first, second],
+        currentIDs: [first]
+    ))
+}
+
+@Test func additionsUseExplicitLatestItemFocusInsteadOfMembershipReset() {
+    let first = UUID()
+    let added = UUID()
+
+    #expect(!HistoryOpenNavigationPolicy.shouldResetForMembershipChange(
+        previousIDs: [first],
+        currentIDs: [first, added],
+        isUserInitiated: false
+    ))
+    #expect(!HistoryOpenNavigationPolicy.shouldResetForMembershipChange(
+        previousIDs: [first],
+        currentIDs: [],
+        isUserInitiated: true
+    ))
+    #expect(HistoryOpenNavigationPolicy.shouldResetForMembershipChange(
+        previousIDs: [first, added],
+        currentIDs: [first],
+        isUserInitiated: false
+    ))
+}
+
+@Test func tokenNavigationMovesBetweenTokensAndTextInput() {
+    let first = HistorySearchTokenKind.type(.text)
+    let second = HistorySearchTokenKind.date(.today)
+    let orderedKinds = [first, second]
+
+    #expect(HistorySearchTokenNavigationPolicy.selection(
+        current: nil,
+        direction: .left,
+        orderedKinds: orderedKinds
+    ) == second)
+    #expect(HistorySearchTokenNavigationPolicy.selection(
+        current: second,
+        direction: .left,
+        orderedKinds: orderedKinds
+    ) == first)
+    #expect(HistorySearchTokenNavigationPolicy.selection(
+        current: first,
+        direction: .right,
+        orderedKinds: orderedKinds
+    ) == second)
+    #expect(HistorySearchTokenNavigationPolicy.selection(
+        current: second,
+        direction: .right,
+        orderedKinds: orderedKinds
+    ) == nil)
+}
+
+@Test func removingSelectedGroupItemChoosesItsAdjacentRemainingItem() {
+    let first = UUID()
+    let removed = UUID()
+    let next = UUID()
+
+    #expect(HistoryRemovedItemSelectionPolicy.selectedID(
+        removingID: removed,
+        orderedIDs: [first, removed, next]
+    ) == next)
+    #expect(HistoryRemovedItemSelectionPolicy.selectedID(
+        removingID: next,
+        orderedIDs: [first, removed, next]
+    ) == removed)
+    #expect(HistoryRemovedItemSelectionPolicy.selectedID(
+        removingID: first,
+        orderedIDs: [first]
+    ) == nil)
 }
 
 @Test func previewPlacementUpdatesArrowWhenWindowIsPinnedByScreenEdge() {

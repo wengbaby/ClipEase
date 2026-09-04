@@ -98,6 +98,29 @@ enum SQLiteRowMapper {
             .joined(separator: " ")
     }
 
+    static func substringSearchTokens(_ query: String) -> [String] {
+        query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .map { $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) }
+    }
+
+    static func requiresSubstringSearch(_ query: String) -> Bool {
+        query.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0x3400...0x4DBF,
+                 0x4E00...0x9FFF,
+                 0x3040...0x30FF,
+                 0xAC00...0xD7AF,
+                 0x20000...0x2FA1F:
+                true
+            default:
+                false
+            }
+        }
+    }
+
     static func encodeList(_ values: [String]) -> String {
         (try? String(data: JSONEncoder().encode(values), encoding: .utf8)) ?? "[]"
     }

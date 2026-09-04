@@ -26,6 +26,7 @@ final class AppLanguageSettings: ObservableObject {
     var preference: AppLanguage {
         didSet {
             defaults.set(preference.rawValue, forKey: Self.preferenceKey)
+            AppLocalization.updateCurrentPreference(preference)
             objectWillChange.send()
         }
     }
@@ -36,14 +37,21 @@ final class AppLanguageSettings: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         preference = AppLanguage(rawValue: defaults.string(forKey: Self.preferenceKey) ?? "") ?? .system
+        AppLocalization.updateCurrentPreference(preference)
     }
 }
 
 enum AppLocalization {
+    private static let cachedPreferredLanguages = Locale.preferredLanguages
+    private static let preferenceLock = NSLock()
+    nonisolated(unsafe) private static var cachedPreference = AppLanguage(
+        rawValue: UserDefaults.standard.string(forKey: "app.language.preference") ?? ""
+    ) ?? .system
+
     static func text(
         _ source: String,
         preference: AppLanguage = currentPreference,
-        preferredLanguages: [String] = Locale.preferredLanguages
+        preferredLanguages: [String] = cachedPreferredLanguages
     ) -> String {
         guard AppLanguage.resolve(preference: preference, preferredLanguages: preferredLanguages) == .english else {
             return source
@@ -53,7 +61,13 @@ enum AppLocalization {
     }
 
     private static var currentPreference: AppLanguage {
-        AppLanguage(rawValue: UserDefaults.standard.string(forKey: "app.language.preference") ?? "") ?? .system
+        preferenceLock.withLock { cachedPreference }
+    }
+
+    static func updateCurrentPreference(_ preference: AppLanguage) {
+        preferenceLock.withLock {
+            cachedPreference = preference
+        }
     }
 
     private static func formattedEnglishText(for source: String) -> String? {

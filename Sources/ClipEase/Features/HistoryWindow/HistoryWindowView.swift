@@ -36,9 +36,9 @@ struct HistoryWindowView: View {
     @State var isSearchFocused = false
     @State var isSearchTextComposing = false
     @State private var isSearchTextDrivenUpdate = false
+    @State private var didResetSearchViewportForCurrentPresentation = false
     @State var appliedSearchQuery = ""
     @State var searchLeadingContentWidth: CGFloat = 0
-    @State var searchTextInsertionIndex = Int.max
     @State var searchFocusRequestID = 0
     @State var pendingComposedSearchInputEvent: HistoryKeyboardPendingTextInputEvent?
     @State private var previewItemsState = HistoryWindowPreviewItemsState()
@@ -54,11 +54,17 @@ struct HistoryWindowView: View {
     @State var focusState = HistoryWindowFocusState()
     @State private var pendingKeyboardFocusClearTask: Task<Void, Never>?
     @State private var glassEnvironmentRevision = 0
+    @State private var lastAppliedPresentationRequestID: UUID?
+    @State private var observedStoreItemIDs: Set<ClipboardItem.ID>?
+    @State private var observedGroupSelection: HistoryGroupSelection?
+    @State var suppressNextListMembershipReset = false
+    @State private var suppressNextGroupNavigationReset = false
     @AppStorage("history.systemGroup.pinned.iconName") private var pinnedGroupIconName = "pin.fill"
     @AppStorage("history.systemGroup.pinned.colorHex") private var pinnedGroupColorHex = "#2E8CFF"
     @AppStorage("history.lastSelectedGroup") private var rememberedSelectedGroup = HistoryGroupSelection.all.storageValue
     @AppStorage("history.lastSelectedItemID") private var rememberedSelectedItemID = ""
     @AppStorage("history.savedScrollOffsetsByScope") private var rememberedScrollOffsetsByScopeData = "{}"
+    @AppStorage("history.hasUserCardNavigation") private var hasUserCardNavigation = false
     @FocusState private var focusedRenameGroupID: ClipboardGroup.ID?
 
     private let allHistoryGroupColor = Color(red: 0.18, green: 0.55, blue: 1.0)
@@ -149,7 +155,13 @@ struct HistoryWindowView: View {
     }
 
     var selectedItemID: HistoryPreviewItem.ID? {
-        get { cardInteractionState.selectedItemID }
+        get {
+            if let request = inputState.presentationRequest,
+               lastAppliedPresentationRequestID != request.id {
+                return request.plan.selectedID
+            }
+            return cardInteractionState.selectedItemID
+        }
         nonmutating set { cardInteractionState.select(newValue) }
     }
 
@@ -434,15 +446,6 @@ struct HistoryWindowView: View {
         }
     }
 
-    private func scheduleSearchInteractionFramesUpdate(_ frames: [CGRect]) {
-        DispatchQueue.main.async { [self] in
-            guard viewportState.searchInteractionFrames != frames else {
-                return
-            }
-            viewportState.searchInteractionFrames = frames
-        }
-    }
-
     private func scheduleCardViewportFramesUpdate(_ frames: [HistoryPreviewItem.ID: CGRect]) {
         let backingScaleFactor = hostWindow?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         DispatchQueue.main.async { [self] in
@@ -604,14 +607,8 @@ struct HistoryWindowView: View {
             glassEnvironmentRevision &+= 1
         }
         .coordinateSpace(name: "historyWindow")
-        .onPreferenceChange(SearchInteractionFramePreferenceKey.self) { frames in
-            scheduleSearchInteractionFramesUpdate(frames)
-        }
         .onPreferenceChange(CardViewportFramePreferenceKey.self) { frames in
             scheduleCardViewportFramesUpdate(frames)
-        }
-        .onChange(of: viewportState.searchInteractionFrames) { _ in
-            refreshSearchInteractionScreenFrames()
         }
         .onChange(of: viewportState.searchControlScreenFrame) { _ in
             refreshSearchInteractionScreenFrames()
@@ -645,10 +642,16 @@ struct HistoryWindowView: View {
             cardInteractionState.clearTransientState()
             focusState.pendingDefaultFocusOnShow = false
             HistoryScrollCoordinator.shared.onOffsetChange = nil
+            HistoryScrollCoordinator.shared.onUserScroll = nil
         }
         .onChange(of: store.items) { newItems in
-            syncLatestItemFocusIfNeeded(sourceItems: newItems)
+            if noteStoreItemMembership(newItems) {
+                prepareListNavigationResetToFirst()
+            }
             schedulePreviewItemsRebuild(from: newItems)
+            guard inputState.isWindowVisibleSnapshot else {
+                return
+            }
             requestNextHistoryPageIfNeeded()
             if previewState.isVisible {
                 showPreview(previewState.itemID)
@@ -658,8 +661,6 @@ struct HistoryWindowView: View {
             assetPreheater.setEnabled(isVisible)
             if isVisible {
                 viewportState.didRestoreRememberedViewport = false
-                focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
-                syncLatestItemFocusIfNeeded(sourceItems: store.items)
                 restoreRememberedViewportIfNeeded()
                 rebuildPreviewItemsIfNeededForVisibleWindow()
                 warmPreviewItemsForPreloadedHiddenWindowIfNeeded()
@@ -714,8 +715,16 @@ struct HistoryWindowView: View {
             scheduleSearchUpdate(immediate: true)
         }
         .onChange(of: groupUIState.selectedGroup) { _ in
+            let selectedGroup = groupUIState.selectedGroup
+            let didChangeGroup = observedGroupSelection.map { $0 != selectedGroup } ?? false
+            observedGroupSelection = selectedGroup
             rememberSelectedGroup()
-            HistoryScrollCoordinator.shared.setScope(groupUIState.selectedGroup.storageValue)
+            HistoryScrollCoordinator.shared.setScope(selectedGroup.storageValue)
+            if suppressNextGroupNavigationReset {
+                suppressNextGroupNavigationReset = false
+            } else if didChangeGroup {
+                prepareListNavigationResetToFirst()
+            }
             scheduleSearchUpdate(immediate: true)
         }
         .onChange(of: inputState.request) { request in
@@ -739,12 +748,23 @@ struct HistoryWindowView: View {
 
             focusDefaultItemOnShow(request)
         }
-        .onChange(of: store.latestItemFocusRequest) { request in
+        .onChange(of: inputState.presentationRequest) { request in
             guard let request else {
                 return
             }
+            applyPresentationRequest(request)
+        }
+        .onChange(of: store.latestItemFocusRequest) { request in
+            guard request != nil,
+                  inputState.isWindowPresentedSnapshot,
+                  let consumedRequest = store.consumeLatestItemFocusRequest() else {
+                return
+            }
 
-            focusRequestedLatestItem(request)
+            applyPresentationPlan(HistoryPresentationPlanner.inserted(
+                itemID: consumedRequest.itemID,
+                windowPresented: true
+            ))
         }
         .onChange(of: inputState.windowHideRequestID) { _ in
             cancelPresentationWorkForHide()
@@ -812,8 +832,13 @@ struct HistoryWindowView: View {
             )
             HistoryWindowInputState.currentForTextEditing = inputState
             restoreRememberedGroupSelection()
+            observedStoreItemIDs = Set(store.items.map(\.id))
+            observedGroupSelection = groupUIState.selectedGroup
             HistoryScrollCoordinator.shared.loadSavedOffsets(from: rememberedScrollOffsetsByScopeData)
             HistoryScrollCoordinator.shared.setScope(groupUIState.selectedGroup.storageValue)
+            if let presentationRequest = inputState.presentationRequest {
+                applyPresentationRequest(presentationRequest)
+            }
             HistoryScrollCoordinator.shared.onOffsetChange = { _ in
                 Task { @MainActor in
                     updateCardRailVisibleRect()
@@ -821,12 +846,12 @@ struct HistoryWindowView: View {
                     followPreviewForCurrentScroll()
                 }
             }
-            refreshMoveToGroupMenuSnapshot()
-            primeLatestItemPresentationGuard(sourceItems: store.items)
-            if let request = store.consumeLatestItemFocusRequest() {
-                focusRequestedLatestItem(request)
+            HistoryScrollCoordinator.shared.onUserScroll = {
+                Task { @MainActor in
+                    markUserCardNavigation()
+                }
             }
-            focusRecentlyAddedItemOnShowIfNeeded(sourceItems: store.items)
+            refreshMoveToGroupMenuSnapshot()
             warmPreviewItemsForPreloadedHiddenWindowIfNeeded()
             scheduleDeferredStartupWork()
         }
@@ -1631,6 +1656,7 @@ struct HistoryWindowView: View {
         guard let currentSelectedID = selectedItemID,
               let selectedIndex = filteredItemIndex(for: currentSelectedID) else {
             self.selectedItemID = rememberedSelectionFallbackID() ?? filteredItems.first?.id
+            markUserCardNavigation()
             if let selectedItemID {
                 scrollToItemWhenRendered(selectedItemID, animated: true)
             }
@@ -1650,6 +1676,7 @@ struct HistoryWindowView: View {
         }
 
         selectedItemID = nextID
+        markUserCardNavigation()
         keepKeyboardFocusedItemRendered(nextID)
         revealPartiallyVisibleCardIfNeeded(nextID, animated: false)
         if previewState.isVisible {
@@ -3067,6 +3094,15 @@ struct HistoryWindowView: View {
         focusSearchField()
     }
 
+    func moveSearchTokenSelection(_ direction: HistorySearchTokenNavigationPolicy.Direction) {
+        searchUIState.selectedTokenKind = HistorySearchTokenNavigationPolicy.selection(
+            current: searchUIState.selectedTokenKind,
+            direction: direction,
+            orderedKinds: searchTokens.map(\.kind)
+        )
+        focusSearchField()
+    }
+
     private func schedulePreviewItemsRebuild(from sourceItems: [ClipboardItem]) {
         let signatureStartedAt = CFAbsoluteTimeGetCurrent()
         let currentSourceSignature = previewItemsState.previewItemsSourceSignature
@@ -3443,15 +3479,8 @@ struct HistoryWindowView: View {
                 let applyStartedAt = CFAbsoluteTimeGetCurrent()
                 var transaction = Transaction()
                 let isTextDriven = isSearchTextDrivenUpdate
-                let shouldAnimateResults = !isTextDriven && inputState.isWindowPresentedSnapshot && shouldAnimateHistoryRailChange(
-                    sourceItemCount: request.sourceItems.count,
-                    renderedItemCount: result.items.count
-                )
-                if shouldAnimateResults {
-                    transaction.animation = .easeOut(duration: focusState.pendingLatestFocusItemID != nil ? 0.30 : 0.16)
-                } else {
-                    transaction.disablesAnimations = true
-                }
+                let shouldAnimateResults = false
+                transaction.disablesAnimations = true
                 if isTextDriven {
                     isSearchTextDrivenUpdate = false
                 }
@@ -3560,8 +3589,12 @@ struct HistoryWindowView: View {
         )
         selectedItemID = nextSelectedID
 
-        if isSearchActive {
+        if isSearchActive,
+           !didResetSearchViewportForCurrentPresentation {
+            didResetSearchViewportForCurrentPresentation = true
             resetSearchResultsViewport()
+        } else if !isSearchActive {
+            didResetSearchViewportForCurrentPresentation = false
         }
 
         guard let nextSelectedID else {
@@ -3813,6 +3846,83 @@ struct HistoryWindowView: View {
         }
     }
 
+    private func applyPresentationPlan(_ plan: HistoryPresentationPlan) {
+        clearPendingHistoryRailJumpState()
+        let requiresScopeRefresh = plan.resetsScope && (
+            groupUIState.selectedGroup != .all || searchUIState.isVisible || isSearchActive
+        )
+        if plan.resetsScope {
+            suppressNextGroupNavigationReset = groupUIState.selectedGroup != .all
+            resetFiltersForLatestItemFocus()
+            HistoryScrollCoordinator.shared.setScope(HistoryGroupSelection.all.storageValue)
+        }
+        selectedItemID = plan.selectedID
+
+        if requiresScopeRefresh {
+            Task { @MainActor in
+                await Task.yield()
+                guard selectedItemID == plan.selectedID else {
+                    return
+                }
+                applyViewportIntent(plan.viewport)
+            }
+        } else {
+            applyViewportIntent(plan.viewport)
+        }
+
+        finishApplyingPresentationPlan(plan)
+    }
+
+    private func applyViewportIntent(_ viewport: HistoryViewportIntent) {
+        switch viewport {
+        case .first:
+            HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
+        case .restore:
+            HistoryScrollCoordinator.shared.restoreSavedOffset()
+        case .item(let itemID, let animated):
+            if animated {
+                scrollToItemWhenRendered(itemID, animated: true)
+            } else if let offset = HistoryPresentationPlanner.leadingOffset(
+                for: itemID,
+                orderedIDs: filteredItems.map(\.id)
+            ) {
+                viewportStore.resetForLatestFocus(
+                    offsetX: offset,
+                    width: viewportStore.visibleRect.width,
+                    height: viewportStore.visibleRect.height
+                )
+                HistoryScrollCoordinator.shared.queuePendingOffset(offset)
+            }
+        }
+    }
+
+    private func finishApplyingPresentationPlan(_ plan: HistoryPresentationPlan) {
+        if plan.playsEntranceAnimation,
+           inputState.isWindowPresentedSnapshot,
+           let selectedID = plan.selectedID {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 260_000_000)
+                guard selectedItemID == selectedID,
+                      inputState.isWindowPresentedSnapshot else {
+                    return
+                }
+                playEntranceAnimationSoon(for: selectedID)
+            }
+        }
+        if plan.consumesLatestFocus {
+            hasUserCardNavigation = true
+            rememberSelectedItem(immediate: true)
+        }
+    }
+
+    private func applyPresentationRequest(_ request: HistoryPresentationRequest) {
+        guard lastAppliedPresentationRequestID != request.id else {
+            return
+        }
+        lastAppliedPresentationRequestID = request.id
+        applyPresentationPlan(request.plan)
+    }
+
     private func focusRequestedItem(_ request: HistoryItemFocusRequest) {
         prepareLatestItemFocus(
             itemID: request.itemID,
@@ -3838,19 +3948,15 @@ struct HistoryWindowView: View {
         searchUIState.hasHandedOffFocusToCard = false
         inputState.setSearchHasHandedOffFocusToCard(false)
 
-        clearPendingHistoryRailJumpState()
-        focusState.pendingDefaultFocusOnShow = true
-        if request.resetToFirst {
-            viewportState.didRestoreRememberedViewport = true
-            HistoryScrollCoordinator.shared.discardSavedOffset(for: groupUIState.selectedGroup.storageValue)
-            HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
-            viewportStore.mode = .automatic
-            viewportStore.visibleRect = CGRect(
-                x: 0,
-                y: viewportStore.visibleRect.minY,
-                width: max(viewportStore.visibleRect.width, 1),
-                height: viewportStore.visibleRect.height
-            )
+        _ = request
+        switch HistoryOpenNavigationPolicy.action(hasUserNavigation: hasUserCardNavigation) {
+        case .restore:
+            clearPendingHistoryRailJumpState()
+            focusState.pendingDefaultFocusOnShow = true
+            viewportState.didRestoreRememberedViewport = false
+            HistoryScrollCoordinator.shared.restoreSavedOffset()
+        case .resetToFirst:
+            prepareListNavigationResetToFirst()
         }
 
         applyPendingDefaultFocusOnShowIfNeeded()
@@ -3875,8 +3981,21 @@ struct HistoryWindowView: View {
             return
         }
 
+        if hasUserCardNavigation,
+           let rememberedID = rememberedSelectedItemUUID(),
+           containsFilteredItem(rememberedID) {
+            selectedItemID = rememberedID
+            viewportState.didRestoreRememberedViewport = true
+            HistoryScrollCoordinator.shared.restoreSavedOffset()
+            focusState.pendingDefaultFocusOnShow = false
+            return
+        }
+
+        if hasUserCardNavigation {
+            hasUserCardNavigation = false
+        }
+
         let targetID = HistoryDefaultSelectionPolicy.selectedID(
-            pinnedIDs: filteredItems.filter(\.isPinned).map(\.id),
             orderedIDs: filteredItems.map(\.id)
         )
         guard let targetID else {
@@ -3885,6 +4004,7 @@ struct HistoryWindowView: View {
         }
 
         selectedItemID = targetID
+        HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
         focusState.pendingDefaultFocusOnShow = false
     }
 
@@ -4051,7 +4171,8 @@ struct HistoryWindowView: View {
     }
 
     private func restoreRememberedViewportIfNeeded() {
-        guard let rememberedID = rememberedSelectedItemUUID(),
+        guard hasUserCardNavigation,
+              let rememberedID = rememberedSelectedItemUUID(),
               HistoryRememberedViewportRestorePolicy.canRestore(
                 didRestoreRememberedViewport: viewportState.didRestoreRememberedViewport,
                 hasPendingLatestFocus: focusState.pendingLatestFocusItemID != nil,
@@ -4068,7 +4189,56 @@ struct HistoryWindowView: View {
         HistoryScrollCoordinator.shared.restoreSavedOffset()
     }
 
+    private func noteStoreItemMembership(_ items: [ClipboardItem]) -> Bool {
+        let currentIDs = Set(items.map(\.id))
+        defer { observedStoreItemIDs = currentIDs }
+        guard let observedStoreItemIDs else {
+            return false
+        }
+        guard HistoryOpenNavigationPolicy.hasMembershipChange(
+            previousIDs: observedStoreItemIDs,
+            currentIDs: currentIDs
+        ) else {
+            return false
+        }
+
+        if suppressNextListMembershipReset {
+            suppressNextListMembershipReset = false
+            return false
+        }
+
+        return HistoryOpenNavigationPolicy.shouldResetForMembershipChange(
+            previousIDs: observedStoreItemIDs,
+            currentIDs: currentIDs,
+            isUserInitiated: false
+        )
+    }
+
+    private func prepareListNavigationResetToFirst() {
+        hasUserCardNavigation = false
+        clearPendingHistoryRailJumpState()
+        focusState.pendingDefaultFocusOnShow = true
+        viewportState.didRestoreRememberedViewport = true
+        HistoryScrollCoordinator.shared.discardSavedOffset(for: groupUIState.selectedGroup.storageValue)
+        HistoryScrollCoordinator.shared.scrollToOffset(0, animated: false)
+        viewportStore.mode = .automatic
+        viewportStore.visibleRect = CGRect(
+            x: 0,
+            y: viewportStore.visibleRect.minY,
+            width: max(viewportStore.visibleRect.width, 1),
+            height: viewportStore.visibleRect.height
+        )
+    }
+
+    func markUserCardNavigation() {
+        hasUserCardNavigation = true
+        rememberSelectedItem()
+    }
+
     private func schedulePreheatVisibleAssets() {
+        guard !isSearchActive else {
+            return
+        }
         assetPreheater.schedule(
             items: filteredItems,
             visibleWindow: historyRailVisibleWindow
@@ -4464,6 +4634,7 @@ final class HistoryScrollCoordinator {
     static let shared = HistoryScrollCoordinator()
     private static let savedOffsetsStorageKey = "history.savedScrollOffsetsByScope"
     var onOffsetChange: ((CGFloat) -> Void)?
+    var onUserScroll: (() -> Void)?
     private weak var scrollView: NSScrollView?
     private var observedClipView: NSClipView?
     private var boundsObserver: ClipViewBoundsObserver?
@@ -4481,6 +4652,7 @@ final class HistoryScrollCoordinator {
     func update(scrollView: NSScrollView) {
         if self.scrollView === scrollView {
             observeClipViewIfNeeded(scrollView.contentView)
+            applyPendingBindingScrollIfNeeded()
             return
         }
 
@@ -4797,7 +4969,13 @@ final class HistoryScrollCoordinator {
             }
         }
 
-        saveOffset(clipView.bounds.minX)
+        let offsetX = clipView.bounds.minX
+        guard abs(offsetX - (savedOffsetsByScope[currentScope] ?? 0)) > 0.5 else {
+            return
+        }
+
+        onUserScroll?()
+        saveOffset(offsetX)
     }
 
     deinit {
@@ -4883,5 +5061,3 @@ enum HistoryCardGeometryCollectionPolicy {
         }
     }
 }
-
-

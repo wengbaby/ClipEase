@@ -26,6 +26,10 @@ import Testing
     ) == nil)
 }
 
+@Test func searchTextFieldBatchesSwiftUIStateCommitsWithinOneFrameBudget() {
+    #expect(SearchTextField.textCommitDelayNanoseconds == 60_000_000)
+}
+
 @Test func searchHandoffSequenceAllowsFirstCardPreviewWithoutRefocusingSearchField() {
     let transition = HistorySearchFocusTransitionPolicy.transition(
         event: .focusFirstResult,
@@ -79,6 +83,24 @@ import Testing
     #expect(secondRequest != nil)
     #expect(firstRequest != secondRequest)
     #expect(secondRequest?.resetToFirst == true)
+}
+
+@Test @MainActor func presentationRequestEmitsOneStablePlanPerRequest() {
+    let inputState = HistoryWindowInputState()
+    let itemID = UUID()
+    let plan = HistoryPresentationPlanner.show(
+        latestItemID: itemID,
+        rememberedItemID: nil,
+        firstItemID: UUID(),
+        hasUserNavigation: false
+    )
+
+    inputState.requestPresentation(plan)
+    let firstRequest = inputState.presentationRequest
+
+    #expect(firstRequest?.plan == plan)
+    #expect(firstRequest?.plan.viewport == .item(itemID, animated: false))
+    #expect(firstRequest?.id != nil)
 }
 
 @Test func previewFallbackAnchorTracksFocusedCardAcrossHorizontalMovement() {

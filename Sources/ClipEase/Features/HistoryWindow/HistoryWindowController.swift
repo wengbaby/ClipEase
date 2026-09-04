@@ -250,7 +250,24 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
         let shouldAnimate = !wasVisible
         let hasPendingFocus = store.latestItemFocusRequest != nil
         let latestFocusRequest = store.consumeLatestItemFocusRequest()
-        let hadPendingExplicitOffset = HistoryScrollCoordinator.shared.hasPendingExplicitOffset
+        let hasPresentationPlan = latestFocusRequest != nil
+        if let latestFocusRequest {
+            let presentationPlan = HistoryPresentationPlanner.show(
+                latestItemID: latestFocusRequest.itemID,
+                rememberedItemID: nil,
+                firstItemID: store.items.first?.id,
+                hasUserNavigation: false
+            )
+            if case .item(let itemID, _) = presentationPlan.viewport,
+               let offset = HistoryPresentationPlanner.leadingOffset(
+                for: itemID,
+                orderedIDs: store.items.map(\.id)
+               ) {
+                HistoryScrollCoordinator.shared.queuePendingOffset(offset)
+            }
+            inputState.requestPresentation(presentationPlan)
+        }
+        let hadPendingExplicitOffset = hasPresentationPlan || HistoryScrollCoordinator.shared.hasPendingExplicitOffset
         let shouldUseContentLayerAnimation = HistoryWindowLifecycleScheduler.shouldUseContentLayerAnimation(
             shouldAnimate: shouldAnimate
         )
@@ -308,7 +325,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
 
         if HistoryWindowLifecycleScheduler.shouldApplyPresentationStateBeforeAnimation(shouldAnimate: shouldAnimate) {
             applyOpenPresentationState(
-                latestFocusRequest: latestFocusRequest,
+                latestFocusRequest: nil,
                 hadPendingExplicitOffset: hadPendingExplicitOffset,
                 wasVisible: wasVisible,
                 shouldAnimate: shouldAnimate
@@ -337,7 +354,7 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
             self.renderState.mark("open-animation-complete")
             self.finishShowingWindow(shouldAnimate: shouldAnimate)
             self.applyOpenPresentationState(
-                latestFocusRequest: latestFocusRequest,
+                latestFocusRequest: nil,
                 hadPendingExplicitOffset: hadPendingExplicitOffset,
                 wasVisible: wasVisible,
                 shouldAnimate: shouldAnimate
@@ -650,8 +667,6 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
                 resetToAll: true,
                 reason: latestFocusRequest.reason
             )
-        } else if !hadPendingExplicitOffset {
-            HistoryScrollCoordinator.shared.restoreSavedOffset()
         }
         renderState.mark("presentation-scroll-restored")
         if latestFocusRequest == nil,

@@ -3,15 +3,54 @@ import AppKit
 
 final class SearchTextFieldCell: NSTextFieldCell {
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
-        var drawingRect = super.drawingRect(forBounds: rect)
-        let textHeight = cellSize(forBounds: rect).height
-        drawingRect.origin.y = rect.midY - textHeight / 2
-        drawingRect.size.height = textHeight
-        return drawingRect
+        let drawingRect = super.drawingRect(forBounds: rect)
+        let textHeight = min((font?.boundingRectForFont.height ?? 16) + 2, rect.height)
+        return NSRect(
+            x: drawingRect.minX,
+            y: rect.midY - textHeight / 2,
+            width: drawingRect.width,
+            height: textHeight
+        )
+    }
+
+    override func edit(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        event: NSEvent?
+    ) {
+        super.edit(
+            withFrame: drawingRect(forBounds: rect),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            event: event
+        )
+    }
+
+    override func select(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        start selStart: Int,
+        length selLength: Int
+    ) {
+        super.select(
+            withFrame: drawingRect(forBounds: rect),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            start: selStart,
+            length: selLength
+        )
     }
 }
 
 struct SearchTextField: NSViewRepresentable {
+    static let textCommitDelayNanoseconds: UInt64 = 60_000_000
+
     @Binding var text: String
     @Binding var isFocused: Bool
     @Binding var isComposing: Bool
@@ -20,20 +59,26 @@ struct SearchTextField: NSViewRepresentable {
     let searchHasHandedOffFocusToCard: Bool
     let hasSearchResult: Bool
     let hasSearchTokens: Bool
-    let hidesInsertionPoint: Bool
+    let selectedTokenKind: HistorySearchTokenKind?
     let textColor: NSColor
     let font: NSFont
     let onFocusChanged: (Bool) -> Void
     let onEnterFirstResult: () -> Void
     let onDeleteLastToken: () -> Void
+    let onMoveToPreviousToken: () -> Void
+    let onMoveToNextToken: () -> Void
     let onCancel: () -> Void
     let onReachLeadingContent: () -> Void
     let onReachTrailingContent: () -> Void
 
     func makeNSView(context: Context) -> SearchNSTextField {
         let textField = SearchNSTextField()
+        textField.cell = SearchTextFieldCell(textCell: "")
         textField.delegate = context.coordinator
         textField.coordinator = context.coordinator
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.refusesFirstResponder = false
         textField.isBordered = false
         textField.isBezeled = false
         textField.drawsBackground = false
@@ -42,7 +87,6 @@ struct SearchTextField: NSViewRepresentable {
         textField.textColor = textColor
         textField.placeholderString = L("搜索")
         textField.lineBreakMode = .byTruncatingTail
-        textField.cell = SearchTextFieldCell(textCell: "")
         textField.cell?.sendsActionOnEndEditing = false
         return textField
     }
@@ -53,7 +97,9 @@ struct SearchTextField: NSViewRepresentable {
         let editor = nsView.currentEditor() as? NSTextView
         let hasMarkedText = editor?.hasMarkedText() ?? false
 
-        if !hasMarkedText, nsView.stringValue != text {
+        if !hasMarkedText,
+           nsView.currentEditor() == nil,
+           nsView.stringValue != text {
             nsView.stringValue = text
         }
         nsView.placeholderString = hasSearchTokens ? nil : L("搜索")
@@ -72,10 +118,6 @@ struct SearchTextField: NSViewRepresentable {
                 nsView.window?.makeFirstResponder(nsView)
             }
             context.coordinator.configureEditor(in: nsView)
-            context.coordinator.setInsertionPointVisibility(
-                hidden: hidesInsertionPoint,
-                in: nsView
-            )
             if !hasMarkedText, context.coordinator.handledFocusRequestID != focusRequestID {
                 context.coordinator.handledFocusRequestID = focusRequestID
                 context.coordinator.moveInsertionPointToEndSoon(in: nsView)
@@ -83,8 +125,6 @@ struct SearchTextField: NSViewRepresentable {
             context.coordinator.consumePendingComposedInputEventSoon(in: nsView)
         } else if nsView.window?.firstResponder === nsView.currentEditor() {
             nsView.window?.makeFirstResponder(nil)
-        } else if !isFocused {
-            context.coordinator.setInsertionPointVisibility(hidden: false, in: nsView)
         }
     }
 
@@ -159,6 +199,7 @@ struct SearchTextField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchTextField
         var handledFocusRequestID = 0
+        private var textCommitTask: Task<Void, Never>?
 
         init(parent: SearchTextField) {
             self.parent = parent
@@ -170,7 +211,17 @@ struct SearchTextField: NSViewRepresentable {
             }
 
             parent.isComposing = (textField.currentEditor() as? NSTextView)?.hasMarkedText() ?? false
-            parent.text = textField.stringValue
+            let nextText = textField.stringValue
+            textCommitTask?.cancel()
+            textCommitTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: SearchTextField.textCommitDelayNanoseconds)
+                guard !Task.isCancelled,
+                      let self else {
+                    return
+                }
+                self.parent.text = nextText
+                self.textCommitTask = nil
+            }
         }
 
         func controlTextDidBeginEditing(_ notification: Notification) {
@@ -181,6 +232,11 @@ struct SearchTextField: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
+            textCommitTask?.cancel()
+            textCommitTask = nil
+            if let textField = notification.object as? NSTextField {
+                parent.text = textField.stringValue
+            }
             parent.isComposing = false
             parent.onFocusChanged(false)
         }
@@ -206,6 +262,11 @@ struct SearchTextField: NSViewRepresentable {
                 }
                 return true
             case #selector(NSResponder.moveLeft(_:)):
+                if parent.hasSearchTokens,
+                   (parent.selectedTokenKind != nil || textView.selectedRange() == NSRange(location: 0, length: 0)) {
+                    parent.onMoveToPreviousToken()
+                    return true
+                }
                 if textView.selectedRange().location == 0 {
                     DispatchQueue.main.async { [parent] in
                         parent.onReachLeadingContent()
@@ -213,6 +274,10 @@ struct SearchTextField: NSViewRepresentable {
                 }
                 return false
             case #selector(NSResponder.moveRight(_:)):
+                if parent.selectedTokenKind != nil {
+                    parent.onMoveToNextToken()
+                    return true
+                }
                 let selection = textView.selectedRange()
                 if selection.location + selection.length == (textView.string as NSString).length {
                     DispatchQueue.main.async { [parent] in
@@ -257,15 +322,6 @@ struct SearchTextField: NSViewRepresentable {
                 .backgroundColor: NSColor.selectedTextBackgroundColor,
                 .foregroundColor: NSColor.selectedTextColor
             ]
-        }
-
-        func setInsertionPointVisibility(hidden: Bool, in textField: NSTextField) {
-            guard let editor = textField.currentEditor() as? NSTextView else {
-                return
-            }
-
-            editor.insertionPointColor = hidden ? .clear : .labelColor
-            editor.needsDisplay = true
         }
 
         func moveInsertionPointToEndSoon(in textField: NSTextField) {

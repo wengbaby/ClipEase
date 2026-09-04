@@ -79,6 +79,13 @@ import Testing
     #expect(SQLiteRowMapper.escapedFTS5Query("   ") == "\"\"")
 }
 
+@Test func sqliteRowMapperUsesSubstringSearchForCJKQueries() {
+    #expect(SQLiteRowMapper.requiresSubstringSearch("窗口"))
+    #expect(SQLiteRowMapper.requiresSubstringSearch("窗"))
+    #expect(!SQLiteRowMapper.requiresSubstringSearch("window"))
+    #expect(SQLiteRowMapper.substringSearchTokens(" 窗口  主窗口 ") == ["窗口", "主窗口"])
+}
+
 @Test func sqliteRowMapperEncodesAndDecodesOCRListsAndRegions() {
     #expect(SQLiteRowMapper.decodeList(SQLiteRowMapper.encodeList(["one", "two"])) == ["one", "two"])
     #expect(SQLiteRowMapper.decodeRegions(SQLiteRowMapper.encodeRegions([])) == [])

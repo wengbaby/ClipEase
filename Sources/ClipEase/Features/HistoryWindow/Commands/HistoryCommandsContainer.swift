@@ -254,11 +254,14 @@ extension HistoryWindowView {
 
     func deleteItem(_ id: ClipboardItem.ID?) {
         guard !inputState.isAnyTextInputActiveSnapshot,
-              canPerformDeleteCommand else {
+              canPerformDeleteCommand,
+              let id,
+              store.item(with: id) != nil else {
             return
         }
 
         let nextID = nextSelectionID(afterDeleting: id)
+        suppressNextListMembershipReset = true
         store.deleteItem(with: id)
         selectedItemID = nextID
         if previewState.itemID == id {
@@ -272,8 +275,29 @@ extension HistoryWindowView {
     }
 
     func removeItemFromGroup(_ id: ClipboardItem.ID?) {
+        let adjacentSelectionID: ClipboardItem.ID?
+        if case .group = groupUIState.selectedGroup,
+           let id,
+           selectedItemID == id {
+            adjacentSelectionID = HistoryRemovedItemSelectionPolicy.selectedID(
+                removingID: id,
+                orderedIDs: filteredItems.map(\.id)
+            )
+        } else {
+            adjacentSelectionID = nil
+        }
+
         store.removeItemFromGroup(id)
         applyItemGroupMutationFromStore(id)
+        if selectedItemID == id,
+           case .group = groupUIState.selectedGroup {
+            selectedItemID = adjacentSelectionID
+            if let adjacentSelectionID {
+                keepKeyboardFocusedItemRendered(adjacentSelectionID)
+            } else {
+                closePreview()
+            }
+        }
         scheduleSearchUpdate(immediate: true, debounceNanoseconds: 0)
         showStatus(L("已移出分组"))
     }
@@ -498,6 +522,7 @@ extension HistoryWindowView {
         if selectedItemID != item.id {
             selectedItemID = item.id
         }
+        markUserCardNavigation()
 
         if !revealPartiallyVisibleCardIfNeeded(item.id) {
             scrollToItemWhenRendered(item.id, animated: true)
@@ -522,6 +547,7 @@ extension HistoryWindowView {
         if selectedItemID != item.id {
             selectedItemID = item.id
         }
+        markUserCardNavigation()
 
         if !revealPartiallyVisibleCardIfNeeded(item.id) {
             scrollToItemWhenRendered(item.id, animated: true)

@@ -361,10 +361,91 @@ enum HistoryPreviewFollowPolicy {
 
 enum HistoryDefaultSelectionPolicy {
     static func selectedID(
-        pinnedIDs: [ClipboardItem.ID],
         orderedIDs: [ClipboardItem.ID]
     ) -> ClipboardItem.ID? {
-        pinnedIDs.first(where: orderedIDs.contains) ?? orderedIDs.first
+        orderedIDs.first
+    }
+}
+
+enum HistoryOpenNavigationPolicy {
+    enum Action: Equatable {
+        case restore
+        case resetToFirst
+    }
+
+    static func action(hasUserNavigation: Bool) -> Action {
+        hasUserNavigation ? .restore : .resetToFirst
+    }
+
+    static func hasMembershipChange(
+        previousIDs: Set<ClipboardItem.ID>,
+        currentIDs: Set<ClipboardItem.ID>
+    ) -> Bool {
+        previousIDs != currentIDs
+    }
+
+    static func shouldResetForMembershipChange(
+        previousIDs: Set<ClipboardItem.ID>,
+        currentIDs: Set<ClipboardItem.ID>,
+        isUserInitiated: Bool
+    ) -> Bool {
+        guard hasMembershipChange(previousIDs: previousIDs, currentIDs: currentIDs),
+              !isUserInitiated else {
+            return false
+        }
+
+        return currentIDs.isStrictSubset(of: previousIDs)
+    }
+}
+
+enum HistorySearchTokenNavigationPolicy {
+    enum Direction {
+        case left
+        case right
+    }
+
+    static func selection(
+        current: HistorySearchTokenKind?,
+        direction: Direction,
+        orderedKinds: [HistorySearchTokenKind]
+    ) -> HistorySearchTokenKind? {
+        guard !orderedKinds.isEmpty else {
+            return nil
+        }
+
+        guard let current,
+              let currentIndex = orderedKinds.firstIndex(of: current) else {
+            return direction == .left ? orderedKinds.last : nil
+        }
+
+        switch direction {
+        case .left:
+            guard currentIndex > orderedKinds.startIndex else {
+                return orderedKinds[currentIndex]
+            }
+            return orderedKinds[orderedKinds.index(before: currentIndex)]
+        case .right:
+            let nextIndex = orderedKinds.index(after: currentIndex)
+            return nextIndex < orderedKinds.endIndex ? orderedKinds[nextIndex] : nil
+        }
+    }
+}
+
+enum HistoryRemovedItemSelectionPolicy {
+    static func selectedID(
+        removingID: ClipboardItem.ID,
+        orderedIDs: [ClipboardItem.ID]
+    ) -> ClipboardItem.ID? {
+        guard let removedIndex = orderedIDs.firstIndex(of: removingID),
+              orderedIDs.count > 1 else {
+            return nil
+        }
+
+        let nextIndex = orderedIDs.index(after: removedIndex)
+        if nextIndex < orderedIDs.endIndex {
+            return orderedIDs[nextIndex]
+        }
+        return orderedIDs[orderedIDs.index(before: removedIndex)]
     }
 }
 
@@ -459,6 +540,11 @@ struct HistoryDefaultFocusRequest: Equatable {
     let resetToFirst: Bool
 }
 
+struct HistoryPresentationRequest: Equatable {
+    let id = UUID()
+    let plan: HistoryPresentationPlan
+}
+
 final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     @MainActor static weak var currentForTextEditing: HistoryWindowInputState?
     static let windowPresentedDidChangeNotification = Notification.Name("HistoryWindowInputState.windowPresentedDidChange")
@@ -467,6 +553,7 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
     @Published private(set) var request: HistoryKeyboardRequest?
     @Published private(set) var itemFocusRequest: HistoryItemFocusRequest?
     @Published private(set) var defaultFocusRequest: HistoryDefaultFocusRequest?
+    @Published private(set) var presentationRequest: HistoryPresentationRequest?
     @Published private(set) var windowHideRequestID = UUID()
     @Published private(set) var isWindowVisible = false
     private(set) var isWindowPresented = false
@@ -563,6 +650,10 @@ final class HistoryWindowInputState: ObservableObject, @unchecked Sendable {
 
     func requestDefaultFocus(resetToFirst: Bool) {
         defaultFocusRequest = HistoryDefaultFocusRequest(resetToFirst: resetToFirst)
+    }
+
+    func requestPresentation(_ plan: HistoryPresentationPlan) {
+        presentationRequest = HistoryPresentationRequest(plan: plan)
     }
 
     func notifyWindowWillHide() {

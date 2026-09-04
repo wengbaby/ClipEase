@@ -10,7 +10,6 @@ struct HistoryWindowViewportState {
     var didRestoreRememberedViewport = false
     var itemScrollRequestID = UUID()
     var cardViewportFrames: [HistoryPreviewItem.ID: CGRect] = [:]
-    var searchInteractionFrames: [CGRect] = []
     var searchControlScreenFrame: CGRect?
     var searchInteractionScreenFrames: [CGRect] = []
     var cardRailTopInWindow: CGFloat = 68

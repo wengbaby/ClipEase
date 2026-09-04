@@ -158,7 +158,7 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerAvoidsRasterizingTranslatedWindowAnimationPreparation() {
+@Test func lifecycleSchedulerAvoidsRasterizingStableContentDuringWindowAnimation() {
     #expect(!HistoryWindowLifecycleScheduler.shouldRasterizeContentDuringWindowAnimation(
         shouldAnimate: true
     ))
@@ -206,8 +206,8 @@ import Testing
     ))
 }
 
-@Test func lifecycleSchedulerUsesPanelFrameAnimationForClose() {
-    #expect(!HistoryWindowLifecycleScheduler.shouldUseContentLayerCloseAnimation(
+@Test func lifecycleSchedulerUsesContentLayerAnimationForClose() {
+    #expect(HistoryWindowLifecycleScheduler.shouldUseContentLayerCloseAnimation(
         shouldAnimate: true
     ))
     #expect(!HistoryWindowLifecycleScheduler.shouldUseContentLayerCloseAnimation(

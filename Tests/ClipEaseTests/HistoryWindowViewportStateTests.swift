@@ -61,9 +61,6 @@ import Testing
 @Test func viewportStateRebuildsSearchInteractionScreenFrames() {
     var state = HistoryWindowViewportState()
     state.searchControlScreenFrame = CGRect(x: 10, y: 20, width: 100, height: 30)
-    state.searchInteractionFrames = [
-        CGRect(x: 50, y: 60, width: 70, height: 80)
-    ]
 
     state.rebuildSearchInteractionScreenFrames(isSearchActive: true)
 

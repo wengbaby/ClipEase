@@ -2,17 +2,34 @@ import AppKit
 
 @MainActor
 enum ClipEaseAppIcon {
+    private static var baseImage: NSImage?
+    private static var resizedImages: [String: NSImage] = [:]
+    nonisolated(unsafe) private static let roundedImages = NSCache<NSString, NSImage>()
+
     static func image(size: NSSize? = nil) -> NSImage {
-        let baseImage = Bundle.main.url(forResource: "ClipEase", withExtension: "icns")
-            .flatMap(NSImage.init(contentsOf:))
-            ?? NSApp.applicationIconImage
-            ?? NSImage(size: NSSize(width: 512, height: 512))
+        let baseImage: NSImage
+        if let cached = self.baseImage {
+            baseImage = cached
+        } else {
+            let loaded = Bundle.main.url(forResource: "ClipEase", withExtension: "icns")
+                .flatMap(NSImage.init(contentsOf:))
+                ?? NSApp.applicationIconImage
+                ?? NSImage(size: NSSize(width: 512, height: 512))
+            self.baseImage = loaded
+            baseImage = loaded
+        }
 
         guard let size else {
             return baseImage
         }
 
-        return baseImage.resized(to: size) ?? baseImage
+        let cacheKey = "\(size.width)x\(size.height)"
+        if let cached = resizedImages[cacheKey] {
+            return cached
+        }
+        let resized = baseImage.resized(to: size) ?? baseImage
+        resizedImages[cacheKey] = resized
+        return resized
     }
 
     static func statusBarImage(isPaused: Bool) -> NSImage {
@@ -42,12 +59,17 @@ enum ClipEaseAppIcon {
     nonisolated static func roundedImage(_ image: NSImage, size: NSSize? = nil, radius: CGFloat? = nil) -> NSImage {
         let targetSize = size ?? image.size
         let targetRadius = radius ?? nativeAppIconCornerRadius(for: targetSize)
+        let cacheKey = "\(ObjectIdentifier(image))|\(targetSize.width)x\(targetSize.height)|\(targetRadius)" as NSString
+        if let cached = roundedImages.object(forKey: cacheKey) {
+            return cached
+        }
         let rounded = NSImage(size: targetSize)
         rounded.lockFocus()
         let rect = NSRect(origin: .zero, size: targetSize)
         NSBezierPath(roundedRect: rect, xRadius: targetRadius, yRadius: targetRadius).addClip()
         image.draw(in: rect, from: NSRect(origin: .zero, size: image.size), operation: .copy, fraction: 1)
         rounded.unlockFocus()
+        roundedImages.setObject(rounded, forKey: cacheKey)
         return rounded
     }
 

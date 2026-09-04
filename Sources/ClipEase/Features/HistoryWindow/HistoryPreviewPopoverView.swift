@@ -39,8 +39,8 @@ struct HistoryPreviewPopoverView: View {
                 HStack(spacing: 0) {
                     Color.clear
                         .frame(width: max(0, min(size.width - 26, arrowX - 13)))
-                    Triangle()
-                        .fill(Color.black.opacity(0.82))
+                    previewSurface
+                        .clipShape(Triangle())
                         .frame(width: 26, height: 14)
                         .offset(y: -1)
                     Spacer(minLength: 0)
@@ -73,15 +73,17 @@ struct HistoryPreviewPopoverView: View {
             footer
         }
         .frame(width: size.width, height: size.height)
-        .background {
-            ZStack {
-                Color(nsColor: .windowBackgroundColor)
-                appearanceSettings.materialTheme.gradient
-                    .opacity(appearanceSettings.windowEffectOpacity * 0.62)
-            }
-        }
+        .background { previewSurface }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .transition(.opacity.combined(with: .scale(scale: 0.985)))
+    }
+
+    private var previewSurface: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            appearanceSettings.materialTheme.gradient
+                .opacity(appearanceSettings.windowEffectOpacity * 0.62)
+        }
     }
 
     private var ocrSection: some View {
@@ -129,10 +131,6 @@ struct HistoryPreviewPopoverView: View {
         using clipboardWriter: ClipboardWriteCoordinator
     ) -> Bool {
         clipboardWriter.writeText(badge)
-    }
-
-    private var previewArrowOpacity: Double {
-        appearanceSettings.cardStyle.materialTheme.surfaceOpacity * appearanceSettings.cardEffectOpacity
     }
 
     private var header: some View {

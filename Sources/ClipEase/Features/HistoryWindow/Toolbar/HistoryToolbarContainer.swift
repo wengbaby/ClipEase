@@ -186,11 +186,9 @@ extension HistoryWindowView {
                                     .id("result-count")
                             }
                         }
-                        .animation(.easeInOut(duration: 0.22), value: isSearchControlExpanded)
                     }
                     .frame(minWidth: widthPlan.trackWidth, alignment: .center)
                     .padding(.vertical, 1)
-                    .animation(.easeInOut(duration: 0.22), value: searchUIState.shouldShowField)
                 }
                 .background(HorizontalScrollWheelRedirector(
                     scope: .auxiliaryRail,

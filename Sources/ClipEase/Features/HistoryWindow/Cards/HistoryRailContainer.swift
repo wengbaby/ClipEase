@@ -14,11 +14,9 @@ extension HistoryWindowView {
 
                 ForEach(renderedWindowItems) { item in
                     historyCard(item)
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.96)
-                                .combined(with: .opacity),
-                            removal: .scale(scale: 0.985)
-                                .combined(with: .opacity)
+                        .transition(isSearchActive ? .identity : .asymmetric(
+                            insertion: .opacity,
+                            removal: .opacity
                         ))
                         .frame(width: historyCardWidth)
                         .offset(x: cardDocumentX(for: item.id))

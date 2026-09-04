@@ -40,7 +40,6 @@ struct MoreMenuButton: NSViewRepresentable {
 
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.menuProvider = menuProvider
-        Self.configure(button)
     }
 
     @MainActor
