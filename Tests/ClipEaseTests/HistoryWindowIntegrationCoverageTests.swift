@@ -163,6 +163,94 @@ import Testing
     view.selectedItemID = deletable.id
     view.deleteItem(deletable.id)
     #expect(store.item(with: deletable.id) == nil)
+
+    view.copyItem(nil)
+    view.copyPlainTextItem(nil)
+    view.pastePlainTextItem(nil)
+    view.copyMarkdownLink(nil)
+    view.copyLinkURL(nil)
+    view.openLink(nil)
+    view.copyColorHex(nil)
+    view.copyColorRGB(nil)
+    view.pasteItem(nil)
+    view.showPreview(nil)
+    view.beginEditItem(nil)
+    view.removeItemFromGroup(nil)
+    view.togglePinned(nil)
+    view.toggleSourceAppIgnored(nil)
+    view.copySourceAppName(nil)
+    view.copySourceBundleID(nil)
+    view.revealImageInFinder(nil)
+    view.openImage(nil)
+    view.copyImage(nil)
+    view.copyImagePath(nil)
+    view.copyFilePaths(nil)
+    view.copyFile(nil)
+    view.openFile(nil)
+    view.revealFilesInFinder(nil)
+}
+
+@MainActor
+@Test func historyWindowRendersFilterTokenRail() {
+    var criteria = HistorySearchCriteria()
+    criteria.types.insert(.text)
+    let tokens = HistorySearchToken.tokens(criteria: criteria, groups: [])
+    let rail = HistorySearchTokenRail(
+        tokens: tokens,
+        selectedTokenKind: .type(.text),
+        isEnabled: false
+    ) { token in
+        Text(token.title).frame(height: 24)
+    }
+    let hostingView = NSHostingView(rootView: rail)
+    hostingView.frame = CGRect(x: 0, y: 0, width: 320, height: 34)
+    hostingView.layoutSubtreeIfNeeded()
+
+    #expect(hostingView.fittingSize.width > 0)
+    #expect(hostingView.fittingSize.height >= 34)
+}
+
+@MainActor
+@Test func historyWindowTokenRailTracksInsertedAndSelectedTokens() async throws {
+    let state = HistorySearchTokenRailTestState()
+    let hostingView = NSHostingView(rootView: HistorySearchTokenRailTestView(state: state))
+    hostingView.frame = CGRect(x: 0, y: 0, width: 180, height: 34)
+    hostingView.layoutSubtreeIfNeeded()
+
+    var criteria = HistorySearchCriteria()
+    criteria.types.insert(.text)
+    criteria.dateRanges.insert(.today)
+    let tokens = HistorySearchToken.tokens(criteria: criteria, groups: [])
+    state.tokens = tokens
+    try await Task.sleep(nanoseconds: 30_000_000)
+
+    state.selectedTokenKind = .date(.today)
+    try await Task.sleep(nanoseconds: 30_000_000)
+    hostingView.layoutSubtreeIfNeeded()
+
+    #expect(state.tokens.count == 2)
+    #expect(state.selectedTokenKind == .date(.today))
+    #expect(hostingView.fittingSize.width > 0)
+}
+
+@MainActor
+private final class HistorySearchTokenRailTestState: ObservableObject {
+    @Published var tokens: [HistorySearchToken] = []
+    @Published var selectedTokenKind: HistorySearchTokenKind?
+}
+
+private struct HistorySearchTokenRailTestView: View {
+    @ObservedObject var state: HistorySearchTokenRailTestState
+
+    var body: some View {
+        HistorySearchTokenRail(
+            tokens: state.tokens,
+            selectedTokenKind: state.selectedTokenKind,
+            isEnabled: false
+        ) { token in
+            Text(token.title).frame(height: 24)
+        }
+    }
 }
 
 private final class HistoryWindowIntegrationKeyboardBackend: HistoryKeyboardEventTapBackend {

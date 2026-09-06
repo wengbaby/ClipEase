@@ -18,28 +18,14 @@ extension HistoryWindowView {
 
                 HStack(alignment: .center, spacing: 6) {
                     if !searchTokens.isEmpty {
-                        ScrollViewReader { scrollProxy in
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(alignment: .center, spacing: 6) {
-                                    ForEach(searchTokens) { token in
-                                        searchTokenView(token)
-                                            .id(token.id)
-                                    }
-                                }
-                                .frame(minHeight: 34, maxHeight: 34, alignment: .leading)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
-                            .background(HorizontalScrollWheelRedirector(
-                                scope: .auxiliaryRail,
-                                isEnabled: inputState.isWindowVisible
-                            ))
-                            .onChange(of: searchTokens) { _ in
-                                scrollToVisibleSearchToken(scrollProxy)
-                            }
-                            .onChange(of: searchUIState.selectedTokenKind) { _ in
-                                scrollToVisibleSearchToken(scrollProxy)
-                            }
+                        HistorySearchTokenRail(
+                            tokens: searchTokens,
+                            selectedTokenKind: searchUIState.selectedTokenKind,
+                            isEnabled: inputState.isWindowVisible
+                        ) { token in
+                            searchTokenView(token)
                         }
+                        .frame(maxWidth: .infinity)
                     }
 
                     SearchTextField(
@@ -157,17 +143,6 @@ extension HistoryWindowView {
         .animation(.easeInOut(duration: 0.22), value: searchUIState.isFieldVisualVisible)
     }
 
-    func scrollToVisibleSearchToken(_ scrollProxy: ScrollViewProxy) {
-        Task { @MainActor in
-            await Task.yield()
-            if let selectedTokenKind = searchUIState.selectedTokenKind {
-                scrollProxy.scrollTo(selectedTokenKind, anchor: .center)
-            } else if let newestToken = searchTokens.last {
-                scrollProxy.scrollTo(newestToken.id, anchor: .trailing)
-            }
-        }
-    }
-
     func searchTokenView(_ token: HistorySearchToken) -> some View {
         let isSelected = searchUIState.selectedTokenKind == token.kind
         let selectedBackground = Color(red: 0.18, green: 0.55, blue: 1.0)
@@ -215,6 +190,61 @@ extension HistoryWindowView {
             } else {
                 searchUIState.selectedTokenKind = token.kind
                 focusSearchField()
+            }
+        }
+    }
+}
+
+struct HistorySearchTokenRail<TokenContent: View>: View {
+    let tokens: [HistorySearchToken]
+    let selectedTokenKind: HistorySearchTokenKind?
+    let isEnabled: Bool
+    let tokenContent: (HistorySearchToken) -> TokenContent
+
+    init(
+        tokens: [HistorySearchToken],
+        selectedTokenKind: HistorySearchTokenKind?,
+        isEnabled: Bool,
+        @ViewBuilder tokenContent: @escaping (HistorySearchToken) -> TokenContent
+    ) {
+        self.tokens = tokens
+        self.selectedTokenKind = selectedTokenKind
+        self.isEnabled = isEnabled
+        self.tokenContent = tokenContent
+    }
+
+    var body: some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .center, spacing: 6) {
+                    ForEach(tokens) { token in
+                        tokenContent(token)
+                            .id(token.id)
+                    }
+                }
+                .frame(minHeight: 34, maxHeight: 34, alignment: .leading)
+            }
+            .frame(minHeight: 34, maxHeight: 34)
+            .background(HorizontalScrollWheelRedirector(
+                scope: .auxiliaryRail,
+                isEnabled: isEnabled
+            ))
+            .onChange(of: tokens) { _ in
+                scrollToVisibleToken(scrollProxy)
+            }
+            .onChange(of: selectedTokenKind) { _ in
+                scrollToVisibleToken(scrollProxy)
+            }
+        }
+    }
+
+    private func scrollToVisibleToken(_ scrollProxy: ScrollViewProxy) {
+        Task { @MainActor in
+            await Task.yield()
+            if let selectedTokenKind {
+                scrollProxy.scrollTo(selectedTokenKind, anchor: .center)
+            } else if let newestToken = tokens.last {
+                scrollProxy.scrollTo(newestToken.id, anchor: .trailing)
             }
         }
     }
