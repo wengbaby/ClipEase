@@ -29,6 +29,7 @@ struct HistoryWindowPreviewItemsState {
     var filteredItems: [HistoryPreviewItem] = []
     var filteredItemIDs: Set<HistoryPreviewItem.ID> = []
     var filteredItemIndexByID: [HistoryPreviewItem.ID: Int] = [:]
+    var filteredSourceItemsByID: [ClipboardItem.ID: ClipboardItem] = [:]
     var isUsingUnfilteredResult = true
     var sourceAppFilterOptions: [HistorySourceAppFilterOption] = []
     var sourceAppIconFileNameByName: [String: String] = [:]
@@ -51,11 +52,14 @@ struct HistoryWindowPreviewItemsState {
             filteredItems.removeAll { $0.id == targetID }
             filteredItemIDs.remove(targetID)
             filteredItemIndexByID.removeAll(keepingCapacity: true)
+            filteredSourceItemsByID.removeValue(forKey: targetID)
         }
     }
 
     mutating func applyFilteredResult(_ result: HistorySearchFilterResult) {
-        guard isUsingUnfilteredResult || filteredItems != result.items else {
+        guard isUsingUnfilteredResult ||
+                filteredItems != result.items ||
+                filteredSourceItemsByID != result.sourceItemsByID else {
             return
         }
 
@@ -63,6 +67,7 @@ struct HistoryWindowPreviewItemsState {
         filteredItems = result.items
         filteredItemIDs = result.itemIDs
         filteredItemIndexByID = result.itemIndexByID
+        filteredSourceItemsByID = result.sourceItemsByID
     }
 
     mutating func applyUnfilteredResult() {
@@ -74,6 +79,26 @@ struct HistoryWindowPreviewItemsState {
         filteredItems.removeAll(keepingCapacity: false)
         filteredItemIDs.removeAll(keepingCapacity: true)
         filteredItemIndexByID.removeAll(keepingCapacity: true)
+        filteredSourceItemsByID.removeAll(keepingCapacity: true)
+    }
+
+    func filteredSourceItem(for id: ClipboardItem.ID?) -> ClipboardItem? {
+        guard let id else {
+            return nil
+        }
+        return filteredSourceItemsByID[id]
+    }
+
+    mutating func removeFilteredItem(with id: ClipboardItem.ID) {
+        guard !isUsingUnfilteredResult else {
+            return
+        }
+        filteredItems.removeAll { $0.id == id }
+        filteredItemIDs.remove(id)
+        filteredSourceItemsByID.removeValue(forKey: id)
+        filteredItemIndexByID = Dictionary(
+            uniqueKeysWithValues: filteredItems.enumerated().map { ($0.element.id, $0.offset) }
+        )
     }
 
     func containsFilteredItem(

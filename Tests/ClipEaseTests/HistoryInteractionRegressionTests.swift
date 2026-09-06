@@ -30,6 +30,17 @@ import Testing
     #expect(SearchTextField.textCommitDelayNanoseconds == 60_000_000)
 }
 
+@Test func searchFieldKeepsSelectedTokensInsideAvailableWidth() {
+    #expect(SearchFieldLayoutPolicy.inputWidth(
+        availableWidth: 320,
+        hasTokens: true
+    ) == 160)
+    #expect(SearchFieldLayoutPolicy.inputWidth(
+        availableWidth: 320,
+        hasTokens: false
+    ) == 317)
+}
+
 @Test func searchHandoffSequenceAllowsFirstCardPreviewWithoutRefocusingSearchField() {
     let transition = HistorySearchFocusTransitionPolicy.transition(
         event: .focusFirstResult,

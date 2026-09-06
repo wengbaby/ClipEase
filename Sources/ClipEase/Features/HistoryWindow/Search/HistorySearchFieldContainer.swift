@@ -11,40 +11,67 @@ extension HistoryWindowView {
                 .opacity(searchUIState.isFieldVisualVisible ? 1 : 0)
 
             GeometryReader { availableSpace in
-                let inputWidth = max(
-                    24,
-                    availableSpace.size.width - 3
+                let inputWidth = SearchFieldLayoutPolicy.inputWidth(
+                    availableWidth: availableSpace.size.width,
+                    hasTokens: !searchTokens.isEmpty
                 )
 
-                ScrollViewReader { scrollProxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .center, spacing: 6) {
-                            ForEach(searchTokens) { token in
-                                searchTokenView(token)
-                                    .id(token.id)
+                HStack(alignment: .center, spacing: 6) {
+                    if !searchTokens.isEmpty {
+                        ScrollViewReader { scrollProxy in
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(alignment: .center, spacing: 6) {
+                                    ForEach(searchTokens) { token in
+                                        searchTokenView(token)
+                                            .id(token.id)
+                                    }
+                                }
+                                .frame(minHeight: 34, maxHeight: 34, alignment: .leading)
                             }
-
-                            searchTextInput(
-                                scrollProxy: scrollProxy,
-                                width: inputWidth
-                            )
+                            .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
+                            .background(HorizontalScrollWheelRedirector(
+                                scope: .auxiliaryRail,
+                                isEnabled: inputState.isWindowVisible
+                            ))
+                            .onChange(of: searchTokens) { _ in
+                                scrollToVisibleSearchToken(scrollProxy)
+                            }
+                            .onChange(of: searchUIState.selectedTokenKind) { _ in
+                                scrollToVisibleSearchToken(scrollProxy)
+                            }
                         }
-                        .id("search-leading-content")
-                        .frame(minWidth: availableSpace.size.width, minHeight: 34, maxHeight: 34, alignment: .leading)
                     }
-                    .frame(height: 34)
-                    .background(HorizontalScrollWheelRedirector(
-                        scope: .auxiliaryRail,
-                        isEnabled: inputState.isWindowVisible
-                    ))
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        searchUIState.selectedTokenKind = nil
-                        focusSearchField()
-                    }
-                    .onChange(of: searchTokens) { _ in
-                        scrollProxy.scrollTo("search-text-field", anchor: .trailing)
-                    }
+
+                    SearchTextField(
+                        text: $searchUIState.text,
+                        isFocused: $isSearchFocused,
+                        isComposing: $isSearchTextComposing,
+                        pendingComposedInputEvent: $pendingComposedSearchInputEvent,
+                        focusRequestID: searchFocusRequestID,
+                        searchHasHandedOffFocusToCard: searchUIState.hasHandedOffFocusToCard,
+                        hasSearchResult: !filteredItems.isEmpty,
+                        hasSearchTokens: !searchTokens.isEmpty,
+                        selectedTokenKind: searchUIState.selectedTokenKind,
+                        textColor: toolbarPrimaryNSColor,
+                        font: searchTypography.nsFont,
+                        onFocusChanged: synchronizeSearchTextFieldFocus,
+                        onEnterFirstResult: enterFirstSearchResultFromSearchField,
+                        onDeleteLastToken: handleSearchTokenBackspace,
+                        onMoveToPreviousToken: { moveSearchTokenSelection(.left) },
+                        onMoveToNextToken: { moveSearchTokenSelection(.right) },
+                        onCancel: handleSearchCancel,
+                        onReachLeadingContent: {},
+                        onReachTrailingContent: {}
+                    )
+                    .font(searchTypography.swiftUIFont)
+                    .frame(width: inputWidth, height: 24, alignment: .center)
+                    .id("search-text-field")
+                }
+                .frame(minWidth: availableSpace.size.width, minHeight: 34, maxHeight: 34, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    searchUIState.selectedTokenKind = nil
+                    focusSearchField()
                 }
             }
             .frame(maxWidth: .infinity)
@@ -130,43 +157,15 @@ extension HistoryWindowView {
         .animation(.easeInOut(duration: 0.22), value: searchUIState.isFieldVisualVisible)
     }
 
-    @ViewBuilder
-    func searchTextInput(
-        scrollProxy: ScrollViewProxy,
-        width: CGFloat
-    ) -> some View {
-        SearchTextField(
-            text: $searchUIState.text,
-            isFocused: $isSearchFocused,
-            isComposing: $isSearchTextComposing,
-            pendingComposedInputEvent: $pendingComposedSearchInputEvent,
-            focusRequestID: searchFocusRequestID,
-            searchHasHandedOffFocusToCard: searchUIState.hasHandedOffFocusToCard,
-            hasSearchResult: !filteredItems.isEmpty,
-            hasSearchTokens: !searchTokens.isEmpty,
-            selectedTokenKind: searchUIState.selectedTokenKind,
-            textColor: toolbarPrimaryNSColor,
-            font: searchTypography.nsFont,
-            onFocusChanged: synchronizeSearchTextFieldFocus,
-            onEnterFirstResult: enterFirstSearchResultFromSearchField,
-            onDeleteLastToken: handleSearchTokenBackspace,
-            onMoveToPreviousToken: { moveSearchTokenSelection(.left) },
-            onMoveToNextToken: { moveSearchTokenSelection(.right) },
-            onCancel: handleSearchCancel,
-            onReachLeadingContent: {
-                withAnimation(.easeOut(duration: 0.12)) {
-                    scrollProxy.scrollTo("search-leading-content", anchor: .leading)
-                }
-            },
-            onReachTrailingContent: {
-                withAnimation(.easeOut(duration: 0.12)) {
-                    scrollProxy.scrollTo("search-text-field", anchor: .trailing)
-                }
+    func scrollToVisibleSearchToken(_ scrollProxy: ScrollViewProxy) {
+        Task { @MainActor in
+            await Task.yield()
+            if let selectedTokenKind = searchUIState.selectedTokenKind {
+                scrollProxy.scrollTo(selectedTokenKind, anchor: .center)
+            } else if let newestToken = searchTokens.last {
+                scrollProxy.scrollTo(newestToken.id, anchor: .trailing)
             }
-        )
-        .font(searchTypography.swiftUIFont)
-        .frame(width: width, height: 24, alignment: .center)
-        .id("search-text-field")
+        }
     }
 
     func searchTokenView(_ token: HistorySearchToken) -> some View {

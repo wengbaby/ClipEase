@@ -26,6 +26,23 @@ import Testing
     #expect(state.filteredItemIndex(for: second.id, unfilteredIndex: { $0 == second.id ? 1 : nil }) == 1)
 }
 
+@Test func previewItemsStateKeepsActionableSourceForFilteredResults() {
+    let item = previewStateItem(id: UUID(), text: "search result", createdAt: 1)
+    var state = HistoryWindowPreviewItemsState()
+
+    state.applyFilteredResult(HistorySearchFilterResult(
+        items: [HistoryPreviewItem(item: item)],
+        sourceItems: [item]
+    ))
+
+    #expect(state.filteredSourceItem(for: item.id) == item)
+    state.removeFilteredItem(with: item.id)
+    #expect(state.filteredItems.isEmpty)
+    #expect(state.filteredItemIndexByID.isEmpty)
+    state.applyUnfilteredResult()
+    #expect(state.filteredSourceItem(for: item.id) == nil)
+}
+
 @Test func previewItemsStateAppliesFullRebuildResult() throws {
     let first = previewStateItem(id: UUID(), text: "first", createdAt: 1)
     let second = previewStateItem(id: UUID(), text: "second", createdAt: 2)
@@ -116,6 +133,7 @@ import Testing
     #expect(state.previewItemCache[groupedItem.id] == nil)
     #expect(state.filteredItems.first(where: { $0.id == groupedItem.id }) == nil)
     #expect(!state.filteredItemIDs.contains(groupedItem.id))
+    #expect(state.filteredSourceItem(for: groupedItem.id) == nil)
 }
 
 private func previewStateItem(id: UUID, text: String, createdAt: TimeInterval) -> ClipboardItem {

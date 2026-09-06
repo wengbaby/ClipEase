@@ -36,6 +36,12 @@ final class HistorySearchCoordinator: ObservableObject {
         loadMoreTask = nil
     }
 
+    func cancelPendingLoadMore() {
+        generation &+= 1
+        loadMoreTask?.cancel()
+        loadMoreTask = nil
+    }
+
     func prepareSearch(
         sourceItems: [HistoryPreviewItem],
         selectedGroup: HistoryGroupSelection,
@@ -82,7 +88,7 @@ final class HistorySearchCoordinator: ObservableObject {
             isSearchActive: isSearchActive,
             trigger: trigger,
             usesUnfilteredSource: usesUnfilteredSource,
-            maxResultCount: usesUnfilteredSource ? nil : (targetResultCount ?? pageSize),
+            maxResultCount: usesUnfilteredSource ? nil : pageSize,
             pageSize: pageSize,
             targetResultCount: targetResultCount
         )
@@ -213,6 +219,7 @@ final class HistorySearchCoordinator: ObservableObject {
 
         return HistorySearchFilterResult(
             items: filteredItems,
+            sourceItems: repositoryItems,
             repositoryResultCount: repositoryResultCount,
             canLoadMore: canLoadMore
         )
@@ -223,6 +230,7 @@ final class HistorySearchCoordinator: ObservableObject {
         visibleUpperBound: Int,
         preloadMargin: Int,
         existingItems: [HistoryPreviewItem],
+        existingSourceItems: [ClipboardItem] = [],
         selectedGroup: HistoryGroupSelection,
         isSearchVisible: Bool,
         searchText: String,
@@ -295,6 +303,7 @@ final class HistorySearchCoordinator: ObservableObject {
                 )
                 let result = HistorySearchFilterResult(
                     items: mergedItems,
+                    sourceItems: existingSourceItems + repositoryItems,
                     repositoryResultCount: offset + repositoryItems.count,
                     canLoadMore: repositoryItems.count == pageSize
                 )

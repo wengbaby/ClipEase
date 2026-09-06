@@ -3,7 +3,7 @@ import AppKit
 
 extension HistoryWindowView {
     func copyItem(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
+        guard let item = actionableItem(with: id) else {
             return
         }
 
@@ -22,7 +22,7 @@ extension HistoryWindowView {
     }
 
     func copyPlainTextItem(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
+        guard let item = actionableItem(with: id) else {
             return
         }
 
@@ -37,7 +37,7 @@ extension HistoryWindowView {
     }
 
     func pastePlainTextItem(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
+        guard let item = actionableItem(with: id) else {
             return
         }
         accessibilityPermissionState.refresh()
@@ -58,7 +58,7 @@ extension HistoryWindowView {
     }
 
     func copyMarkdownLink(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.type == .link else {
             return
         }
@@ -77,7 +77,7 @@ extension HistoryWindowView {
     }
 
     func copyLinkURL(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.type == .link else {
             return
         }
@@ -92,7 +92,7 @@ extension HistoryWindowView {
     }
 
     func openLink(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.type == .link,
               let url = item.url else {
             showStatus(L("无法打开链接"))
@@ -105,7 +105,7 @@ extension HistoryWindowView {
     }
 
     func copyColorHex(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.type == .color else {
             return
         }
@@ -120,7 +120,7 @@ extension HistoryWindowView {
     }
 
     func copyColorRGB(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.type == .color,
               let rgb = rgbString(from: item.text) else {
             showStatus(L("无法转换 RGB"))
@@ -139,7 +139,7 @@ extension HistoryWindowView {
     func pasteItem(_ id: ClipboardItem.ID?) {
         let startedAt = CFAbsoluteTimeGetCurrent()
         guard containsFilteredItem(id),
-              let item = store.item(with: id) else {
+              let item = actionableItem(with: id) else {
             if searchUIState.isVisible {
                 showStatus(L("没有可粘贴的搜索结果"))
             }
@@ -180,7 +180,7 @@ extension HistoryWindowView {
 
     func showPreview(_ id: ClipboardItem.ID?) {
         let startedAt = CFAbsoluteTimeGetCurrent()
-        guard let item = store.item(with: id) else {
+        guard let item = displayedSourceItem(with: id) else {
             return
         }
 
@@ -203,7 +203,7 @@ extension HistoryWindowView {
     }
 
     func isEditable(_ item: HistoryPreviewItem) -> Bool {
-        guard let sourceItem = store.item(with: item.id) else {
+        guard let sourceItem = displayedSourceItem(with: item.id) else {
             return false
         }
 
@@ -232,7 +232,7 @@ extension HistoryWindowView {
     }
 
     func beginEditItem(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = actionableItem(with: id),
               isEditable(item) else {
             showStatus(L("此内容暂不支持编辑"))
             return
@@ -256,13 +256,16 @@ extension HistoryWindowView {
         guard !inputState.isAnyTextInputActiveSnapshot,
               canPerformDeleteCommand,
               let id,
-              store.item(with: id) != nil else {
+              let item = displayedSourceItem(with: id) else {
             return
         }
 
         let nextID = nextSelectionID(afterDeleting: id)
-        suppressNextListMembershipReset = true
-        store.deleteItem(with: id)
+        if store.item(with: id) != nil {
+            suppressNextListMembershipReset = true
+        }
+        store.deletePersistedSearchItem(item)
+        removeFilteredPreviewItem(with: id)
         selectedItemID = nextID
         if previewState.itemID == id {
             closePreview()
@@ -275,6 +278,9 @@ extension HistoryWindowView {
     }
 
     func removeItemFromGroup(_ id: ClipboardItem.ID?) {
+        guard actionableItem(with: id) != nil else {
+            return
+        }
         let adjacentSelectionID: ClipboardItem.ID?
         if case .group = groupUIState.selectedGroup,
            let id,
@@ -303,7 +309,7 @@ extension HistoryWindowView {
     }
 
     func togglePinned(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
+        guard let item = actionableItem(with: id) else {
             return
         }
 
@@ -317,7 +323,7 @@ extension HistoryWindowView {
     }
 
     func toggleSourceAppIgnored(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.sourceBundleID != nil else {
             showStatus(L("无法识别来源 App"))
             return
@@ -339,7 +345,7 @@ extension HistoryWindowView {
     }
 
     func copySourceAppName(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id) else {
+        guard let item = displayedSourceItem(with: id) else {
             return
         }
 
@@ -352,7 +358,7 @@ extension HistoryWindowView {
     }
 
     func copySourceBundleID(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               let bundleID = item.sourceBundleID else {
             showStatus(L("无来源 Bundle ID"))
             return
@@ -367,7 +373,7 @@ extension HistoryWindowView {
     }
 
     func revealImageInFinder(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               let imageURL = store.imageFileURL(for: item) else {
             showStatus(L("未找到图片文件"))
             return
@@ -379,7 +385,7 @@ extension HistoryWindowView {
     }
 
     func openImage(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               let imageURL = store.imageFileURL(for: item) else {
             showStatus(L("未找到图片文件"))
             return
@@ -391,7 +397,7 @@ extension HistoryWindowView {
     }
 
     func copyImage(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               let imageURL = store.imageFileURL(for: item),
               let image = NSImage(contentsOf: imageURL) else {
             showStatus(L("未找到图片文件"))
@@ -411,7 +417,7 @@ extension HistoryWindowView {
     }
 
     func copyImagePath(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               let imageURL = store.imageFileURL(for: item) else {
             showStatus(L("未找到图片文件"))
             return
@@ -428,7 +434,7 @@ extension HistoryWindowView {
     }
 
     func copyFilePaths(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.type == .file else {
             showStatus(L("未找到文件"))
             return
@@ -454,7 +460,7 @@ extension HistoryWindowView {
     }
 
     func copyFile(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.type == .file else {
             showStatus(L("未找到文件"))
             return
@@ -476,7 +482,7 @@ extension HistoryWindowView {
     }
 
     func openFile(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.type == .file else {
             showStatus(L("未找到文件"))
             return
@@ -494,7 +500,7 @@ extension HistoryWindowView {
     }
 
     func revealFilesInFinder(_ id: ClipboardItem.ID?) {
-        guard let item = store.item(with: id),
+        guard let item = displayedSourceItem(with: id),
               item.type == .file else {
             showStatus(L("未找到文件"))
             return

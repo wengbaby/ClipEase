@@ -38,7 +38,6 @@ struct HistoryWindowView: View {
     @State private var isSearchTextDrivenUpdate = false
     @State private var didResetSearchViewportForCurrentPresentation = false
     @State var appliedSearchQuery = ""
-    @State var searchLeadingContentWidth: CGFloat = 0
     @State var searchFocusRequestID = 0
     @State var pendingComposedSearchInputEvent: HistoryKeyboardPendingTextInputEvent?
     @State private var previewItemsState = HistoryWindowPreviewItemsState()
@@ -225,6 +224,30 @@ struct HistoryWindowView: View {
         previewItemsState.applyFilteredResult(result)
     }
 
+    func displayedSourceItem(with id: ClipboardItem.ID?) -> ClipboardItem? {
+        store.item(with: id) ?? previewItemsState.filteredSourceItem(for: id)
+    }
+
+    func actionableItem(with id: ClipboardItem.ID?) -> ClipboardItem? {
+        if let item = store.item(with: id) {
+            return item
+        }
+        guard let item = previewItemsState.filteredSourceItem(for: id) else {
+            return nil
+        }
+        suppressNextListMembershipReset = true
+        guard store.cachePersistedSearchItem(item) else {
+            suppressNextListMembershipReset = false
+            return nil
+        }
+        return store.item(with: item.id)
+    }
+
+    func removeFilteredPreviewItem(with id: ClipboardItem.ID) {
+        searchCoordinator.cancelPendingLoadMore()
+        previewItemsState.removeFilteredItem(with: id)
+    }
+
     private func applyUnfilteredPreviewResult() {
         previewItemsState.applyUnfilteredResult()
     }
@@ -389,7 +412,7 @@ struct HistoryWindowView: View {
         guard !isTextInputActiveForEditShortcut,
               let selectedItemID,
               containsFilteredItem(selectedItemID),
-              let item = store.item(with: selectedItemID) else {
+              let item = displayedSourceItem(with: selectedItemID) else {
             return false
         }
 
@@ -1377,8 +1400,8 @@ struct HistoryWindowView: View {
             item: item,
             isEditable: isEditable(item),
             hasMoveToGroupSnapshot: !groupUIState.moveToGroupMenuSnapshot.isEmpty,
-            sourceItem: store.item(with: item.id),
-            sourceAppIgnoreTitle: store.item(with: item.id).map { sourceAppIgnoreMenuTitle(for: $0) } ?? "",
+            sourceItem: displayedSourceItem(with: item.id),
+            sourceAppIgnoreTitle: displayedSourceItem(with: item.id).map { sourceAppIgnoreMenuTitle(for: $0) } ?? "",
             onPaste: { pasteItem(item.id) },
             onPastePlainText: { pastePlainTextItem(item.id) },
             onPreview: { showPreview(item.id) },
@@ -2158,6 +2181,9 @@ struct HistoryWindowView: View {
     }
 
     private func addItem(_ id: ClipboardItem.ID?, toGroup groupID: ClipboardGroup.ID, named groupName: String? = nil) {
+        guard actionableItem(with: id) != nil else {
+            return
+        }
         store.addItem(id, toGroup: groupID)
         if let groupName {
             showStatus(L("已移动到“\(groupName)”"))
@@ -3562,6 +3588,7 @@ struct HistoryWindowView: View {
             visibleUpperBound: visibleUpperBound,
             preloadMargin: preloadMargin,
             existingItems: previewItemsState.filteredItems,
+            existingSourceItems: Array(previewItemsState.filteredSourceItemsByID.values),
             selectedGroup: groupUIState.selectedGroup,
             isSearchVisible: searchUIState.isVisible,
             searchText: searchUIState.text,

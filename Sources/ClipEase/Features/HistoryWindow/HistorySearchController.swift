@@ -295,13 +295,26 @@ struct HistorySearchRequestSignature: Equatable {
 
 struct HistorySearchFilterResult: Sendable {
     let items: [HistoryPreviewItem]
+    let sourceItemsByID: [ClipboardItem.ID: ClipboardItem]
     let repositoryResultCount: Int
     let canLoadMore: Bool
     let itemIDs: Set<HistoryPreviewItem.ID>
     let itemIndexByID: [HistoryPreviewItem.ID: Int]
 
-    init(items: [HistoryPreviewItem], repositoryResultCount: Int? = nil, canLoadMore: Bool = false) {
+    init(
+        items: [HistoryPreviewItem],
+        sourceItems: [ClipboardItem] = [],
+        repositoryResultCount: Int? = nil,
+        canLoadMore: Bool = false
+    ) {
         self.items = items
+        let itemIDs = Set(items.map(\.id))
+        var sourceItemsByID: [ClipboardItem.ID: ClipboardItem] = [:]
+        sourceItemsByID.reserveCapacity(min(items.count, sourceItems.count))
+        for sourceItem in sourceItems where itemIDs.contains(sourceItem.id) {
+            sourceItemsByID[sourceItem.id] = sourceItem
+        }
+        self.sourceItemsByID = sourceItemsByID
         self.repositoryResultCount = repositoryResultCount ?? items.count
         self.canLoadMore = canLoadMore
         self.itemIDs = Set(items.map(\.id))
@@ -311,6 +324,13 @@ struct HistorySearchFilterResult: Sendable {
             itemIndexByID[item.id] = index
         }
         self.itemIndexByID = itemIndexByID
+    }
+
+    func sourceItem(with id: ClipboardItem.ID?) -> ClipboardItem? {
+        guard let id else {
+            return nil
+        }
+        return sourceItemsByID[id]
     }
 }
 

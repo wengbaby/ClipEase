@@ -4,6 +4,28 @@ import Testing
 @testable import ClipEase
 
 @Test @MainActor
+func historyStoreCachesPersistedSearchItemForCommands() {
+    let repository = StoreNarrowMutationRecordingRepository(
+        snapshot: ClipboardHistorySnapshot(items: [], groups: [])
+    )
+    let defaults = makeStoreNarrowMutationDefaults()
+    defer { defaults.removePersistentDomain(forName: defaultsSuiteName(defaults)) }
+    let store = ClipboardHistoryStore(
+        persistence: ClipboardHistoryPersistence(repository: repository),
+        userDefaults: defaults,
+        externalCopyFeedback: { _ in }
+    )
+    let searchItem = ClipboardItem.text("older search result", sourceApp: .clipease)
+
+    #expect(store.item(with: searchItem.id) == nil)
+    #expect(store.cachePersistedSearchItem(searchItem))
+    #expect(store.item(with: searchItem.id) == searchItem)
+    #expect(!store.cachePersistedSearchItem(searchItem))
+    store.deletePersistedSearchItem(searchItem)
+    #expect(store.item(with: searchItem.id) == nil)
+}
+
+@Test @MainActor
 func historyStoreGroupMutationKeepsItemOrder() {
     let group = ClipboardGroup.makeDefault(name: "Work", sortOrder: 0)
     var first = ClipboardItem.text("first", sourceApp: .clipease)

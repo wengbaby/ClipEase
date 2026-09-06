@@ -767,6 +767,13 @@ final class ClipboardHistoryStore: ObservableObject {
     }
 
     @discardableResult
+    func cachePersistedSearchItem(_ item: ClipboardItem) -> Bool {
+        let previousCount = items.count
+        appendLoadedItems([item])
+        return items.count > previousCount
+    }
+
+    @discardableResult
     func loadMoreItemsIfNeeded(
         visibleUpperBound: Int,
         preloadMargin: Int = 160
@@ -932,6 +939,20 @@ final class ClipboardHistoryStore: ObservableObject {
         cancelLinkMetadataTasks(for: deletedItems)
         removeRecentHashes(for: deletedItems)
         persistIncrementalDelete(itemIDs: [id], attachmentCleanup: attachmentCleanup)
+    }
+
+    func deletePersistedSearchItem(_ item: ClipboardItem) {
+        if itemIndex(for: item.id) != nil {
+            deleteItem(with: item.id)
+            return
+        }
+
+        cancelOCRTasks(for: [item])
+        cancelLinkMetadataTasks(for: [item])
+        persistIncrementalDelete(
+            itemIDs: [item.id],
+            attachmentCleanup: ClipboardAttachmentCleanup(items: [item])
+        )
     }
 
     func clearAllItems() {

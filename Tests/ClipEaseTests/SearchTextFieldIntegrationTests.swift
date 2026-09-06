@@ -17,7 +17,9 @@ import Testing
     field.stringValue = "窗口"
 
     coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    try await Task.sleep(nanoseconds: SearchTextField.textCommitDelayNanoseconds + 20_000_000)
+    for _ in 0..<200 where state.text != "窗口" {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
     #expect(state.text == "窗口")
 
     let editor = NSTextView()

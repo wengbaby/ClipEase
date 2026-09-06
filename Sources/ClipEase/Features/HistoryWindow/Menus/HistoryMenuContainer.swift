@@ -34,7 +34,7 @@ extension HistoryWindowView {
 
         HistoryMenuBuilder.addMenuItem(L("删除"), to: menu) { deleteItem(item.id) }
 
-        if let sourceItem = store.item(with: item.id),
+        if let sourceItem = displayedSourceItem(with: item.id),
            sourceItem.sourceBundleID != nil {
             menu.addItem(.separator())
             if !sourceItem.isFromClipEase {
